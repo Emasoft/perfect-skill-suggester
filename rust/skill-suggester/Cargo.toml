@@ -1,0 +1,36 @@
+[package]
+name = "perfect-skill-suggester"
+version = "1.0.0"
+edition = "2021"
+authors = ["Emasoft <713559+Emasoft@users.noreply.github.com>"]
+description = "High-accuracy skill suggester for Claude Code with weighted scoring, synonym expansion, and confidence routing"
+license = "MIT"
+repository = "https://github.com/Emasoft/perfect-skill-suggester"
+keywords = ["claude-code", "skills", "activation", "hooks"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+colored = "3.0"
+dirs = "6.0"
+regex = "1.10"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+lazy_static = "1.4"
+
+[[bin]]
+name = "pss"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true

@@ -1,0 +1,24 @@
+{
+  "name": "emasoft-plugins",
+  "version": "1.0.0",
+  "description": "Emasoft's Claude Code plugins collection",
+  "plugins": {
+    "perfect-skill-suggester": {
+      "name": "Perfect Skill Suggester",
+      "version": "1.0.0",
+      "description": "High-accuracy skill activation (88%+) with AI-analyzed keywords, weighted scoring, synonym expansion (70+ patterns), and three-tier confidence routing. Combines best features from claude-rio, catalyst, LimorAI, and reliable skill activators.",
+      "source": "https://github.com/Emasoft/perfect-skill-suggester",
+      "license": "MIT",
+      "keywords": ["skills", "activation", "rust", "ai", "claude-code", "hooks"],
+      "features": [
+        "AI-analyzed keywords via Haiku agents",
+        "Rust binary for ~10ms hook execution",
+        "70+ synonym expansion patterns",
+        "Weighted scoring (directory: +5, path: +4, intent: +4, pattern: +3, keyword: +2)",
+        "Three-tier confidence routing (HIGH/MEDIUM/LOW)",
+        "Commitment mechanism for skill evaluation",
+        "Skills-first ordering in output"
+      ]
+    }
+  }
+}

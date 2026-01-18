@@ -1,0 +1,17 @@
+{
+  "description": "Perfect Skill Suggester - AI-powered skill activation with 88%+ accuracy",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/rust/skill-suggester/hook.sh",
+            "timeout": 5000,
+            "statusMessage": "🎯 Analyzing skill triggers..."
+          }
+        ]
+      }
+    ]
+  }
+}
