@@ -4,17 +4,40 @@
 
 ## Features
 
-PSS combines the best features from 4 skill activators:
+### AI-Analyzed Keywords
+Haiku subagents analyze each SKILL.md to extract optimal activation patterns. Instead of relying on manually defined keywords, the AI reads the skill content and determines what user prompts should trigger it.
 
-| Source | Feature | Description |
-|--------|---------|-------------|
-| **claude-rio** | AI-analyzed keywords | Haiku subagents analyze each SKILL.md to generate optimal activation patterns |
-| **catalyst** | Rust binary (~10ms) | Native binary for minimal hook latency |
-| **LimorAI** | 70+ synonym patterns | Expand user prompts for better matching |
-| **LimorAI** | Skills-first ordering | Skills appear before other context in output |
-| **reliable** | Weighted scoring | Directory (+5), path (+4), intent (+4), pattern (+3), keyword (+2) |
-| **reliable** | Three-tier confidence | HIGH (auto-suggest), MEDIUM (show evidence), LOW (alternatives) |
-| **reliable** | Commitment mechanism | HIGH confidence includes evaluation reminder |
+### Native Rust Binary (~10ms)
+A pre-compiled Rust binary handles all matching logic, keeping hook latency minimal. No Python interpreter startup, no JIT compilation - just fast native code.
+
+### Synonym Expansion (70+ patterns)
+User prompts are expanded with synonyms before matching. For example:
+- `"pr"` → `"github pull request"`
+- `"403"` → `"oauth2 authentication"`
+- `"db"` → `"database"`
+- `"ci"` → `"cicd deployment automation"`
+
+### Weighted Scoring System
+Different match types contribute different point values:
+- **Directory match**: +5 points (skill is in a directory mentioned in prompt)
+- **Path match**: +4 points (file paths in prompt match skill patterns)
+- **Intent match**: +4 points (action verbs like "deploy", "test", "build")
+- **Pattern match**: +3 points (regex patterns in skill config)
+- **Keyword match**: +2 points (simple keyword matches)
+- **First match bonus**: +10 points (first keyword hit gets extra weight)
+- **Original bonus**: +3 points (keyword in original prompt, not from expansion)
+
+### Three-Tier Confidence Routing
+Match scores determine how suggestions are presented:
+- **HIGH (≥12)**: Auto-suggest with commitment reminder
+- **MEDIUM (6-11)**: Show with match evidence explaining why
+- **LOW (<6)**: Include as alternatives for user consideration
+
+### Commitment Mechanism
+For HIGH confidence matches, output includes an evaluation reminder prompting Claude to pause and assess whether the skill truly fits the user's needs before blindly following instructions.
+
+### Skills-First Ordering
+In the hook output, matched skills appear before other context types, ensuring Claude sees relevant skills prominently.
 
 ## Installation
 
@@ -240,19 +263,6 @@ cargo build --release --target x86_64-pc-windows-gnu
 | Binary size | ~1MB |
 | Memory usage | ~2-3MB |
 | Accuracy | 88%+ |
-
-## Comparison to Other Approaches
-
-| Aspect | Heuristic | Rio v2.0 | PSS |
-|--------|-----------|----------|-----|
-| Accuracy | ~70% | ~80% | **88%+** |
-| Multi-word phrases | No | Yes | Yes |
-| Weighted scoring | No | No | **Yes** |
-| Synonym expansion | No | No | **Yes (70+)** |
-| Confidence routing | No | No | **Yes (3-tier)** |
-| Commitment mechanism | No | No | **Yes** |
-| AI-analyzed keywords | No | Yes | **Yes** |
-| Native binary | No | No | **Yes (Rust)** |
 
 ## License
 
