@@ -1,5 +1,8 @@
 # Perfect Skill Suggester (PSS)
 
+> **Installation:** This plugin is distributed via the [Emasoft Plugins Marketplace](https://github.com/Emasoft/emasoft-plugins).
+> See [Installation](#installation) below for instructions.
+
 **High-accuracy skill activation (88%+) for Claude Code** with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing.
 
 ## Features
@@ -66,16 +69,27 @@ Each skill can have a `.pss` file for custom matching rules:
 
 ## Installation
 
-### Option 1: Load with --plugin-dir (Recommended for testing)
+### Install from Emasoft Marketplace (Recommended)
+
+```bash
+# Step 1: Add the Emasoft marketplace
+claude plugin marketplace add https://github.com/Emasoft/emasoft-plugins
+
+# Step 2: Install this plugin
+claude plugin install perfect-skill-suggester@emasoft-plugins
+
+# Step 3: Verify installation
+claude plugin list
+
+# Step 4: Restart Claude Code
+```
+
+For detailed installation instructions, troubleshooting, and updates, see the **[Emasoft Plugins Marketplace README](https://github.com/Emasoft/emasoft-plugins#readme)**.
+
+### Local Development (for contributors)
 
 ```bash
 claude --plugin-dir /path/to/perfect-skill-suggester
-```
-
-### Option 2: Install from marketplace
-
-```bash
-claude plugin install perfect-skill-suggester@emasoft-plugins
 ```
 
 ## Quick Start
