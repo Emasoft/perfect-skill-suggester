@@ -1,12 +1,11 @@
 {
   "name": "perfect-skill-suggester",
-  "version": "1.0.0",
-  "description": "High-accuracy skill activation (88%+) with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing. Combines best features from claude-rio, catalyst, LimorAI, and reliable skill activators.",
+  "version": "1.1.1",
+  "description": "High-accuracy skill activation (88%+) with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing.",
   "author": {
     "name": "Emasoft",
     "email": "713559+Emasoft@users.noreply.github.com"
   },
   "repository": "https://github.com/Emasoft/perfect-skill-suggester",
-  "keywords": ["skills", "activation", "rust", "ai", "claude-code", "hooks"],
   "license": "MIT"
 }
