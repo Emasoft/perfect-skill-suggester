@@ -40,6 +40,9 @@ import yaml
 # Import skill validator
 from pss_validate_skill import validate_skill as validate_skill_dir
 
+# Import hook validator
+from pss_validate_hook import validate_hooks as validate_hook_file
+
 # Validation result levels
 Level = Literal["CRITICAL", "MAJOR", "MINOR", "INFO", "PASSED"]
 
@@ -258,8 +261,13 @@ def validate_manifest(
 
     # Validate component path fields start with ./
     path_fields = [
-        "commands", "agents", "skills", "hooks",
-        "mcpServers", "outputStyles", "lspServers",
+        "commands",
+        "agents",
+        "skills",
+        "hooks",
+        "mcpServers",
+        "outputStyles",
+        "lspServers",
     ]
     for key in path_fields:
         if key in manifest:
@@ -492,7 +500,16 @@ def validate_command_file(cmd_path: Path, report: ValidationReport) -> None:
 
 
 def validate_hooks(plugin_root: Path, report: ValidationReport) -> None:
-    """Validate hook configuration."""
+    """Validate hook configuration using comprehensive hook validator.
+
+    Uses pss_validate_hook.py for thorough validation including:
+    - JSON structure validation
+    - Hook event name validation
+    - Matcher pattern validation (regex)
+    - Hook type validation (command/prompt)
+    - Script existence and executable checks
+    - Script linting (shellcheck, ruff, mypy, eslint)
+    """
     hooks_dir = plugin_root / "hooks"
 
     if not hooks_dir.is_dir():
@@ -504,73 +521,24 @@ def validate_hooks(plugin_root: Path, report: ValidationReport) -> None:
         report.info("No hooks.json found")
         return
 
-    try:
-        hooks_config = json.loads(hooks_json.read_text())
-    except json.JSONDecodeError as e:
-        report.critical(f"Invalid JSON in hooks.json: {e}", "hooks/hooks.json")
-        return
+    # Use comprehensive hook validator
+    hook_report = validate_hook_file(hooks_json, plugin_root)
 
-    report.passed("hooks.json is valid JSON", "hooks/hooks.json")
+    # Transfer all results to main report with "hooks/" prefix
+    for result in hook_report.results:
+        # Prefix file paths appropriately
+        if result.file:
+            # If file path is already absolute or starts with plugin root, make relative
+            file_path = result.file
+            if file_path.startswith(str(plugin_root)):
+                file_path = file_path[len(str(plugin_root)) + 1 :]
+            # Ensure hooks/ prefix
+            if not file_path.startswith("hooks/"):
+                file_path = f"hooks/{file_path}"
+        else:
+            file_path = "hooks/hooks.json"
 
-    if "hooks" not in hooks_config:
-        report.major("Missing 'hooks' key in hooks.json", "hooks/hooks.json")
-        return
-
-    # All valid hook events per official Anthropic documentation
-    valid_events = [
-        "PreToolUse",
-        "PostToolUse",
-        "PostToolUseFailure",
-        "PermissionRequest",
-        "UserPromptSubmit",
-        "Notification",
-        "Stop",
-        "SubagentStart",  # Added per official docs
-        "SubagentStop",
-        "Setup",  # Added per official docs (for --init, --init-only, --maintenance)
-        "SessionStart",
-        "SessionEnd",
-        "PreCompact",
-    ]
-
-    for event, handlers in hooks_config["hooks"].items():
-        if event not in valid_events:
-            report.major(f"Invalid hook event: {event}", "hooks/hooks.json")
-
-        # Validate script references
-        if isinstance(handlers, list):
-            for handler in handlers:
-                validate_hook_handler(handler, plugin_root, report)
-
-
-def validate_hook_handler(
-    handler: dict[str, Any], plugin_root: Path, report: ValidationReport
-) -> None:
-    """Validate a hook handler and its script references."""
-    if "hooks" not in handler:
-        return
-
-    for hook in handler["hooks"]:
-        if hook.get("type") != "command":
-            continue
-
-        cmd = hook.get("command", "")
-        if "${CLAUDE_PLUGIN_ROOT}" in cmd:
-            # Extract script path, handling interpreter prefixes like "python3"
-            script = cmd.replace("${CLAUDE_PLUGIN_ROOT}/", "")
-            # If command has interpreter prefix, extract the script path
-            parts = script.split()
-            if len(parts) > 1 and parts[0] in ("python", "python3", "bash", "sh"):
-                script = parts[-1]  # Get the actual script path
-            script_path = plugin_root / script
-            if not script_path.exists():
-                report.critical(f"Hook script not found: {script}", "hooks/hooks.json")
-            elif not os.access(script_path, os.X_OK):
-                report.major(
-                    f"Hook script not executable: {script}", "hooks/hooks.json"
-                )
-            else:
-                report.passed(f"Hook script valid: {script}", "hooks/hooks.json")
+        report.add(result.level, result.message, file_path, result.line)
 
 
 def validate_scripts(plugin_root: Path, report: ValidationReport) -> None:
