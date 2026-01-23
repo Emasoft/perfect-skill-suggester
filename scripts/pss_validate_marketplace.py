@@ -124,9 +124,6 @@ class ValidationReport:
                 print(f"  {p}")
 
         # Summary
-        total_issues = (
-            len(self.critical_issues) + len(self.major_issues) + len(self.minor_issues)
-        )
         print("\n" + "-" * 60)
         print(
             f"Summary: {len(self.critical_issues)} critical, "
