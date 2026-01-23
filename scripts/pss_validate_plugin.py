@@ -37,6 +37,9 @@ from typing import Any, Literal
 
 import yaml
 
+# Import skill validator
+from pss_validate_skill import validate_skill as validate_skill_dir
+
 # Validation result levels
 Level = Literal["CRITICAL", "MAJOR", "MINOR", "INFO", "PASSED"]
 
@@ -678,6 +681,38 @@ def validate_binaries(plugin_root: Path, report: ValidationReport) -> None:
         report.info("No pre-compiled binaries found (runtime will use fallback)")
 
 
+def validate_skills(plugin_root: Path, report: ValidationReport) -> None:
+    """Validate all skills in the plugin's skills/ directory.
+
+    Uses the standalone skill validator (pss_validate_skill.py) for each skill.
+    """
+    skills_dir = plugin_root / "skills"
+
+    if not skills_dir.is_dir():
+        report.info("No skills/ directory found")
+        return
+
+    # Find all skill directories (each should have SKILL.md)
+    skill_dirs = [d for d in skills_dir.iterdir() if d.is_dir()]
+
+    if not skill_dirs:
+        report.info("No skill directories found in skills/")
+        return
+
+    report.info(f"Found {len(skill_dirs)} skill(s) to validate")
+
+    # Validate each skill
+    for skill_dir in sorted(skill_dirs):
+        skill_name = skill_dir.name
+        skill_report = validate_skill_dir(skill_dir)
+
+        # Transfer results to main report with skill context
+        for result in skill_report.results:
+            # Prefix file paths with skill name
+            file_path = f"skills/{skill_name}/{result.file}" if result.file else None
+            report.add(result.level, result.message, file_path, result.line)
+
+
 def validate_docs(plugin_root: Path, report: ValidationReport) -> None:
     """Validate documentation files."""
     docs_dir = plugin_root / "docs"
@@ -845,6 +880,7 @@ def main() -> int:
     validate_hooks(plugin_root, report)
     validate_scripts(plugin_root, report)
     validate_binaries(plugin_root, report)
+    validate_skills(plugin_root, report)
     validate_docs(plugin_root, report)
     validate_readme(plugin_root, report)
     validate_license(plugin_root, report)

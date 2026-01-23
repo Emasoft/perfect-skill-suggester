@@ -481,8 +481,9 @@ def validate_marketplace(
             if "pluginRoot" in metadata:
                 root = metadata["pluginRoot"]
                 if not isinstance(root, str):
+                    typename = type(root).__name__
                     report.minor(
-                        f"metadata.pluginRoot must be string, got {type(root).__name__}",
+                        f"metadata.pluginRoot must be string, got {typename}",
                         ".claude-plugin/marketplace.json",
                     )
                 elif ".." in root:
