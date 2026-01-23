@@ -4,6 +4,12 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 ## [Unreleased]
 
+### Miscellaneous Tasks
+
+- Add requirements.txt and script improvements
+
+## [1.1.0] - 2026-01-23
+
 ### Bug Fixes
 
 - Simplify plugin.json to fix uninstall issue

@@ -86,9 +86,8 @@ def check_python_version() -> bool:
     if version.major >= 3 and version.minor >= 8:
         print_ok(f"Python {version.major}.{version.minor}.{version.micro}")
         return True
-    else:
-        print_fail(f"Python {version.major}.{version.minor} (need 3.8+)")
-        return False
+    print_fail(f"Python {version.major}.{version.minor} (need 3.8+)")
+    return False
 
 
 def check_rust_installed() -> bool:
@@ -170,9 +169,8 @@ def check_hooks_configured() -> bool:
         if "UserPromptSubmit" in hooks:
             print_ok("Hooks configured (UserPromptSubmit)")
             return True
-        else:
-            print_warn("UserPromptSubmit hook not configured")
-            return False
+        print_warn("UserPromptSubmit hook not configured")
+        return False
     except (json.JSONDecodeError, OSError) as e:
         print_fail(f"hooks.json invalid: {e}")
         return False
@@ -236,9 +234,8 @@ def build_binary() -> bool:
             dest.chmod(0o755)
         print_ok(f"Binary installed: {binary_name}")
         return True
-    else:
-        print_fail(f"Built binary not found: {source}")
-        return False
+    print_fail(f"Built binary not found: {source}")
+    return False
 
 
 def make_scripts_executable():
@@ -294,10 +291,9 @@ def verify_installation() -> bool:
     if passed == total:
         print(f"\n  All {total} checks passed!")
         return True
-    else:
-        print(f"\n  {passed}/{total} checks passed")
-        print("  Run 'python scripts/pss_setup.py' to fix issues")
-        return False
+    print(f"\n  {passed}/{total} checks passed")
+    print("  Run 'python scripts/pss_setup.py' to fix issues")
+    return False
 
 
 def full_setup() -> bool:

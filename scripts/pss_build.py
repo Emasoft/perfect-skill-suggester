@@ -16,7 +16,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 # Supported targets for cross-compilation
 TARGETS = {
     "darwin-arm64": "aarch64-apple-darwin",
@@ -111,7 +110,7 @@ def build_native(release: bool = True) -> bool:
     print(f"  Directory: {rust_dir}")
     print(f"  Command: {' '.join(cmd)}")
 
-    result = subprocess.run(cmd, cwd=rust_dir)
+    result = subprocess.run(cmd, cwd=rust_dir, timeout=300)
 
     if result.returncode != 0:
         print("Error: Build failed", file=sys.stderr)
@@ -135,9 +134,8 @@ def build_native(release: bool = True) -> bool:
             dest.chmod(0o755)
         print(f"Binary installed: {dest}")
         return True
-    else:
-        print(f"Error: Built binary not found at {source}", file=sys.stderr)
-        return False
+    print(f"Error: Built binary not found at {source}", file=sys.stderr)
+    return False
 
 
 def build_cross(target_key: str, release: bool = True) -> bool:
@@ -157,7 +155,7 @@ def build_cross(target_key: str, release: bool = True) -> bool:
         cmd.append("--release")
 
     print(f"Cross-compiling for {target_key} ({rust_target})...")
-    result = subprocess.run(cmd, cwd=rust_dir)
+    result = subprocess.run(cmd, cwd=rust_dir, timeout=600)
 
     if result.returncode != 0:
         print(f"Error: Cross-compilation failed for {target_key}", file=sys.stderr)
@@ -179,9 +177,8 @@ def build_cross(target_key: str, release: bool = True) -> bool:
         dest.chmod(0o755)
         print(f"Binary installed: {dest}")
         return True
-    else:
-        print(f"Error: Built binary not found at {source}", file=sys.stderr)
-        return False
+    print(f"Error: Built binary not found at {source}", file=sys.stderr)
+    return False
 
 
 def check_binary() -> bool:
@@ -205,10 +202,9 @@ def check_binary() -> bool:
         except (subprocess.TimeoutExpired, OSError):
             pass
         return True
-    else:
-        print(f"Binary not found: {binary_path}")
-        print("Run 'python scripts/pss_build.py' to build it")
-        return False
+    print(f"Binary not found: {binary_path}")
+    print("Run 'python scripts/pss_build.py' to build it")
+    return False
 
 
 def main():
@@ -289,12 +285,11 @@ def main():
 
         if args.target == native_target:
             return 0 if build_native(release) else 1
-        else:
-            if not check_cross_installed():
-                print("Error: 'cross' required for non-native targets")
-                print("Install with: cargo install cross")
-                return 1
-            return 0 if build_cross(args.target, release) else 1
+        if not check_cross_installed():
+            print("Error: 'cross' required for non-native targets")
+            print("Install with: cargo install cross")
+            return 1
+        return 0 if build_cross(args.target, release) else 1
 
     # Default: build for current platform
     return 0 if build_native(release) else 1

@@ -36,7 +36,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
 # PSS file schema version
 PSS_SCHEMA_VERSION = "1.0.0"
 

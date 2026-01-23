@@ -1,0 +1,6 @@
+# Dependencies for perfect-skill-suggester
+# Install with: pip install -r requirements.txt
+#           or: uv pip install -r requirements.txt
+
+# YAML parsing for skill metadata
+pyyaml>=6.0

@@ -22,14 +22,14 @@ Usage:
     python pss_generate.py --from-index /path/to/skill-index.json
 """
 
-import json
-import sys
 import hashlib
+import json
 import re
-from pathlib import Path
-from datetime import datetime, timezone
-from typing import Any
+import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -55,8 +55,7 @@ def extract_skill_name(skill_path: Path) -> str:
     """
     if skill_path.name.lower() in ("skill.md", "agent.md"):
         return skill_path.parent.name
-    else:
-        return skill_path.stem.lower()
+    return skill_path.stem.lower()
 
 
 def extract_skill_type(content: str, skill_path: Path) -> str:

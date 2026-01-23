@@ -17,25 +17,25 @@ def detect_platform():
     machine = platform.machine().lower()
 
     # Normalize architecture names
-    if machine in ('aarch64',):
-        machine = 'arm64'
-    elif machine in ('amd64',):
-        machine = 'x86_64'
+    if machine in ("aarch64",):
+        machine = "arm64"
+    elif machine in ("amd64",):
+        machine = "x86_64"
 
     # Map to binary names
-    if system == 'darwin':
-        if machine == 'arm64':
-            return 'pss-darwin-arm64'
-        elif machine == 'x86_64':
-            return 'pss-darwin-x86_64'
-    elif system == 'linux':
-        if machine == 'arm64':
-            return 'pss-linux-arm64'
-        elif machine == 'x86_64':
-            return 'pss-linux-x86_64'
-    elif system == 'windows':
+    if system == "darwin":
+        if machine == "arm64":
+            return "pss-darwin-arm64"
+        if machine == "x86_64":
+            return "pss-darwin-x86_64"
+    elif system == "linux":
+        if machine == "arm64":
+            return "pss-linux-arm64"
+        if machine == "x86_64":
+            return "pss-linux-x86_64"
+    elif system == "windows":
         # Windows is typically x86_64
-        return 'pss-windows-x86_64.exe'
+        return "pss-windows-x86_64.exe"
 
     # Unsupported platform
     raise RuntimeError(f"Unsupported platform: {system} {machine}")
@@ -75,7 +75,7 @@ def main():
 
         # Output the result
         if result.returncode == 0:
-            print(result.stdout, end='')
+            print(result.stdout, end="")
         else:
             # On error, log to stderr and return empty JSON to stdout
             msg = f"PSS binary error (exit {result.returncode}): {result.stderr}"

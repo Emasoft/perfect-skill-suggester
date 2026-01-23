@@ -557,9 +557,9 @@ def main() -> int:
     # Return codes
     if report.has_critical():
         return 1
-    elif report.has_major():
+    if report.has_major():
         return 2
-    elif report.has_minor():
+    if report.has_minor():
         return 3
     return 0
 

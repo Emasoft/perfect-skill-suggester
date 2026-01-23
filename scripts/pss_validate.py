@@ -9,13 +9,13 @@ Usage:
     python pss_validate.py --dir <directory> [--verbose]
 """
 
-import json
-import sys
 import hashlib
+import json
 import re
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from dataclasses import dataclass, field
 
 
 @dataclass

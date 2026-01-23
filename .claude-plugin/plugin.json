@@ -18,5 +18,14 @@
     "hooks",
     "performance",
     "ml"
-  ]
+  ],
+  "hooks": "./hooks/hooks.json",
+  "commands": [
+    "./commands/pss-reindex-skills.md",
+    "./commands/pss-status.md"
+  ],
+  "skills": [
+    "./skills/pss-usage"
+  ],
+  "agents": []
 }
