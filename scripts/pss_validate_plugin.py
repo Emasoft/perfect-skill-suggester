@@ -9,6 +9,12 @@ Usage:
     uv run python scripts/pss_validate_plugin.py
     uv run python scripts/pss_validate_plugin.py --verbose
     uv run python scripts/pss_validate_plugin.py --json
+    uv run python scripts/pss_validate_plugin.py --marketplace-only
+
+Flags:
+    --marketplace-only: Skip plugin.json requirement for marketplace-only
+                        distribution (strict=false). When using strict=false,
+                        plugin.json should NOT exist (causes CLI issues).
 
 Exit codes:
     0 - All checks passed (or only INFO/PASSED)
@@ -131,12 +137,36 @@ EXPECTED_CATEGORIES = [
 ]
 
 
-def validate_manifest(plugin_root: Path, report: ValidationReport) -> None:
-    """Validate plugin.json manifest."""
+def validate_manifest(
+    plugin_root: Path, report: ValidationReport, marketplace_only: bool = False
+) -> None:
+    """Validate plugin.json manifest.
+
+    Args:
+        plugin_root: Path to the plugin directory
+        report: ValidationReport to add results to
+        marketplace_only: If True, skip plugin.json requirement (for strict=false
+                          marketplace distribution where plugin.json should NOT exist)
+    """
     manifest_path = plugin_root / ".claude-plugin" / "plugin.json"
 
     if not manifest_path.exists():
-        report.critical("plugin.json not found", ".claude-plugin/plugin.json")
+        if marketplace_only:
+            # For marketplace-only (strict=false), plugin.json should NOT exist
+            msg = "plugin.json correctly absent (marketplace-only, strict=false)"
+            report.passed(msg, ".claude-plugin/plugin.json")
+            return
+        else:
+            report.critical("plugin.json not found", ".claude-plugin/plugin.json")
+            return
+
+    # If marketplace_only but plugin.json exists, that's wrong
+    if marketplace_only:
+        report.major(
+            "plugin.json EXISTS but should NOT for marketplace-only (strict=false). "
+            "Remove .claude-plugin/plugin.json to fix CLI uninstall issues.",
+            ".claude-plugin/plugin.json",
+        )
         return
 
     try:
@@ -245,14 +275,28 @@ def validate_manifest(plugin_root: Path, report: ValidationReport) -> None:
                         )
 
 
-def validate_structure(plugin_root: Path, report: ValidationReport) -> None:
-    """Validate plugin directory structure."""
-    # .claude-plugin must exist
-    if not (plugin_root / ".claude-plugin").is_dir():
-        report.critical(".claude-plugin directory not found")
-        return
+def validate_structure(
+    plugin_root: Path, report: ValidationReport, marketplace_only: bool = False
+) -> None:
+    """Validate plugin directory structure.
 
-    report.passed(".claude-plugin directory exists")
+    Args:
+        plugin_root: Path to the plugin directory
+        report: ValidationReport to add results to
+        marketplace_only: If True, .claude-plugin directory is optional
+    """
+    # .claude-plugin check depends on marketplace_only mode
+    claude_plugin_dir = plugin_root / ".claude-plugin"
+    if not claude_plugin_dir.is_dir():
+        if marketplace_only:
+            # For marketplace-only (strict=false), .claude-plugin is optional
+            msg = ".claude-plugin absent (marketplace-only, uses marketplace.json)"
+            report.passed(msg)
+        else:
+            report.critical(".claude-plugin directory not found")
+            return
+    else:
+        report.passed(".claude-plugin directory exists")
 
     # Components must be at root, NOT in .claude-plugin
     for component in ["commands", "agents", "skills", "hooks", "schemas", "bin"]:
@@ -771,6 +815,11 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(
+        "--marketplace-only",
+        action="store_true",
+        help="Skip plugin.json requirement (for strict=false marketplace distribution)",
+    )
+    parser.add_argument(
         "path", nargs="?", help="Plugin root path (default: parent of scripts/)"
     )
     args = parser.parse_args()
@@ -787,9 +836,10 @@ def main() -> int:
 
     # Run validation
     report = ValidationReport()
+    marketplace_only = args.marketplace_only
 
-    validate_manifest(plugin_root, report)
-    validate_structure(plugin_root, report)
+    validate_manifest(plugin_root, report, marketplace_only)
+    validate_structure(plugin_root, report, marketplace_only)
     validate_schemas(plugin_root, report)
     validate_commands(plugin_root, report)
     validate_hooks(plugin_root, report)
