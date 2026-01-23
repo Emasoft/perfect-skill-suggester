@@ -1,0 +1,16 @@
+[project]
+name = "perfect-skill-suggester"
+version = "1.0.0"
+description = "PSS plugin validation and utility scripts"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "types-pyyaml>=6.0.12.20250915",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]

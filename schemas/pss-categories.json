@@ -1,0 +1,195 @@
+{
+  "version": "1.0",
+  "description": "Skill categories (FIELDS OF COMPETENCE/USAGE) and CxC co-usage probability matrix for PSS Pass 2. Categories are broader domains (web design, ML training, code optimization, etc.) - NOT specific tools. The 'keywords' field in each category provides example search terms that indicate a skill belongs to that category, but keywords in .pss files are a SUPERSET that includes these plus specific tool names, actions, and technologies.",
+  "categories": {
+    "web-frontend": {
+      "name": "Web Frontend Development",
+      "keywords": ["react", "vue", "angular", "svelte", "css", "html", "javascript", "typescript", "ui", "ux", "component", "responsive", "tailwind", "styled"],
+      "examples": ["frontend-developer", "frontend-design", "cli-ux-colorful"]
+    },
+    "web-backend": {
+      "name": "Web Backend Development",
+      "keywords": ["api", "rest", "graphql", "server", "endpoint", "route", "middleware", "express", "fastapi", "django", "flask", "node"],
+      "examples": ["backend-architect", "document-processing-apps"]
+    },
+    "mobile": {
+      "name": "Mobile Development",
+      "keywords": ["ios", "android", "swift", "kotlin", "react native", "flutter", "mobile", "app store", "xcode"],
+      "examples": ["senior-ios", "mobile-developer", "flutter-expert", "ios-developer"]
+    },
+    "devops-cicd": {
+      "name": "DevOps & CI/CD",
+      "keywords": ["deploy", "ci", "cd", "pipeline", "github actions", "docker", "kubernetes", "terraform", "ansible", "jenkins"],
+      "examples": ["github-workflow", "git-workflow", "homebrew-expert"]
+    },
+    "testing": {
+      "name": "Testing & Quality",
+      "keywords": ["test", "unit", "integration", "e2e", "jest", "pytest", "coverage", "tdd", "mock", "assertion"],
+      "examples": ["tdd", "exhaustive-testing", "python-test-writer", "js-test-writer", "e2e-tester"]
+    },
+    "security": {
+      "name": "Security & Auditing",
+      "keywords": ["security", "vulnerability", "audit", "authentication", "oauth", "jwt", "encryption", "xss", "injection"],
+      "examples": ["security", "aegis", "rt-safety-auditor"]
+    },
+    "data-ml": {
+      "name": "Data Science & ML",
+      "keywords": ["data", "machine learning", "ml", "model", "training", "dataset", "pandas", "numpy", "tensorflow", "pytorch", "sklearn"],
+      "examples": ["data-scientist", "ml-modeling-specialist", "data-cleaning-specialist", "feature-engineering-specialist"]
+    },
+    "research": {
+      "name": "Research & Documentation",
+      "keywords": ["research", "paper", "arxiv", "academic", "documentation", "wiki", "markdown", "readme"],
+      "examples": ["arxiv-research-skill", "paper-to-intuition", "research-question-refiner", "ted-mosby"]
+    },
+    "code-quality": {
+      "name": "Code Quality & Refactoring",
+      "keywords": ["refactor", "lint", "format", "clean", "dead code", "simplify", "optimize"],
+      "examples": ["code-simplifier", "dead-code", "python-code-fixer", "refactor15"]
+    },
+    "debugging": {
+      "name": "Debugging & Troubleshooting",
+      "keywords": ["debug", "error", "bug", "fix", "troubleshoot", "diagnose", "crash", "exception"],
+      "examples": ["debug-agent", "sleuth", "xcode-debugging", "profiler"]
+    },
+    "infrastructure": {
+      "name": "Infrastructure & Cloud",
+      "keywords": ["cloud", "aws", "gcp", "azure", "serverless", "lambda", "container", "vm"],
+      "examples": ["pathfinder"]
+    },
+    "cli-tools": {
+      "name": "CLI & Terminal Tools",
+      "keywords": ["cli", "terminal", "command line", "shell", "bash", "zsh", "script"],
+      "examples": ["cli-reference", "cli-ux-colorful", "building-with-bun"]
+    },
+    "visualization": {
+      "name": "Visualization & Graphics",
+      "keywords": ["chart", "graph", "plot", "svg", "diagram", "mermaid", "visualization"],
+      "examples": ["data-visualization-specialist", "svg-sprite-sheets", "smil-animation", "scientific-schematics"]
+    },
+    "ai-llm": {
+      "name": "AI & LLM Integration",
+      "keywords": ["llm", "gpt", "claude", "prompt", "agent", "anthropic", "openai", "huggingface"],
+      "examples": ["huggingface-transformers", "huggingface-tokenizers", "outlines", "claude-code-guide"]
+    },
+    "project-mgmt": {
+      "name": "Project Management & Planning",
+      "keywords": ["plan", "task", "todo", "project", "milestone", "roadmap", "spec", "requirement"],
+      "examples": ["plan-agent", "premortem", "discovery-interview", "kiro-skill"]
+    },
+    "plugin-dev": {
+      "name": "Plugin & Extension Development",
+      "keywords": ["plugin", "extension", "hook", "skill", "command", "agent", "mcp"],
+      "examples": ["plugin-structure", "skill-development", "hook-development", "command-development", "agent-development"]
+    }
+  },
+  "co_usage_matrix": {
+    "_description": "Probability (0.0-1.0) that skills from row category are used with column category",
+    "web-frontend": {
+      "web-backend": 0.9,
+      "testing": 0.8,
+      "devops-cicd": 0.7,
+      "security": 0.6,
+      "visualization": 0.5,
+      "cli-tools": 0.4,
+      "code-quality": 0.7,
+      "debugging": 0.6
+    },
+    "web-backend": {
+      "web-frontend": 0.9,
+      "testing": 0.85,
+      "devops-cicd": 0.8,
+      "security": 0.8,
+      "data-ml": 0.5,
+      "infrastructure": 0.7,
+      "debugging": 0.7,
+      "code-quality": 0.7
+    },
+    "mobile": {
+      "testing": 0.85,
+      "devops-cicd": 0.7,
+      "security": 0.6,
+      "debugging": 0.8,
+      "code-quality": 0.7,
+      "visualization": 0.4
+    },
+    "devops-cicd": {
+      "testing": 0.9,
+      "security": 0.7,
+      "infrastructure": 0.85,
+      "cli-tools": 0.8,
+      "code-quality": 0.6,
+      "web-backend": 0.7,
+      "web-frontend": 0.6
+    },
+    "testing": {
+      "code-quality": 0.85,
+      "debugging": 0.8,
+      "devops-cicd": 0.8,
+      "web-frontend": 0.7,
+      "web-backend": 0.75,
+      "mobile": 0.7
+    },
+    "security": {
+      "testing": 0.8,
+      "web-backend": 0.8,
+      "devops-cicd": 0.7,
+      "infrastructure": 0.7,
+      "code-quality": 0.6
+    },
+    "data-ml": {
+      "visualization": 0.9,
+      "research": 0.7,
+      "testing": 0.6,
+      "code-quality": 0.5,
+      "ai-llm": 0.8
+    },
+    "research": {
+      "data-ml": 0.6,
+      "ai-llm": 0.5,
+      "visualization": 0.4,
+      "cli-tools": 0.3
+    },
+    "code-quality": {
+      "testing": 0.85,
+      "debugging": 0.7,
+      "devops-cicd": 0.6
+    },
+    "debugging": {
+      "testing": 0.8,
+      "code-quality": 0.7,
+      "cli-tools": 0.5
+    },
+    "infrastructure": {
+      "devops-cicd": 0.9,
+      "security": 0.7,
+      "cli-tools": 0.6
+    },
+    "cli-tools": {
+      "devops-cicd": 0.7,
+      "infrastructure": 0.5,
+      "code-quality": 0.4
+    },
+    "visualization": {
+      "data-ml": 0.85,
+      "web-frontend": 0.6,
+      "research": 0.5
+    },
+    "ai-llm": {
+      "data-ml": 0.8,
+      "research": 0.5,
+      "plugin-dev": 0.6
+    },
+    "project-mgmt": {
+      "devops-cicd": 0.5,
+      "testing": 0.4,
+      "research": 0.4
+    },
+    "plugin-dev": {
+      "cli-tools": 0.7,
+      "testing": 0.6,
+      "ai-llm": 0.5,
+      "code-quality": 0.5
+    }
+  }
+}

@@ -1,0 +1,156 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agentskills.org/schemas/pss-v1.json",
+  "title": "PSS File Format",
+  "description": "Perfect Skill Suggester per-skill matcher file format v1.0",
+  "type": "object",
+  "required": ["version", "skill", "matchers", "metadata"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Schema URL for validation"
+    },
+    "version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "PSS format version"
+    },
+    "skill": {
+      "type": "object",
+      "description": "Skill identification",
+      "required": ["name", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$",
+          "description": "Skill name in kebab-case"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["skill", "agent", "command"],
+          "description": "Type of skill component"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["user", "project", "plugin"],
+          "description": "Where the skill is installed"
+        },
+        "path": {
+          "type": "string",
+          "description": "Relative path to SKILL.md"
+        }
+      }
+    },
+    "matchers": {
+      "type": "object",
+      "description": "Trigger keywords and patterns",
+      "required": ["keywords"],
+      "additionalProperties": false,
+      "properties": {
+        "keywords": {
+          "type": "array",
+          "description": "Primary trigger keywords (lowercase)",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9 ._-]*$"
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "intents": {
+          "type": "array",
+          "description": "Intent phrases for matching",
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 100
+          },
+          "maxItems": 20
+        },
+        "patterns": {
+          "type": "array",
+          "description": "Regex patterns for complex matching",
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 200
+          },
+          "maxItems": 10
+        },
+        "directories": {
+          "type": "array",
+          "description": "Directory names that suggest this skill",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20
+        },
+        "negative_keywords": {
+          "type": "array",
+          "description": "Keywords that should NOT trigger this skill",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9 ._-]*$"
+          },
+          "maxItems": 20
+        }
+      }
+    },
+    "scoring": {
+      "type": "object",
+      "description": "Scoring hints for the suggester",
+      "additionalProperties": false,
+      "properties": {
+        "tier": {
+          "type": "string",
+          "enum": ["primary", "secondary", "utility"],
+          "description": "Skill importance tier",
+          "default": "secondary"
+        },
+        "category": {
+          "type": "string",
+          "description": "Skill category for grouping",
+          "pattern": "^[a-z0-9-]+$",
+          "maxLength": 50
+        },
+        "boost": {
+          "type": "integer",
+          "description": "Score boost (-10 to +10)",
+          "minimum": -10,
+          "maximum": 10,
+          "default": 0
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Generation metadata",
+      "required": ["generated_by", "generated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "generated_by": {
+          "type": "string",
+          "enum": ["ai", "manual", "hybrid"],
+          "description": "How the matchers were generated"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp of generation"
+        },
+        "generator_version": {
+          "type": "string",
+          "description": "Version of the generator tool",
+          "maxLength": 50
+        },
+        "skill_hash": {
+          "type": "string",
+          "description": "SHA-256 hash of SKILL.md for staleness detection",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

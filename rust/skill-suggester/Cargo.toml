@@ -19,6 +19,8 @@ regex = "1.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 lazy_static = "1.4"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+clap = { version = "4.5", features = ["derive"] }
 
 [[bin]]
 name = "pss"

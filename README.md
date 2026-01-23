@@ -39,6 +39,31 @@ For HIGH confidence matches, output includes an evaluation reminder prompting Cl
 ### Skills-First Ordering
 In the hook output, matched skills appear before other context types, ensuring Claude sees relevant skills prominently.
 
+### Fuzzy/Typo Tolerance (Damerau-Levenshtein)
+Typos and transpositions are automatically corrected:
+- `"gti"` matches `"git"` (transposition = 1 edit)
+- `"dokcer"` matches `"docker"` (typo = 1 edit)
+- Adaptive thresholds: 1 edit for short words, 2 for medium, 3 for long
+
+### Task Decomposition
+Complex multi-task prompts are automatically split and matched separately:
+- `"set up docker and then configure ci"` → 2 sub-tasks
+- Detects: conjunctions, semicolons, numbered/bulleted lists
+- Scores are aggregated across sub-tasks
+
+### Activation Logging
+Privacy-preserving JSONL logs at `~/.claude/logs/pss-activations.jsonl`:
+- Prompts truncated to 100 chars with SHA-256 hash
+- Automatic rotation at ~10,000 entries
+- Disable with `PSS_NO_LOGGING=1` env var
+
+### Per-Skill Configuration (.pss files)
+Each skill can have a `.pss` file for custom matching rules:
+- Additional keywords beyond AI-analyzed defaults
+- Negative keywords to prevent false matches
+- Tier (primary/secondary/utility) for priority
+- Score boost (-10 to +10)
+
 ## Installation
 
 ### Option 1: Load with --plugin-dir (Recommended for testing)
@@ -263,6 +288,28 @@ cargo build --release --target x86_64-pc-windows-gnu
 | Binary size | ~1MB |
 | Memory usage | ~2-3MB |
 | Accuracy | 88%+ |
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [PSS-ARCHITECTURE.md](docs/PSS-ARCHITECTURE.md) | Core architecture: two-pass generation, index as superset, categories vs keywords |
+| [PLUGIN-VALIDATION.md](docs/PLUGIN-VALIDATION.md) | Guide for writing plugin validation scripts |
+
+### Key Architecture Concepts
+
+- **Index is a Superset**: The skill index contains ALL skills ever indexed. The agent filters suggestions against its context-injected available skills list.
+- **No Staleness Checks**: Regenerate from scratch with `/pss-reindex-skills`. No incremental updates.
+- **Two-Pass Generation**: Pass 1 extracts keywords/descriptions, Pass 2 uses AI to determine co-usage relationships.
+- **Categories vs Keywords**: Categories are FIELDS OF COMPETENCE (16 predefined) for the CxC matrix. Keywords are a SUPERSET including specific tools/actions.
+
+## Validation
+
+Run the validation script after every change:
+
+```bash
+uv run python scripts/pss_validate_plugin.py --verbose
+```
 
 ## License
 
