@@ -12,10 +12,12 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Documentation
 
 - Add marketplace installation notice to README
+- Update CHANGELOG.md
 
 ### Features
 
 - Add marketplace validator and fix strict=false compliance
+- **pss:** Bump version to 1.1.0
 
 ### Miscellaneous Tasks
 
