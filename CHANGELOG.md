@@ -4,6 +4,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- Timeout validator bug and bump to v1.2.0
+
 ### Miscellaneous Tasks
 
 - Add requirements.txt and script improvements
