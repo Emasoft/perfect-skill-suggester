@@ -576,8 +576,9 @@ def validate_command_hook(
             report.major(f"'timeout' must be a number, got {type(timeout).__name__}")
         elif timeout <= 0:
             report.major("'timeout' must be positive")
-        elif timeout > 300:
-            report.minor(f"Long timeout ({timeout}s) may cause delays")
+        elif timeout > 300000:  # 5 minutes in milliseconds
+            timeout_sec = timeout / 1000
+            report.minor(f"Long timeout ({timeout}ms = {timeout_sec:.1f}s)")
 
     # Check for environment variable usage
     if "CLAUDE_ENV_FILE" in command:
