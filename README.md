@@ -92,6 +92,93 @@ For detailed installation instructions, troubleshooting, and updates, see the **
 claude --plugin-dir /path/to/perfect-skill-suggester
 ```
 
+## Update
+
+To update to the latest version:
+
+```bash
+# Step 1: Update marketplace cache
+claude plugin marketplace update emasoft-plugins
+
+# Step 2: Uninstall current version
+claude plugin uninstall perfect-skill-suggester@emasoft-plugins
+
+# Step 3: Install latest version
+claude plugin install perfect-skill-suggester@emasoft-plugins
+
+# Step 4: Restart Claude Code (REQUIRED)
+```
+
+**Important:** You MUST restart Claude Code after updating. The plugin's hook paths include the version number, and the running session caches the old paths until restarted.
+
+## Uninstall
+
+```bash
+# Step 1: Uninstall
+claude plugin uninstall perfect-skill-suggester@emasoft-plugins
+
+# Step 2: Restart Claude Code
+```
+
+## Troubleshooting
+
+### Hook path not found after version update
+
+**Symptom:** After updating, you see:
+```
+UserPromptSubmit operation blocked by hook:
+can't open file '.../perfect-skill-suggester/1.2.1/scripts/pss_hook.py': No such file or directory
+```
+
+**Cause:** Claude Code caches hook paths with version numbers. After updating from 1.2.1 to 1.2.2, the session still references the old 1.2.1 path.
+
+**Solution:** Restart Claude Code. If that doesn't work, do a clean reinstall:
+```bash
+rm -rf ~/.claude/plugins/cache/emasoft-plugins/perfect-skill-suggester/
+claude plugin uninstall perfect-skill-suggester@emasoft-plugins
+claude plugin install perfect-skill-suggester@emasoft-plugins
+# Then restart Claude Code
+```
+
+### Old version still installed after update
+
+**Symptom:** `claude plugin list` shows old version even after update commands.
+
+**Solution:** Clear cache and reinstall:
+```bash
+rm -rf ~/.claude/plugins/cache/emasoft-plugins/
+claude plugin uninstall perfect-skill-suggester@emasoft-plugins
+claude plugin install perfect-skill-suggester@emasoft-plugins
+claude plugin list | grep perfect-skill  # Verify new version
+# Then restart Claude Code
+```
+
+### Commands not found
+
+**Symptom:** `/pss-reindex-skills` or `/pss-status` not recognized.
+
+**Solution:** Restart Claude Code. Commands are only loaded at startup.
+
+### No skill suggestions appear
+
+**Symptom:** Plugin is installed but no skills are suggested.
+
+**Solutions:**
+1. Run `/pss-reindex-skills` to generate the skill index
+2. Check the index exists: `ls ~/.claude/cache/skill-index.json`
+3. Verify plugin is enabled: `claude plugin list`
+
+### Binary not found for platform
+
+**Symptom:** Error about missing platform binary.
+
+**Solution:** Pre-built binaries are included for all major platforms. If yours is missing:
+```bash
+cd rust/skill-suggester
+cargo build --release
+# Copy binary to bin/ with appropriate name
+```
+
 ## Quick Start
 
 ### 1. Generate Skill Index
