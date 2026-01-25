@@ -1,6 +1,6 @@
 {
   "name": "perfect-skill-suggester",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "High-accuracy skill activation (88%+) with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing.",
   "author": {
     "name": "Emasoft",
