@@ -55,7 +55,7 @@ This document provides instructions for building, testing, and developing the Pe
 ### Basic Build (Current Platform)
 
 ```bash
-cd /Users/emanuelesabetta/Code/SKILL_FACTORY/OUTPUT_SKILLS/perfect-skill-suggester/rust/skill-suggester
+cd rust/skill-suggester
 
 # Debug build (faster compilation, slower execution)
 cargo build
@@ -217,11 +217,11 @@ chmod +x ../../bin/pss-macos-arm64
 ### 4. Test with Claude Code
 
 ```bash
-# From the SKILL_FACTORY directory
-cd /Users/emanuelesabetta/Code/SKILL_FACTORY
+# From the plugin directory
+cd /path/to/perfect-skill-suggester
 
 # Launch Claude Code with plugin loaded
-claude --plugin-dir ./OUTPUT_SKILLS/perfect-skill-suggester
+claude --plugin-dir .
 ```
 
 ### 5. Verify Plugin Loaded
@@ -240,13 +240,13 @@ This should show the plugin is active and the binary is found.
 After building, validate the plugin structure:
 
 ```bash
-cd /Users/emanuelesabetta/Code/SKILL_FACTORY/OUTPUT_SKILLS/perfect-skill-suggester
+cd /path/to/perfect-skill-suggester
 
 # Run PSS-specific validator
 uv run python scripts/pss_validate_plugin.py --verbose
 
 # Or from Claude Code
-claude plugin validate ./OUTPUT_SKILLS/perfect-skill-suggester
+claude plugin validate /path/to/perfect-skill-suggester
 ```
 
 ---

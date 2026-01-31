@@ -2,6 +2,28 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [1.2.3] - 2026-01-31
+
+### Critical Changes
+
+- **MANDATORY CLEAN SLATE**: Reindexing now ALWAYS performs full regeneration from scratch
+- **Phase 0 (Non-Negotiable)**: All previous index data MUST be backed up to /tmp and removed before discovery
+- Removed `--force` and `--skill NAME` flags - incremental updates are no longer supported
+- Added strict verification step - reindex fails if any old data remains
+
+### Bug Fixes
+
+- Fixed stale version paths (plugins update, old paths remained in index)
+- Fixed orphaned entries (deleted skills persisted in index)
+- Fixed name mismatches (e.g., "Swift Concurrency" vs `swift-concurrency`)
+- Fixed missing new skills when plugins were updated
+
+### Documentation
+
+- Added prominent warning boxes about mandatory full regeneration
+- Updated PSS-ARCHITECTURE.md with non-negotiable clean slate requirement
+- Updated pss-usage SKILL.md with expected Phase 0 output
+
 ## [Unreleased]
 
 ### Bug Fixes

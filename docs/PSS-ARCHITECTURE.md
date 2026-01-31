@@ -19,24 +19,53 @@
 - The agent ALREADY KNOWS what skills are available - it can filter invalid suggestions
 - No runtime validation of skill existence is needed in the hook
 
-### 2. No Staleness Checks - Regenerate From Scratch
+### 2. MANDATORY: Full Regeneration From Scratch - NO Incremental Updates
+
+> **⛔ CRITICAL RULE: PSS reindexing MUST ALWAYS be a complete regeneration from scratch.**
+> **NEVER perform incremental updates, partial reindexes, or skip "unchanged" skills.**
+
+**Phase 0 (MANDATORY, NON-NEGOTIABLE) - Backup and delete ALL previous data BEFORE discovery:**
+```bash
+# Create timestamped backup in /tmp (data is preserved but GONE from active paths)
+BACKUP_DIR="/tmp/pss-backup-$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+# Move (not delete) all index data to backup
+mv ~/.claude/cache/skill-index.json "$BACKUP_DIR/" 2>/dev/null
+mv ~/.claude/cache/skill-checklist.md "$BACKUP_DIR/" 2>/dev/null
+find ~/.claude/skills -name ".pss" -type f -exec mv {} "$BACKUP_DIR/" \; 2>/dev/null
+find ~/.claude/plugins/cache -name ".pss" -type f -exec mv {} "$BACKUP_DIR/" \; 2>/dev/null
+
+# VERIFY clean slate - exit if ANY files remain
+[ -f ~/.claude/cache/skill-index.json ] && echo "FATAL: Index still exists!" && exit 1
+```
+
+**⛔ The backup ensures old data is preserved for debugging but NEVER interferes with fresh reindex.**
 
 **DO NOT** implement:
 - File existence checks at index time
 - Staleness detection or cleanup scripts
 - Incremental index updates
 - Hash-based change detection
+- Single-skill reindex (`--skill NAME` is REMOVED)
+- Cache freshness checks (always reindex)
 
 **DO** implement:
-- Full regeneration via `/pss-reindex-skills`
-- User runs reindex when they want to update
-- Simple, predictable behavior
+- **Phase 0: Clean slate** - Delete ALL previous index data
+- **Phase 1: Discovery** - Scan ALL skill locations fresh
+- **Phase 2: Analysis** - Analyze ALL discovered skills
 
-**Rationale:**
-- The indexed skills often (or never) match the available skills in a session
-- Availability is determined by Claude Code's plugin/skill activation, not file existence
-- Complexity of change detection provides no value
-- Clean regeneration is simpler and more reliable
+**Why incremental updates FAIL (proven by experience):**
+
+| Problem | Cause | Result |
+|---------|-------|--------|
+| Stale version paths | Plugin updated from `2.17.0` to `2.18.1` | Skill not found at indexed path |
+| Orphaned entries | Skill deleted/renamed | Phantom skill persists in index |
+| Name mismatches | Indexed as "Swift Concurrency", dir is `swift-concurrency` | Skill exists but not matched |
+| Missing new skills | New skill added to updated plugin | Not discovered in incremental mode |
+| Broken co-usage | Referenced skill was deleted | Co-usage points to non-existent skill |
+
+**The ONLY reliable approach is DELETE → DISCOVER → REINDEX from scratch.**
 
 ### 3. Comprehensive Multi-Project Skill Discovery
 

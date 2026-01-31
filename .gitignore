@@ -1,6 +1,21 @@
-# Rust build artifacts
-rust/skill-suggester/target/
-rust/*/target/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Linting
+.ruff_cache/
 
 # IDE
 .idea/
@@ -12,10 +27,11 @@ rust/*/target/
 .DS_Store
 Thumbs.db
 
-# Python
-__pycache__/
-*.pyc
-.venv/
+# Dev folders (not tracked)
+docs_dev/
+scripts_dev/
+tests_dev/
 
-# Logs
-*.log
+# Rust
+target/
+Cargo.lock

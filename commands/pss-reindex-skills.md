@@ -1,17 +1,32 @@
 ---
 name: pss-reindex-skills
 description: "Scan ALL skills and generate AI-analyzed keyword/phrase index for skill activation."
-argument-hint: "[--force] [--skill SKILL_NAME] [--batch-size N]"
+argument-hint: "[--batch-size N] [--pass1-only] [--pass2-only] [--all-projects]"
 allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep", "Task"]
 ---
 
 # PSS Reindex Skills Command
 
+> ## ⛔ CRITICAL: FULL REGENERATION ONLY - NO INCREMENTAL UPDATES
+>
+> **This command ALWAYS performs a complete reindex from scratch.**
+>
+> **PHASE 0 (MANDATORY):** Before ANY discovery or analysis, the agent MUST:
+> 1. Delete `~/.claude/cache/skill-index.json`
+> 2. Delete ALL `.pss` files from `~/.claude/skills/`, `~/.claude/plugins/cache/`, and project directories
+> 3. Delete `~/.claude/cache/skill-checklist.md`
+> 4. Verify clean slate before proceeding
+>
+> **WHY?** Incremental indexing causes: stale version paths, orphaned entries, name mismatches, missing new skills.
+> **The ONLY reliable approach is DELETE → DISCOVER → REINDEX from scratch.**
+>
+> **⚠️ NEVER skip Phase 0. NEVER do partial/incremental updates. ALWAYS regenerate completely.**
+
 Generate an **AI-analyzed** keyword and phrase index for ALL skills available to Claude Code. Unlike heuristic approaches, this command has the agent **read and understand each skill** to formulate optimal activation patterns.
 
 This is the **MOST IMPORTANT** feature of Perfect Skill Suggester - AI-generated keywords ensure 88%+ accuracy in skill matching.
 
-> **Architecture Reference:** See [docs/PSS-ARCHITECTURE.md](../docs/PSS-ARCHITECTURE.md) for the complete design rationale, including why no staleness checks are performed and how categories differ from keywords.
+> **Architecture Reference:** See [docs/PSS-ARCHITECTURE.md](../docs/PSS-ARCHITECTURE.md) for the complete design rationale.
 
 ## Two-Pass Architecture
 
@@ -41,20 +56,35 @@ For EACH skill, a dedicated agent:
 
 **Rio Compatibility**: Keywords are stored in a flat array and matched using `.includes()` against the lowercase user prompt. The `matchCount` is simply the number of matching keywords.
 
+## CRITICAL: ALWAYS FULL REGENERATION - NO INCREMENTAL UPDATES
+
+> **⚠️ MANDATORY RULE:** PSS reindexing MUST ALWAYS be a complete regeneration from scratch.
+> **NEVER** attempt incremental updates or skip skills that "already exist" in the index.
+>
+> **Why?** Incremental indexing causes:
+> - Stale version paths (plugins update, old paths remain)
+> - Missing skills (new skills in updated plugins not detected)
+> - Orphaned entries (deleted skills remain in index)
+> - Name mismatches (skill renamed but old name persists)
+>
+> **The ONLY reliable approach is DELETE → DISCOVER → REINDEX from scratch.**
+
 ## Usage
 
 ```
-/pss-reindex-skills [--force] [--skill SKILL_NAME] [--batch-size 20] [--pass1-only] [--pass2-only] [--all-projects]
+/pss-reindex-skills [--batch-size 20] [--pass1-only] [--pass2-only] [--all-projects]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--force` | Force full reindex even if cache is fresh |
-| `--skill NAME` | Reindex only the specified skill |
 | `--batch-size N` | Skills per batch (default: 10) |
 | `--pass1-only` | Run Pass 1 only (keywords, no co-usage) |
 | `--pass2-only` | Run Pass 2 only (requires existing Pass 1 index) |
-| `--all-projects` | **NEW:** Scan ALL projects registered in `~/.claude.json` |
+| `--all-projects` | Scan ALL projects registered in `~/.claude.json` |
+
+**REMOVED FLAGS:**
+- ~~`--force`~~ - No longer needed, full reindex is ALWAYS performed
+- ~~`--skill NAME`~~ - Single-skill reindex removed to prevent partial updates
 
 ## Comprehensive Skill Discovery
 
@@ -75,6 +105,143 @@ This creates a **superset index** containing ALL skills across all your projects
 **NOTE:** Deleted projects are automatically detected and skipped with a warning.
 
 ## Execution Protocol
+
+### AGENT TASK CHECKLIST (MANDATORY - CREATE BEFORE ANY WORK)
+
+> **⛔ BEFORE EXECUTING ANY STEP, the agent MUST create a task list using TaskCreate.**
+> **This checklist MUST be tracked and updated throughout the reindex process.**
+
+**Create these tasks IN THIS EXACT ORDER using TaskCreate:**
+
+```
+1. [Phase 0] Create backup directory in /tmp
+2. [Phase 0] Backup and remove skill-index.json
+3. [Phase 0] Backup and remove skill-checklist.md
+4. [Phase 0] Backup and remove ALL .pss files from ~/.claude/skills
+5. [Phase 0] Backup and remove ALL .pss files from ~/.claude/plugins/cache
+6. [Phase 0] Backup and remove ALL .pss files from project directories
+7. [Phase 0] VERIFY clean slate - no index or .pss files remain
+8. [Phase 1] Run discovery script to generate skill checklist
+9. [Phase 1] Spawn Pass 1 batch agents for keyword analysis
+10. [Phase 1] Compile Pass 1 results into skill-index.json
+11. [Phase 2] Spawn Pass 2 batch agents for co-usage analysis
+12. [Phase 2] Merge Pass 2 results into final index
+13. [Verify] Confirm index has pass:2 and all skills have co_usage
+14. [Report] Report final statistics to user
+```
+
+**CRITICAL RULES:**
+- Tasks 1-7 (Phase 0) MUST ALL be marked `completed` BEFORE starting task 8
+- If task 7 verification FAILS, do NOT proceed - mark remaining tasks as blocked
+- Update task status to `in_progress` when starting, `completed` when done
+- If ANY Phase 0 task fails, STOP and report error to user
+
+**Example TaskCreate call for first task:**
+```
+TaskCreate({
+  subject: "[Phase 0] Create backup directory in /tmp",
+  description: "Create timestamped backup dir: /tmp/pss-backup-YYYYMMDD_HHMMSS",
+  activeForm: "Creating backup directory"
+})
+```
+
+---
+
+### PHASE 0: CLEAN SLATE (MANDATORY - NEVER SKIP - NON-NEGOTIABLE)
+
+> **⛔ THIS PHASE IS MANDATORY AND NON-NEGOTIABLE.**
+> **You MUST complete ALL steps before proceeding to Phase 1.**
+> **If ANY step fails, STOP and report the error. Do NOT proceed.**
+
+Before discovering or analyzing ANY skills, you MUST backup and delete ALL previous index data.
+The backup ensures the old data is preserved for debugging, but moved out of the way so it can
+NEVER interfere with the fresh reindex.
+
+```bash
+# Step 0.0: Create timestamped backup folder in /tmp
+BACKUP_DIR="/tmp/pss-backup-$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+echo "Backup directory: $BACKUP_DIR"
+
+# Step 0.1: Backup and delete the main skill index
+if [ -f ~/.claude/cache/skill-index.json ]; then
+    mv ~/.claude/cache/skill-index.json "$BACKUP_DIR/"
+    echo "✓ skill-index.json moved to backup"
+else
+    echo "○ skill-index.json did not exist"
+fi
+
+# Step 0.2: Backup and delete the skill checklist
+if [ -f ~/.claude/cache/skill-checklist.md ]; then
+    mv ~/.claude/cache/skill-checklist.md "$BACKUP_DIR/"
+    echo "✓ skill-checklist.md moved to backup"
+else
+    echo "○ skill-checklist.md did not exist"
+fi
+
+# Step 0.3: Backup and delete all .pss files from user skills
+mkdir -p "$BACKUP_DIR/user-skills-pss"
+find ~/.claude/skills -name ".pss" -type f -exec mv {} "$BACKUP_DIR/user-skills-pss/" \; 2>/dev/null
+echo "✓ User skills .pss files moved to backup"
+
+# Step 0.4: Backup and delete all .pss files from plugin cache
+mkdir -p "$BACKUP_DIR/plugin-cache-pss"
+find ~/.claude/plugins/cache -name ".pss" -type f -exec mv {} "$BACKUP_DIR/plugin-cache-pss/" \; 2>/dev/null
+echo "✓ Plugin cache .pss files moved to backup"
+
+# Step 0.5: Backup and delete all .pss files from project skills (if any)
+mkdir -p "$BACKUP_DIR/project-pss"
+find .claude/skills -name ".pss" -type f -exec mv {} "$BACKUP_DIR/project-pss/" \; 2>/dev/null
+find .claude/plugins -name ".pss" -type f -exec mv {} "$BACKUP_DIR/project-pss/" \; 2>/dev/null
+echo "✓ Project .pss files moved to backup"
+
+# Step 0.6: VERIFY CLEAN SLATE (MANDATORY CHECK)
+echo ""
+echo "=== VERIFICATION ==="
+if [ -f ~/.claude/cache/skill-index.json ]; then
+    echo "❌ FATAL ERROR: skill-index.json still exists!"
+    echo "Phase 0 FAILED. Cannot proceed."
+    exit 1
+fi
+
+pss_count=$(find ~/.claude -name ".pss" -type f 2>/dev/null | wc -l | tr -d ' ')
+if [ "$pss_count" -gt "0" ]; then
+    echo "❌ FATAL ERROR: $pss_count .pss files still exist in ~/.claude!"
+    find ~/.claude -name ".pss" -type f 2>/dev/null | head -5
+    echo "Phase 0 FAILED. Cannot proceed."
+    exit 1
+fi
+
+echo "✅ CLEAN SLATE VERIFIED"
+echo "   - No skill-index.json"
+echo "   - No .pss files in ~/.claude"
+echo "   - Backup at: $BACKUP_DIR"
+echo ""
+echo "Proceeding to Phase 1: Discovery..."
+```
+
+**CHECKLIST (ALL MUST BE CHECKED BEFORE PROCEEDING):**
+- [ ] Backup directory created in /tmp
+- [ ] `skill-index.json` moved to backup (or did not exist)
+- [ ] `skill-checklist.md` moved to backup (or did not exist)
+- [ ] User skills `.pss` files moved to backup
+- [ ] Plugin cache `.pss` files moved to backup
+- [ ] Project `.pss` files moved to backup
+- [ ] **VERIFICATION PASSED**: No index or .pss files remain
+
+**⛔ IF VERIFICATION FAILS, DO NOT PROCEED. Report the error and stop.**
+
+**WHY THIS IS NON-NEGOTIABLE:**
+1. Old index paths point to outdated plugin versions → skills not found
+2. Renamed/moved skills create orphaned entries → phantom skills suggested
+3. Skills with wrong names persist → matching fails silently
+4. Deleted skills remain as phantom entries → broken suggestions
+5. Co-usage data references non-existent skills → cascading errors
+6. **ANY remnant of old data will corrupt the fresh index**
+
+**The backup in /tmp ensures you can debug issues if needed, but the old data is GONE from the active paths.**
+
+---
 
 ### Step 1: Generate Skill Checklist
 
@@ -682,13 +849,24 @@ Each subagent:
 
 ## Cache Management
 
+**⚠️ PSS ALWAYS performs a FULL REINDEX from scratch. There are NO incremental updates.**
+
 | Condition | Action |
 |-----------|--------|
-| No cache exists | Full reindex |
-| Cache > 24 hours old | Full reindex |
-| `--force` flag | Full reindex |
-| `--skill NAME` | Reindex only that skill |
-| Cache fresh | Skip (show message) |
+| **ANY invocation** | **Full reindex (delete + discover + analyze)** |
+
+**REMOVED BEHAVIORS (these caused bugs):**
+- ~~Staleness checks~~ - Removed (always reindex)
+- ~~Single-skill reindex~~ - Removed (always full)
+- ~~Skip if cache fresh~~ - Removed (always reindex)
+- ~~Incremental updates~~ - NEVER supported
+
+**WHY FULL REINDEX ONLY:**
+1. Plugin versions change - old paths become invalid
+2. Skills get renamed/moved - creates orphaned entries
+3. Skills get deleted - phantom entries persist
+4. Co-usage references stale skills - causes broken relationships
+5. Partial updates create inconsistent state - impossible to debug
 
 ## Example Output
 

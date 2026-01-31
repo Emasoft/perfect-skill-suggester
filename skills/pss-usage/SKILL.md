@@ -63,10 +63,23 @@ Total Skills Indexed: 42
 /pss-reindex-skills
 ```
 
+> **⛔ CRITICAL:** PSS reindexing ALWAYS performs a FULL regeneration from scratch.
+> The command first deletes ALL previous index data (skill-index.json, all .pss files, checklist),
+> then discovers and analyzes ALL skills fresh. There is NO incremental update mode.
+> This is mandatory to prevent stale paths, orphaned entries, and name mismatches.
+
 Expected output:
 ```
-Reindexing skills...
-✓ Index updated successfully
+Phase 0: Clean slate...
+  ✓ Deleted skill-index.json
+  ✓ Deleted 42 .pss files
+  ✓ Clean slate verified
+
+Phase 1: Discovery...
+  ✓ Found 45 skills
+
+Phase 2: Analysis...
+  ✓ Index updated successfully
 ```
 
 ---
