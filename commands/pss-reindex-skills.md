@@ -390,6 +390,23 @@ DO NOT paraphrase, summarize, or rewrite them!
 - Common nouns: "code", "file", "change", "error" (match everything)
 - Ambiguous: "graph" (code graph vs. data visualization graph)
 
+**⛔ PLATFORM-SPECIFIC SKILLS RULE:**
+For skills targeting a SPECIFIC PLATFORM (iOS, Android, macOS, Windows, Linux), ALL keywords MUST include the platform name:
+- iOS skill: "ios memory leak", "swiftui debugging ios", "xcode build failed ios"
+- Android skill: "android gradle build", "kotlin coroutine android"
+- macOS skill: "macos appkit menu", "macos notarization"
+
+**WHY?** Generic keywords like "debug memory leak" would match iOS skills for a Python debugging query.
+The platform name MUST be in every keyword to prevent cross-platform false positives.
+
+**PLATFORM PREFIXING EXAMPLES:**
+| Platform | WRONG (too generic) | CORRECT (platform-specific) |
+|----------|---------------------|----------------------------|
+| iOS | "debug memory leak" | "ios memory leak debugging" |
+| iOS | "navigation stack" | "swiftui navigation stack ios" |
+| Android | "gradle build" | "android gradle build error" |
+| macOS | "menu bar" | "macos menu bar appkit" |
+
 **DISAMBIGUATION RULE:** If a word has multiple meanings, use the SPECIFIC phrase:
 - DON'T: "graph" → DO: "data visualization graph" OR "code dependency graph"
 - DON'T: "test" → DO: "unit test", "integration test", "test coverage"
@@ -626,21 +643,70 @@ The index may contain stale entries for deleted skills. Do not fail - just exclu
 non-existent skills from your co-usage analysis.
 
 ## STEP 4: Determine Co-Usage Relationships (AI INTELLIGENCE)
+
+> **⛔ CRITICAL: CO-USAGE VALIDATION RULES**
+>
+> Bad co-usage associations cause TERRIBLE user experience - irrelevant skills flood the context.
+> You MUST follow these strict validation rules:
+
+### CO-USAGE VALIDATION RULES (MANDATORY)
+
+**RULE 1: SAME-DOMAIN PREFERENCE**
+Co-usage should PRIMARILY link skills in the SAME or CLOSELY RELATED categories:
+- ✅ mobile → mobile (iOS skill with another iOS skill)
+- ✅ devops-cicd → testing (deployment needs tests)
+- ✅ web-frontend → web-backend (frontend calls APIs)
+- ❌ mobile → plugin-dev (completely unrelated domains!)
+- ❌ debugging → project-mgmt (no workflow connection!)
+
+**RULE 2: WORKFLOW JUSTIFICATION REQUIRED**
+For EVERY co-usage link, you MUST be able to answer: "In what realistic workflow would a developer use BOTH skills in the same session?"
+- ✅ "code-review" precedes "merge-branch" - PR workflow
+- ✅ "docker" usually_with "docker-compose" - container workflow
+- ❌ "swiftui-debugging" usually_with "plugin-structure" - NO logical workflow!
+
+**RULE 3: CATEGORY BOUNDARY CROSSING**
+Cross-category co-usage is ONLY valid when:
+1. There's a DIRECT workflow dependency (testing → deployment)
+2. One skill OUTPUTS what the other skill INPUTS
+3. They solve ADJACENT steps in the same development pipeline
+
+**RULE 4: QUANTITY LIMITS**
+- `usually_with`: MAX 3-5 skills (only the STRONGEST associations)
+- `precedes`: MAX 2-3 skills
+- `follows`: MAX 2-3 skills
+- `alternatives`: MAX 2-3 skills
+- If uncertain, use FEWER associations, not more!
+
+**RULE 5: NO KEYWORD-BASED ASSOCIATIONS**
+Do NOT create co-usage just because skills share keywords like:
+- "debug", "test", "deploy", "fix", "build" - too generic
+- "github", "code", "file" - appear in many skills
+- Platform names like "ios", "swift" - need workflow justification
+
+### Co-Usage Relationship Types
+
 Using your understanding of software development workflows, determine:
 
 1. **usually_with**: Skills typically used in the SAME session/task
    - Example: "docker" usually_with "docker-compose", "container-security"
+   - VALIDATION: Would a developer ACTUALLY use both in one coding session?
 
 2. **precedes**: Skills typically used BEFORE this skill
    - Example: "code-review" precedes "merge-branch"
+   - VALIDATION: Is this skill a logical PREREQUISITE?
 
 3. **follows**: Skills typically used AFTER this skill
    - Example: "write-tests" follows "implement-feature"
+   - VALIDATION: Is this skill a logical NEXT STEP?
 
 4. **alternatives**: Skills that solve the SAME problem differently
    - Example: "terraform" alternative to "pulumi"
+   - VALIDATION: Are they genuinely INTERCHANGEABLE solutions?
 
-5. **rationale**: A brief explanation of why these relationships exist
+5. **rationale**: A brief explanation of WHY these relationships exist
+   - MUST include specific workflow justification
+   - If you can't write a clear rationale, DO NOT include the association!
 
 ## STEP 5: Write Updated .pss File
 Update the .pss file at {pss_path} with co-usage data:
@@ -687,6 +753,20 @@ CRITICAL RULES:
 - Only include skills in co_usage that you ACTUALLY verified exist
 - Do not guess - if uncertain, omit that relationship
 - Write to the .pss file, NOT to the global index (orchestrator merges later)
+
+**⛔ CO-USAGE ANTI-PATTERNS (NEVER DO):**
+- NEVER link skills just because they share intents like "debug", "fix", "troubleshoot"
+- NEVER link skills from completely different tech stacks (e.g., iOS + Python)
+- NEVER link platform-specific skills with generic tools (e.g., SwiftUI + plugin-dev)
+- NEVER create more than 5 usually_with relationships - pick only the STRONGEST
+- NEVER include a skill in co_usage if you cannot explain the workflow connection
+
+**VALIDATION CHECKLIST (for each co_usage entry):**
+□ Can I describe a specific workflow where both skills are needed together?
+□ Are the skills in the same or adjacent categories?
+□ Is this a relationship most developers would recognize?
+□ Would suggesting skill B when skill A is active actually HELP the user?
+If ANY answer is NO, DO NOT include that co_usage relationship!
 ```
 
 ### Step 8: Merge Pass 2 Results into Global Index

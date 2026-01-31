@@ -46,9 +46,14 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     incomplete_mode: bool,
 
-    /// Return only the top N candidates (default: 10)
-    #[arg(long, default_value_t = 10)]
+    /// Return only the top N candidates (default: 4, reduced from 10 to save context)
+    #[arg(long, default_value_t = 4)]
     top: usize,
+
+    /// Minimum score threshold - skip suggestions below this normalized score (default: 0.5)
+    /// Score is normalized to 0.0-1.0 range. Helps filter low-confidence matches.
+    #[arg(long, default_value_t = 0.5)]
+    min_score: f64,
 
     /// Output format: "hook" (default) or "json" (raw skill list)
     #[arg(long, default_value = "hook")]
@@ -784,8 +789,9 @@ fn is_fuzzy_match(word: &str, keyword: &str) -> bool {
     let word_len = word.len();
     let keyword_len = keyword.len();
 
-    // Don't fuzzy match very short words (too many false positives)
-    if word_len < 3 || keyword_len < 3 {
+    // Don't fuzzy match short words - too many false positives (lint→link, fix→fax)
+    // Require minimum 6 characters for fuzzy matching
+    if word_len < 6 || keyword_len < 6 {
         return false;
     }
 
@@ -796,12 +802,12 @@ fn is_fuzzy_match(word: &str, keyword: &str) -> bool {
     }
 
     // Adaptive threshold based on word length
-    let threshold = if keyword_len <= 4 {
-        1
-    } else if keyword_len <= 8 {
-        2
+    let threshold = if keyword_len <= 8 {
+        1  // 6-8 chars: allow 1 edit
+    } else if keyword_len <= 12 {
+        2  // 9-12 chars: allow 2 edits
     } else {
-        3
+        3  // 13+ chars: allow 3 edits
     };
 
     damerau_levenshtein_distance(word, keyword) <= threshold
@@ -2217,8 +2223,13 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
         );
     }
 
-    // Apply --top limit
-    let limited_items: Vec<_> = context_items.into_iter().take(cli.top).collect();
+    // Apply filters: require evidence, min-score, then --top limit
+    let limited_items: Vec<_> = context_items
+        .into_iter()
+        .filter(|item| !item.evidence.is_empty())  // Must have at least 1 keyword match
+        .filter(|item| item.score >= cli.min_score)
+        .take(cli.top)
+        .collect();
 
     // Log activation with matches and timing
     let processing_ms = start_time.elapsed().as_millis() as u64;
