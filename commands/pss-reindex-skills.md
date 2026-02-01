@@ -296,11 +296,13 @@ Each subagent receives a prompt like this:
 You are analyzing skills for Batch {batch_num} (skills {start}-{end}).
 
 For EACH skill in your batch:
-1. Read the SKILL.md at the given path
+1. Read the SKILL.md at the given path THOROUGHLY - understand what it does
 2. Extract the description and use_cases VERBATIM from the frontmatter or content
 3. **MANDATORY: Assign ONE category from the list below** (NEVER use null)
-4. Generate rio-compatible keywords (8-15 keywords, multi-word phrases preferred)
-5. Output JSON result AND write a .pss file
+4. **MANDATORY: Determine platform/framework/language specificity** (read carefully!)
+5. **MANDATORY: Determine domain/tools/file_types** (for non-programming skills)
+6. Generate rio-compatible keywords (8-15 keywords, multi-word phrases preferred)
+7. Output JSON result AND write a .pss file
 
 Skills to analyze:
 {list_of_skill_paths}
@@ -349,13 +351,283 @@ For each skill, output a JSON object in Pass 1 format:
   "description": "VERBATIM description from SKILL.md frontmatter",
   "use_cases": ["VERBATIM use case 1", "VERBATIM use case 2"],
   "category": "devops-cicd",
+  "platforms": ["ios", "macos"],
+  "frameworks": ["swiftui"],
+  "languages": ["swift"],
+  "domains": ["620"],
+  "tools": ["ffmpeg", "ffprobe"],
+  "file_types": ["mp4", "mov"],
   "keywords": ["keyword1", "keyword2", "multi word phrase", ...],
   "intents": ["deploy", "build", "test"],
   "pass": 1
 }
 
+**FIELD NOTES:**
+- `domains`: Use Dewey codes from `schemas/pss-domains.json` (e.g., "620" for Video Production)
+- `tools`: Extract EXACT tool/framework/library names mentioned in the skill (build the catalog!)
+- `file_types`: Extract EXACT file extensions the skill handles
+
 CRITICAL: description and use_cases MUST be copied VERBATIM from the skill.
 DO NOT paraphrase, summarize, or rewrite them!
+
+## PLATFORM/FRAMEWORK/LANGUAGE METADATA (MANDATORY)
+
+**Read the SKILL.md carefully to determine if this skill is:**
+1. **Platform-specific**: Does it target iOS, Android, macOS, Windows, Linux, or web?
+2. **Framework-specific**: Does it target a specific framework like SwiftUI, React, Django, Rails?
+3. **Language-specific**: Does it target a specific language like Swift, Rust, Python, TypeScript?
+
+**RULES FOR METADATA EXTRACTION:**
+
+| Field | Values | When to Use |
+|-------|--------|-------------|
+| `platforms` | `["ios"]`, `["android"]`, `["macos"]`, `["windows"]`, `["linux"]`, `["web"]`, or `["universal"]` | Based on what the skill explicitly targets |
+| `frameworks` | `["swiftui"]`, `["uikit"]`, `["react"]`, `["vue"]`, `["django"]`, `["rails"]`, or `[]` | Based on frameworks mentioned in the skill |
+| `languages` | `["swift"]`, `["rust"]`, `["python"]`, `["typescript"]`, or `["any"]` | Based on languages the skill is for |
+
+**CRITICAL RULES:**
+1. **READ THE SKILL THOROUGHLY** - Don't guess, read what the skill actually covers
+2. **Be specific** - If a skill mentions "SwiftUI" and "iOS", set `platforms: ["ios"]`, `frameworks: ["swiftui"]`, `languages: ["swift"]`
+3. **Use "universal" for platforms** only if the skill explicitly works across ALL platforms
+4. **Use "any" for languages** only if the skill is truly language-agnostic (e.g., git workflow)
+5. **Leave empty `[]`** if the field doesn't apply (e.g., no specific framework)
+
+**EXAMPLES:**
+
+iOS debugging skill:
+```json
+{
+  "platforms": ["ios"],
+  "frameworks": ["swiftui", "uikit"],
+  "languages": ["swift"]
+}
+```
+
+Generic git workflow skill:
+```json
+{
+  "platforms": ["universal"],
+  "frameworks": [],
+  "languages": ["any"]
+}
+```
+
+React web development skill:
+```json
+{
+  "platforms": ["web"],
+  "frameworks": ["react"],
+  "languages": ["typescript", "javascript"]
+}
+```
+
+Rust systems programming skill:
+```json
+{
+  "platforms": ["universal"],
+  "frameworks": [],
+  "languages": ["rust"]
+}
+```
+
+**⛔ NEVER leave these fields empty for platform-specific skills!** This metadata is CRITICAL for filtering - without it, iOS skills will be suggested for Rust projects.
+
+## DOMAIN CLASSIFICATION (DEWEY-LIKE SYSTEM)
+
+PSS uses a **Dewey-like hierarchical classification** for domains. Each skill is assigned one or more domain codes based on its content.
+
+**The domain schema is in `schemas/pss-domains.json`** - consult this file for the full classification.
+
+### Main Categories (X00)
+
+| Code | Category | Description |
+|------|----------|-------------|
+| **000** | General & Meta | Cross-cutting skills (docs, planning, workflow, git) |
+| **100** | Software Development | Programming, frontend, backend, mobile, testing |
+| **200** | Data & Analytics | Data science, ML, visualization, databases |
+| **300** | DevOps & Infrastructure | CI/CD, cloud, containers, monitoring |
+| **400** | Security & Compliance | Security audits, auth, encryption, compliance |
+| **500** | Content & Communication | Writing, presentations, social media |
+| **600** | Media & Graphics | Design, video, audio, animation, 3D |
+| **700** | Business & Professional | Project mgmt, finance, legal, marketing |
+| **800** | Science & Research | Academic, bioinformatics, chemistry, physics |
+| **900** | Life & Personal | Health, travel, education, DIY, events |
+
+### Subcategories (X10-X90)
+
+Each main category has subcategories for finer classification:
+
+| Code | Subcategory |
+|------|-------------|
+| **110** | Frontend Development (Web UI) |
+| **120** | Backend Development (APIs, Servers) |
+| **130** | Mobile Development (iOS, Android) |
+| **150** | Testing & QA |
+| **220** | Machine Learning & AI Models |
+| **310** | CI/CD & Automation |
+| **330** | Containers & Orchestration |
+| **410** | Security Auditing |
+| **510** | Technical Writing |
+| **620** | Video Production |
+| **630** | Audio Production |
+| **910** | Health & Fitness |
+| **920** | Travel & Transportation |
+
+**HOW TO ASSIGN DOMAIN CODES:**
+1. Read the SKILL.md thoroughly
+2. Identify the PRIMARY domain from the 000-900 categories
+3. If applicable, use the more specific subcategory (e.g., "620" for video instead of "600")
+4. A skill can have MULTIPLE domain codes if it spans domains
+
+---
+
+## TOOL/FRAMEWORK/ARTIFACT EXTRACTION (EXACT NAMES ONLY)
+
+**⛔ CRITICAL: Extract EXACT names - do NOT use generic categories!**
+
+The `tools` field is a **dynamic catalog** built from all skills. The hook matches these exact names against user prompts. Therefore:
+
+1. **Extract the EXACT tool/framework/library/service names** mentioned in the SKILL.md
+2. **Use the canonical name** (lowercase, as written in docs)
+3. **Include version-independent names** (e.g., "ffmpeg" not "ffmpeg 6.0")
+4. **Include common aliases** if the skill mentions them
+
+### What to Extract
+
+| Type | Examples | How to Recognize |
+|------|----------|------------------|
+| **CLI Tools** | `ffmpeg`, `pandoc`, `imagemagick`, `tesseract`, `sox` | Command-line utilities mentioned for processing |
+| **Libraries** | `openpyxl`, `pandas`, `reportlab`, `pillow` | Import statements, pip/npm packages |
+| **Frameworks** | `django`, `react`, `flutter`, `swiftui` | Architecture patterns, project structure |
+| **Services** | `aws-s3`, `github-actions`, `openai-api` | External APIs, cloud services |
+| **Applications** | `blender`, `inkscape`, `gimp`, `audacity` | Desktop applications used |
+| **AI Models** | `stable-diffusion`, `whisper`, `llama` | ML models referenced |
+
+### Extraction Rules
+
+1. **Be exhaustive** - Extract ALL tools/frameworks mentioned in the skill
+2. **Use lowercase** - `FFmpeg` → `ffmpeg`, `ImageMagick` → `imagemagick`
+3. **Keep hyphens** - `stable-diffusion`, `yt-dlp`, `react-native`
+4. **No versions** - `python` not `python3.12`, `node` not `node18`
+5. **Include wrappers** - If skill uses `comfyui` for `stable-diffusion`, include BOTH
+
+### Examples
+
+**Video processing skill mentions:** "use FFmpeg to transcode, HandBrake for quick conversions, and yt-dlp for downloading"
+```json
+{
+  "tools": ["ffmpeg", "handbrake", "yt-dlp"]
+}
+```
+
+**Document skill mentions:** "converts using Pandoc, generates PDFs with wkhtmltopdf, handles DOCX with python-docx"
+```json
+{
+  "tools": ["pandoc", "wkhtmltopdf", "python-docx"]
+}
+```
+
+**ML skill mentions:** "runs Stable Diffusion via ComfyUI or Automatic1111, uses Whisper for transcription"
+```json
+{
+  "tools": ["stable-diffusion", "comfyui", "automatic1111", "whisper"]
+}
+```
+
+---
+
+## FILE TYPES (EXACT EXTENSIONS)
+
+Extract the **exact file extensions** the skill handles:
+
+| Category | Extensions |
+|----------|------------|
+| Documents | `pdf`, `docx`, `doc`, `xlsx`, `xls`, `pptx`, `odt` |
+| Text | `md`, `txt`, `rst`, `html`, `xml`, `json`, `yaml`, `csv` |
+| Images | `png`, `jpg`, `jpeg`, `gif`, `svg`, `webp`, `ico`, `tiff` |
+| Video | `mp4`, `mov`, `avi`, `mkv`, `webm`, `m4v` |
+| Audio | `mp3`, `wav`, `flac`, `aac`, `ogg`, `m4a` |
+| Archives | `zip`, `tar`, `gz`, `7z`, `rar` |
+| Code | `py`, `js`, `ts`, `rs`, `go`, `swift`, `kt` |
+| E-books | `epub`, `mobi`, `azw3` |
+
+---
+
+## COMPLETE EXAMPLES
+
+**FFmpeg video processing skill:**
+```json
+{
+  "platforms": ["universal"],
+  "frameworks": [],
+  "languages": ["any"],
+  "domains": ["620"],
+  "tools": ["ffmpeg", "ffprobe"],
+  "file_types": ["mp4", "mov", "avi", "mkv", "webm", "gif"]
+}
+```
+
+**PDF generation with Pandoc:**
+```json
+{
+  "platforms": ["universal"],
+  "frameworks": [],
+  "languages": ["any"],
+  "domains": ["510"],
+  "tools": ["pandoc", "wkhtmltopdf", "weasyprint"],
+  "file_types": ["pdf", "html", "docx", "md", "epub"]
+}
+```
+
+**React frontend skill:**
+```json
+{
+  "platforms": ["web"],
+  "frameworks": ["react", "next.js"],
+  "languages": ["typescript", "javascript"],
+  "domains": ["110"],
+  "tools": ["vite", "webpack", "eslint", "prettier"],
+  "file_types": ["tsx", "jsx", "css", "json"]
+}
+```
+
+**Stable Diffusion image generation:**
+```json
+{
+  "platforms": ["universal"],
+  "frameworks": [],
+  "languages": ["python"],
+  "domains": ["220", "610"],
+  "tools": ["stable-diffusion", "comfyui", "automatic1111", "sdxl"],
+  "file_types": ["png", "jpg", "webp", "safetensors"]
+}
+```
+
+**Security audit skill:**
+```json
+{
+  "platforms": ["universal"],
+  "frameworks": [],
+  "languages": ["any"],
+  "domains": ["410"],
+  "tools": ["nmap", "burpsuite", "sqlmap", "nikto"],
+  "file_types": []
+}
+```
+
+**Excel automation with Python:**
+```json
+{
+  "platforms": ["universal"],
+  "frameworks": [],
+  "languages": ["python"],
+  "domains": ["210", "250"],
+  "tools": ["openpyxl", "pandas", "xlsxwriter"],
+  "file_types": ["xlsx", "csv", "xls"]
+}
+```
+
+**⛔ CRITICAL:** The `tools` field builds a **dynamic catalog** used by the hook for matching. Extract EVERY tool/framework/library name from the skill - missing entries means missing matches!
 
 ## KEYWORD SELECTION RULES (CRITICAL FOR ACCURACY)
 
@@ -477,7 +749,10 @@ Merge all subagent responses into the master index (rio v2.0 compatible format w
       "intents": ["deploy", "build", "test", "release"],
       "patterns": ["workflow.*failed", "ci.*error", "deploy.*stuck"],
       "directories": ["workflows", ".github"],
-      "description": "CI/CD pipeline configuration and GitHub Actions workflows"
+      "description": "CI/CD pipeline configuration and GitHub Actions workflows",
+      "platforms": ["universal"],
+      "frameworks": [],
+      "languages": ["any"]
     }
   }
 }
@@ -494,6 +769,12 @@ Merge all subagent responses into the master index (rio v2.0 compatible format w
 | `patterns` | string[] | PSS: Regex patterns for pattern matching (+3 points) |
 | `directories` | string[] | PSS: Directory contexts for directory boost (+5 points) |
 | `description` | string | One-line description |
+| `platforms` | string[] | PSS: Target platforms (`ios`, `android`, `macos`, `windows`, `linux`, `web`, `universal`) |
+| `frameworks` | string[] | PSS: EXACT framework names extracted from skill (`react`, `django`, `swiftui`, etc.) |
+| `languages` | string[] | PSS: Target languages (`swift`, `rust`, `python`, etc., or `any`) |
+| `domains` | string[] | PSS: Dewey domain codes from `schemas/pss-domains.json` (`310`, `620`, `910`, etc.) |
+| `tools` | string[] | PSS: EXACT tool/library names extracted from skill (builds dynamic catalog) |
+| `file_types` | string[] | PSS: EXACT file extensions handled (`pdf`, `xlsx`, `mp4`, `svg`, etc.) |
 
 ### Step 5: Save Pass 1 Index + .pss Files
 
@@ -516,6 +797,12 @@ Also generate a `.pss` file for EACH skill at the same location as its SKILL.md:
     "Configuring deployment workflows"
   ],
   "category": "devops-cicd",
+  "platforms": ["universal"],
+  "frameworks": [],
+  "languages": ["any"],
+  "domains": ["310"],
+  "tools": ["github-actions", "docker", "terraform"],
+  "file_types": ["yaml", "yml"],
   "keywords": [
     "github actions workflow",
     "ci/cd pipeline configuration",
@@ -531,6 +818,8 @@ Also generate a `.pss` file for EACH skill at the same location as its SKILL.md:
   "generated": "2026-01-19T00:00:00Z"
 }
 ```
+
+**NOTE:** `domains` uses Dewey codes ("310" = CI/CD & Automation), `tools` contains EXACT names from the skill.
 
 ```bash
 mkdir -p ~/.claude/cache
@@ -802,6 +1091,9 @@ After all Pass 2 agents complete, the orchestrator:
       "description": "CI/CD pipeline configuration and GitHub Actions workflows",
       "use_cases": ["Setting up GitHub Actions", "Troubleshooting pipelines"],
       "category": "devops-cicd",
+      "platforms": ["universal"],
+      "frameworks": [],
+      "languages": ["any"],
       "co_usage": {
         "usually_with": ["github-workflow", "container-security"],
         "precedes": ["deploy-to-production"],

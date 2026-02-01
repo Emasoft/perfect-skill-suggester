@@ -1,0 +1,439 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PSS Domain Classification",
+  "description": "Dewey-like hierarchical classification system for skill domains",
+  "version": "1.0.0",
+
+  "domains": {
+    "000": {
+      "name": "General & Meta",
+      "description": "Cross-cutting skills not tied to specific domains",
+      "subcategories": {
+        "010": "Documentation & Technical Writing",
+        "020": "Planning & Architecture",
+        "030": "Organization & Workflow",
+        "040": "Communication & Collaboration",
+        "050": "Version Control & History"
+      },
+      "keywords": ["documentation", "planning", "architecture", "workflow", "organize", "git", "version control"]
+    },
+
+    "100": {
+      "name": "Software Development",
+      "description": "Core programming and software engineering skills",
+      "subcategories": {
+        "110": "Frontend Development (Web UI, CSS, HTML)",
+        "120": "Backend Development (APIs, Servers, Databases)",
+        "130": "Mobile Development (iOS, Android, Cross-platform)",
+        "140": "Systems Programming (OS, Embedded, Low-level)",
+        "150": "Testing & QA (Unit, Integration, E2E)",
+        "160": "Code Quality (Refactoring, Linting, Review)"
+      },
+      "keywords": ["code", "program", "develop", "software", "application", "api", "frontend", "backend", "mobile", "testing", "refactor"]
+    },
+
+    "200": {
+      "name": "Data & Analytics",
+      "description": "Data processing, analysis, and machine learning",
+      "subcategories": {
+        "210": "Data Science & Analysis",
+        "220": "Machine Learning & AI Models",
+        "230": "Data Visualization & Dashboards",
+        "240": "Databases & Data Storage",
+        "250": "ETL & Data Pipelines",
+        "260": "Business Intelligence"
+      },
+      "keywords": ["data", "analytics", "machine learning", "ml", "ai", "visualization", "database", "sql", "pandas", "dataframe", "statistics", "model"]
+    },
+
+    "300": {
+      "name": "DevOps & Infrastructure",
+      "description": "Deployment, operations, and infrastructure management",
+      "subcategories": {
+        "310": "CI/CD & Automation",
+        "320": "Cloud Services (AWS, GCP, Azure)",
+        "330": "Containers & Orchestration (Docker, K8s)",
+        "340": "Monitoring & Observability",
+        "350": "Configuration & IaC",
+        "360": "Networking & DNS"
+      },
+      "keywords": ["deploy", "ci/cd", "pipeline", "cloud", "aws", "docker", "kubernetes", "container", "infrastructure", "terraform", "ansible", "monitoring"]
+    },
+
+    "400": {
+      "name": "Security & Compliance",
+      "description": "Security auditing, authentication, and compliance",
+      "subcategories": {
+        "410": "Security Auditing & Penetration Testing",
+        "420": "Authentication & Authorization",
+        "430": "Encryption & Cryptography",
+        "440": "Compliance & Regulations",
+        "450": "Vulnerability Management"
+      },
+      "keywords": ["security", "audit", "vulnerability", "penetration", "pentest", "authentication", "oauth", "encryption", "compliance", "gdpr", "hipaa"]
+    },
+
+    "500": {
+      "name": "Content & Communication",
+      "description": "Writing, content creation, and communication skills",
+      "subcategories": {
+        "510": "Technical Writing & Documentation",
+        "520": "Copywriting & Marketing Content",
+        "530": "Presentation & Public Speaking",
+        "540": "Social Media & Community",
+        "550": "Translation & Localization",
+        "560": "Editing & Proofreading"
+      },
+      "keywords": ["write", "writing", "documentation", "copywriting", "grammar", "proofread", "edit text", "blog", "article", "readme", "presentation", "social media", "email", "newsletter"]
+    },
+
+    "600": {
+      "name": "Media & Graphics",
+      "description": "Visual design, video, audio, and multimedia",
+      "subcategories": {
+        "610": "Graphic Design & Illustration",
+        "620": "Video Production & Editing",
+        "630": "Audio Production & Podcasting",
+        "640": "Animation & Motion Graphics",
+        "650": "3D Modeling & Rendering",
+        "660": "Photography & Image Processing"
+      },
+      "keywords": ["icon", "svg", "image", "diagram", "chart", "logo", "illustration", "ui design", "mockup", "video", "audio", "transcode", "subtitle", "animation", "gif", "3d", "render"]
+    },
+
+    "700": {
+      "name": "Business & Professional",
+      "description": "Business operations, finance, and professional services",
+      "subcategories": {
+        "710": "Project Management & Agile",
+        "720": "Finance & Accounting",
+        "730": "Legal & Contracts",
+        "740": "Marketing & Sales",
+        "750": "Human Resources & Recruiting",
+        "760": "Customer Support"
+      },
+      "keywords": ["project management", "agile", "scrum", "budget", "invest", "tax", "expense", "finance", "legal", "law", "contract", "compliance", "marketing", "sales"]
+    },
+
+    "800": {
+      "name": "Science & Research",
+      "description": "Scientific research, academic work, and specialized domains",
+      "subcategories": {
+        "810": "Academic Research & Papers",
+        "820": "Bioinformatics & Genomics",
+        "830": "Chemistry & Materials",
+        "840": "Physics & Engineering",
+        "850": "Mathematics & Statistics",
+        "860": "Environmental Science"
+      },
+      "keywords": ["research", "paper", "arxiv", "academic", "literature", "citation", "genome", "dna", "genetic", "bioinformatics", "chemistry", "physics", "experiment", "lab"]
+    },
+
+    "900": {
+      "name": "Life & Personal",
+      "description": "Personal productivity, lifestyle, and everyday skills",
+      "subcategories": {
+        "910": "Health & Fitness",
+        "920": "Travel & Transportation",
+        "930": "Education & Learning",
+        "940": "DIY & Home Improvement",
+        "950": "Events & Entertainment",
+        "960": "Publishing & Self-Publishing",
+        "970": "Food & Nutrition"
+      },
+      "keywords": ["health", "medical", "diagnosis", "diet", "fitness", "exercise", "travel", "trip", "itinerary", "teach", "lesson", "course", "repair", "diy", "home improvement", "conference", "event", "publish", "novel", "book"]
+    }
+  },
+
+  "keyword_to_domain_mapping": {
+    "documentation": "010",
+    "technical writing": "510",
+    "planning": "020",
+    "architecture": "020",
+    "workflow": "030",
+    "git": "050",
+    "version control": "050",
+
+    "frontend": "110",
+    "react": "110",
+    "vue": "110",
+    "angular": "110",
+    "css": "110",
+    "html": "110",
+    "ui": "110",
+
+    "backend": "120",
+    "api": "120",
+    "rest": "120",
+    "graphql": "120",
+    "server": "120",
+
+    "mobile": "130",
+    "ios": "130",
+    "android": "130",
+    "flutter": "130",
+    "react native": "130",
+
+    "systems": "140",
+    "embedded": "140",
+    "os": "140",
+    "kernel": "140",
+
+    "test": "150",
+    "testing": "150",
+    "unit test": "150",
+    "integration test": "150",
+    "e2e": "150",
+    "qa": "150",
+
+    "refactor": "160",
+    "lint": "160",
+    "code review": "160",
+    "clean code": "160",
+
+    "data science": "210",
+    "data analysis": "210",
+    "pandas": "210",
+    "dataframe": "210",
+
+    "machine learning": "220",
+    "ml": "220",
+    "ai": "220",
+    "neural": "220",
+    "model training": "220",
+    "llm": "220",
+    "gpt": "220",
+    "diffusion": "220",
+    "stable diffusion": "220",
+
+    "visualization": "230",
+    "chart": "230",
+    "graph": "230",
+    "dashboard": "230",
+    "d3": "230",
+    "matplotlib": "230",
+
+    "database": "240",
+    "sql": "240",
+    "postgres": "240",
+    "mysql": "240",
+    "mongodb": "240",
+
+    "etl": "250",
+    "pipeline": "250",
+    "data pipeline": "250",
+
+    "ci/cd": "310",
+    "continuous integration": "310",
+    "continuous deployment": "310",
+    "github actions": "310",
+    "jenkins": "310",
+
+    "cloud": "320",
+    "aws": "320",
+    "gcp": "320",
+    "azure": "320",
+    "serverless": "320",
+    "lambda": "320",
+
+    "docker": "330",
+    "container": "330",
+    "kubernetes": "330",
+    "k8s": "330",
+    "helm": "330",
+
+    "monitoring": "340",
+    "observability": "340",
+    "logging": "340",
+    "prometheus": "340",
+    "grafana": "340",
+
+    "terraform": "350",
+    "ansible": "350",
+    "infrastructure as code": "350",
+    "iac": "350",
+
+    "security": "410",
+    "audit": "410",
+    "vulnerability": "410",
+    "penetration": "410",
+    "pentest": "410",
+
+    "authentication": "420",
+    "oauth": "420",
+    "jwt": "420",
+    "auth": "420",
+
+    "encryption": "430",
+    "cryptography": "430",
+    "crypto": "430",
+
+    "compliance": "440",
+    "gdpr": "440",
+    "hipaa": "440",
+    "sox": "440",
+
+    "write": "510",
+    "writing": "510",
+    "documentation": "510",
+    "readme": "510",
+
+    "copywriting": "520",
+    "marketing content": "520",
+    "blog": "520",
+    "article": "520",
+
+    "presentation": "530",
+    "slides": "530",
+    "powerpoint": "530",
+    "keynote": "530",
+
+    "social media": "540",
+    "twitter": "540",
+    "linkedin": "540",
+    "newsletter": "540",
+
+    "translation": "550",
+    "localization": "550",
+    "i18n": "550",
+
+    "proofread": "560",
+    "grammar": "560",
+    "edit text": "560",
+
+    "icon": "610",
+    "svg": "610",
+    "logo": "610",
+    "illustration": "610",
+    "graphic design": "610",
+    "image": "610",
+    "mockup": "610",
+
+    "video": "620",
+    "video editing": "620",
+    "transcode": "620",
+    "subtitle": "620",
+    "youtube": "620",
+
+    "audio": "630",
+    "podcast": "630",
+    "music": "630",
+    "sound": "630",
+
+    "animation": "640",
+    "motion graphics": "640",
+    "gif": "640",
+    "lottie": "640",
+
+    "3d": "650",
+    "render": "650",
+    "blender": "650",
+    "modeling": "650",
+
+    "photography": "660",
+    "photo editing": "660",
+
+    "project management": "710",
+    "agile": "710",
+    "scrum": "710",
+    "kanban": "710",
+    "jira": "710",
+
+    "finance": "720",
+    "budget": "720",
+    "invest": "720",
+    "tax": "720",
+    "expense": "720",
+    "accounting": "720",
+
+    "legal": "730",
+    "law": "730",
+    "contract": "730",
+    "attorney": "730",
+    "patent": "730",
+    "trademark": "730",
+
+    "marketing": "740",
+    "sales": "740",
+    "seo": "740",
+    "advertising": "740",
+
+    "research": "810",
+    "paper": "810",
+    "arxiv": "810",
+    "academic": "810",
+    "literature": "810",
+    "citation": "810",
+
+    "genome": "820",
+    "dna": "820",
+    "genetic": "820",
+    "bioinformatics": "820",
+    "protein": "820",
+
+    "chemistry": "830",
+    "molecule": "830",
+    "compound": "830",
+
+    "physics": "840",
+    "engineering": "840",
+    "simulation": "840",
+
+    "mathematics": "850",
+    "statistics": "850",
+    "calculus": "850",
+
+    "health": "910",
+    "medical": "910",
+    "diagnosis": "910",
+    "fitness": "910",
+    "exercise": "910",
+    "workout": "910",
+
+    "diet": "910",
+    "nutrition": "970",
+    "recipe": "970",
+    "cooking": "970",
+
+    "travel": "920",
+    "trip": "920",
+    "itinerary": "920",
+    "flight": "920",
+    "hotel": "920",
+    "vacation": "920",
+
+    "teach": "930",
+    "lesson": "930",
+    "course": "930",
+    "curriculum": "930",
+    "tutor": "930",
+    "learning": "930",
+    "education": "930",
+
+    "repair": "940",
+    "diy": "940",
+    "home improvement": "940",
+    "fix car": "940",
+    "plumbing": "940",
+    "electrical": "940",
+
+    "conference": "950",
+    "event": "950",
+    "meeting": "950",
+    "schedule": "950",
+    "venue": "950",
+
+    "publish": "960",
+    "novel": "960",
+    "manuscript": "960",
+    "book": "960",
+    "author": "960",
+    "isbn": "960"
+  },
+
+  "notes": {
+    "usage": "Agents assign domain codes during reindexing. The hook maps keywords to domain codes for context detection.",
+    "hierarchy": "Main category (X00) + subcategory (X10-X90). Skills can have multiple domain codes.",
+    "extension": "New subcategories can be added under any main category without breaking existing codes."
+  }
+}

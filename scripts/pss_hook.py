@@ -14,11 +14,12 @@ import platform
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 # Configuration - tune these to control context usage
-MAX_SUGGESTIONS = 4  # Maximum number of skill suggestions (was 10, reduced to save context)
+MAX_SUGGESTIONS = 4  # Maximum number of skill suggestions per message (strict limit)
 MIN_SCORE = 0.5  # Minimum score threshold (skip low-confidence matches)
-MAX_TRANSCRIPT_LINES = 50  # How many recent transcript lines to scan for context
+MAX_TRANSCRIPT_LINES = 200  # How many recent transcript lines to scan for context
 
 # Project type detection markers
 PROJECT_MARKERS = {
@@ -50,6 +51,43 @@ PROJECT_MARKERS = {
     "conanfile.txt": ("cpp", ["c++", "cpp", "conan"]),
     "conanfile.py": ("cpp", ["c++", "cpp", "conan"]),
     "vcpkg.json": ("cpp", ["c++", "cpp", "vcpkg"]),
+}
+
+# Detailed context metadata for Rust binary filtering
+# project_type → {platforms, frameworks, languages}
+PROJECT_CONTEXT_METADATA: dict[str, dict[str, list[str]]] = {
+    "rust": {"platforms": [], "frameworks": [], "languages": ["rust"]},
+    "javascript": {"platforms": [], "frameworks": [], "languages": ["javascript"]},
+    "typescript": {"platforms": [], "frameworks": [], "languages": ["typescript"]},
+    "python": {"platforms": [], "frameworks": [], "languages": ["python"]},
+    "go": {"platforms": [], "frameworks": [], "languages": ["go"]},
+    "swift": {
+        "platforms": ["ios", "macos", "watchos", "tvos"],
+        "frameworks": [],
+        "languages": ["swift"],
+    },
+    "ios": {
+        "platforms": ["ios"],
+        "frameworks": [],
+        "languages": ["swift", "objective-c"],
+    },
+    "android": {
+        "platforms": ["android"],
+        "frameworks": [],
+        "languages": ["kotlin", "java"],
+    },
+    "cpp": {"platforms": [], "frameworks": [], "languages": ["c++", "c"]},
+    "c": {"platforms": [], "frameworks": [], "languages": ["c"]},
+    "csharp": {"platforms": ["windows"], "frameworks": ["dotnet"], "languages": ["c#"]},
+    "dotnet": {"platforms": ["windows"], "frameworks": ["dotnet"], "languages": ["c#"]},
+    "ruby": {"platforms": [], "frameworks": [], "languages": ["ruby"]},
+    "elixir": {"platforms": [], "frameworks": [], "languages": ["elixir"]},
+    "flutter": {
+        "platforms": ["ios", "android"],
+        "frameworks": ["flutter"],
+        "languages": ["dart"],
+    },
+    "make": {"platforms": [], "frameworks": [], "languages": []},
 }
 
 # File extensions for additional context (if no project marker found)
@@ -103,6 +141,147 @@ CONVERSATION_KEYWORDS = {
     "xcode": ["xcode", "ios", "macos"],
 }
 
+# ============================================================================
+# DYNAMIC CATALOGS - Loaded from schema files and skill index
+# ============================================================================
+
+# Dewey-like domain classification (loaded from pss-domains.json)
+# Maps keywords to domain codes (e.g., "docker" -> "330" for Containers)
+DOMAIN_KEYWORD_MAP: dict[str, str] = {}
+
+# Dynamic tool catalog (extracted from skill-index.json during load)
+# Contains ALL tool names mentioned across all indexed skills
+TOOL_CATALOG: set[str] = set()
+
+# Schema file paths (relative to plugin root)
+DOMAIN_SCHEMA_FILE = "schemas/pss-domains.json"
+SKILL_INDEX_FILE = "skill-index.json"
+
+
+def _get_plugin_root() -> Path:
+    """Get the plugin root directory."""
+    # Script is in scripts/, plugin root is parent
+    return Path(__file__).parent.parent
+
+
+def _get_cache_dir() -> Path:
+    """Get the cache directory (~/.claude/cache/)."""
+    return Path.home() / ".claude" / "cache"
+
+
+def _load_domain_schema() -> dict[str, str]:
+    """Load Dewey-like domain classification from schema file."""
+    schema_path = _get_plugin_root() / DOMAIN_SCHEMA_FILE
+    if not schema_path.exists():
+        # Fallback: return empty, will use no domain detection
+        return {}
+
+    try:
+        with open(schema_path, "r", encoding="utf-8") as f:
+            schema: dict[str, object] = json.load(f)
+
+        # Extract keyword_to_domain_mapping
+        mapping = schema.get("keyword_to_domain_mapping", {})
+        if isinstance(mapping, dict):
+            # Validate and return only str->str entries
+            result: dict[str, str] = {}
+            for k, v in mapping.items():
+                if isinstance(k, str) and isinstance(v, str):
+                    result[k] = v
+            return result
+        return {}
+    except (json.JSONDecodeError, IOError, OSError):
+        return {}
+
+
+def _load_tool_catalog() -> set[str]:
+    """
+    Load tool catalog dynamically from skill-index.json.
+
+    This extracts ALL unique tool names from the 'tools' field of every skill
+    in the index. No hardcoded tool list - the catalog is built from what
+    skills actually declare they use.
+    """
+    index_path = _get_cache_dir() / SKILL_INDEX_FILE
+    if not index_path.exists():
+        # Fallback: return empty set, no tool detection until index exists
+        return set()
+
+    try:
+        with open(index_path, "r", encoding="utf-8") as f:
+            index = json.load(f)
+
+        tools: set[str] = set()
+        skills = index.get("skills", {})
+
+        for skill_name, skill_data in skills.items():
+            # Extract tools from skill entry
+            skill_tools = skill_data.get("tools", [])
+            if isinstance(skill_tools, list):
+                for tool in skill_tools:
+                    if isinstance(tool, str) and tool.strip():
+                        # Store lowercase for case-insensitive matching
+                        tools.add(tool.strip().lower())
+
+        return tools
+    except (json.JSONDecodeError, IOError, OSError):
+        return set()
+
+
+def _initialize_catalogs() -> None:
+    """Initialize domain and tool catalogs on first use."""
+    global DOMAIN_KEYWORD_MAP, TOOL_CATALOG
+
+    if not DOMAIN_KEYWORD_MAP:
+        DOMAIN_KEYWORD_MAP = _load_domain_schema()
+
+    if not TOOL_CATALOG:
+        TOOL_CATALOG = _load_tool_catalog()
+
+
+# Initialize catalogs when module loads
+_initialize_catalogs()
+
+
+# File type detection keywords (from conversation/prompt)
+FILE_TYPE_KEYWORDS = {
+    "pdf": ["pdf"],
+    "xlsx": ["xlsx"],
+    "xls": ["xls", "xlsx"],
+    "excel": ["xlsx"],
+    "docx": ["docx"],
+    "doc": ["doc", "docx"],
+    "word": ["docx"],
+    "pptx": ["pptx"],
+    "powerpoint": ["pptx"],
+    "epub": ["epub"],
+    "mobi": ["mobi"],
+    "csv": ["csv"],
+    "json": ["json"],
+    "yaml": ["yaml"],
+    "yml": ["yaml"],
+    "xml": ["xml"],
+    "html": ["html"],
+    "markdown": ["md"],
+    "mp4": ["mp4"],
+    "mp3": ["mp3"],
+    "wav": ["wav"],
+    "flac": ["flac"],
+    "mov": ["mov"],
+    "avi": ["avi"],
+    "mkv": ["mkv"],
+    "webm": ["webm"],
+    "png": ["png"],
+    "jpg": ["jpg"],
+    "jpeg": ["jpg"],
+    "gif": ["gif"],
+    "svg": ["svg"],
+    "webp": ["webp"],
+    "ico": ["ico"],
+    "tiff": ["tiff"],
+    "bmp": ["bmp"],
+}
+
 # Prompts to skip (slash commands and simple responses don't need skill suggestions)
 SKIP_PREFIXES = (
     "/",  # Slash commands like /plugin, /help, /exit
@@ -111,13 +290,52 @@ SKIP_PREFIXES = (
 
 SKIP_SIMPLE_PROMPTS = {
     # Single words - confirmations and acknowledgments only
-    "continue", "yes", "no", "ok", "okay", "thanks", "sure", "done", "stop",
-    "y", "n", "yep", "nope", "thx", "ty", "next", "go", "proceed", "k",
-    "yea", "yeah", "nah", "good", "great", "perfect", "fine", "cool", "nice",
+    "continue",
+    "yes",
+    "no",
+    "ok",
+    "okay",
+    "thanks",
+    "sure",
+    "done",
+    "stop",
+    "y",
+    "n",
+    "yep",
+    "nope",
+    "thx",
+    "ty",
+    "next",
+    "go",
+    "proceed",
+    "k",
+    "yea",
+    "yeah",
+    "nah",
+    "good",
+    "great",
+    "perfect",
+    "fine",
+    "cool",
+    "nice",
     # Two-word phrases
-    "got it", "thank you", "thanks!", "ok thanks", "okay thanks", "sounds good",
-    "go ahead", "do it", "looks good", "that works", "yes please", "no thanks",
-    "i see", "i understand", "makes sense", "all good", "thank you!",
+    "got it",
+    "thank you",
+    "thanks!",
+    "ok thanks",
+    "okay thanks",
+    "sounds good",
+    "go ahead",
+    "do it",
+    "looks good",
+    "that works",
+    "yes please",
+    "no thanks",
+    "i see",
+    "i understand",
+    "makes sense",
+    "all good",
+    "thank you!",
 }
 
 
@@ -203,6 +421,124 @@ def extract_conversation_context(transcript_path: str) -> list[str]:
     return list(set(context_keywords))  # Dedupe
 
 
+def extract_context_metadata(cwd: str) -> dict[str, list[str]]:
+    """
+    Extract detailed context metadata for Rust binary filtering.
+
+    Returns platforms, frameworks, and languages detected from project type.
+    """
+    result: dict[str, list[str]] = {"platforms": [], "frameworks": [], "languages": []}
+
+    if not cwd:
+        return result
+
+    cwd_path = Path(cwd)
+    if not cwd_path.exists():
+        return result
+
+    detected_type = None
+
+    # Check for project marker files
+    for marker, (project_type, _) in PROJECT_MARKERS.items():
+        if (cwd_path / marker).exists():
+            detected_type = project_type
+            break
+
+    # If no marker found, check parent directories
+    if not detected_type:
+        for parent in list(cwd_path.parents)[:3]:
+            for marker, (project_type, _) in PROJECT_MARKERS.items():
+                if (parent / marker).exists():
+                    detected_type = project_type
+                    break
+            if detected_type:
+                break
+
+    # If no marker found, check file extensions
+    if not detected_type:
+        ext_to_type = {
+            ".rs": "rust",
+            ".py": "python",
+            ".js": "javascript",
+            ".ts": "typescript",
+            ".swift": "swift",
+            ".kt": "android",
+            ".go": "go",
+            ".rb": "ruby",
+            ".c": "c",
+            ".cpp": "cpp",
+            ".cs": "csharp",
+            ".m": "ios",
+        }
+        for ext, proj_type in ext_to_type.items():
+            if list(cwd_path.glob(f"*{ext}"))[:1]:
+                detected_type = proj_type
+                break
+
+    # Get metadata for detected project type
+    if detected_type and detected_type in PROJECT_CONTEXT_METADATA:
+        meta: dict[str, list[str]] = PROJECT_CONTEXT_METADATA[detected_type]
+        result["platforms"] = meta.get("platforms", [])
+        result["frameworks"] = meta.get("frameworks", [])
+        result["languages"] = meta.get("languages", [])
+
+    return result
+
+
+def detect_prompt_context(
+    prompt: str, transcript_path: str = ""
+) -> dict[str, list[str]]:
+    """Detect domains, tools, and file types from prompt and conversation context."""
+    result: dict[str, list[str]] = {"domains": [], "tools": [], "file_types": []}
+
+    # Combine prompt with recent conversation for context detection
+    text_to_analyze = prompt.lower()
+
+    # Also add transcript content if available
+    if transcript_path:
+        transcript_file = Path(transcript_path)
+        if transcript_file.exists():
+            try:
+                with open(transcript_file, "r", encoding="utf-8") as f:
+                    lines = f.readlines()[-MAX_TRANSCRIPT_LINES:]
+                for line in lines:
+                    try:
+                        entry = json.loads(line.strip())
+                        if "message" in entry:
+                            msg = entry["message"]
+                            if isinstance(msg, dict) and "content" in msg:
+                                text_to_analyze += " " + str(msg["content"]).lower()
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        continue
+            except (IOError, OSError):
+                pass
+
+    # Detect domains using Dewey classification from pss-domains.json
+    # DOMAIN_KEYWORD_MAP maps keywords to domain codes (e.g., "docker" -> "330")
+    for keyword, domain_code in DOMAIN_KEYWORD_MAP.items():
+        if keyword in text_to_analyze:
+            result["domains"].append(domain_code)
+
+    # Detect tools from dynamic catalog extracted from skill-index.json
+    # TOOL_CATALOG contains ALL tool names mentioned in indexed skills
+    # We do exact substring matching against the prompt
+    for tool in TOOL_CATALOG:
+        if tool in text_to_analyze:
+            result["tools"].append(tool)
+
+    # Detect file types
+    for keyword, file_types in FILE_TYPE_KEYWORDS.items():
+        if keyword in text_to_analyze:
+            result["file_types"].extend(file_types)
+
+    # Dedupe
+    result["domains"] = list(set(result["domains"]))
+    result["tools"] = list(set(result["tools"]))
+    result["file_types"] = list(set(result["file_types"]))
+
+    return result
+
+
 def augment_prompt_with_context(prompt: str, cwd: str, transcript_path: str) -> str:
     """Add context keywords to generic prompts for better skill matching."""
     # Collect context from project type and conversation
@@ -253,7 +589,7 @@ def should_skip_prompt(prompt: str) -> bool:
     return False
 
 
-def detect_platform():
+def detect_platform() -> str:
     """Detect platform and architecture, return binary name."""
     system = platform.system().lower()
     machine = platform.machine().lower()
@@ -283,7 +619,7 @@ def detect_platform():
     raise RuntimeError(f"Unsupported platform: {system} {machine}")
 
 
-def find_binary():
+def find_binary() -> Path:
     """Locate the PSS binary relative to this script."""
     # This script is in: OUTPUT_SKILLS/perfect-skill-suggester/scripts/pss_hook.py
     # Binary is in: OUTPUT_SKILLS/perfect-skill-suggester/rust/skill-suggester/bin/
@@ -297,14 +633,14 @@ def find_binary():
     return binary_path
 
 
-def main():
+def main() -> None:
     """Main entry point - read stdin, call binary, output result."""
     try:
         # Read JSON input from stdin
         stdin_data = sys.stdin.read()
 
         # Parse input to check if we should skip
-        input_json: dict = {}
+        input_json: dict[str, Any] = {}
         try:
             input_json = json.loads(stdin_data)
             prompt = input_json.get("prompt", "")
@@ -324,28 +660,44 @@ def main():
         # Augment generic prompts with project/conversation context
         augmented_prompt = augment_prompt_with_context(prompt, cwd, transcript_path)
 
-        # Update the input JSON with augmented prompt
+        # Extract detailed context metadata for platform/framework/language filtering
+        context_metadata = extract_context_metadata(cwd)
+
+        # Extract domains, tools, file types from prompt and conversation
+        prompt_context = detect_prompt_context(prompt, transcript_path)
+
+        # Update the input JSON with augmented prompt and all context metadata
         input_json["prompt"] = augmented_prompt
+        input_json["context_platforms"] = context_metadata["platforms"]
+        input_json["context_frameworks"] = context_metadata["frameworks"]
+        input_json["context_languages"] = context_metadata["languages"]
+        input_json["context_domains"] = prompt_context["domains"]
+        input_json["context_tools"] = prompt_context["tools"]
+        input_json["context_file_types"] = prompt_context["file_types"]
         augmented_stdin = json.dumps(input_json)
 
         # Find the binary
         binary_path = find_binary()
 
-        # Call the binary with --format hook, --top to limit count, --min-score to filter low quality
+        # Call the binary with --format hook, --top to limit count,
+        # --min-score to filter low quality matches
         result = subprocess.run(
             [
                 str(binary_path),
-                "--format", "hook",
-                "--top", str(MAX_SUGGESTIONS),
-                "--min-score", str(MIN_SCORE),
+                "--format",
+                "hook",
+                "--top",
+                str(MAX_SUGGESTIONS),
+                "--min-score",
+                str(MIN_SCORE),
             ],
             input=augmented_stdin,
             capture_output=True,
             text=True,
-            timeout=30  # 30 second timeout
+            timeout=30,  # 30 second timeout
         )
 
-        # Output the result
+        # Output the result (binary already limits to MAX_SUGGESTIONS)
         if result.returncode == 0:
             print(result.stdout, end="")
         else:

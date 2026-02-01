@@ -297,6 +297,154 @@ pub struct HookInput {
     /// Permission mode (ask, auto, etc.)
     #[serde(default)]
     pub permission_mode: String,
+
+    // Context metadata detected by Python hook
+
+    /// Detected platforms from project context (e.g., ["ios", "macos"])
+    #[serde(default)]
+    pub context_platforms: Vec<String>,
+
+    /// Detected frameworks from project context (e.g., ["swiftui", "react"])
+    #[serde(default)]
+    pub context_frameworks: Vec<String>,
+
+    /// Detected languages from project context (e.g., ["swift", "rust"])
+    #[serde(default)]
+    pub context_languages: Vec<String>,
+
+    /// Detected domains from conversation context (e.g., ["writing", "graphics"])
+    #[serde(default)]
+    pub context_domains: Vec<String>,
+
+    /// Detected tools from conversation context (e.g., ["ffmpeg", "pandoc"])
+    #[serde(default)]
+    pub context_tools: Vec<String>,
+
+    /// Detected file types from conversation context (e.g., ["pdf", "xlsx"])
+    #[serde(default)]
+    pub context_file_types: Vec<String>,
+}
+
+/// Project context for filtering skills by platform/framework/language/domain/tools/file-types
+#[derive(Debug, Clone, Default)]
+pub struct ProjectContext {
+    /// Detected platforms from project (e.g., ["ios", "macos"])
+    pub platforms: Vec<String>,
+    /// Detected frameworks from project (e.g., ["swiftui", "react"])
+    pub frameworks: Vec<String>,
+    /// Detected languages from project (e.g., ["swift", "rust"])
+    pub languages: Vec<String>,
+    /// Detected domains from conversation (e.g., ["writing", "graphics", "media"])
+    pub domains: Vec<String>,
+    /// Detected tools from conversation (e.g., ["ffmpeg", "pandoc"])
+    pub tools: Vec<String>,
+    /// Detected file types from conversation (e.g., ["pdf", "xlsx"])
+    pub file_types: Vec<String>,
+}
+
+impl ProjectContext {
+    /// Create context from HookInput fields
+    pub fn from_hook_input(input: &HookInput) -> Self {
+        ProjectContext {
+            platforms: input.context_platforms.clone(),
+            frameworks: input.context_frameworks.clone(),
+            languages: input.context_languages.clone(),
+            domains: input.context_domains.clone(),
+            tools: input.context_tools.clone(),
+            file_types: input.context_file_types.clone(),
+        }
+    }
+
+    /// Check if context is empty (no filtering)
+    pub fn is_empty(&self) -> bool {
+        self.platforms.is_empty()
+            && self.frameworks.is_empty()
+            && self.languages.is_empty()
+            && self.domains.is_empty()
+            && self.tools.is_empty()
+            && self.file_types.is_empty()
+    }
+
+    /// Calculate context match score for a skill entry
+    /// Returns (score_boost, should_filter_out)
+    /// - score_boost: +10 for platform match, +8 for framework match, +6 for language match
+    /// - should_filter_out: true if skill is platform-specific but context doesn't match
+    pub fn match_skill(&self, skill: &SkillEntry) -> (i32, bool) {
+        let mut boost = 0i32;
+        let mut should_filter = false;
+
+        // Platform matching
+        if !skill.platforms.is_empty() && !skill.platforms.contains(&"universal".to_string()) {
+            // Skill is platform-specific
+            if !self.platforms.is_empty() {
+                // We have context - check for match
+                let has_platform_match = skill.platforms.iter().any(|p| {
+                    self.platforms.iter().any(|cp| cp.to_lowercase() == p.to_lowercase())
+                });
+                if has_platform_match {
+                    boost += 10; // Strong boost for matching platform
+                } else {
+                    should_filter = true; // Filter out non-matching platform-specific skills
+                }
+            }
+            // If no context, don't filter but don't boost either
+        }
+
+        // Framework matching (less strict - don't filter, just boost)
+        if !skill.frameworks.is_empty() && !self.frameworks.is_empty() {
+            let has_framework_match = skill.frameworks.iter().any(|f| {
+                self.frameworks.iter().any(|cf| cf.to_lowercase() == f.to_lowercase())
+            });
+            if has_framework_match {
+                boost += 8; // Good boost for matching framework
+            }
+        }
+
+        // Language matching (less strict - don't filter, just boost)
+        if !skill.languages.is_empty()
+            && !skill.languages.contains(&"any".to_string())
+            && !self.languages.is_empty()
+        {
+            let has_lang_match = skill.languages.iter().any(|l| {
+                self.languages.iter().any(|cl| cl.to_lowercase() == l.to_lowercase())
+            });
+            if has_lang_match {
+                boost += 6; // Moderate boost for matching language
+            }
+        }
+
+        // Domain matching (boost for matching domain expertise)
+        if !skill.domains.is_empty() && !self.domains.is_empty() {
+            let has_domain_match = skill.domains.iter().any(|d| {
+                self.domains.iter().any(|cd| cd.to_lowercase() == d.to_lowercase())
+            });
+            if has_domain_match {
+                boost += 8; // Good boost for matching domain
+            }
+        }
+
+        // Tool matching (strong boost for matching specific tools)
+        if !skill.tools.is_empty() && !self.tools.is_empty() {
+            let has_tool_match = skill.tools.iter().any(|t| {
+                self.tools.iter().any(|ct| ct.to_lowercase() == t.to_lowercase())
+            });
+            if has_tool_match {
+                boost += 12; // Very strong boost for matching tools (specific expertise)
+            }
+        }
+
+        // File type matching (boost for matching file formats)
+        if !skill.file_types.is_empty() && !self.file_types.is_empty() {
+            let has_file_type_match = skill.file_types.iter().any(|ft| {
+                self.file_types.iter().any(|cft| cft.to_lowercase() == ft.to_lowercase())
+            });
+            if has_file_type_match {
+                boost += 10; // Strong boost for matching file types
+            }
+        }
+
+        (boost, should_filter)
+    }
 }
 
 // ============================================================================
@@ -378,6 +526,32 @@ pub struct SkillEntry {
     /// Skill category for grouping (from PSS)
     #[serde(default)]
     pub category: String,
+
+    // Platform/Framework/Language specificity metadata (from Pass 1)
+
+    /// Platforms this skill targets: ["ios", "macos", "android", "windows", "linux"] or ["universal"]
+    #[serde(default)]
+    pub platforms: Vec<String>,
+
+    /// Frameworks this skill targets: ["swiftui", "uikit", "react", "vue", "django"] or []
+    #[serde(default)]
+    pub frameworks: Vec<String>,
+
+    /// Programming languages this skill targets: ["swift", "rust", "python", "typescript"] or ["any"]
+    #[serde(default)]
+    pub languages: Vec<String>,
+
+    /// Domain expertise areas: ["writing", "graphics", "media", "file-formats", "security", "research", "ai-ml", "data", "devops"]
+    #[serde(default)]
+    pub domains: Vec<String>,
+
+    /// Specific tools the skill uses: ["ffmpeg", "imagemagick", "pandoc", "stable-diffusion", "whisper"]
+    #[serde(default)]
+    pub tools: Vec<String>,
+
+    /// File formats the skill handles: ["xlsx", "docx", "pdf", "epub", "mp4", "svg", "png"]
+    #[serde(default)]
+    pub file_types: Vec<String>,
 
     // Co-usage fields (from Pass 2)
 
@@ -1350,12 +1524,14 @@ struct MatchedSkill {
 /// * `expanded_prompt` - The prompt after synonym expansion
 /// * `index` - The skill index to search
 /// * `cwd` - Current working directory for directory context matching
+/// * `context` - Project context for platform/framework/language filtering
 /// * `incomplete_mode` - If true, skip co_usage boosts (for Pass 2 candidate finding)
 fn find_matches(
     original_prompt: &str,
     expanded_prompt: &str,
     index: &SkillIndex,
     cwd: &str,
+    context: &ProjectContext,
     incomplete_mode: bool,
 ) -> Vec<MatchedSkill> {
     let weights = MatchWeights::default();
@@ -1382,6 +1558,29 @@ fn find_matches(
         if has_negative {
             debug!("Skipping skill '{}' due to negative keyword match", name);
             continue;
+        }
+
+        // Project context matching (platform/framework/language)
+        // This filters out platform-specific skills that don't match the detected context
+        let (context_boost, should_filter) = context.match_skill(entry);
+        if should_filter {
+            debug!(
+                "Skipping skill '{}' due to platform mismatch (skill: {:?}, context: {:?})",
+                name, entry.platforms, context.platforms
+            );
+            continue;
+        }
+        if context_boost > 0 {
+            score += context_boost;
+            if !context.platforms.is_empty() && !entry.platforms.is_empty() {
+                evidence.push(format!("platform:{:?}", entry.platforms));
+            }
+            if !context.frameworks.is_empty() && !entry.frameworks.is_empty() {
+                evidence.push(format!("framework:{:?}", entry.frameworks));
+            }
+            if !context.languages.is_empty() && !entry.languages.is_empty() {
+                evidence.push(format!("lang:{:?}", entry.languages));
+            }
         }
 
         // Directory context matching
@@ -1792,6 +1991,13 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
             tier: pss.scoring.tier.clone(),
             boost: pss.scoring.boost,
             category: pss.scoring.category.clone(),
+            // Platform/Framework/Language metadata (empty for PSS files - populated by reindex)
+            platforms: vec![],
+            frameworks: vec![],
+            languages: vec![],
+            domains: vec![],
+            tools: vec![],
+            file_types: vec![],
             // Co-usage fields (empty for PSS files - populated by reindex)
             usually_with: vec![],
             precedes: vec![],
@@ -2115,6 +2321,15 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
     // Load and merge PSS files (per-skill matcher files)
     load_pss_files(&mut index);
 
+    // Create project context from hook input for platform/framework/language filtering
+    let context = ProjectContext::from_hook_input(&input);
+    if !context.is_empty() {
+        debug!(
+            "Project context: platforms={:?}, frameworks={:?}, languages={:?}",
+            context.platforms, context.frameworks, context.languages
+        );
+    }
+
     // Apply typo corrections first (from Claude-Rio)
     let corrected_prompt = correct_typos(&input.prompt);
     if corrected_prompt != input.prompt.to_lowercase() {
@@ -2139,7 +2354,7 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
             .iter()
             .map(|task| {
                 let expanded = expand_synonyms(task);
-                find_matches(task, &expanded, &index, &input.cwd, cli.incomplete_mode)
+                find_matches(task, &expanded, &index, &input.cwd, &context, cli.incomplete_mode)
             })
             .collect();
 
@@ -2149,7 +2364,7 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
         // Single task - normal processing
         let expanded_prompt = expand_synonyms(&corrected_prompt);
         debug!("Expanded prompt: {}", expanded_prompt);
-        find_matches(&input.prompt, &expanded_prompt, &index, &input.cwd, cli.incomplete_mode)
+        find_matches(&input.prompt, &expanded_prompt, &index, &input.cwd, &context, cli.incomplete_mode)
     };
 
     if matches.is_empty() {
@@ -2396,7 +2611,7 @@ mod tests {
         let index = create_test_index();
         let original = "help me set up github actions";
         let expanded = expand_synonyms(original);
-        let matches = find_matches(original, &expanded, &index, "", false);
+        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false);
 
         assert!(!matches.is_empty());
         assert_eq!(matches[0].name, "devops-expert");
@@ -2410,14 +2625,14 @@ mod tests {
         // HIGH confidence - many keyword matches
         let original = "help me deploy github actions ci cd pipeline";
         let expanded = expand_synonyms(original);
-        let matches = find_matches(original, &expanded, &index, "", false);
+        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false);
         assert!(!matches.is_empty());
         assert_eq!(matches[0].confidence, Confidence::High);
 
         // LOW confidence - single keyword
         let original2 = "help me with docker";
         let expanded2 = expand_synonyms(original2);
-        let matches2 = find_matches(original2, &expanded2, &index, "", false);
+        let matches2 = find_matches(original2, &expanded2, &index, "", &ProjectContext::default(), false);
         assert!(!matches2.is_empty());
         // Score should be lower
     }
@@ -2429,10 +2644,10 @@ mod tests {
         let expanded = expand_synonyms(original);
 
         // With matching directory
-        let matches_with_dir = find_matches(original, &expanded, &index, "/project/.github/workflows", false);
+        let matches_with_dir = find_matches(original, &expanded, &index, "/project/.github/workflows", &ProjectContext::default(), false);
 
         // Without matching directory
-        let matches_no_dir = find_matches(original, &expanded, &index, "/project/src", false);
+        let matches_no_dir = find_matches(original, &expanded, &index, "/project/src", &ProjectContext::default(), false);
 
         // Directory match should boost score
         if !matches_with_dir.is_empty() && !matches_no_dir.is_empty() {
@@ -2470,7 +2685,7 @@ mod tests {
         // because kubernetes is a negative keyword for docker-expert
         let original = "help me with docker and kubernetes";
         let expanded = expand_synonyms(original);
-        let matches = find_matches(original, &expanded, &index, "", false);
+        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false);
 
         // Docker-expert should be filtered out due to "kubernetes" negative keyword
         let docker_match = matches.iter().find(|m| m.name == "docker-expert");
@@ -2485,7 +2700,7 @@ mod tests {
         // Test that primary tier skills rank higher
         let original = "help me deploy to ci";
         let expanded = expand_synonyms(original);
-        let matches = find_matches(original, &expanded, &index, "", false);
+        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false);
 
         if !matches.is_empty() {
             let devops_match = matches.iter().find(|m| m.name == "devops-expert");
@@ -2553,7 +2768,7 @@ mod tests {
             skills,
         };
 
-        let matches = find_matches("run test", "run test", &index, "", false);
+        let matches = find_matches("run test", "run test", &index, "", &ProjectContext::default(), false);
 
         // With same scores, skill should come before agent
         if matches.len() >= 2 {
@@ -2683,7 +2898,7 @@ mod tests {
         let original = "help me with typscript code";
         let corrected = correct_typos(original);
         let expanded = expand_synonyms(&corrected);
-        let matches = find_matches(original, &expanded, &index, "", false);
+        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false);
 
         assert!(!matches.is_empty(), "Should match typescript-expert even with typo");
         assert_eq!(matches[0].name, "typescript-expert");
@@ -2835,7 +3050,7 @@ mod tests {
             .iter()
             .map(|task| {
                 let expanded = expand_synonyms(task);
-                find_matches(task, &expanded, &index, "", false)
+                find_matches(task, &expanded, &index, "", &ProjectContext::default(), false)
             })
             .collect();
 
