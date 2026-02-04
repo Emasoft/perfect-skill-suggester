@@ -1,20 +1,25 @@
 ---
 name: pss-usage
-description: "How to use Perfect Skill Suggester commands and interpret skill suggestions"
+description: "Use when you need to work with Perfect Skill Suggester commands, interpret skill suggestions, understand confidence levels, or troubleshoot PSS issues"
 argument-hint: ""
 user-invocable: false
 ---
 
 # PSS Usage Skill
 
-## Purpose
+## Overview
 
-This skill teaches you how to:
-- Use PSS (Perfect Skill Suggester) commands
-- Interpret skill suggestion output
-- Understand confidence levels and evidence types
-- Troubleshoot common PSS issues
-- Maintain the skill index
+Perfect Skill Suggester (PSS) is an AI-powered plugin that automatically suggests relevant skills based on your prompts. This skill teaches you how to use PSS commands (`/pss-status`, `/pss-reindex-skills`), interpret skill suggestion output with confidence levels (HIGH/MEDIUM/LOW) and evidence types (intent/keyword/co_usage), and maintain the skill index for optimal performance.
+
+## Prerequisites
+
+Before using PSS, ensure:
+- **PSS plugin is installed and enabled** - Verify with `/plugin list`
+- **Skills are available** - At least one skill directory exists in `~/.claude/skills/` or project `.claude/skills/`
+- **Index has been built** - Run `/pss-reindex-skills` at least once after installation
+- **Write permissions** - PSS needs to write `skill-index.json` to `~/.claude/` directory
+
+If index has never been built, PSS will show "Index file missing" error when trying to suggest skills.
 
 ## When to Use This Skill
 
@@ -30,6 +35,39 @@ This skill teaches you how to:
 - General skill activation (use skill-specific skills instead)
 - Writing skill content (use skill authoring skills instead)
 - Plugin development (use plugin development skills instead)
+
+---
+
+## Instructions
+
+### Step-by-Step Usage
+
+**Step 1: Verify PSS is working**
+```
+/pss-status
+```
+Check that index exists and shows recent timestamp.
+
+**Step 2: Build/rebuild index after installing skills**
+```
+/pss-reindex-skills
+```
+Wait for "Phase 2: Analysis... ✓ Index updated successfully" message.
+
+**Step 3: Use natural prompts and review suggestions**
+```
+"I need to write Python unit tests"
+```
+PSS will suggest relevant skills with confidence levels and evidence.
+
+**Step 4: Activate HIGH confidence skills**
+```
+/skill activate python-test-writer
+```
+Review MEDIUM confidence based on evidence; skip LOW confidence.
+
+**Step 5: Reindex after major changes**
+Run `/pss-reindex-skills` after installing/modifying/deleting skills to keep suggestions accurate.
 
 ---
 
@@ -120,7 +158,9 @@ For comprehensive information about all PSS commands, see [pss-commands.md](refe
 
 ---
 
-## Understanding PSS Suggestion Output
+## Output
+
+### Understanding PSS Suggestion Output
 
 When PSS suggests skills, you will see output like:
 
@@ -288,7 +328,7 @@ For detailed troubleshooting, see section 5.2 in [pss-commands.md](references/ps
 
 ---
 
-## Troubleshooting Quick Links
+## Error Handling
 
 **Problem: PSS commands not found**
 - See section 5.1 in [pss-commands.md](references/pss-commands.md)
@@ -355,6 +395,83 @@ For detailed troubleshooting, see section 5.2 in [pss-commands.md](references/ps
 - Delete index file every few months
 - Rebuild with `/pss-reindex-skills`
 - Ensures AI co-usage analysis is fresh
+
+---
+
+## Examples
+
+### Example 1: Testing Workflow
+
+**User prompt:**
+```
+"Write pytest tests for the authentication module"
+```
+
+**PSS suggests:**
+- `python-test-writer` (HIGH, intent:testing, keyword:pytest, keyword:tests)
+- `auth-security-checker` (MEDIUM, keyword:authentication, co_usage:python-test-writer(0.7))
+- `docker-deploy` (LOW, co_usage:python-test-writer(0.3))
+
+**Actions:**
+1. Activate `python-test-writer` (HIGH confidence, directly needed)
+2. Activate `auth-security-checker` (MEDIUM confidence, relevant for auth testing)
+3. Skip `docker-deploy` (LOW confidence, not relevant to test writing)
+
+---
+
+### Example 2: First-Time Setup
+
+**Commands:**
+```
+/pss-status
+```
+Output: "Index file missing"
+
+```
+/pss-reindex-skills
+```
+Output: "Phase 2: Analysis... ✓ Index updated successfully. Total: 42 skills"
+
+```
+/pss-status
+```
+Output: "Index Status: ✓ Exists. Total Skills Indexed: 42"
+
+**Result:** PSS is now ready to suggest skills.
+
+---
+
+### Example 3: Debugging Missing Suggestions
+
+**Problem:** Expected skill not suggested.
+
+**Steps:**
+1. Check PSS health: `/pss-status` → Index exists
+2. Refresh index: `/pss-reindex-skills` → Completed successfully
+3. Verify skill metadata: Open `SKILL.md`, check frontmatter has `keywords` and `categories`
+4. Rephrase prompt with explicit keywords: "Write pytest unit tests" → `python-test-writer` now appears
+
+**Resolution:** Keyword matching is sensitive; use exact terms from skill metadata.
+
+---
+
+## Resources
+
+### Related Documentation
+
+- **[pss-commands.md](references/pss-commands.md)** - Complete command reference with detailed explanations of `/pss-status` and `/pss-reindex-skills`
+- **PSS Architecture** - See `docs/PSS-ARCHITECTURE.md` in PSS plugin directory for design principles
+- **Plugin Validation** - See `docs/PLUGIN-VALIDATION.md` for PSS validation procedures
+
+### Related Skills
+
+- **Skill authoring skills** - For creating/modifying skills that PSS will index
+- **Plugin development skills** - For modifying PSS plugin behavior
+
+### External References
+
+- **Agent Skills Open Standard** - https://github.com/agentskills/agentskills
+- **Claude Code Documentation** - https://platform.claude.com/llms.txt
 
 ---
 
