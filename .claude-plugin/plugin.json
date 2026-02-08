@@ -1,6 +1,6 @@
 {
   "name": "perfect-skill-suggester",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "High-accuracy skill activation (88%+) with Dewey-like domain classification, dynamic tool catalog from skill index, weighted scoring, and three-tier confidence routing.",
   "author": {
     "name": "Emasoft",
