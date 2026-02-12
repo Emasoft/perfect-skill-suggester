@@ -10,6 +10,7 @@ Now with context-awareness:
 """
 
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -603,6 +604,15 @@ def detect_platform() -> str:
     elif machine in ("amd64",):
         machine = "x86_64"
 
+    # Detect Android (reports as linux arm64 but uses separate binary)
+    if system == "linux" and machine == "arm64":
+        android_markers = (
+            os.environ.get("ANDROID_ROOT"),
+            os.environ.get("TERMUX_VERSION"),
+        )
+        if any(android_markers):
+            return "pss-android-arm64"
+
     # Map to binary names
     if system == "darwin":
         if machine == "arm64":
@@ -615,11 +625,17 @@ def detect_platform() -> str:
         if machine == "x86_64":
             return "pss-linux-x86_64"
     elif system == "windows":
-        # Windows is typically x86_64
+        if machine == "arm64":
+            return "pss-windows-arm64.exe"
         return "pss-windows-x86_64.exe"
 
     # Unsupported platform
-    raise RuntimeError(f"Unsupported platform: {system} {machine}")
+    raise RuntimeError(
+        f"Unsupported platform: {system} {machine}. "
+        f"Supported: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64, "
+        f"windows-x86_64, windows-arm64, android-arm64. "
+        f"For other platforms, use the WASM binary: pss-wasm32.wasm"
+    )
 
 
 def find_binary() -> Path:
@@ -631,7 +647,10 @@ def find_binary() -> Path:
     binary_path = script_dir.parent / "rust" / "skill-suggester" / "bin" / binary_name
 
     if not binary_path.exists():
-        raise FileNotFoundError(f"Binary not found: {binary_path}")
+        raise FileNotFoundError(
+            f"PSS binary not found at: {binary_path}. "
+            f"Build it with: uv run python {script_dir / 'pss_build.py'}"
+        )
 
     return binary_path
 
@@ -675,7 +694,8 @@ def main() -> None:
         index_path = _get_cache_dir() / SKILL_INDEX_FILE
         if not index_path.exists():
             _exit_warning(
-                "skill-index.json not found — run /pss-reindex-skills to generate it"
+                f"skill-index.json not found at {index_path} — "
+                f"run /pss-reindex-skills in Claude Code to generate it"
             )
             return
 
@@ -683,7 +703,7 @@ def main() -> None:
         try:
             binary_path = find_binary()
         except (FileNotFoundError, RuntimeError) as e:
-            _exit_warning(f"binary not found: {e}")
+            _exit_warning(str(e))
             return
 
         # NOW initialize catalogs (lazy — only after skip checks pass)
@@ -732,13 +752,18 @@ def main() -> None:
             print(result.stdout, end="")
         else:
             _exit_warning(
-                f"binary error (exit {result.returncode}): {result.stderr[:200]}"
+                f"binary exited with code {result.returncode}: {result.stderr[:300]}. "
+                f"Try rebuilding: uv run python {Path(__file__).parent / 'pss_build.py'}"
             )
 
         sys.exit(0)  # Always exit 0 to not block Claude
 
     except subprocess.TimeoutExpired:
-        _exit_warning(f"binary timed out after {SUBPROCESS_TIMEOUT}s")
+        _exit_warning(
+            f"binary timed out after {SUBPROCESS_TIMEOUT}s. "
+            f"The skill index may be too large or the binary may be stuck. "
+            f"Check: uv run python {Path(__file__).parent / 'pss_test_e2e.py'}"
+        )
     except Exception as e:
         _exit_warning(str(e))
 

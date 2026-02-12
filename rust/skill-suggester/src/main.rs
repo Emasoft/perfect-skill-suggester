@@ -63,6 +63,12 @@ struct Cli {
     /// By default, only skill-index.json is used (PSS files are transient).
     #[arg(long, default_value_t = false)]
     load_pss: bool,
+
+    /// Path to skill-index.json. Overrides the default (~/.claude/cache/skill-index.json).
+    /// Required on WASM targets where home directory is unavailable.
+    /// Can also be set via PSS_INDEX_PATH environment variable.
+    #[arg(long)]
+    index: Option<String>,
 }
 
 // ============================================================================
@@ -1871,11 +1877,33 @@ fn calculate_relative_score(score: i32, max_score: i32) -> f64 {
 // Index Loading
 // ============================================================================
 
-/// Get the path to the skill index file
-fn get_index_path() -> Result<PathBuf, SuggesterError> {
-    let home = dirs::home_dir().ok_or(SuggesterError::NoHomeDir)?;
-    let index_path = home.join(".claude").join(CACHE_DIR).join(INDEX_FILE);
-    Ok(index_path)
+/// Get the path to the skill index file.
+/// Resolution order: --index CLI flag > PSS_INDEX_PATH env var > ~/.claude/cache/skill-index.json
+fn get_index_path(cli_index: Option<&str>) -> Result<PathBuf, SuggesterError> {
+    // 1. CLI flag takes priority (required on WASM targets)
+    if let Some(path) = cli_index {
+        return Ok(PathBuf::from(path));
+    }
+
+    // 2. Environment variable fallback
+    if let Ok(path) = std::env::var("PSS_INDEX_PATH") {
+        if !path.is_empty() {
+            return Ok(PathBuf::from(path));
+        }
+    }
+
+    // 3. Default: ~/.claude/cache/skill-index.json (native targets only)
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let home = dirs::home_dir().ok_or(SuggesterError::NoHomeDir)?;
+        return Ok(home.join(".claude").join(CACHE_DIR).join(INDEX_FILE));
+    }
+
+    // On WASM, --index or PSS_INDEX_PATH is required
+    #[cfg(target_arch = "wasm32")]
+    {
+        Err(SuggesterError::NoHomeDir)
+    }
 }
 
 /// Load and parse the skill index
@@ -2017,7 +2045,9 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
     Ok(())
 }
 
-/// Discover and load all PSS files from skill directories
+/// Discover and load all PSS files from skill directories.
+/// On WASM targets this is a no-op since there is no home directory.
+#[cfg(not(target_arch = "wasm32"))]
 fn load_pss_files(index: &mut SkillIndex) {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -2076,11 +2106,19 @@ fn load_pss_files(index: &mut SkillIndex) {
     }
 }
 
+/// WASM stub: PSS file loading is not available (no home directory)
+#[cfg(target_arch = "wasm32")]
+fn load_pss_files(_index: &mut SkillIndex) {
+    debug!("PSS file loading not available on WASM targets");
+}
+
 // ============================================================================
 // Activation Logging
 // ============================================================================
 
-/// Get the path to the activation log file
+/// Get the path to the activation log file.
+/// On WASM targets, returns None (no home directory for log storage).
+#[cfg(not(target_arch = "wasm32"))]
 fn get_log_path() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     let log_dir = home.join(".claude").join(LOG_DIR);
@@ -2094,6 +2132,12 @@ fn get_log_path() -> Option<PathBuf> {
     }
 
     Some(log_dir.join(ACTIVATION_LOG_FILE))
+}
+
+/// WASM stub: activation logging is not available (no home directory)
+#[cfg(target_arch = "wasm32")]
+fn get_log_path() -> Option<PathBuf> {
+    None
 }
 
 /// Calculate a simple hash of the prompt for deduplication
@@ -2306,8 +2350,8 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
     // Start timing for activation logging
     let start_time = Instant::now();
 
-    // Load skill index
-    let index_path = get_index_path()?;
+    // Load skill index (--index flag > PSS_INDEX_PATH env > ~/.claude/cache/)
+    let index_path = get_index_path(cli.index.as_deref())?;
     debug!("Loading index from: {:?}", index_path);
 
     let mut index = match load_index(&index_path) {

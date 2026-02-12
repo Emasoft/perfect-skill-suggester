@@ -1,6 +1,6 @@
 [package]
 name = "perfect-skill-suggester"
-version = "1.0.0"
+version = "1.8.0"
 edition = "2021"
 authors = ["Emasoft <713559+Emasoft@users.noreply.github.com>"]
 description = "High-accuracy skill suggester for Claude Code with weighted scoring, synonym expansion, and confidence routing"
@@ -14,13 +14,16 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
 colored = "3.0"
-dirs = "6.0"
 regex = "1.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 lazy_static = "1.4"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 clap = { version = "4.5", features = ["derive"] }
+
+# dirs only available on native targets (not WASM - no home directory concept)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dirs = "6.0"
 
 [[bin]]
 name = "pss"

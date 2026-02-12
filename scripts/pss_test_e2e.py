@@ -226,6 +226,15 @@ def detect_platform_binary() -> str:
     elif machine in ("amd64",):
         machine = "x86_64"
 
+    # Detect Android (reports as linux arm64 but uses separate binary)
+    if system == "linux" and machine == "arm64":
+        android_markers = (
+            os.environ.get("ANDROID_ROOT"),
+            os.environ.get("TERMUX_VERSION"),
+        )
+        if any(android_markers):
+            return "pss-android-arm64"
+
     if system == "darwin":
         if machine == "arm64":
             return "pss-darwin-arm64"
@@ -237,6 +246,8 @@ def detect_platform_binary() -> str:
         if machine == "x86_64":
             return "pss-linux-x86_64"
     elif system == "windows":
+        if machine == "arm64":
+            return "pss-windows-arm64.exe"
         return "pss-windows-x86_64.exe"
 
     raise RuntimeError(f"Unsupported platform: {system} {machine}")
@@ -247,7 +258,11 @@ def find_binary(plugin_root: Path) -> Path:
     binary_name = detect_platform_binary()
     binary_path = plugin_root / "rust" / "skill-suggester" / "bin" / binary_name
     if not binary_path.exists():
-        raise FileNotFoundError(f"Binary not found: {binary_path}")
+        raise FileNotFoundError(
+            f"PSS binary not found for platform {binary_name}. "
+            f"Expected at: {binary_path}. "
+            f"Build it with: uv run python {plugin_root}/scripts/pss_build.py"
+        )
     return binary_path
 
 
@@ -347,7 +362,9 @@ def phase3_pass1_merge(env: dict[str, Any], verbose: bool) -> TestResult:
             return TestResult(
                 "Phase 3: Pass 1 merge",
                 False,
-                f"Merge script not found: {merge_script}",
+                f"Merge queue script not found at {merge_script}. "
+                "This script is part of the PSS plugin and should not be missing. "
+                "Reinstall the plugin.",
             )
 
         merged = 0
@@ -436,6 +453,15 @@ def phase4_pass2_merge(env: dict[str, Any], verbose: bool) -> TestResult:
         index_path: Path = env["index_path"]
         plugin_root: Path = env["plugin_root"]
         merge_script = plugin_root / "scripts" / "pss_merge_queue.py"
+
+        if not merge_script.exists():
+            return TestResult(
+                "Phase 4: Pass 2 merge",
+                False,
+                f"Merge queue script not found at {merge_script}. "
+                "This script is part of the PSS plugin and should not be missing. "
+                "Reinstall the plugin.",
+            )
 
         merged = 0
         errors: list[str] = []
@@ -535,7 +561,9 @@ def phase5_binary_scoring(env: dict[str, Any], verbose: bool) -> TestResult:
             return TestResult(
                 "Phase 5: Binary scoring",
                 False,
-                f"Binary exit {result.returncode}: {result.stderr[:300]}",
+                f"Binary failed (exit {result.returncode}). "
+                f"Stderr: {result.stderr[:500]}. "
+                f"Try rebuilding: uv run python {env['plugin_root']}/scripts/pss_build.py",
             )
 
         # Verify output is valid JSON
@@ -607,7 +635,11 @@ def phase6_hook_simulation(env: dict[str, Any], verbose: bool) -> TestResult:
             )
 
             if result.returncode != 0:
-                errors.append(f"'{prompt}': binary exit {result.returncode}")
+                errors.append(
+                    f"'{prompt}': Binary failed (exit {result.returncode}). "
+                    f"Stderr: {result.stderr[:500]}. "
+                    f"Try rebuilding: uv run python {env['plugin_root']}/scripts/pss_build.py"
+                )
                 continue
 
             # Verify JSON output
@@ -741,7 +773,13 @@ def main() -> int:
         plugin_root = Path(__file__).parent.parent
 
     if not plugin_root.is_dir():
-        print(f"Error: {plugin_root} is not a directory", file=sys.stderr)
+        print(
+            f"Could not determine plugin root directory. "
+            f"Resolved path '{plugin_root}' is not a directory. "
+            f"This script must be run from inside the perfect-skill-suggester plugin directory, "
+            f"or the plugin directory must contain scripts/pss_test_e2e.py.",
+            file=sys.stderr,
+        )
         return 1
 
     # Header

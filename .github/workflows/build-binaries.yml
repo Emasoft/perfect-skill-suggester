@@ -1,0 +1,196 @@
+# Build PSS binaries for all supported platforms
+# Triggered on Rust source changes or manually via workflow_dispatch
+
+name: Build Multi-Platform Binaries
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'rust/skill-suggester/src/**'
+      - 'rust/skill-suggester/Cargo.toml'
+      - 'rust/skill-suggester/Cargo.lock'
+      - '.github/workflows/build-binaries.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_SOURCE: rust/skill-suggester
+  BIN_DIR: rust/skill-suggester/bin
+
+jobs:
+  # Native macOS builds (cannot use cross for macOS)
+  build-macos:
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+            binary: pss-darwin-arm64
+          - target: x86_64-apple-darwin
+            os: macos-13
+            binary: pss-darwin-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        working-directory: ${{ env.RUST_SOURCE }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Copy binary to bin/
+        run: |
+          cp "${{ env.RUST_SOURCE }}/target/${{ matrix.target }}/release/pss" \
+             "${{ env.BIN_DIR }}/${{ matrix.binary }}"
+          chmod +x "${{ env.BIN_DIR }}/${{ matrix.binary }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}
+          path: ${{ env.BIN_DIR }}/${{ matrix.binary }}
+
+  # Cross-compiled builds (Linux, Windows, Android)
+  build-cross:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            binary: pss-linux-x86_64
+          - target: aarch64-unknown-linux-musl
+            binary: pss-linux-arm64
+          - target: x86_64-pc-windows-gnu
+            binary: pss-windows-x86_64.exe
+          - target: aarch64-linux-android
+            binary: pss-android-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        run: cargo install cross --locked
+
+      - name: Build with cross
+        working-directory: ${{ env.RUST_SOURCE }}
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Copy binary to bin/
+        run: |
+          src="${{ env.RUST_SOURCE }}/target/${{ matrix.target }}/release/pss"
+          # Windows binaries have .exe extension in the release dir
+          if [[ "${{ matrix.binary }}" == *.exe ]]; then
+            src="${src}.exe"
+          fi
+          cp "$src" "${{ env.BIN_DIR }}/${{ matrix.binary }}"
+          chmod +x "${{ env.BIN_DIR }}/${{ matrix.binary }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}
+          path: ${{ env.BIN_DIR }}/${{ matrix.binary }}
+
+  # Windows ARM64 build (requires special cross setup)
+  build-windows-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-gnullvm
+
+      - name: Install cross
+        run: cargo install cross --locked
+
+      - name: Build with cross
+        working-directory: ${{ env.RUST_SOURCE }}
+        run: cross build --release --target aarch64-pc-windows-gnullvm
+
+      - name: Copy binary to bin/
+        run: |
+          cp "${{ env.RUST_SOURCE }}/target/aarch64-pc-windows-gnullvm/release/pss.exe" \
+             "${{ env.BIN_DIR }}/pss-windows-arm64.exe"
+          chmod +x "${{ env.BIN_DIR }}/pss-windows-arm64.exe"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pss-windows-arm64.exe
+          path: ${{ env.BIN_DIR }}/pss-windows-arm64.exe
+
+  # WASM build
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Build WASM binary
+        working-directory: ${{ env.RUST_SOURCE }}
+        run: cargo build --release --target wasm32-wasip1
+
+      - name: Copy binary to bin/
+        run: |
+          cp "${{ env.RUST_SOURCE }}/target/wasm32-wasip1/release/pss.wasm" \
+             "${{ env.BIN_DIR }}/pss-wasm32.wasm"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pss-wasm32.wasm
+          path: ${{ env.BIN_DIR }}/pss-wasm32.wasm
+
+  # Commit all built binaries back to the repo
+  commit-binaries:
+    needs: [build-macos, build-cross, build-windows-arm64, build-wasm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Copy binaries to bin/
+        run: |
+          for dir in artifacts/*/; do
+            cp "$dir"/* "${{ env.BIN_DIR }}/"
+          done
+          chmod +x "${{ env.BIN_DIR }}"/pss-*
+          ls -la "${{ env.BIN_DIR }}/"
+
+      - name: Commit and push binaries
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${{ env.BIN_DIR }}/"
+          if git diff --cached --quiet; then
+            echo "No binary changes to commit"
+          else
+            git commit -m "build: update pre-built binaries for all platforms
+
+          Built from: ${{ github.sha }}
+          Targets: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64,
+                   windows-x86_64, windows-arm64, android-arm64, wasm32"
+            git push
+          fi

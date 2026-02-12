@@ -6,11 +6,13 @@ Usage:
     python scripts/pss_setup.py           # Run full setup
     python scripts/pss_setup.py --verify  # Verify installation only
     python scripts/pss_setup.py --build   # Build binary only
-    python scripts/pss_setup.py --index   # Generate skill index only
+    python scripts/pss_setup.py --index   # Check skill index status
+    python scripts/pss_setup.py --test    # Run end-to-end pipeline tests
 """
 
 import argparse
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -43,6 +45,15 @@ def detect_platform() -> tuple[str, str]:
     elif machine in ("amd64",):
         machine = "x86_64"
 
+    # Detect Android (reports as linux arm64 but uses separate binary)
+    if system == "linux" and machine == "arm64":
+        android_markers = (
+            os.environ.get("ANDROID_ROOT"),
+            os.environ.get("TERMUX_VERSION"),
+        )
+        if any(android_markers):
+            return "android", machine
+
     return system, machine
 
 
@@ -53,29 +64,29 @@ def get_binary_name() -> str:
     return f"pss-{system}-{machine}{ext}"
 
 
-def print_header(text: str):
+def print_header(text: str) -> None:
     """Print a section header."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  {text}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
 
-def print_step(text: str):
+def print_step(text: str) -> None:
     """Print a step."""
     print(f"\n>> {text}")
 
 
-def print_ok(text: str):
+def print_ok(text: str) -> None:
     """Print success message."""
     print(f"   [OK] {text}")
 
 
-def print_fail(text: str):
+def print_fail(text: str) -> None:
     """Print failure message."""
     print(f"   [FAIL] {text}")
 
 
-def print_warn(text: str):
+def print_warn(text: str) -> None:
     """Print warning message."""
     print(f"   [WARN] {text}")
 
@@ -94,10 +105,7 @@ def check_rust_installed() -> bool:
     """Check Rust toolchain."""
     try:
         result = subprocess.run(
-            ["cargo", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10
+            ["cargo", "--version"], capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0:
             version = result.stdout.strip()
@@ -105,7 +113,15 @@ def check_rust_installed() -> bool:
             return True
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
-    print_fail("Rust not installed (https://rustup.rs/)")
+    print_fail("Rust toolchain not found")
+    print("         PSS requires Rust installed via rustup (NOT Homebrew).")
+    print(
+        "         Homebrew Rust lacks 'rustup' and cannot add cross-compilation targets."
+    )
+    print(
+        "         Install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+    )
+    print("         Then: source $HOME/.cargo/env")
     return False
 
 
@@ -121,7 +137,7 @@ def check_binary_exists() -> bool:
                 [str(binary_path), "--version"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             if result.returncode == 0:
                 version = result.stdout.strip()
@@ -129,9 +145,13 @@ def check_binary_exists() -> bool:
                 return True
         except (subprocess.TimeoutExpired, OSError) as e:
             print_fail(f"Binary exists but fails to run: {e}")
+            print("         Try rebuilding: uv run python scripts/pss_build.py")
             return False
 
     print_warn(f"Binary not found: {binary_name}")
+    print(f"         Expected at: {binary_path}")
+    print("         Build it with: uv run python scripts/pss_build.py")
+    print("         Or for all platforms: uv run python scripts/pss_build.py --all")
     return False
 
 
@@ -140,7 +160,13 @@ def check_skill_index() -> bool:
     index_path = Path.home() / ".claude" / "cache" / "skill-index.json"
 
     if not index_path.exists():
-        print_warn("Skill index not found (run /pss-reindex-skills)")
+        print_warn("Skill index not found")
+        print(
+            "         The skill index maps user prompts to relevant skills using AI-analyzed keywords."
+        )
+        print("         Without it, PSS cannot suggest skills.")
+        print("         Generate it: use /pss-reindex-skills in Claude Code")
+        print(f"         Expected at: {index_path}")
         return False
 
     try:
@@ -148,10 +174,15 @@ def check_skill_index() -> bool:
         skills_count = len(data.get("skills", {}))
         version = data.get("version", "unknown")
         method = data.get("method", "unknown")
-        print_ok(f"Skill index: {skills_count} skills (v{version}, {method})")
+        pass_num = data.get("pass", "unknown")
+        print_ok(
+            f"Skill index: {skills_count} skills (v{version}, {method}, pass {pass_num})"
+        )
         return True
     except (json.JSONDecodeError, OSError) as e:
-        print_fail(f"Skill index invalid: {e}")
+        print_fail(f"Skill index corrupt: {e}")
+        print(f"         Delete and regenerate: rm {index_path}")
+        print("         Then use /pss-reindex-skills in Claude Code")
         return False
 
 
@@ -161,6 +192,9 @@ def check_hooks_configured() -> bool:
 
     if not hooks_file.exists():
         print_fail("hooks/hooks.json not found")
+        print(f"         Expected at: {hooks_file}")
+        print("         This file is part of the plugin and should not be missing.")
+        print("         Reinstall the plugin from the marketplace.")
         return False
 
     try:
@@ -169,10 +203,15 @@ def check_hooks_configured() -> bool:
         if "UserPromptSubmit" in hooks:
             print_ok("Hooks configured (UserPromptSubmit)")
             return True
-        print_warn("UserPromptSubmit hook not configured")
+        print_warn("UserPromptSubmit hook not configured in hooks.json")
+        print(
+            "         PSS needs this hook to intercept user prompts and suggest skills."
+        )
+        print("         Check hooks/hooks.json for a UserPromptSubmit entry.")
         return False
     except (json.JSONDecodeError, OSError) as e:
-        print_fail(f"hooks.json invalid: {e}")
+        print_fail(f"hooks.json invalid JSON: {e}")
+        print("         Reinstall the plugin to restore a valid hooks.json.")
         return False
 
 
@@ -182,7 +221,6 @@ def check_scripts_executable() -> bool:
     all_ok = True
 
     for script in scripts_dir.glob("*.py"):
-        import os
         if os.access(script, os.X_OK):
             pass  # Don't print each one
         else:
@@ -209,10 +247,7 @@ def build_binary() -> bool:
 
     bin_dir.mkdir(parents=True, exist_ok=True)
 
-    result = subprocess.run(
-        ["cargo", "build", "--release"],
-        cwd=rust_dir
-    )
+    result = subprocess.run(["cargo", "build", "--release"], cwd=rust_dir)
 
     if result.returncode != 0:
         print_fail("Cargo build failed")
@@ -222,7 +257,7 @@ def build_binary() -> bool:
     system, _ = detect_platform()
     binary_name = get_binary_name()
 
-    source = rust_dir / "target" / "release" / "skill-suggester"
+    source = rust_dir / "target" / "release" / "pss"
     if system == "windows":
         source = source.with_suffix(".exe")
 
@@ -238,7 +273,7 @@ def build_binary() -> bool:
     return False
 
 
-def make_scripts_executable():
+def make_scripts_executable() -> None:
     """Make all Python scripts executable."""
     print_step("Making scripts executable...")
 
@@ -258,10 +293,7 @@ def run_validation() -> bool:
 
     validator = get_plugin_root() / "scripts" / "pss_validate_plugin.py"
 
-    result = subprocess.run(
-        [sys.executable, str(validator)],
-        cwd=get_plugin_root()
-    )
+    result = subprocess.run([sys.executable, str(validator)], cwd=get_plugin_root())
 
     return result.returncode == 0
 
@@ -289,10 +321,11 @@ def verify_installation() -> bool:
     total = len(results)
 
     if passed == total:
-        print(f"\n  All {total} checks passed!")
+        print(f"\n  All {total} checks passed! PSS is ready.")
         return True
     print(f"\n  {passed}/{total} checks passed")
-    print("  Run 'python scripts/pss_setup.py' to fix issues")
+    print("  Fix the [FAIL] and [WARN] items above, then re-run:")
+    print("    uv run python scripts/pss_setup.py --verify")
     return False
 
 
@@ -313,7 +346,6 @@ def full_setup() -> bool:
     # Step 2: Check Rust
     print_step("Checking Rust toolchain...")
     if not check_rust_installed():
-        print("\n  Install Rust from: https://rustup.rs/")
         return False
 
     # Step 3: Build binary
@@ -334,19 +366,18 @@ def full_setup() -> bool:
     return verify_installation()
 
 
-def main():
+def main() -> int:
+    """Run PSS setup based on CLI arguments."""
     parser = argparse.ArgumentParser(
         description="Setup and verify Perfect Skill Suggester plugin"
     )
     parser.add_argument(
-        "--verify",
-        action="store_true",
-        help="Verify installation only"
+        "--verify", action="store_true", help="Verify installation only"
     )
+    parser.add_argument("--build", action="store_true", help="Build binary only")
+    parser.add_argument("--index", action="store_true", help="Check skill index status")
     parser.add_argument(
-        "--build",
-        action="store_true",
-        help="Build binary only"
+        "--test", action="store_true", help="Run end-to-end pipeline tests"
     )
 
     args = parser.parse_args()
@@ -358,6 +389,28 @@ def main():
         if not check_rust_installed():
             return 1
         return 0 if build_binary() else 1
+
+    if args.index:
+        print_header("Skill Index Status")
+        print_step("Checking skill index...")
+        if check_skill_index():
+            return 0
+        print("\n  To generate the skill index, use the /pss-reindex-skills command")
+        print("  in Claude Code. This spawns AI agents to analyze all installed skills")
+        print("  and typically takes 2-5 minutes depending on skill count.")
+        return 1
+
+    if args.test:
+        print_header("Running PSS End-to-End Tests")
+        test_script = get_plugin_root() / "scripts" / "pss_test_e2e.py"
+        if not test_script.exists():
+            print_fail(f"Test script not found: {test_script}")
+            return 1
+        result = subprocess.run(
+            [sys.executable, str(test_script), "--verbose"],
+            cwd=get_plugin_root(),
+        )
+        return result.returncode
 
     # Full setup
     return 0 if full_setup() else 1
