@@ -10,11 +10,13 @@ Usage:
     uv run python scripts/pss_validate_plugin.py --verbose
     uv run python scripts/pss_validate_plugin.py --json
     uv run python scripts/pss_validate_plugin.py --marketplace-only
+    uv run python scripts/pss_validate_plugin.py --test
 
 Flags:
     --marketplace-only: Skip plugin.json requirement for marketplace-only
                         distribution (strict=false). When using strict=false,
                         plugin.json should NOT exist (causes CLI issues).
+    --test: Run end-to-end runtime tests after structural validation.
 
 Exit codes:
     0 - All checks passed (or only INFO/PASSED)
@@ -807,6 +809,30 @@ def print_json(report: ValidationReport) -> None:
     print(json.dumps(output, indent=2))
 
 
+def validate_e2e(plugin_root: Path, report: ValidationReport) -> None:
+    """Run end-to-end runtime tests and add results to the validation report."""
+    try:
+        from pss_test_e2e import run_all_tests
+    except ImportError:
+        report.major(
+            "Cannot import pss_test_e2e — e2e test script missing",
+            "scripts/pss_test_e2e.py",
+        )
+        return
+
+    try:
+        test_results = run_all_tests(plugin_root)
+    except Exception as exc:
+        report.critical(f"E2E test crashed: {exc}", "scripts/pss_test_e2e.py")
+        return
+
+    for tr in test_results:
+        if tr.passed:
+            report.passed(f"E2E: {tr.name} — {tr.detail}")
+        else:
+            report.critical(f"E2E: {tr.name} — {tr.detail}", "scripts/pss_test_e2e.py")
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Validate PSS plugin")
@@ -821,6 +847,11 @@ def main() -> int:
         "--marketplace-only",
         action="store_true",
         help="Skip plugin.json requirement (for strict=false marketplace distribution)",
+    )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Run end-to-end runtime tests after structural validation",
     )
     parser.add_argument(
         "path", nargs="?", help="Plugin root path (default: parent of scripts/)"
@@ -852,6 +883,10 @@ def main() -> int:
     validate_docs(plugin_root, report)
     validate_readme(plugin_root, report)
     validate_license(plugin_root, report)
+
+    # Optional: end-to-end runtime tests
+    if args.test:
+        validate_e2e(plugin_root, report)
 
     # Output
     if args.json:

@@ -1,7 +1,7 @@
 ---
 name: pss-status
 description: "View Perfect Skill Suggester status, index statistics, and recent activations."
-argument-hint: "[--verbose] [--test PROMPT]"
+argument-hint: "[--verbose] [--test PROMPT] [--run-tests]"
 allowed-tools: ["Bash", "Read"]
 ---
 
@@ -16,7 +16,7 @@ View the current status of Perfect Skill Suggester including:
 ## Usage
 
 ```
-/pss-status [--verbose] [--test "PROMPT"]
+/pss-status [--verbose] [--test "PROMPT"] [--run-tests]
 ```
 
 ## Options
@@ -25,6 +25,7 @@ View the current status of Perfect Skill Suggester including:
 |--------|-------------|
 | `--verbose` | Show detailed breakdown by source and type |
 | `--test "PROMPT"` | Test matching against a sample prompt |
+| `--run-tests` | Run end-to-end pipeline tests to verify PSS works correctly |
 
 ## Execution Protocol
 
@@ -97,6 +98,24 @@ Output in a clear, tabular format:
 ║   • LOW               <6 (include alternatives)              ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
+
+### Step 4: Run Tests (if --run-tests)
+
+If the user passes `--run-tests`, execute the end-to-end pipeline test script:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_test_e2e.py" --verbose
+```
+
+Report the test results to the user. The script tests the full PSS pipeline:
+- Environment setup and binary detection
+- Test skill creation
+- Pass 1 merge queue (keywords/metadata)
+- Pass 2 merge queue (co-usage relationships)
+- Rust binary direct scoring
+- Hook simulation with multiple prompts
+
+If all 6 phases pass, PSS is working correctly. If any phase fails, report the specific failure details.
 
 ## Test Mode
 
