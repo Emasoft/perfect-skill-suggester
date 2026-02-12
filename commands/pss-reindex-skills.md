@@ -13,9 +13,8 @@ allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep", "Task"]
 >
 > **PHASE 0 (MANDATORY):** Before ANY discovery or analysis, the agent MUST:
 > 1. Delete `~/.claude/cache/skill-index.json`
-> 2. Delete ALL `.pss` files from `~/.claude/skills/`, `~/.claude/plugins/cache/`, and project directories
-> 3. Delete `~/.claude/cache/skill-checklist.md`
-> 4. Verify clean slate before proceeding
+> 2. Delete `~/.claude/cache/skill-checklist.md`
+> 3. Verify clean slate before proceeding
 >
 > **WHY?** Incremental indexing causes: stale version paths, orphaned entries, name mismatches, missing new skills.
 > **The ONLY reliable approach is DELETE → DISCOVER → REINDEX from scratch.**
@@ -38,15 +37,15 @@ The Python script `pss_discover_skills.py` scans ALL skill locations. Parallel a
 - **Multi-word phrases**: `fix ci pipeline`, `review pull request`, `set up github actions`
 - **Error patterns**: `build failed`, `type error`, `connection refused`
 
-**Output**: `skill-index.json` with keywords + individual `.pss` files (Pass 1 format - keywords only)
+**Output**: `skill-index.json` with keywords (Pass 1 format - keywords only, merged incrementally via pss_merge_queue.py)
 
 ### Pass 2: Co-Usage Correlation (AI Intelligence)
 For EACH skill, a dedicated agent:
-1. Reads the skill's incomplete `.pss` file (from Pass 1)
+1. Reads the skill's data from the skill-index.json (from Pass 1)
 2. Calls `skill-suggester --incomplete-mode` to find CANDIDATE skills via keyword similarity + CxC matrix heuristics
-3. Reads `.pss` files of ALL candidates to understand their use cases
+3. Reads candidate data from skill-index.json to understand their use cases
 4. **Uses its own AI intelligence** to determine which skills are logically co-used
-5. Writes co-usage data to BOTH the global index AND the `.pss` file
+5. Writes co-usage data to a temp .pss file and merges it into the global index via pss_merge_queue.py
 
 **Why Pass 2 requires agents (not scripts)**:
 - Only AI can understand that "docker-compose" and "microservices-architecture" are logically related
@@ -117,22 +116,19 @@ This creates a **superset index** containing ALL skills across all your projects
 1. [Phase 0] Create backup directory in /tmp
 2. [Phase 0] Backup and remove skill-index.json
 3. [Phase 0] Backup and remove skill-checklist.md
-4. [Phase 0] Backup and remove ALL .pss files from ~/.claude/skills
-5. [Phase 0] Backup and remove ALL .pss files from ~/.claude/plugins/cache
-6. [Phase 0] Backup and remove ALL .pss files from project directories
-7. [Phase 0] VERIFY clean slate - no index or .pss files remain
-8. [Phase 1] Run discovery script to generate skill checklist
-9. [Phase 1] Spawn Pass 1 batch agents for keyword analysis
-10. [Phase 1] Compile Pass 1 results into skill-index.json
-11. [Phase 2] Spawn Pass 2 batch agents for co-usage analysis
-12. [Phase 2] Merge Pass 2 results into final index
-13. [Verify] Confirm index has pass:2 and all skills have co_usage
-14. [Report] Report final statistics to user
+4. [Phase 0] VERIFY clean slate - no index files remain
+5. [Phase 1] Run discovery script to generate skill checklist
+6. [Phase 1] Spawn Pass 1 batch agents for keyword analysis
+7. [Phase 1] Compile Pass 1 results into skill-index.json
+8. [Phase 2] Spawn Pass 2 batch agents for co-usage analysis
+9. [Phase 2] Verify Pass 2 results in final index
+10. [Verify] Confirm index has pass:2 and all skills have co_usage
+11. [Report] Report final statistics to user
 ```
 
 **CRITICAL RULES:**
-- Tasks 1-7 (Phase 0) MUST ALL be marked `completed` BEFORE starting task 8
-- If task 7 verification FAILS, do NOT proceed - mark remaining tasks as blocked
+- Tasks 1-4 (Phase 0) MUST ALL be marked `completed` BEFORE starting task 5
+- If task 4 verification FAILS, do NOT proceed - mark remaining tasks as blocked
 - Update task status to `in_progress` when starting, `completed` when done
 - If ANY Phase 0 task fails, STOP and report error to user
 
@@ -179,23 +175,7 @@ else
     echo "○ skill-checklist.md did not exist"
 fi
 
-# Step 0.3: Backup and delete all .pss files from user skills
-mkdir -p "$BACKUP_DIR/user-skills-pss"
-find ~/.claude/skills -name ".pss" -type f -exec mv {} "$BACKUP_DIR/user-skills-pss/" \; 2>/dev/null
-echo "✓ User skills .pss files moved to backup"
-
-# Step 0.4: Backup and delete all .pss files from plugin cache
-mkdir -p "$BACKUP_DIR/plugin-cache-pss"
-find ~/.claude/plugins/cache -name ".pss" -type f -exec mv {} "$BACKUP_DIR/plugin-cache-pss/" \; 2>/dev/null
-echo "✓ Plugin cache .pss files moved to backup"
-
-# Step 0.5: Backup and delete all .pss files from project skills (if any)
-mkdir -p "$BACKUP_DIR/project-pss"
-find .claude/skills -name ".pss" -type f -exec mv {} "$BACKUP_DIR/project-pss/" \; 2>/dev/null
-find .claude/plugins -name ".pss" -type f -exec mv {} "$BACKUP_DIR/project-pss/" \; 2>/dev/null
-echo "✓ Project .pss files moved to backup"
-
-# Step 0.6: VERIFY CLEAN SLATE (MANDATORY CHECK)
+# Step 0.3: VERIFY CLEAN SLATE (MANDATORY CHECK)
 echo ""
 echo "=== VERIFICATION ==="
 if [ -f ~/.claude/cache/skill-index.json ]; then
@@ -204,17 +184,8 @@ if [ -f ~/.claude/cache/skill-index.json ]; then
     exit 1
 fi
 
-pss_count=$(find ~/.claude -name ".pss" -type f 2>/dev/null | wc -l | tr -d ' ')
-if [ "$pss_count" -gt "0" ]; then
-    echo "❌ FATAL ERROR: $pss_count .pss files still exist in ~/.claude!"
-    find ~/.claude -name ".pss" -type f 2>/dev/null | head -5
-    echo "Phase 0 FAILED. Cannot proceed."
-    exit 1
-fi
-
 echo "✅ CLEAN SLATE VERIFIED"
 echo "   - No skill-index.json"
-echo "   - No .pss files in ~/.claude"
 echo "   - Backup at: $BACKUP_DIR"
 echo ""
 echo "Proceeding to Phase 1: Discovery..."
@@ -224,10 +195,7 @@ echo "Proceeding to Phase 1: Discovery..."
 - [ ] Backup directory created in /tmp
 - [ ] `skill-index.json` moved to backup (or did not exist)
 - [ ] `skill-checklist.md` moved to backup (or did not exist)
-- [ ] User skills `.pss` files moved to backup
-- [ ] Plugin cache `.pss` files moved to backup
-- [ ] Project `.pss` files moved to backup
-- [ ] **VERIFICATION PASSED**: No index or .pss files remain
+- [ ] **VERIFICATION PASSED**: No index files remain
 
 **⛔ IF VERIFICATION FAILS, DO NOT PROCEED. Report the error and stop.**
 
@@ -248,10 +216,8 @@ echo "Proceeding to Phase 1: Discovery..."
 Run the discovery script with `--checklist` and `--all-projects` to generate a markdown checklist with batches:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pss_discover_skills.py --checklist --batch-size 10 --all-projects --generate-pss
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pss_discover_skills.py --checklist --batch-size 10 --all-projects
 ```
-
-The `--generate-pss` flag creates a `.pss` metadata file for each discovered skill in the same directory as its `SKILL.md`. This enables faster Pass 1/2 processing and incremental updates.
 
 This creates `~/.claude/cache/skill-checklist.md` with:
 - All skills organized into batches (default: 10 per batch)
@@ -721,11 +687,20 @@ Identify 3-5 action verbs that represent what the user WANTS TO DO:
 
 **NOTE:** Keywords are now specific multi-word phrases. Avoided: "ci", "cd", "pipeline", "deploy" (too generic).
 
-ALSO WRITE A .pss FILE:
-For each skill, write a .pss file at the same directory as SKILL.md:
-- /path/to/skill/SKILL.md → /path/to/skill/.pss
+ALSO WRITE A TEMPORARY .pss FILE AND MERGE IT:
+For each skill, write a .pss file to the temp queue directory:
+- /tmp/pss-queue/<skill-name>.pss
 
 The .pss file should contain the same JSON (prettified).
+
+After writing EACH .pss file, immediately merge it into the index by running:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "/tmp/pss-queue/<skill-name>.pss" --pass 1
+```
+
+The merge script will atomically update skill-index.json and delete the temp .pss file.
+Report the merge result (1 line per skill).
 
 Return a minimal report: one JSON object per line, no extra text.
 ```
@@ -776,50 +751,11 @@ Merge all subagent responses into the master index (rio v2.0 compatible format w
 | `tools` | string[] | PSS: EXACT tool/library names extracted from skill (builds dynamic catalog) |
 | `file_types` | string[] | PSS: EXACT file extensions handled (`pdf`, `xlsx`, `mp4`, `svg`, etc.) |
 
-### Step 5: Save Pass 1 Index + .pss Files
+### Step 5: Pass 1 Index (Built Incrementally via Merge)
 
-Write the Pass 1 index to: `~/.claude/cache/skill-index.json`
+Pass 1 agents write temporary `.pss` files to `/tmp/pss-queue/` and immediately merge them into `~/.claude/cache/skill-index.json` via `pss_merge_queue.py`. No explicit "Save" step is needed -- the merge happens inline during Pass 1 processing.
 
-Also generate a `.pss` file for EACH skill at the same location as its SKILL.md:
-- `/path/to/skill/SKILL.md` → `/path/to/skill/.pss`
-
-**Pass 1 .pss Format** (incomplete - no co-usage yet):
-```json
-{
-  "name": "devops-expert",
-  "type": "skill",
-  "source": "user",
-  "path": "/path/to/SKILL.md",
-  "description": "CI/CD pipeline configuration and GitHub Actions workflows",
-  "use_cases": [
-    "Setting up GitHub Actions for CI/CD",
-    "Troubleshooting pipeline failures",
-    "Configuring deployment workflows"
-  ],
-  "category": "devops-cicd",
-  "platforms": ["universal"],
-  "frameworks": [],
-  "languages": ["any"],
-  "domains": ["310"],
-  "tools": ["github-actions", "docker", "terraform"],
-  "file_types": ["yaml", "yml"],
-  "keywords": [
-    "github actions workflow",
-    "ci/cd pipeline configuration",
-    "continuous integration setup",
-    "workflow yaml syntax",
-    "set up github actions",
-    "configure github workflow",
-    "deployment pipeline",
-    "workflow run failed"
-  ],
-  "intents": ["deploy", "configure", "automate"],
-  "pass": 1,
-  "generated": "2026-01-19T00:00:00Z"
-}
-```
-
-**NOTE:** `domains` uses Dewey codes ("310" = CI/CD & Automation), `tools` contains EXACT names from the skill.
+The orchestrator should verify after all Pass 1 agents complete that `skill-index.json` exists and contains all discovered skills with `"pass": 1`.
 
 ```bash
 mkdir -p ~/.claude/cache
@@ -898,8 +834,13 @@ For EACH skill in your batch, follow these steps:
 ---
 ### Processing skill: {skill_name}
 
-## STEP 1: Read Current State
-Read the incomplete .pss file at: {pss_path}
+## STEP 1: Read Current State from Index
+Read the skill's data from the skill-index.json. You can do this with:
+
+```bash
+python3 -c "import json; idx=json.load(open('$HOME/.claude/cache/skill-index.json')); s=idx['skills'].get('{skill_name}', {}); print(json.dumps(s, indent=2))"
+```
+
 Note the skill's:
 - description (VERBATIM - do not paraphrase)
 - use_cases (VERBATIM - do not paraphrase)
@@ -919,17 +860,15 @@ ALSO consider the CxC matrix heuristics:
 - Skills in category "{category}" have high co-usage with: {high_probability_categories}
 - Use the probability scores to prioritize candidates
 
-## STEP 3: Read Candidate .pss Files
-For each candidate skill returned, read its .pss file to understand:
+## STEP 3: Read Candidate Data from Index
+For each candidate skill returned, read its data from skill-index.json to understand:
 - What the skill actually does (from description/use_cases)
 - Its category and keywords
 - Any existing co-usage data
 
-Candidate .pss locations are at the same directory as their SKILL.md.
+Use the same python one-liner from Step 1 to read each candidate's data.
 
-**ERROR HANDLING**: If a candidate's .pss file does not exist, SKIP that candidate.
-The index may contain stale entries for deleted skills. Do not fail - just exclude
-non-existent skills from your co-usage analysis.
+**ERROR HANDLING**: If a candidate doesn't exist in the index, SKIP it.
 
 ## STEP 4: Determine Co-Usage Relationships (AI INTELLIGENCE)
 
@@ -997,9 +936,11 @@ Using your understanding of software development workflows, determine:
    - MUST include specific workflow justification
    - If you can't write a clear rationale, DO NOT include the association!
 
-## STEP 5: Write Updated .pss File
-Update the .pss file at {pss_path} with co-usage data:
+## STEP 5: Write Temporary .pss File and Merge
+Write the co-usage data to a temporary .pss file and merge it into the index:
 
+1. Write to: `/tmp/pss-queue/{skill_name}.pss`
+2. The .pss file should contain:
 ```json
 {{
   "name": "{skill_name}",
@@ -1026,6 +967,13 @@ Update the .pss file at {pss_path} with co-usage data:
 }}
 ```
 
+3. Immediately merge into the index:
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "/tmp/pss-queue/{skill_name}.pss" --pass 2
+```
+
+The merge script handles atomic index updates and deletes the temp file.
+
 ## STEP 6: Return Batch Summary
 After processing ALL skills in your batch, return a minimal report (1-2 lines max):
 ```
@@ -1041,7 +989,7 @@ CRITICAL RULES:
 - description and use_cases MUST be VERBATIM from the SKILL.md - NEVER paraphrase
 - Only include skills in co_usage that you ACTUALLY verified exist
 - Do not guess - if uncertain, omit that relationship
-- Write to the .pss file, NOT to the global index (orchestrator merges later)
+- Write to a temp .pss file in /tmp/pss-queue/ and merge via pss_merge_queue.py
 
 **⛔ CO-USAGE ANTI-PATTERNS (NEVER DO):**
 - NEVER link skills just because they share intents like "debug", "fix", "troubleshoot"
@@ -1058,12 +1006,9 @@ CRITICAL RULES:
 If ANY answer is NO, DO NOT include that co_usage relationship!
 ```
 
-### Step 8: Merge Pass 2 Results into Global Index
+### Step 8: Verify Pass 2 Results in Global Index
 
-After all Pass 2 agents complete, the orchestrator:
-1. Reads each updated `.pss` file
-2. Merges co_usage data into the master `skill-index.json`
-3. Validates no broken references (all co-used skills exist)
+Pass 2 agents merge their results directly into skill-index.json via pss_merge_queue.py during processing. No separate merge step is needed. The orchestrator should verify the final index has `pass: 2` and all skills have co_usage data.
 
 **Final Index Format (Pass 2 complete):**
 ```json
@@ -1117,11 +1062,10 @@ After all Pass 2 agents complete, the orchestrator:
 1. ✅ Pass 1 completed - All skills have keywords, categories, and intents
 2. ✅ Pass 2 completed - All skills have co_usage relationships (usually_with, precedes, follows, alternatives)
 3. ✅ Global index updated - `~/.claude/cache/skill-index.json` contains `"pass": 2`
-4. ✅ All .pss files updated - Each skill's .pss file contains co_usage data
+4. ✅ No .pss files remain in /tmp/pss-queue/
 
 **FAILURE CONDITIONS:**
 - If index shows `"pass": 1`, Pass 2 was NOT executed
-- If skills have empty `co_usage`, Pass 2 agents failed or were not spawned
 - If only some skills have `co_usage`, Pass 2 agents only partially completed
 
 **REPORT TO USER:**

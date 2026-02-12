@@ -58,6 +58,11 @@ struct Cli {
     /// Output format: "hook" (default) or "json" (raw skill list)
     #[arg(long, default_value = "hook")]
     format: String,
+
+    /// Load and merge .pss files (per-skill matcher files) into the index.
+    /// By default, only skill-index.json is used (PSS files are transient).
+    #[arg(long, default_value_t = false)]
+    load_pss: bool,
 }
 
 // ============================================================================
@@ -2318,8 +2323,11 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
 
     info!("Loaded {} skills from index", index.skills.len());
 
-    // Load and merge PSS files (per-skill matcher files)
-    load_pss_files(&mut index);
+    // Load and merge PSS files only if --load-pss flag is passed
+    // By default, only use skill-index.json (PSS files are now transient)
+    if cli.load_pss {
+        load_pss_files(&mut index);
+    }
 
     // Create project context from hook input for platform/framework/language filtering
     let context = ProjectContext::from_hook_input(&input);
@@ -2475,10 +2483,8 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
             let candidates: Vec<CandidateSkill> = limited_items
                 .iter()
                 .map(|item| {
-                    // Calculate .pss path from SKILL.md path
-                    let pss_path = item.path
-                        .replace("SKILL.md", ".pss")
-                        .replace("skill.md", ".pss");
+                    // PSS files are transient, not persisted next to SKILL.md
+                    let pss_path = String::new();
 
                     CandidateSkill {
                         name: item.name.clone(),

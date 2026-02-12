@@ -20,6 +20,9 @@ from typing import Any
 MAX_SUGGESTIONS = 4  # Maximum number of skill suggestions per message (strict limit)
 MIN_SCORE = 0.5  # Minimum score threshold (skip low-confidence matches)
 MAX_TRANSCRIPT_LINES = 200  # How many recent transcript lines to scan for context
+SUBPROCESS_TIMEOUT = (
+    2  # Binary timeout in seconds (must be less than hooks.json timeout of 3s)
+)
 
 # Project type detection markers
 PROJECT_MARKERS = {
@@ -214,7 +217,7 @@ def _load_tool_catalog() -> set[str]:
         tools: set[str] = set()
         skills = index.get("skills", {})
 
-        for skill_name, skill_data in skills.items():
+        for _, skill_data in skills.items():
             # Extract tools from skill entry
             skill_tools = skill_data.get("tools", [])
             if isinstance(skill_tools, list):
@@ -239,8 +242,8 @@ def _initialize_catalogs() -> None:
         TOOL_CATALOG = _load_tool_catalog()
 
 
-# Initialize catalogs when module loads
-_initialize_catalogs()
+# NOTE: Catalogs are initialized lazily in main() AFTER skip checks,
+# to avoid loading files when the prompt will be skipped anyway.
 
 
 # File type detection keywords (from conversation/prompt)
@@ -633,6 +636,19 @@ def find_binary() -> Path:
     return binary_path
 
 
+def _exit_empty() -> None:
+    """Exit with empty JSON output — used for graceful no-op exits."""
+    print(json.dumps({}))
+    sys.exit(0)
+
+
+def _exit_warning(msg: str) -> None:
+    """Exit with warning to stderr and empty JSON to stdout."""
+    print(f"PSS: {msg}", file=sys.stderr)
+    print(json.dumps({}))
+    sys.exit(0)
+
+
 def main() -> None:
     """Main entry point - read stdin, call binary, output result."""
     try:
@@ -647,15 +663,31 @@ def main() -> None:
             cwd = input_json.get("cwd", "")
             transcript_path = input_json.get("transcriptPath", "")
         except json.JSONDecodeError:
-            # Invalid JSON - return empty
-            print(json.dumps({}))
-            sys.exit(0)
+            _exit_empty()
+            return  # unreachable but satisfies type checker
 
-        # Skip prompts that don't need skill suggestions
+        # Skip prompts that don't need skill suggestions (BEFORE any file I/O)
         if should_skip_prompt(prompt):
-            # Return empty hook output (no suggestions)
-            print(json.dumps({}))
-            sys.exit(0)
+            _exit_empty()
+            return
+
+        # Check if skill index exists BEFORE doing any expensive work
+        index_path = _get_cache_dir() / SKILL_INDEX_FILE
+        if not index_path.exists():
+            _exit_warning(
+                "skill-index.json not found — run /pss-reindex-skills to generate it"
+            )
+            return
+
+        # Check if binary exists BEFORE doing any expensive work
+        try:
+            binary_path = find_binary()
+        except (FileNotFoundError, RuntimeError) as e:
+            _exit_warning(f"binary not found: {e}")
+            return
+
+        # NOW initialize catalogs (lazy — only after skip checks pass)
+        _initialize_catalogs()
 
         # Augment generic prompts with project/conversation context
         augmented_prompt = augment_prompt_with_context(prompt, cwd, transcript_path)
@@ -676,11 +708,9 @@ def main() -> None:
         input_json["context_file_types"] = prompt_context["file_types"]
         augmented_stdin = json.dumps(input_json)
 
-        # Find the binary
-        binary_path = find_binary()
-
         # Call the binary with --format hook, --top to limit count,
-        # --min-score to filter low quality matches
+        # --min-score to filter low quality matches.
+        # Timeout MUST be less than hooks.json timeout (3s) to avoid zombie processes.
         result = subprocess.run(
             [
                 str(binary_path),
@@ -694,25 +724,23 @@ def main() -> None:
             input=augmented_stdin,
             capture_output=True,
             text=True,
-            timeout=30,  # 30 second timeout
+            timeout=SUBPROCESS_TIMEOUT,
         )
 
         # Output the result (binary already limits to MAX_SUGGESTIONS)
         if result.returncode == 0:
             print(result.stdout, end="")
         else:
-            # On error, log to stderr and return empty JSON to stdout
-            msg = f"PSS binary error (exit {result.returncode}): {result.stderr}"
-            print(msg, file=sys.stderr)
-            print(json.dumps({}))
+            _exit_warning(
+                f"binary error (exit {result.returncode}): {result.stderr[:200]}"
+            )
 
         sys.exit(0)  # Always exit 0 to not block Claude
 
+    except subprocess.TimeoutExpired:
+        _exit_warning(f"binary timed out after {SUBPROCESS_TIMEOUT}s")
     except Exception as e:
-        # On any error, log to stderr and return empty JSON to stdout
-        print(f"PSS hook error: {e}", file=sys.stderr)
-        print(json.dumps({}))
-        sys.exit(0)
+        _exit_warning(str(e))
 
 
 if __name__ == "__main__":

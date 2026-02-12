@@ -7,8 +7,8 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\"",
-            "timeout": 3000,
-            "statusMessage": "🎯 Analyzing skill triggers..."
+            "timeout": 5000,
+            "statusMessage": "Analyzing skill triggers..."
           }
         ]
       }

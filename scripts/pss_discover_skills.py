@@ -36,9 +36,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# PSS file schema version
-PSS_SCHEMA_VERSION = "1.0.0"
-
 
 def get_home_dir() -> Path:
     """Get user home directory."""
@@ -81,14 +78,14 @@ def get_all_projects_from_claude_config() -> list[tuple[str, Path]]:
             if not project_path.exists():
                 print(
                     f"Warning: Project no longer exists: {project_path}",
-                    file=sys.stderr
+                    file=sys.stderr,
                 )
                 continue
 
             if not project_path.is_dir():
                 print(
                     f"Warning: Project path is not a directory: {project_path}",
-                    file=sys.stderr
+                    file=sys.stderr,
                 )
                 continue
 
@@ -230,58 +227,9 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
     return result
 
 
-def generate_pss_file(skill_data: dict[str, Any], skill_dir: Path) -> Path | None:
-    """Generate a .pss metadata file for a discovered skill.
-
-    The .pss file is a JSON file containing:
-    - Basic skill metadata (name, description, source)
-    - Path to the SKILL.md file
-    - Discovery timestamp
-    - Schema version
-
-    This file is saved in the same directory as the SKILL.md file and is used
-    by the index generator to quickly identify which skills need re-indexing.
-
-    Args:
-        skill_data: Dictionary with skill metadata from discover_skills()
-        skill_dir: Path to the skill directory (parent of SKILL.md)
-
-    Returns:
-        Path to the generated .pss file, or None if generation failed
-    """
-    pss_file = skill_dir / f"{skill_data['name']}.pss"
-
-    pss_content = {
-        "schema_version": PSS_SCHEMA_VERSION,
-        "name": skill_data["name"],
-        "description": skill_data.get("description", ""),
-        "source": skill_data["source"],
-        "skill_md_path": skill_data["path"],
-        "discovered_at": datetime.now(timezone.utc).isoformat(),
-        "needs_indexing": True,  # Flag for index generator to process
-    }
-
-    try:
-        pss_file.write_text(
-            json.dumps(pss_content, indent=2, ensure_ascii=False),
-            encoding="utf-8"
-        )
-        return pss_file
-    except PermissionError:
-        print(
-            f"Warning: Cannot write .pss file (permission denied): {pss_file}",
-            file=sys.stderr
-        )
-        return None
-    except Exception as e:
-        print(f"Warning: Failed to write .pss file: {pss_file}: {e}", file=sys.stderr)
-        return None
-
-
 def discover_skills(
     locations: list[tuple[str, Path]],
     specific_skill: str | None = None,
-    generate_pss_files: bool = False,
 ) -> list[dict[str, Any]]:
     """Discover all skills in all provided locations.
 
@@ -290,15 +238,12 @@ def discover_skills(
     Args:
         locations: List of (source, path) tuples to scan for skills
         specific_skill: If provided, only discover this specific skill
-        generate_pss_files: If True, generate .pss metadata files for each skill
 
     Returns:
         List of skill metadata dictionaries
     """
     skills = []
     seen_names: set[str] = set()
-    pss_files_generated = 0
-    pss_files_failed = 0
 
     for source, skills_dir in locations:
         if not skills_dir.exists():
@@ -339,24 +284,8 @@ def discover_skills(
                 skills.append(skill_data)
                 seen_names.add(skill_path.name)
 
-                # Generate .pss file if requested
-                if generate_pss_files:
-                    pss_result = generate_pss_file(skill_data, skill_path)
-                    if pss_result:
-                        pss_files_generated += 1
-                    else:
-                        pss_files_failed += 1
-
             except Exception as e:
                 print(f"Error reading {skill_md}: {e}", file=sys.stderr)
-
-    # Report .pss file generation results
-    if generate_pss_files:
-        print(
-            f"Generated {pss_files_generated} .pss files "
-            f"({pss_files_failed} failed)",
-            file=sys.stderr
-        )
 
     return skills
 
@@ -491,12 +420,6 @@ def main() -> int:
         action="store_true",
         help="Scan ALL projects registered in ~/.claude.json (comprehensive indexing)",
     )
-    # PSS file generation
-    parser.add_argument(
-        "--generate-pss",
-        action="store_true",
-        help="Generate .pss metadata files for each discovered skill",
-    )
     # Checklist mode arguments
     parser.add_argument(
         "--checklist",
@@ -533,7 +456,6 @@ def main() -> int:
     skills = discover_skills(
         all_locations,
         args.skill,
-        generate_pss_files=args.generate_pss,
     )
 
     # Checklist mode: generate markdown checklist with batches
