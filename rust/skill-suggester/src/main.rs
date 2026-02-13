@@ -22,10 +22,10 @@ use colored::Colorize;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
@@ -69,6 +69,12 @@ struct Cli {
     /// Can also be set via PSS_INDEX_PATH environment variable.
     #[arg(long)]
     index: Option<String>,
+
+    /// Path to domain-registry.json. Overrides the default (~/.claude/cache/domain-registry.json).
+    /// When provided, domain gates are enforced as hard pre-filters.
+    /// Can also be set via PSS_REGISTRY_PATH environment variable.
+    #[arg(long)]
+    registry: Option<String>,
 }
 
 // ============================================================================
@@ -77,6 +83,9 @@ struct Cli {
 
 /// Default index file location
 const INDEX_FILE: &str = "skill-index.json";
+
+/// Default domain registry file location
+const REGISTRY_FILE: &str = "domain-registry.json";
 
 /// Cache directory name under ~/.claude/
 const CACHE_DIR: &str = "cache";
@@ -366,6 +375,38 @@ impl ProjectContext {
         }
     }
 
+    /// Merge Rust project scan results into this context, adding items that
+    /// are not already present (case-insensitive dedup). This ensures the
+    /// scoring boosts in match_skill() benefit from fresh on-disk project data,
+    /// not just the hook-provided metadata.
+    pub fn merge_scan(&mut self, scan: &ProjectScanResult) {
+        for item in &scan.languages {
+            if !self.languages.iter().any(|l| l.eq_ignore_ascii_case(item)) {
+                self.languages.push(item.clone());
+            }
+        }
+        for item in &scan.frameworks {
+            if !self.frameworks.iter().any(|f| f.eq_ignore_ascii_case(item)) {
+                self.frameworks.push(item.clone());
+            }
+        }
+        for item in &scan.platforms {
+            if !self.platforms.iter().any(|p| p.eq_ignore_ascii_case(item)) {
+                self.platforms.push(item.clone());
+            }
+        }
+        for item in &scan.tools {
+            if !self.tools.iter().any(|t| t.eq_ignore_ascii_case(item)) {
+                self.tools.push(item.clone());
+            }
+        }
+        for item in &scan.file_types {
+            if !self.file_types.iter().any(|ft| ft.eq_ignore_ascii_case(item)) {
+                self.file_types.push(item.clone());
+            }
+        }
+    }
+
     /// Check if context is empty (no filtering)
     pub fn is_empty(&self) -> bool {
         self.platforms.is_empty()
@@ -456,6 +497,1733 @@ impl ProjectContext {
 
         (boost, should_filter)
     }
+}
+
+// ============================================================================
+// Project Context Scanning (Rust-native, runs on every invocation)
+// ============================================================================
+
+/// Result of scanning the project directory for context signals.
+/// Detected from config files and directory entries in the project root.
+/// Augments the Python hook's context_* fields with fresh, on-disk data
+/// because project contents can change at any time (e.g., monorepo migrating
+/// from Node.js to Bun, or adding an Objective-C lib to a Swift iOS app).
+#[derive(Debug, Default)]
+pub struct ProjectScanResult {
+    /// Programming languages detected from config files (e.g., "rust", "python", "swift")
+    pub languages: Vec<String>,
+    /// Frameworks detected from dependency files (e.g., "react", "django", "flutter")
+    pub frameworks: Vec<String>,
+    /// Target platforms detected from project structure (e.g., "ios", "macos", "mobile")
+    pub platforms: Vec<String>,
+    /// Build tools, package managers, and dev tools (e.g., "cargo", "bun", "docker")
+    pub tools: Vec<String>,
+    /// File formats present in the project root (e.g., "svg", "pdf", "json")
+    pub file_types: Vec<String>,
+}
+
+/// Scan the project directory for context signals by checking config files.
+/// This runs on every PSS invocation to capture the current project state.
+/// Optimized for speed: one readdir call + targeted stat checks + minimal file reads.
+/// Typical execution: <1ms for a normal project directory.
+fn scan_project_context(cwd: &str) -> ProjectScanResult {
+    let mut result = ProjectScanResult::default();
+    let dir = Path::new(cwd);
+
+    // Guard: empty cwd or non-directory path
+    if cwd.is_empty() || !dir.is_dir() {
+        return result;
+    }
+
+    // Collect root directory entry names once (single readdir syscall).
+    // All subsequent checks use this list instead of individual stat calls.
+    let root_entries: Vec<String> = fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Helper: check if any root entry ends with a given suffix
+    let has_suffix = |suffix: &str| -> bool {
+        root_entries.iter().any(|name| name.ends_with(suffix))
+    };
+
+    // Helper: check if a specific filename exists in root
+    let has_file = |name: &str| -> bool {
+        root_entries.iter().any(|n| n == name)
+    };
+
+    // ====================================================================
+    // MAINSTREAM LANGUAGES & ECOSYSTEMS
+    // ====================================================================
+
+    // -- Rust --
+    if has_file("Cargo.toml") {
+        result.languages.push("rust".into());
+        result.tools.push("cargo".into());
+        // Rust embedded: check for .cargo/config.toml with target thumbv* or riscv*
+        if dir.join(".cargo").join("config.toml").exists() {
+            if let Ok(cargo_cfg) = fs::read_to_string(dir.join(".cargo").join("config.toml")) {
+                let cfg_lower = cargo_cfg.to_lowercase();
+                if cfg_lower.contains("thumbv") || cfg_lower.contains("riscv")
+                    || cfg_lower.contains("cortex") || cfg_lower.contains("no_std")
+                {
+                    result.platforms.push("embedded".into());
+                }
+            }
+        }
+    }
+
+    // -- Python --
+    let has_pyproject = has_file("pyproject.toml");
+    let has_requirements = has_file("requirements.txt");
+    if has_pyproject || has_requirements || has_file("setup.py") || has_file("setup.cfg") {
+        result.languages.push("python".into());
+        // Parse dependency files to detect frameworks and ML tools
+        if has_pyproject {
+            if let Ok(content) = fs::read_to_string(dir.join("pyproject.toml")) {
+                scan_python_deps(&content, &mut result);
+            }
+        }
+        if has_requirements {
+            if let Ok(content) = fs::read_to_string(dir.join("requirements.txt")) {
+                scan_python_deps(&content, &mut result);
+            }
+        }
+        if has_file("uv.lock") {
+            result.tools.push("uv".into());
+        }
+        if has_file("Pipfile") {
+            result.tools.push("pipenv".into());
+        }
+        if has_file("conda.yaml") || has_file("environment.yml") || has_file("environment.yaml") {
+            result.tools.push("conda".into());
+        }
+    }
+
+    // -- JavaScript / TypeScript (package.json) --
+    if has_file("package.json") {
+        if let Ok(content) = fs::read_to_string(dir.join("package.json")) {
+            scan_package_json(&content, &root_entries, &mut result);
+        }
+    }
+    if has_file("tsconfig.json") && !result.languages.contains(&"typescript".to_string()) {
+        result.languages.push("typescript".into());
+    }
+    if has_file("deno.json") || has_file("deno.jsonc") {
+        result.languages.push("typescript".into());
+        result.tools.push("deno".into());
+    }
+
+    // -- Go --
+    if has_file("go.mod") {
+        result.languages.push("go".into());
+    }
+
+    // -- Swift / iOS / macOS / watchOS / tvOS --
+    if has_file("Package.swift") {
+        result.languages.push("swift".into());
+    }
+    if has_suffix(".xcodeproj") || has_suffix(".xcworkspace") {
+        result.languages.push("swift".into());
+        result.platforms.push("ios".into());
+        result.platforms.push("macos".into());
+        result.tools.push("xcode".into());
+    }
+    if has_file("Podfile") {
+        result.tools.push("cocoapods".into());
+    }
+    // Carthage dependency manager for Apple platforms
+    if has_file("Cartfile") {
+        result.tools.push("carthage".into());
+    }
+
+    // -- Ruby --
+    if has_file("Gemfile") {
+        result.languages.push("ruby".into());
+    }
+
+    // -- Java / Kotlin --
+    if has_file("pom.xml") {
+        result.languages.push("java".into());
+        result.tools.push("maven".into());
+    }
+    if has_file("build.gradle") || has_file("build.gradle.kts") {
+        result.languages.push("java".into());
+        result.tools.push("gradle".into());
+        if has_file("build.gradle.kts") {
+            result.languages.push("kotlin".into());
+        }
+        // Android detection: presence of AndroidManifest.xml or Android-flavored gradle
+        scan_gradle_project(dir, &root_entries, &mut result);
+    }
+
+    // -- .NET / C# / F# --
+    if has_suffix(".sln") || has_suffix(".csproj") || has_suffix(".fsproj") {
+        result.languages.push("csharp".into());
+        result.platforms.push("dotnet".into());
+        if has_suffix(".fsproj") {
+            result.languages.push("fsharp".into());
+        }
+    }
+    // .NET nanoFramework for bare-metal microcontrollers (ESP32, STM32, etc.)
+    if has_suffix(".nfproj") {
+        result.languages.push("csharp".into());
+        result.frameworks.push("nanoframework".into());
+        result.platforms.push("embedded".into());
+        result.platforms.push("dotnet".into());
+    }
+    // Meadow (Wilderness Labs) IoT .NET platform
+    if has_file("meadow.config.yaml") || has_file("app.config.yaml") {
+        if has_suffix(".csproj") {
+            result.frameworks.push("meadow".into());
+            result.platforms.push("embedded".into());
+        }
+    }
+
+    // -- Docker --
+    if has_file("Dockerfile")
+        || has_file("docker-compose.yml")
+        || has_file("docker-compose.yaml")
+        || has_file(".dockerignore")
+    {
+        result.tools.push("docker".into());
+    }
+
+    // -- Dart / Flutter --
+    if has_file("pubspec.yaml") {
+        result.languages.push("dart".into());
+        result.frameworks.push("flutter".into());
+        // Flutter for embedded: Sony/Toyota embedder uses flutter-elinux
+        if has_file("flutter-elinux.yaml") || has_file("flutter_embedder.h") {
+            result.platforms.push("embedded".into());
+        }
+    }
+
+    // -- Elixir --
+    if has_file("mix.exs") {
+        result.languages.push("elixir".into());
+        // Nerves: Elixir IoT/embedded framework
+        if let Ok(content) = fs::read_to_string(dir.join("mix.exs")) {
+            if content.contains("nerves") {
+                result.frameworks.push("nerves".into());
+                result.platforms.push("embedded".into());
+            }
+        }
+    }
+
+    // -- PHP --
+    if has_file("composer.json") {
+        result.languages.push("php".into());
+    }
+
+    // -- Zig --
+    if has_file("build.zig") {
+        result.languages.push("zig".into());
+    }
+
+    // -- Haskell --
+    if has_file("stack.yaml") || has_suffix(".cabal") {
+        result.languages.push("haskell".into());
+    }
+
+    // -- Scala --
+    if has_file("build.sbt") {
+        result.languages.push("scala".into());
+        result.tools.push("sbt".into());
+    }
+
+    // -- Nim --
+    if has_suffix(".nimble") || has_file("nim.cfg") {
+        result.languages.push("nim".into());
+    }
+
+    // -- Lua --
+    if has_file(".luacheckrc") || has_suffix(".rockspec") {
+        result.languages.push("lua".into());
+    }
+
+    // -- R --
+    if has_file("DESCRIPTION") && has_file("NAMESPACE") {
+        result.languages.push("r".into());
+    }
+
+    // -- Julia --
+    if has_file("Project.toml") && has_file("Manifest.toml") {
+        result.languages.push("julia".into());
+    }
+
+    // -- OCaml --
+    if has_file("dune-project") || has_suffix(".opam") {
+        result.languages.push("ocaml".into());
+    }
+
+    // -- Erlang --
+    if has_file("rebar.config") || has_file("rebar3.config") {
+        result.languages.push("erlang".into());
+    }
+
+    // -- Clojure --
+    if has_file("project.clj") || has_file("deps.edn") {
+        result.languages.push("clojure".into());
+    }
+
+    // -- Perl --
+    if has_file("Makefile.PL") || has_file("cpanfile") || has_file("dist.ini") {
+        result.languages.push("perl".into());
+    }
+
+    // -- Objective-C detection (from .m/.mm files in root entries) --
+    if root_entries.iter().any(|n| n.ends_with(".m") || n.ends_with(".mm")) {
+        result.languages.push("objective-c".into());
+    }
+
+    // ====================================================================
+    // EMBEDDED SYSTEMS, FIRMWARE & RTOS
+    // ====================================================================
+
+    // -- PlatformIO (universal embedded IDE/build system) --
+    if has_file("platformio.ini") {
+        result.tools.push("platformio".into());
+        result.platforms.push("embedded".into());
+        // Parse platformio.ini to detect board/framework
+        if let Ok(content) = fs::read_to_string(dir.join("platformio.ini")) {
+            scan_platformio_ini(&content, &mut result);
+        }
+    }
+
+    // -- Arduino --
+    if has_suffix(".ino") {
+        result.languages.push("cpp".into());
+        result.frameworks.push("arduino".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- Zephyr RTOS --
+    if has_file("prj.conf") && (has_file("CMakeLists.txt") || has_file("west.yml")) {
+        result.frameworks.push("zephyr".into());
+        result.platforms.push("embedded".into());
+        result.tools.push("west".into());
+    }
+    if has_file("west.yml") {
+        result.tools.push("west".into());
+    }
+
+    // -- FreeRTOS --
+    if has_file("FreeRTOSConfig.h") {
+        result.frameworks.push("freertos".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- Mbed OS --
+    if has_file("mbed_app.json") || has_file("mbed-os.lib") || has_file("mbed_settings.py") {
+        result.frameworks.push("mbed-os".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- Azure RTOS (ThreadX) --
+    if root_entries.iter().any(|n| n.contains("threadx") || n.contains("azure_rtos")) {
+        result.frameworks.push("azure-rtos".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- RIOT OS (ultra-low-power IoT) --
+    if has_file("Makefile.include") && root_entries.iter().any(|n| n.contains("RIOT")) {
+        result.frameworks.push("riot-os".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- STM32 (STMicroelectronics) --
+    if has_suffix(".ioc") {
+        result.tools.push("stm32cubemx".into());
+        result.platforms.push("embedded".into());
+        result.languages.push("c".into());
+    }
+    if has_file(".cproject") || has_file(".mxproject") {
+        result.tools.push("stm32cubeide".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- Keil MDK-ARM --
+    if has_suffix(".uvprojx") || has_suffix(".uvproj") {
+        result.tools.push("keil-mdk".into());
+        result.platforms.push("embedded".into());
+        result.languages.push("c".into());
+    }
+
+    // -- Microchip MPLAB X --
+    if has_suffix(".mc3") || has_suffix(".mcp") || has_suffix(".X") {
+        result.tools.push("mplab-x".into());
+        result.platforms.push("embedded".into());
+        result.languages.push("c".into());
+    }
+
+    // -- IAR Embedded Workbench --
+    if has_suffix(".ewp") || has_suffix(".eww") {
+        result.tools.push("iar".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- Texas Instruments Code Composer Studio --
+    if has_file(".ccsproject") || has_suffix(".ccxml") {
+        result.tools.push("ti-ccs".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- NXP MCUXpresso --
+    if has_file(".mcuxpressoide") {
+        result.tools.push("mcuxpresso".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- OpenOCD debugger --
+    if has_file("openocd.cfg") {
+        result.tools.push("openocd".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- JTAG / SWD debug configuration --
+    if has_suffix(".jlink") || has_suffix(".svd") {
+        result.tools.push("jtag".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- Device Tree (Linux kernel / Zephyr) --
+    if has_suffix(".dts") || has_suffix(".dtsi") || has_file("devicetree.overlay") {
+        result.tools.push("device-tree".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- Kconfig / Linux kernel build system --
+    if has_file("Kconfig") || has_file(".config") {
+        result.tools.push("kconfig".into());
+    }
+
+    // -- Linker scripts --
+    if has_suffix(".ld") || has_suffix(".lds") || has_suffix(".icf") {
+        result.platforms.push("embedded".into());
+    }
+
+    // ====================================================================
+    // EMBEDDED LINUX DISTRIBUTIONS
+    // ====================================================================
+
+    // -- Yocto Project --
+    if dir.join("conf").join("local.conf").exists()
+        || dir.join("conf").join("bblayers.conf").exists()
+        || has_suffix(".bb")
+        || has_suffix(".bbappend")
+    {
+        result.tools.push("yocto".into());
+        result.frameworks.push("openembedded".into());
+        result.platforms.push("embedded-linux".into());
+    }
+
+    // -- Buildroot --
+    if has_file("Config.in") && has_file("Makefile") && has_file("package") == false {
+        // Buildroot has Config.in + Makefile at root
+        // More reliable: check for buildroot-specific files
+    }
+    if has_file("buildroot-config") || has_file(".br2-external.mk") {
+        result.tools.push("buildroot".into());
+        result.platforms.push("embedded-linux".into());
+    }
+
+    // -- OpenWrt (routers/gateways) --
+    if has_file("feeds.conf") || has_file("feeds.conf.default") {
+        result.tools.push("openwrt".into());
+        result.platforms.push("embedded-linux".into());
+    }
+
+    // ====================================================================
+    // MOBILE PLATFORMS
+    // ====================================================================
+
+    // -- Android (detected from AndroidManifest.xml or gradle android plugin) --
+    if has_file("AndroidManifest.xml") || dir.join("app").join("src").is_dir() {
+        result.platforms.push("android".into());
+        result.languages.push("java".into());
+        result.languages.push("kotlin".into());
+    }
+    // Android NDK (native C/C++ for Android)
+    if has_file("Android.mk") || has_file("Application.mk") || has_file("CMakeLists.txt") {
+        if has_file("AndroidManifest.xml") || has_file("jni") == false {
+            // Only tag android-ndk if Android project context exists
+        }
+    }
+    if dir.join("jni").is_dir() {
+        result.tools.push("android-ndk".into());
+        result.platforms.push("android".into());
+    }
+
+    // -- React Native / Expo (detected in scan_package_json, add platform) --
+    // Platform tags are added in scan_package_json via framework detection
+
+    // -- Kotlin Multiplatform --
+    if has_file("build.gradle.kts") {
+        if let Ok(content) = fs::read_to_string(dir.join("build.gradle.kts")) {
+            if content.contains("kotlin(\"multiplatform\")") || content.contains("KotlinMultiplatform") {
+                result.frameworks.push("kotlin-multiplatform".into());
+                result.platforms.push("mobile".into());
+            }
+        }
+    }
+
+    // ====================================================================
+    // AUTOMOTIVE & TRANSPORTATION
+    // ====================================================================
+
+    // -- AUTOSAR (Classic & Adaptive) --
+    if has_suffix(".arxml") || root_entries.iter().any(|n| n.contains("autosar")) {
+        result.frameworks.push("autosar".into());
+        result.platforms.push("automotive".into());
+    }
+
+    // -- CAN / CAN FD bus --
+    if has_suffix(".dbc") || has_suffix(".kcd") {
+        result.tools.push("can-bus".into());
+        result.platforms.push("automotive".into());
+    }
+
+    // -- Vector tools (CANoe/CANalyzer) --
+    if has_suffix(".cfg") && root_entries.iter().any(|n| n.contains("canoe") || n.contains("canalyzer")) {
+        result.tools.push("vector-canoe".into());
+        result.platforms.push("automotive".into());
+    }
+
+    // -- dSPACE HIL testing --
+    if has_suffix(".sdf") && root_entries.iter().any(|n| n.contains("dspace")) {
+        result.tools.push("dspace".into());
+        result.platforms.push("automotive".into());
+    }
+
+    // -- MISRA C/C++ (usually indicated by MISRA config files) --
+    if root_entries.iter().any(|n| n.to_lowercase().contains("misra")) {
+        result.tools.push("misra".into());
+        result.platforms.push("safety-critical".into());
+    }
+
+    // ====================================================================
+    // INDUSTRIAL AUTOMATION & PLC
+    // ====================================================================
+
+    // -- CODESYS (IEC 61131-3 PLC programming) --
+    if has_suffix(".project") && root_entries.iter().any(|n| n.to_lowercase().contains("codesys")) {
+        result.tools.push("codesys".into());
+        result.platforms.push("industrial".into());
+    }
+
+    // -- Beckhoff TwinCAT --
+    if has_suffix(".tsproj") || has_suffix(".tmc") {
+        result.tools.push("twincat".into());
+        result.platforms.push("industrial".into());
+    }
+
+    // -- IEC 61131-3 Structured Text --
+    if has_suffix(".st") || has_suffix(".scl") {
+        result.languages.push("structured-text".into());
+        result.platforms.push("industrial".into());
+    }
+
+    // -- Siemens TIA Portal --
+    if has_suffix(".ap17") || has_suffix(".ap16") || has_suffix(".ap15") {
+        result.tools.push("tia-portal".into());
+        result.platforms.push("industrial".into());
+    }
+
+    // ====================================================================
+    // ROBOTICS, DRONES & MOTION
+    // ====================================================================
+
+    // -- ROS 2 (Robot Operating System) --
+    if has_file("package.xml") || has_file("colcon.meta") {
+        if let Ok(content) = fs::read_to_string(dir.join("package.xml")) {
+            if content.contains("ament") || content.contains("catkin") || content.contains("rosidl") {
+                result.frameworks.push("ros2".into());
+                result.platforms.push("robotics".into());
+            }
+        } else {
+            // colcon.meta alone is strong ROS indicator
+            if has_file("colcon.meta") {
+                result.frameworks.push("ros2".into());
+                result.platforms.push("robotics".into());
+            }
+        }
+    }
+
+    // -- PX4 Autopilot / ArduPilot (drones) --
+    if has_file("ArduPilot.parm") || root_entries.iter().any(|n| n.contains("ardupilot")) {
+        result.frameworks.push("ardupilot".into());
+        result.platforms.push("robotics".into());
+    }
+    if root_entries.iter().any(|n| n.contains("px4")) {
+        result.frameworks.push("px4".into());
+        result.platforms.push("robotics".into());
+    }
+
+    // ====================================================================
+    // FPGA & HDL (Hardware Description Languages)
+    // ====================================================================
+
+    // -- VHDL --
+    if has_suffix(".vhd") || has_suffix(".vhdl") {
+        result.languages.push("vhdl".into());
+        result.platforms.push("fpga".into());
+    }
+
+    // -- Verilog / SystemVerilog --
+    if has_suffix(".v") || has_suffix(".sv") || has_suffix(".svh") {
+        result.languages.push("verilog".into());
+        result.platforms.push("fpga".into());
+    }
+
+    // -- Xilinx Vivado --
+    if has_suffix(".xpr") || has_suffix(".xdc") {
+        result.tools.push("vivado".into());
+        result.platforms.push("fpga".into());
+    }
+
+    // -- Intel Quartus --
+    if has_suffix(".qpf") || has_suffix(".qsf") || has_suffix(".sof") {
+        result.tools.push("quartus".into());
+        result.platforms.push("fpga".into());
+    }
+
+    // -- Lattice Diamond / Radiant --
+    if has_suffix(".ldf") || has_suffix(".lpf") {
+        result.tools.push("lattice".into());
+        result.platforms.push("fpga".into());
+    }
+
+    // ====================================================================
+    // GPU COMPUTING, HPC & PARALLEL
+    // ====================================================================
+
+    // -- CUDA --
+    if has_suffix(".cu") || has_suffix(".cuh") {
+        result.languages.push("cuda".into());
+        result.tools.push("nvidia-cuda".into());
+        result.platforms.push("gpu".into());
+    }
+
+    // -- OpenCL --
+    if has_suffix(".cl") {
+        result.languages.push("opencl".into());
+        result.platforms.push("gpu".into());
+    }
+
+    // -- Metal shaders (Apple GPU) --
+    if has_suffix(".metal") {
+        result.languages.push("metal".into());
+        result.platforms.push("gpu".into());
+    }
+
+    // -- GLSL / HLSL shaders --
+    if has_suffix(".glsl") || has_suffix(".vert") || has_suffix(".frag") {
+        result.languages.push("glsl".into());
+        result.platforms.push("gpu".into());
+    }
+    if has_suffix(".hlsl") {
+        result.languages.push("hlsl".into());
+        result.platforms.push("gpu".into());
+    }
+
+    // -- WGSL (WebGPU shading language) --
+    if has_suffix(".wgsl") {
+        result.languages.push("wgsl".into());
+        result.platforms.push("gpu".into());
+    }
+
+    // -- OpenMPI / MPI parallel computing --
+    if root_entries.iter().any(|n| n.contains("mpi") && n.contains("hostfile"))
+        || has_file("hostfile")
+    {
+        result.tools.push("openmpi".into());
+        result.platforms.push("hpc".into());
+    }
+
+    // ====================================================================
+    // WIRELESS, SDR & RADIO
+    // ====================================================================
+
+    // -- GNU Radio --
+    if has_suffix(".grc") {
+        result.tools.push("gnuradio".into());
+        result.platforms.push("sdr".into());
+    }
+
+    // -- Bluetooth / BLE --
+    if root_entries.iter().any(|n| n.to_lowercase().contains("bluetooth") || n.to_lowercase().contains("nimble")) {
+        result.tools.push("bluetooth".into());
+        result.platforms.push("wireless".into());
+    }
+
+    // -- LoRaWAN --
+    if root_entries.iter().any(|n| n.to_lowercase().contains("lorawan") || n.to_lowercase().contains("lora")) {
+        result.tools.push("lorawan".into());
+        result.platforms.push("wireless".into());
+    }
+
+    // -- Zigbee / Thread / Matter --
+    if root_entries.iter().any(|n| {
+        let l = n.to_lowercase();
+        l.contains("zigbee") || l.contains("thread") || l.contains("matter")
+    }) {
+        result.tools.push("zigbee".into());
+        result.platforms.push("wireless".into());
+    }
+
+    // ====================================================================
+    // SECURITY, CRYPTOGRAPHY & REVERSE ENGINEERING
+    // ====================================================================
+
+    // -- Ghidra reverse engineering --
+    if has_suffix(".gpr") || has_suffix(".rep") {
+        result.tools.push("ghidra".into());
+        result.platforms.push("reverse-engineering".into());
+    }
+
+    // -- IDA Pro --
+    if has_suffix(".idb") || has_suffix(".i64") {
+        result.tools.push("ida-pro".into());
+        result.platforms.push("reverse-engineering".into());
+    }
+
+    // -- Hardware security: TPM / HSM config --
+    if root_entries.iter().any(|n| n.to_lowercase().contains("tpm") || n.to_lowercase().contains("hsm")) {
+        result.tools.push("hardware-security".into());
+        result.platforms.push("security".into());
+    }
+
+    // ====================================================================
+    // 3D PRINTING & FABRICATION
+    // ====================================================================
+
+    // -- Marlin firmware --
+    if has_file("Configuration.h") && has_file("Configuration_adv.h") {
+        result.frameworks.push("marlin".into());
+        result.platforms.push("3d-printing".into());
+    }
+
+    // -- Klipper firmware --
+    if has_file("printer.cfg") || has_file("klipper.cfg") {
+        result.frameworks.push("klipper".into());
+        result.platforms.push("3d-printing".into());
+    }
+
+    // -- G-code files --
+    if has_suffix(".gcode") || has_suffix(".nc") {
+        result.platforms.push("3d-printing".into());
+    }
+
+    // ====================================================================
+    // UI FRAMEWORKS (EMBEDDED & DESKTOP)
+    // ====================================================================
+
+    // -- Qt (C++/QML) --
+    if has_suffix(".pro") || has_suffix(".pri") || has_suffix(".qbs") {
+        result.frameworks.push("qt".into());
+        result.languages.push("cpp".into());
+    }
+    if has_suffix(".qml") {
+        result.languages.push("qml".into());
+        result.frameworks.push("qt".into());
+    }
+    // Qt for MCUs (resource-constrained embedded UI)
+    if has_file("qmlproject") || root_entries.iter().any(|n| n.contains("qtformcu")) {
+        result.frameworks.push("qt-for-mcu".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- LVGL (Light and Versatile Graphics Library for MCUs) --
+    if has_file("lv_conf.h") || root_entries.iter().any(|n| n == "lvgl") {
+        result.frameworks.push("lvgl".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- TouchGFX (STMicroelectronics embedded UI) --
+    if has_suffix(".touchgfx") {
+        result.frameworks.push("touchgfx".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- Avalonia UI (.NET cross-platform) --
+    if root_entries.iter().any(|n| n.to_lowercase().contains("avalonia")) {
+        result.frameworks.push("avalonia".into());
+    }
+
+    // ====================================================================
+    // INSTRUMENTATION & SCIENTIFIC
+    // ====================================================================
+
+    // -- LabVIEW --
+    if has_suffix(".vi") || has_suffix(".lvproj") || has_suffix(".lvlib") {
+        result.tools.push("labview".into());
+        result.languages.push("labview-g".into());
+        result.platforms.push("instrumentation".into());
+    }
+
+    // -- MATLAB / Simulink --
+    if has_suffix(".mlx") || has_suffix(".slx") || has_suffix(".mdl") {
+        result.tools.push("matlab".into());
+        result.languages.push("matlab".into());
+        if has_suffix(".slx") || has_suffix(".mdl") {
+            result.tools.push("simulink".into());
+        }
+    }
+
+    // -- Jupyter notebooks --
+    if has_suffix(".ipynb") {
+        result.tools.push("jupyter".into());
+    }
+
+    // ====================================================================
+    // ASSEMBLY & LOW-LEVEL LANGUAGES
+    // ====================================================================
+
+    // -- Assembly --
+    if has_suffix(".asm") || has_suffix(".s") || has_suffix(".S") {
+        result.languages.push("assembly".into());
+    }
+
+    // -- Ada / SPARK --
+    if has_suffix(".adb") || has_suffix(".ads") || has_suffix(".gpr") {
+        result.languages.push("ada".into());
+        // SPARK subset of Ada for safety-critical
+        if root_entries.iter().any(|n| n.to_lowercase().contains("spark")) {
+            result.frameworks.push("spark-ada".into());
+            result.platforms.push("safety-critical".into());
+        }
+    }
+
+    // -- Forth --
+    if has_suffix(".fs") || has_suffix(".fth") || has_suffix(".4th") {
+        // .fs conflicts with F# — only tag Forth if no .fsproj exists
+        if !has_suffix(".fsproj") || has_suffix(".fth") || has_suffix(".4th") {
+            result.languages.push("forth".into());
+        }
+    }
+
+    // ====================================================================
+    // CI/CD & DEVOPS
+    // ====================================================================
+
+    // -- GitHub Actions (subdirectory check - separate stat call) --
+    if dir.join(".github").join("workflows").is_dir() {
+        result.tools.push("github-actions".into());
+    }
+
+    // -- GitLab CI --
+    if has_file(".gitlab-ci.yml") {
+        result.tools.push("gitlab-ci".into());
+    }
+
+    // -- Jenkins --
+    if has_file("Jenkinsfile") {
+        result.tools.push("jenkins".into());
+    }
+
+    // -- CircleCI --
+    if dir.join(".circleci").join("config.yml").exists() {
+        result.tools.push("circleci".into());
+    }
+
+    // -- Travis CI --
+    if has_file(".travis.yml") {
+        result.tools.push("travis-ci".into());
+    }
+
+    // -- Terraform --
+    if has_suffix(".tf") {
+        result.tools.push("terraform".into());
+        result.platforms.push("cloud".into());
+    }
+
+    // -- Pulumi --
+    if has_file("Pulumi.yaml") || has_file("Pulumi.yml") {
+        result.tools.push("pulumi".into());
+        result.platforms.push("cloud".into());
+    }
+
+    // -- Kubernetes --
+    if has_file("skaffold.yaml") || has_file("helm") == false {
+        // More reliable K8s detection
+    }
+    if has_file("skaffold.yaml") || has_file("Chart.yaml") {
+        result.tools.push("kubernetes".into());
+        result.platforms.push("cloud".into());
+    }
+    if has_file("Chart.yaml") {
+        result.tools.push("helm".into());
+    }
+
+    // -- Vagrant --
+    if has_file("Vagrantfile") {
+        result.tools.push("vagrant".into());
+    }
+
+    // -- Ansible --
+    if has_file("ansible.cfg") || has_file("playbook.yml") || has_file("playbook.yaml") {
+        result.tools.push("ansible".into());
+    }
+
+    // ====================================================================
+    // NETWORKING & SERVER INFRASTRUCTURE
+    // ====================================================================
+
+    // -- DPDK (Data Plane Development Kit) --
+    if root_entries.iter().any(|n| n.to_lowercase().contains("dpdk")) {
+        result.tools.push("dpdk".into());
+        result.platforms.push("networking".into());
+    }
+
+    // -- OpenBMC (server management) --
+    if root_entries.iter().any(|n| n.to_lowercase().contains("openbmc")) {
+        result.tools.push("openbmc".into());
+        result.platforms.push("server-management".into());
+    }
+
+    // -- Protocol Buffers / gRPC --
+    if has_suffix(".proto") {
+        result.tools.push("protobuf".into());
+    }
+
+    // -- GraphQL --
+    if has_suffix(".graphql") || has_suffix(".gql") {
+        result.tools.push("graphql".into());
+    }
+
+    // ====================================================================
+    // BUILD TOOLS & GENERAL
+    // ====================================================================
+
+    // -- C / C++ (CMake, Make, Meson, Bazel) --
+    if has_file("CMakeLists.txt") {
+        result.languages.push("c".into());
+        result.languages.push("cpp".into());
+        result.tools.push("cmake".into());
+    }
+    if has_file("Makefile") || has_file("makefile") || has_file("GNUmakefile") {
+        result.tools.push("make".into());
+    }
+    if has_file("meson.build") {
+        result.tools.push("meson".into());
+        result.languages.push("c".into());
+        result.languages.push("cpp".into());
+    }
+    if has_file("BUILD") || has_file("BUILD.bazel") || has_file("WORKSPACE") || has_file("WORKSPACE.bazel") {
+        result.tools.push("bazel".into());
+    }
+    if has_file("SConstruct") || has_file("SConscript") {
+        result.tools.push("scons".into());
+    }
+    if has_file("premake5.lua") || has_file("premake4.lua") {
+        result.tools.push("premake".into());
+    }
+    if has_file("xmake.lua") {
+        result.tools.push("xmake".into());
+    }
+
+    // -- Conan (C/C++ package manager) --
+    if has_file("conanfile.py") || has_file("conanfile.txt") {
+        result.tools.push("conan".into());
+    }
+
+    // -- vcpkg (C/C++ package manager) --
+    if has_file("vcpkg.json") {
+        result.tools.push("vcpkg".into());
+    }
+
+    // ====================================================================
+    // JAVA EMBEDDED & SPECIALIZED
+    // ====================================================================
+
+    // -- Java Card (smartcard development) --
+    if has_suffix(".cap") || root_entries.iter().any(|n| n.to_lowercase().contains("javacard")) {
+        result.languages.push("java".into());
+        result.frameworks.push("javacard".into());
+        result.platforms.push("smartcard".into());
+    }
+
+    // -- MicroEJ VEE (Java for MCUs) --
+    if root_entries.iter().any(|n| n.to_lowercase().contains("microej")) {
+        result.languages.push("java".into());
+        result.frameworks.push("microej".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- AOSP / Android Automotive OS --
+    if has_file("Android.bp") || has_file("build.soong") {
+        result.tools.push("aosp".into());
+        result.platforms.push("android".into());
+    }
+
+    // ====================================================================
+    // MEDICAL, SAFETY-CRITICAL & AEROSPACE
+    // ====================================================================
+
+    // -- Safety-critical standards markers --
+    if root_entries.iter().any(|n| {
+        let l = n.to_lowercase();
+        l.contains("iec62304") || l.contains("iec_62304")
+            || l.contains("iso13485") || l.contains("iso_13485")
+            || l.contains("iso14971") || l.contains("iso_14971")
+    }) {
+        result.platforms.push("medical".into());
+        result.platforms.push("safety-critical".into());
+    }
+    if root_entries.iter().any(|n| {
+        let l = n.to_lowercase();
+        l.contains("iso26262") || l.contains("iso_26262")
+            || l.contains("asil") || l.contains("do-178")
+    }) {
+        result.platforms.push("safety-critical".into());
+    }
+
+    // ====================================================================
+    // WEBASSEMBLY
+    // ====================================================================
+    if has_suffix(".wasm") || has_suffix(".wat") || has_suffix(".wast") {
+        result.languages.push("wasm".into());
+        result.platforms.push("webassembly".into());
+    }
+
+    // ====================================================================
+    // GAME DEVELOPMENT
+    // ====================================================================
+
+    // -- Unity --
+    if has_file("ProjectSettings") == false {
+        // Unity detection via Assets directory
+    }
+    if dir.join("Assets").is_dir() && dir.join("ProjectSettings").is_dir() {
+        result.tools.push("unity".into());
+        result.languages.push("csharp".into());
+        result.platforms.push("gamedev".into());
+    }
+
+    // -- Unreal Engine --
+    if has_suffix(".uproject") {
+        result.tools.push("unreal-engine".into());
+        result.languages.push("cpp".into());
+        result.platforms.push("gamedev".into());
+    }
+
+    // -- Godot --
+    if has_file("project.godot") {
+        result.tools.push("godot".into());
+        result.platforms.push("gamedev".into());
+    }
+
+    // -- Bevy (Rust game engine) --
+    if has_file("Cargo.toml") {
+        if let Ok(content) = fs::read_to_string(dir.join("Cargo.toml")) {
+            if content.contains("bevy") {
+                result.frameworks.push("bevy".into());
+                result.platforms.push("gamedev".into());
+            }
+        }
+    }
+
+    // ====================================================================
+    // OTA, DEPLOYMENT & SIGNING
+    // ====================================================================
+
+    // -- Mender.io OTA --
+    if has_file("mender.conf") || has_file("mender-artifact") == false {
+        if has_file("mender.conf") {
+            result.tools.push("mender".into());
+            result.platforms.push("embedded".into());
+        }
+    }
+
+    // -- SWUpdate --
+    if has_file("sw-description") {
+        result.tools.push("swupdate".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // -- RAUC --
+    if has_file("system.conf") && root_entries.iter().any(|n| n.contains("rauc")) {
+        result.tools.push("rauc".into());
+        result.platforms.push("embedded".into());
+    }
+
+    // ====================================================================
+    // FILE TYPE DETECTION & CLEANUP
+    // ====================================================================
+
+    // -- File type detection from root directory entries --
+    scan_root_file_types(&root_entries, &mut result);
+
+    // Deduplicate all vectors while preserving insertion order
+    dedup_vec(&mut result.languages);
+    dedup_vec(&mut result.frameworks);
+    dedup_vec(&mut result.platforms);
+    dedup_vec(&mut result.tools);
+    dedup_vec(&mut result.file_types);
+
+    result
+}
+
+/// Parse a Gradle project for Android/Kotlin/Spring indicators.
+/// Reads build.gradle(.kts) looking for common plugins and dependencies.
+fn scan_gradle_project(dir: &Path, root_entries: &[String], result: &mut ProjectScanResult) {
+    // Try to read the gradle build file (prefer .kts, fall back to .groovy)
+    let gradle_path = if root_entries.iter().any(|n| n == "build.gradle.kts") {
+        dir.join("build.gradle.kts")
+    } else {
+        dir.join("build.gradle")
+    };
+
+    let content = match fs::read_to_string(&gradle_path) {
+        Ok(c) => c.to_lowercase(),
+        Err(_) => return,
+    };
+
+    // Android detection via AGP plugin or AndroidManifest
+    if content.contains("com.android.application")
+        || content.contains("com.android.library")
+        || root_entries.iter().any(|n| n == "AndroidManifest.xml")
+        || dir.join("app/src/main/AndroidManifest.xml").exists()
+    {
+        result.platforms.push("android".into());
+        result.frameworks.push("android-sdk".into());
+    }
+
+    // Kotlin Multiplatform
+    if content.contains("kotlin(\"multiplatform\")")
+        || content.contains("org.jetbrains.kotlin.multiplatform")
+    {
+        result.languages.push("kotlin".into());
+        result.frameworks.push("kotlin-multiplatform".into());
+    }
+
+    // Spring Boot
+    if content.contains("org.springframework.boot") {
+        result.frameworks.push("spring-boot".into());
+    }
+
+    // Quarkus
+    if content.contains("io.quarkus") {
+        result.frameworks.push("quarkus".into());
+    }
+
+    // Micronaut
+    if content.contains("io.micronaut") {
+        result.frameworks.push("micronaut".into());
+    }
+
+    // AOSP / Android native
+    if content.contains("android.ndk") || content.contains("com.android.tools.build") {
+        result.tools.push("android-ndk".into());
+    }
+
+    // Compose
+    if content.contains("compose") {
+        result.frameworks.push("jetpack-compose".into());
+    }
+}
+
+/// Parse platformio.ini content to detect board family, framework, and platform.
+/// PlatformIO INI uses `[env:xxx]` sections with `board`, `framework`, `platform` keys.
+fn scan_platformio_ini(content: &str, result: &mut ProjectScanResult) {
+    let lower = content.to_lowercase();
+
+    // Detect frameworks declared in platformio.ini
+    let pio_frameworks: &[(&str, &str)] = &[
+        ("framework = arduino", "arduino"),
+        ("framework = espidf", "esp-idf"),
+        ("framework = mbed", "mbed-os"),
+        ("framework = zephyr", "zephyr"),
+        ("framework = stm32cube", "stm32cube"),
+        ("framework = libopencm3", "libopencm3"),
+        ("framework = spl", "stm32-spl"),
+        ("framework = cmsis", "cmsis"),
+        ("framework = freertos", "freertos"),
+    ];
+    for (pattern, fw) in pio_frameworks {
+        if lower.contains(pattern) {
+            result.frameworks.push((*fw).to_string());
+        }
+    }
+
+    // Detect platform families from `platform = xxx`
+    let pio_platforms: &[(&str, &str)] = &[
+        ("platform = espressif32", "esp32"),
+        ("platform = espressif8266", "esp8266"),
+        ("platform = ststm32", "stm32"),
+        ("platform = atmelsam", "sam"),
+        ("platform = atmelavr", "avr"),
+        ("platform = nordicnrf52", "nrf52"),
+        ("platform = teensy", "teensy"),
+        ("platform = raspberrypi", "raspberry-pi"),
+        ("platform = sifive", "risc-v"),
+        ("platform = linux_arm", "linux-arm"),
+        ("platform = linux_x86_64", "linux-x86"),
+        ("platform = native", "native"),
+    ];
+    for (pattern, plat) in pio_platforms {
+        if lower.contains(pattern) {
+            result.platforms.push((*plat).to_string());
+        }
+    }
+
+    // Detect common boards to infer platform
+    if lower.contains("esp32") {
+        result.platforms.push("esp32".into());
+    }
+    if lower.contains("esp8266") {
+        result.platforms.push("esp8266".into());
+    }
+    if lower.contains("nrf52") {
+        result.platforms.push("nrf52".into());
+    }
+    if lower.contains("stm32") {
+        result.platforms.push("stm32".into());
+    }
+
+    // Detect RTOS usage in lib_deps
+    if lower.contains("freertos") {
+        result.frameworks.push("freertos".into());
+    }
+}
+
+/// Scan Python dependency files (pyproject.toml, requirements.txt) for framework
+/// and ML tool keywords. Uses simple string matching — no TOML parser needed.
+fn scan_python_deps(content: &str, result: &mut ProjectScanResult) {
+    let lower = content.to_lowercase();
+
+    // Web frameworks
+    let frameworks: &[(&str, &str)] = &[
+        ("django", "django"),
+        ("flask", "flask"),
+        ("fastapi", "fastapi"),
+        ("starlette", "starlette"),
+        ("tornado", "tornado"),
+        ("aiohttp", "aiohttp"),
+        ("sanic", "sanic"),
+        ("pyramid", "pyramid"),
+        ("bottle", "bottle"),
+        ("streamlit", "streamlit"),
+        ("gradio", "gradio"),
+        ("litestar", "litestar"),
+        ("robyn", "robyn"),
+        ("falcon", "falcon"),
+        ("quart", "quart"),
+    ];
+    for (keyword, framework) in frameworks {
+        if lower.contains(keyword) {
+            result.frameworks.push((*framework).to_string());
+        }
+    }
+
+    // AI/ML tools
+    let ml_tools: &[(&str, &str)] = &[
+        ("torch", "pytorch"),
+        ("tensorflow", "tensorflow"),
+        ("jax", "jax"),
+        ("scikit-learn", "sklearn"),
+        ("transformers", "huggingface"),
+        ("langchain", "langchain"),
+        ("openai", "openai"),
+        ("anthropic", "anthropic"),
+        ("keras", "keras"),
+        ("onnx", "onnx"),
+        ("mlflow", "mlflow"),
+        ("wandb", "wandb"),
+        ("ray", "ray"),
+        ("dask", "dask"),
+        ("polars", "polars"),
+        ("pandas", "pandas"),
+        ("numpy", "numpy"),
+        ("scipy", "scipy"),
+        ("matplotlib", "matplotlib"),
+        ("plotly", "plotly"),
+        ("seaborn", "seaborn"),
+        ("bokeh", "bokeh"),
+    ];
+    for (keyword, tool) in ml_tools {
+        if lower.contains(keyword) {
+            result.tools.push((*tool).to_string());
+        }
+    }
+
+    // Embedded / IoT / Hardware Python
+    let embedded_py: &[(&str, &str, &str)] = &[
+        // (keyword_in_deps, framework_or_tool_name, category: "framework"|"tool"|"platform")
+        ("micropython", "micropython", "framework"),
+        ("circuitpython", "circuitpython", "framework"),
+        ("adafruit", "circuitpython", "framework"),
+        ("rpi.gpio", "raspberry-pi", "platform"),
+        ("gpiozero", "raspberry-pi", "platform"),
+        ("smbus", "i2c", "tool"),
+        ("spidev", "spi", "tool"),
+        ("pyserial", "serial", "tool"),
+        ("esptool", "esp32", "platform"),
+        ("machine", "micropython", "framework"),
+    ];
+    for (keyword, name, category) in embedded_py {
+        if lower.contains(keyword) {
+            match *category {
+                "framework" => result.frameworks.push((*name).to_string()),
+                "tool" => result.tools.push((*name).to_string()),
+                "platform" => result.platforms.push((*name).to_string()),
+                _ => {}
+            }
+        }
+    }
+
+    // Robotics / ROS Python packages
+    let robotics_py: &[(&str, &str)] = &[
+        ("rospy", "ros"),
+        ("rclpy", "ros2"),
+        ("catkin", "ros"),
+        ("ament", "ros2"),
+        ("moveit", "moveit"),
+        ("geometry_msgs", "ros"),
+        ("sensor_msgs", "ros"),
+        ("nav2", "ros2-nav2"),
+    ];
+    for (keyword, fw) in robotics_py {
+        if lower.contains(keyword) {
+            result.frameworks.push((*fw).to_string());
+            result.platforms.push("robotics".into());
+        }
+    }
+
+    // Industrial / automation Python packages
+    let industrial_py: &[(&str, &str)] = &[
+        ("pymodbus", "modbus"),
+        ("opcua", "opcua"),
+        ("asyncua", "opcua"),
+        ("pycomm3", "allen-bradley"),
+        ("snap7", "siemens-s7"),
+        ("minimalmodbus", "modbus"),
+    ];
+    for (keyword, tool) in industrial_py {
+        if lower.contains(keyword) {
+            result.tools.push((*tool).to_string());
+            result.platforms.push("industrial".into());
+        }
+    }
+
+    // MQTT / messaging
+    let messaging_py: &[(&str, &str)] = &[
+        ("paho-mqtt", "mqtt"),
+        ("paho.mqtt", "mqtt"),
+        ("aiomqtt", "mqtt"),
+        ("hbmqtt", "mqtt"),
+        ("celery", "celery"),
+        ("kombu", "amqp"),
+        ("aio-pika", "rabbitmq"),
+    ];
+    for (keyword, tool) in messaging_py {
+        if lower.contains(keyword) {
+            result.tools.push((*tool).to_string());
+        }
+    }
+
+    // Computer vision
+    let cv_py: &[(&str, &str)] = &[
+        ("opencv", "opencv"),
+        ("cv2", "opencv"),
+        ("pillow", "pillow"),
+        ("ultralytics", "yolo"),
+        ("detectron2", "detectron2"),
+        ("mediapipe", "mediapipe"),
+    ];
+    for (keyword, tool) in cv_py {
+        if lower.contains(keyword) {
+            result.tools.push((*tool).to_string());
+        }
+    }
+
+    // Scientific / instrumentation
+    let science_py: &[(&str, &str)] = &[
+        ("pyvisa", "visa"),
+        ("nidaqmx", "ni-daq"),
+        ("pymeasure", "pymeasure"),
+        ("bluesky", "bluesky"),
+        ("ophyd", "ophyd"),
+        ("epics", "epics"),
+    ];
+    for (keyword, tool) in science_py {
+        if lower.contains(keyword) {
+            result.tools.push((*tool).to_string());
+            result.platforms.push("instrumentation".into());
+        }
+    }
+
+    // Testing frameworks
+    let test_py: &[(&str, &str)] = &[
+        ("pytest", "pytest"),
+        ("unittest", "unittest"),
+        ("hypothesis", "hypothesis"),
+        ("tox", "tox"),
+        ("nox", "nox"),
+    ];
+    for (keyword, tool) in test_py {
+        if lower.contains(keyword) {
+            result.tools.push((*tool).to_string());
+        }
+    }
+}
+
+/// Parse package.json content and check lock files to detect JS/TS frameworks,
+/// package managers, and dev tools.
+fn scan_package_json(content: &str, root_entries: &[String], result: &mut ProjectScanResult) {
+    result.languages.push("javascript".into());
+
+    // Detect package manager from lock files (order matters: most specific first)
+    let has_file = |name: &str| root_entries.iter().any(|n| n == name);
+    if has_file("bun.lockb") || has_file("bun.lock") {
+        result.tools.push("bun".into());
+    } else if has_file("pnpm-lock.yaml") {
+        result.tools.push("pnpm".into());
+    } else if has_file("yarn.lock") {
+        result.tools.push("yarn".into());
+    } else if has_file("package-lock.json") {
+        result.tools.push("npm".into());
+    }
+
+    // Parse JSON to extract dependency names for framework/tool detection
+    let pkg: serde_json::Value = match serde_json::from_str(content) {
+        Ok(v) => v,
+        Err(_) => return, // Malformed package.json — skip silently
+    };
+
+    let mut all_deps: Vec<String> = Vec::new();
+    for section in &["dependencies", "devDependencies"] {
+        if let Some(deps) = pkg.get(*section).and_then(|d| d.as_object()) {
+            for key in deps.keys() {
+                all_deps.push(key.to_lowercase());
+            }
+        }
+    }
+
+    // Framework detection from dependency names
+    let frameworks: &[(&str, &str)] = &[
+        // Frontend frameworks
+        ("react", "react"),
+        ("next", "nextjs"),
+        ("vue", "vue"),
+        ("nuxt", "nuxt"),
+        ("svelte", "svelte"),
+        ("@angular/core", "angular"),
+        ("solid-js", "solidjs"),
+        ("preact", "preact"),
+        ("qwik", "qwik"),
+        ("lit", "lit"),
+        ("alpine", "alpinejs"),
+        ("htmx.org", "htmx"),
+        // Meta-frameworks / SSR / SSG
+        ("gatsby", "gatsby"),
+        ("remix", "remix"),
+        ("astro", "astro"),
+        // Backend frameworks
+        ("express", "express"),
+        ("fastify", "fastify"),
+        ("hono", "hono"),
+        ("koa", "koa"),
+        ("@nestjs/core", "nestjs"),
+        ("@trpc/server", "trpc"),
+        ("@feathersjs/feathers", "feathersjs"),
+        ("adonis", "adonisjs"),
+        // Desktop / cross-platform
+        ("electron", "electron"),
+        ("tauri", "tauri"),
+        ("neutralinojs", "neutralino"),
+        // Mobile / hybrid
+        ("react-native", "react-native"),
+        ("expo", "expo"),
+        ("@capacitor/core", "capacitor"),
+        ("@ionic/core", "ionic"),
+        ("nativescript", "nativescript"),
+        // IoT / hardware JS
+        ("johnny-five", "johnny-five"),
+        ("cylon", "cylon"),
+        ("onoff", "gpio"),
+        ("raspi-io", "raspberry-pi"),
+        ("serialport", "serialport"),
+        // MQTT / messaging
+        ("mqtt", "mqtt"),
+        ("amqplib", "rabbitmq"),
+        ("kafkajs", "kafka"),
+        ("bullmq", "bullmq"),
+        // Realtime
+        ("socket.io", "socketio"),
+        ("ws", "websocket"),
+        ("@supabase/supabase-js", "supabase"),
+        ("firebase", "firebase"),
+        // 3D / game / graphics
+        ("three", "threejs"),
+        ("@babylonjs/core", "babylonjs"),
+        ("pixi.js", "pixijs"),
+        ("phaser", "phaser"),
+        ("aframe", "a-frame"),
+        ("@react-three/fiber", "react-three-fiber"),
+    ];
+    for (dep_name, framework) in frameworks {
+        if all_deps.iter().any(|d| d == *dep_name) {
+            result.frameworks.push((*framework).to_string());
+        }
+    }
+
+    // Platform detection from mobile/desktop/embedded frameworks
+    if all_deps.iter().any(|d| d == "react-native" || d == "expo") {
+        result.platforms.push("mobile".into());
+    }
+    if all_deps.iter().any(|d| {
+        d == "@capacitor/core" || d == "@ionic/core" || d == "nativescript"
+    }) {
+        result.platforms.push("mobile".into());
+    }
+    if all_deps.iter().any(|d| d == "electron" || d == "tauri" || d == "neutralinojs") {
+        result.platforms.push("desktop".into());
+    }
+    if all_deps.iter().any(|d| {
+        d == "johnny-five" || d == "cylon" || d == "onoff" || d == "raspi-io"
+    }) {
+        result.platforms.push("embedded".into());
+    }
+
+    // TypeScript detection from dependencies
+    if all_deps.iter().any(|d| d == "typescript") {
+        result.languages.push("typescript".into());
+    }
+
+    // Dev tool detection from dependency names
+    let tools: &[(&str, &str)] = &[
+        // Bundlers
+        ("webpack", "webpack"),
+        ("vite", "vite"),
+        ("esbuild", "esbuild"),
+        ("rollup", "rollup"),
+        ("parcel", "parcel"),
+        ("swc", "swc"),
+        ("tsup", "tsup"),
+        // Monorepo tools
+        ("turbo", "turbo"),
+        ("nx", "nx"),
+        ("lerna", "lerna"),
+        // Test frameworks
+        ("jest", "jest"),
+        ("vitest", "vitest"),
+        ("mocha", "mocha"),
+        ("ava", "ava"),
+        ("tap", "tap"),
+        // E2E / browser testing
+        ("cypress", "cypress"),
+        ("playwright", "playwright"),
+        ("puppeteer", "puppeteer"),
+        ("@testing-library/react", "testing-library"),
+        ("storybook", "storybook"),
+        // ORM / database
+        ("prisma", "prisma"),
+        ("drizzle-orm", "drizzle"),
+        ("typeorm", "typeorm"),
+        ("sequelize", "sequelize"),
+        ("knex", "knex"),
+        ("mongoose", "mongoose"),
+        // CSS / styling
+        ("tailwindcss", "tailwind"),
+        ("styled-components", "styled-components"),
+        ("@emotion/react", "emotion"),
+        ("sass", "sass"),
+        ("postcss", "postcss"),
+        // State management
+        ("zustand", "zustand"),
+        ("redux", "redux"),
+        ("@tanstack/react-query", "react-query"),
+        ("swr", "swr"),
+        ("jotai", "jotai"),
+        ("recoil", "recoil"),
+        // Validation
+        ("zod", "zod"),
+        ("yup", "yup"),
+        ("joi", "joi"),
+        // Auth
+        ("next-auth", "nextauth"),
+        ("passport", "passport"),
+        // Documentation
+        ("typedoc", "typedoc"),
+        ("swagger-ui-express", "swagger"),
+        // Linting / formatting
+        ("eslint", "eslint"),
+        ("prettier", "prettier"),
+        ("biome", "biome"),
+        ("oxlint", "oxlint"),
+    ];
+    for (dep_name, tool) in tools {
+        if all_deps.iter().any(|d| d == *dep_name) {
+            result.tools.push((*tool).to_string());
+        }
+    }
+}
+
+/// Scan root directory entries for notable file extensions and add them
+/// to the file_types list. Only recognizes data/media/document formats,
+/// not source code extensions (those are covered by language detection).
+fn scan_root_file_types(entries: &[String], result: &mut ProjectScanResult) {
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for name in entries {
+        if let Some(ext) = name.rsplit('.').next() {
+            let ext_lower = ext.to_lowercase();
+            if seen.contains(&ext_lower) {
+                continue;
+            }
+            // Add recognized data/media/document/hardware/embedded file types.
+            // Source code extensions are not added here — they are detected
+            // via config files above (Cargo.toml → rust, package.json → javascript, etc.)
+            match ext_lower.as_str() {
+                // Data / config formats
+                "json" | "yaml" | "yml" | "toml" | "xml" | "csv" | "tsv" | "parquet"
+                | "avro" | "arrow" | "ndjson" | "jsonl" | "ini" | "cfg" | "conf" | "env"
+                | "properties" =>
+                {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Documentation / text
+                "md" | "txt" | "rst" | "adoc" | "tex" | "latex" | "org" | "rtf" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Web / markup
+                "html" | "htm" | "xhtml" | "css" | "scss" | "sass" | "less" | "styl" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Images / graphics
+                "svg" | "png" | "jpg" | "jpeg" | "gif" | "webp" | "ico" | "bmp" | "tiff"
+                | "tga" | "psd" | "ai" | "eps" | "heic" | "avif" | "dds" | "exr" | "hdr" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Documents / office
+                "pdf" | "epub" | "docx" | "xlsx" | "pptx" | "odt" | "ods" | "odp" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Audio / video
+                "mp4" | "mp3" | "wav" | "webm" | "ogg" | "flac" | "aac" | "m4a" | "avi"
+                | "mkv" | "mov" | "wmv" | "flv" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // 3D / CAD / game assets
+                "obj" | "fbx" | "gltf" | "glb" | "stl" | "step" | "stp" | "iges" | "igs"
+                | "3mf" | "blend" | "dae" | "usd" | "usda" | "usdc" | "usdz" | "abc" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // WebAssembly / binary interchange
+                "wasm" | "wat" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // API / schema / serialization
+                "proto" | "graphql" | "gql" | "thrift" | "avdl" | "capnp" | "fbs" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Database
+                "sql" | "db" | "sqlite" | "sqlite3" | "mdb" | "accdb" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Embedded / firmware / hardware
+                "hex" | "bin" | "elf" | "axf" | "s19" | "srec" | "uf2" | "dfu" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Device tree / hardware description
+                "dts" | "dtsi" | "dtb" | "svd" | "pdsc" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // FPGA / HDL bitstreams
+                "sof" | "bit" | "mcs" | "jed" | "pof" | "rbf" | "bin_fpga" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // GPU / shader
+                "glsl" | "hlsl" | "wgsl" | "metal" | "spv" | "cg" | "frag" | "vert"
+                | "geom" | "comp" | "tesc" | "tese" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Automotive / industrial
+                "arxml" | "dbc" | "ldf" | "cdd" | "odx" | "pdx" | "a2l" | "aml" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // EDA / PCB / schematic
+                "kicad_pcb" | "kicad_sch" | "brd" | "sch" | "gerber" | "gbr" | "drl"
+                | "dsn" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // SDR / radio / signal
+                "grc" | "sigmf" | "iq" | "cfile" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Instrumentation / lab
+                "vi" | "lvproj" | "mlx" | "slx" | "mdl" | "mat" | "fig" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // G-code / CNC / 3D printing
+                "gcode" | "nc" | "ngc" | "tap" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Reverse engineering
+                "gpr" | "idb" | "i64" | "bndb" | "rzdb" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Notebook / interactive
+                "ipynb" | "rmd" | "qmd" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Container / deployment descriptors
+                "dockerfile" | "containerfile" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Qt / UI
+                "qml" | "ui" | "qrc" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Maps / GIS
+                "geojson" | "gpx" | "kml" | "kmz" | "shp" | "tif" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                // Certificates / security
+                "pem" | "crt" | "cer" | "key" | "p12" | "pfx" | "jks" => {
+                    result.file_types.push(ext_lower.clone());
+                    seen.insert(ext_lower);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Deduplicate a Vec<String> in place while preserving first-occurrence order.
+fn dedup_vec(v: &mut Vec<String>) {
+    let mut seen = HashSet::new();
+    v.retain(|item| seen.insert(item.clone()));
 }
 
 // ============================================================================
@@ -564,6 +2332,14 @@ pub struct SkillEntry {
     #[serde(default)]
     pub file_types: Vec<String>,
 
+    /// Domain gates: hard prerequisite filters for skill activation.
+    /// Keys are gate names (e.g., "target_language", "cloud_provider"),
+    /// values are arrays of lowercase keywords that satisfy the gate.
+    /// ALL gates must pass for the skill to be considered.
+    /// Special keyword "generic" means the gate passes whenever the domain is detected.
+    #[serde(default)]
+    pub domain_gates: HashMap<String, Vec<String>>,
+
     // Co-usage fields (from Pass 2)
 
     /// Skills often used in the SAME session/task
@@ -581,6 +2357,60 @@ pub struct SkillEntry {
     /// Skills that solve the SAME problem differently
     #[serde(default)]
     pub alternatives: Vec<String>,
+}
+
+// ============================================================================
+// Domain Registry Types (for domain gate enforcement)
+// ============================================================================
+
+/// The complete domain registry (generated by pss_aggregate_domains.py)
+#[derive(Debug, Deserialize, Clone)]
+pub struct DomainRegistry {
+    /// Registry version
+    pub version: String,
+
+    /// When the registry was generated
+    #[serde(default)]
+    pub generated: String,
+
+    /// Path to the source skill-index.json
+    #[serde(default)]
+    pub source_index: String,
+
+    /// Number of domains
+    #[serde(default)]
+    pub domain_count: usize,
+
+    /// Map of canonical domain name to domain entry
+    pub domains: HashMap<String, DomainRegistryEntry>,
+}
+
+/// A single domain in the registry
+#[derive(Debug, Deserialize, Clone)]
+pub struct DomainRegistryEntry {
+    /// Canonical name for this domain (snake_case)
+    pub canonical_name: String,
+
+    /// All original gate names normalized to this canonical name
+    #[serde(default)]
+    pub aliases: Vec<String>,
+
+    /// All keywords found across all skills for this domain.
+    /// Used to detect whether the user prompt involves this domain.
+    #[serde(default)]
+    pub example_keywords: Vec<String>,
+
+    /// True if at least one skill uses the "generic" wildcard for this domain
+    #[serde(default)]
+    pub has_generic: bool,
+
+    /// Number of skills with a gate for this domain
+    #[serde(default)]
+    pub skill_count: usize,
+
+    /// Names of skills that have a gate for this domain
+    #[serde(default)]
+    pub skills: Vec<String>,
 }
 
 // ============================================================================
@@ -968,15 +2798,357 @@ fn damerau_levenshtein_distance(a: &str, b: &str) -> usize {
     matrix[a_len][b_len]
 }
 
+/// Normalize separators: collapse hyphens, underscores, and camelCase boundaries
+/// into a single canonical form (all lowercase, no separators).
+/// "geo-json" / "geo_json" / "geoJson" / "geojson" → "geojson"
+fn normalize_separators(word: &str) -> String {
+    let mut result = String::with_capacity(word.len());
+    let chars: Vec<char> = word.chars().collect();
+    for (i, &ch) in chars.iter().enumerate() {
+        match ch {
+            '-' | '_' | ' ' => {} // strip separators
+            _ => {
+                // Insert boundary at camelCase transitions: "geoJson" → "geojson"
+                // We just lowercase everything — the split is not needed since we
+                // are comparing normalized forms directly.
+                if ch.is_uppercase() && i > 0 && chars[i - 1].is_lowercase() {
+                    // camelCase boundary — just lowercase, no separator
+                }
+                result.push(ch.to_ascii_lowercase());
+            }
+        }
+    }
+    result
+}
+
+/// Simple English morphological stemmer for keyword matching.
+/// Strips common suffixes to produce a stem that allows matching across
+/// grammatical forms: "deploys"→"deploy", "configuring"→"configure",
+/// "configured"→"configure", "tests"→"test", "libraries"→"library".
+///
+/// This is intentionally conservative — it only handles high-confidence
+/// suffix removals to avoid false conflations.
+fn stem_word(word: &str) -> String {
+    let result = stem_word_inner(word);
+    // Post-process: strip trailing silent 'e' from ALL stems for consistency.
+    // This ensures "configure" and "configured" both stem to "configur",
+    // "generate" and "generating" both stem to "generat", etc.
+    strip_trailing_silent_e(&result)
+}
+
+/// Strip a trailing 'e' that follows a consonant (English silent-e pattern).
+/// "configure" → "configur", "generate" → "generat", "cache" → "cach"
+/// Does NOT strip 'e' after vowels: "free" → "free", "tree" → "tree"
+fn strip_trailing_silent_e(s: &str) -> String {
+    let len = s.len();
+    if len > 3 && s.ends_with('e') {
+        let bytes = s.as_bytes();
+        let before_e = bytes[len - 2];
+        if !matches!(before_e, b'a' | b'e' | b'i' | b'o' | b'u') {
+            return s[..len - 1].to_string();
+        }
+    }
+    s.to_string()
+}
+
+fn stem_word_inner(word: &str) -> String {
+    let w = word.to_lowercase();
+    let len = w.len();
+
+    // Too short to stem meaningfully
+    if len < 4 {
+        return w;
+    }
+
+    // Order matters: check longer suffixes before shorter ones
+
+    // -ying → -y (e.g. "copying" → "copy") — but not "dying"→"d"
+    if len > 5 && w.ends_with("ying") {
+        let stem = &w[..len - 4];
+        if stem.len() >= 3 {
+            return format!("{}y", stem);
+        }
+    }
+
+    // -ies → -y (e.g. "libraries" → "library", "dependencies" → "dependency")
+    if len > 4 && w.ends_with("ies") {
+        return format!("{}y", &w[..len - 3]);
+    }
+
+    // -ling → -le (e.g. "bundling" → "bundle")
+    if len > 5 && w.ends_with("ling") {
+        let stem = &w[..len - 4];
+        if stem.len() >= 3 {
+            return format!("{}le", stem);
+        }
+    }
+
+    // -ting → -te (e.g. "generating" → "generate") — but not "setting"→"sete"
+    // Only apply when preceded by a vowel: "crea-ting" → "create", "genera-ting" → "generate"
+    if len > 5 && w.ends_with("ting") {
+        let before = w.as_bytes()[len - 5];
+        if matches!(before, b'a' | b'e' | b'i' | b'o' | b'u') {
+            return format!("{}te", &w[..len - 4]);
+        }
+    }
+
+    // Doubled consonant + ing: "running"→"run", "mapping"→"map", "debugging"→"debug"
+    // Pattern: the char before "ing" is doubled (e.g. "nn" in "running", "pp" in "mapping")
+    if len > 5 && w.ends_with("ing") {
+        let bytes = w.as_bytes();
+        let before_ing = bytes[len - 4]; // char right before "ing"
+        if len >= 6 && bytes[len - 5] == before_ing
+            && !matches!(before_ing, b'a' | b'e' | b'i' | b'o' | b'u')
+        {
+            // Doubled consonant: strip the doubled char + "ing" → keep root
+            // "running" → bytes: r,u,n,n,i,n,g → strip from pos len-4 onward,
+            // but also remove one of the doubled chars → w[..len-4]
+            let stem = &w[..len - 4];
+            if stem.len() >= 2 {
+                return stem.to_string();
+            }
+        }
+    }
+
+    // -ation → strip to just remove "ation" (not add "ate", which causes over-stemming)
+    // "validation"→"valid", "configuration"→"configur", "generation"→"gener"
+    // These stems are imperfect but consistent: the same stem is produced from
+    // "validate"→(strip -ate)→"valid", so they still match.
+    if len > 6 && w.ends_with("ation") {
+        let stem = &w[..len - 5];
+        if stem.len() >= 3 {
+            return stem.to_string();
+        }
+    }
+
+    // -ment (e.g. "deployment" → "deploy", "management" → "manage")
+    if len > 5 && w.ends_with("ment") {
+        let stem = &w[..len - 4];
+        if stem.len() >= 3 {
+            return stem.to_string();
+        }
+    }
+
+    // -ing (general, after more specific -Xing rules above)
+    // e.g. "testing" → "test", "building" → "build"
+    if len > 4 && w.ends_with("ing") {
+        let stem = &w[..len - 3];
+        if stem.len() >= 3 {
+            return stem.to_string();
+        }
+    }
+
+    // -ised / -ized → -ise / -ize (e.g. "optimized" → "optimize")
+    // Just strip the trailing "d" since the base already ends in 'e'
+    if len > 5 && (w.ends_with("ised") || w.ends_with("ized")) {
+        return w[..len - 1].to_string();
+    }
+
+    // -ed (e.g. "configured" → "configur", "deployed" → "deploy")
+    // For consistency, "configure" also stems to "configur" via trailing-e stripping below.
+    if len > 4 && w.ends_with("ed") {
+        let stem = &w[..len - 2]; // strip "ed"
+        // Double consonant before -ed: "mapped" → "map" (strip "ped")
+        if stem.len() >= 3 {
+            let bytes = stem.as_bytes();
+            let last = bytes[stem.len() - 1];
+            let prev = bytes[stem.len() - 2];
+            if last == prev && !matches!(last, b'a' | b'e' | b'i' | b'o' | b'u') {
+                return stem[..stem.len() - 1].to_string();
+            }
+        }
+        if stem.len() >= 3 {
+            return stem.to_string();
+        }
+    }
+
+    // -er (e.g. "bundler" → "bundle", "compiler" → "compile")
+    if len > 4 && w.ends_with("er") {
+        let stem = &w[..len - 2];
+        // "bundler" → "bundl" — need to add back 'e': "bundle"
+        // But "docker" → "dock", not "docke"
+        // Heuristic: if stem ends in a consonant cluster, try adding 'e'
+        if stem.len() >= 3 {
+            return stem.to_string();
+        }
+    }
+
+    // -ly (e.g. "automatically" → "automatic")
+    if len > 4 && w.ends_with("ly") {
+        let stem = &w[..len - 2];
+        if stem.len() >= 3 {
+            return stem.to_string();
+        }
+    }
+
+    // -es (e.g. "patches" → "patch", "fixes" → "fix")
+    if len > 4 && w.ends_with("es") {
+        let stem = &w[..len - 2];
+        if stem.len() >= 3 {
+            // "patches" → "patch", "fixes" → "fix", "databases" → "databas" (ok for matching)
+            return stem.to_string();
+        }
+    }
+
+    // -s (e.g. "tests" → "test", "deploys" → "deploy")
+    // Must be after -es, -ies checks
+    if len > 3 && w.ends_with('s') && !w.ends_with("ss") {
+        return w[..len - 1].to_string();
+    }
+
+    w
+}
+
+/// Common tech abbreviation pairs (short form → long form).
+/// Used in Phase 2.5 to match abbreviations against their full forms.
+/// Both directions are checked: "config" matches "configuration" and vice versa.
+const ABBREVIATIONS: &[(&str, &str)] = &[
+    ("config", "configuration"),
+    ("repo", "repository"),
+    ("env", "environment"),
+    ("auth", "authentication"),
+    ("authn", "authentication"),
+    ("authz", "authorization"),
+    ("admin", "administration"),
+    ("app", "application"),
+    ("args", "arguments"),
+    ("async", "asynchronous"),
+    ("auto", "automatic"),
+    ("bg", "background"),
+    ("bin", "binary"),
+    ("bool", "boolean"),
+    ("calc", "calculate"),
+    ("cert", "certificate"),
+    ("cfg", "configuration"),
+    ("char", "character"),
+    ("cmd", "command"),
+    ("cmp", "compare"),
+    ("concat", "concatenate"),
+    ("cond", "condition"),
+    ("conn", "connection"),
+    ("const", "constant"),
+    ("ctrl", "control"),
+    ("ctx", "context"),
+    ("db", "database"),
+    ("decl", "declaration"),
+    ("def", "definition"),
+    ("del", "delete"),
+    ("dep", "dependency"),
+    ("deps", "dependencies"),
+    ("desc", "description"),
+    ("dest", "destination"),
+    ("dev", "development"),
+    ("dict", "dictionary"),
+    ("diff", "difference"),
+    ("dir", "directory"),
+    ("dirs", "directories"),
+    ("dist", "distribution"),
+    ("doc", "documentation"),
+    ("docs", "documentation"),
+    ("elem", "element"),
+    ("err", "error"),
+    ("eval", "evaluate"),
+    ("exec", "execute"),
+    ("expr", "expression"),
+    ("ext", "extension"),
+    ("fmt", "format"),
+    ("fn", "function"),
+    ("func", "function"),
+    ("gen", "generate"),
+    ("hw", "hardware"),
+    ("impl", "implementation"),
+    ("import", "import"),
+    ("info", "information"),
+    ("init", "initialize"),
+    ("iter", "iterator"),
+    ("lang", "language"),
+    ("len", "length"),
+    ("lib", "library"),
+    ("libs", "libraries"),
+    ("ln", "link"),
+    ("loc", "location"),
+    ("max", "maximum"),
+    ("mem", "memory"),
+    ("mgmt", "management"),
+    ("min", "minimum"),
+    ("misc", "miscellaneous"),
+    ("mod", "module"),
+    ("msg", "message"),
+    ("nav", "navigation"),
+    ("num", "number"),
+    ("obj", "object"),
+    ("ops", "operations"),
+    ("opt", "option"),
+    ("org", "organization"),
+    ("os", "operating_system"),
+    ("param", "parameter"),
+    ("params", "parameters"),
+    ("perf", "performance"),
+    ("pkg", "package"),
+    ("pref", "preference"),
+    ("prev", "previous"),
+    ("proc", "process"),
+    ("prod", "production"),
+    ("prog", "program"),
+    ("prop", "property"),
+    ("props", "properties"),
+    ("proto", "protocol"),
+    ("pub", "public"),
+    ("qty", "quantity"),
+    ("recv", "receive"),
+    ("ref", "reference"),
+    ("regex", "regular_expression"),
+    ("req", "request"),
+    ("res", "response"),
+    ("ret", "return"),
+    ("rm", "remove"),
+    ("sec", "security"),
+    ("sel", "select"),
+    ("sep", "separator"),
+    ("seq", "sequence"),
+    ("sig", "signature"),
+    ("spec", "specification"),
+    ("specs", "specifications"),
+    ("src", "source"),
+    ("srv", "server"),
+    ("str", "string"),
+    ("struct", "structure"),
+    ("sub", "subscribe"),
+    ("svc", "service"),
+    ("sw", "software"),
+    ("sync", "synchronize"),
+    ("sys", "system"),
+    ("temp", "temporary"),
+    ("tmp", "temporary"),
+    ("val", "value"),
+    ("var", "variable"),
+    ("vars", "variables"),
+    ("ver", "version"),
+];
+
+/// Check if two normalized words match via abbreviation expansion.
+/// Returns true if one is a known abbreviation of the other.
+fn is_abbreviation_match(a: &str, b: &str) -> bool {
+    for &(short, long) in ABBREVIATIONS {
+        // Check both directions: a=short,b=long or a=long,b=short
+        if (a == short && b == long) || (a == long && b == short) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Check if two words are fuzzy matches (within edit distance threshold)
 /// Threshold is adaptive: 1 for short words (<=4), 2 for medium (<=8), 3 for long
 fn is_fuzzy_match(word: &str, keyword: &str) -> bool {
     let word_len = word.len();
     let keyword_len = keyword.len();
 
-    // Don't fuzzy match short words - too many false positives (lint→link, fix→fax)
-    // Require minimum 6 characters for fuzzy matching
-    if word_len < 6 || keyword_len < 6 {
+    // Don't fuzzy match short words — too many false positives (lint→link, fix→fax).
+    // Use max length: a deletion typo like "githb" (5 chars) should still match "github" (6 chars)
+    // because the longer word meets the threshold.
+    let max_len = word_len.max(keyword_len);
+    if max_len < 6 {
         return false;
     }
 
@@ -1513,6 +3685,183 @@ fn expand_synonyms(prompt: &str) -> String {
 }
 
 // ============================================================================
+// Domain Gate Detection and Filtering
+// ============================================================================
+
+/// Detected domains from the user prompt, mapped from canonical domain name
+/// to the set of matching keywords found in the prompt.
+pub type DetectedDomains = HashMap<String, Vec<String>>;
+
+/// Detect which domains are relevant to the user prompt by scanning for
+/// keywords from the domain registry.
+///
+/// Returns a map: canonical_domain_name -> [matched_keywords]
+/// A domain is "detected" if at least one of its example_keywords appears in the prompt.
+#[cfg(test)]
+fn detect_domains_from_prompt(
+    prompt: &str,
+    registry: &DomainRegistry,
+) -> DetectedDomains {
+    detect_domains_from_prompt_with_context(prompt, registry, &[])
+}
+
+/// Detect domains from prompt text AND project context signals.
+///
+/// Two sources of domain detection:
+/// 1. Keyword matches in the prompt text (primary)
+/// 2. Project context signals from the hook (languages, frameworks, platforms, tools)
+///    that match domain registry keywords. This ensures that e.g. a project with
+///    Objective-C files triggers the "programming_language" or "target_language" domain
+///    even if the user doesn't explicitly mention it in the prompt.
+fn detect_domains_from_prompt_with_context(
+    prompt: &str,
+    registry: &DomainRegistry,
+    context_signals: &[String],
+) -> DetectedDomains {
+    let prompt_lower = prompt.to_lowercase();
+    let mut detected: DetectedDomains = HashMap::new();
+
+    // Build a combined text for matching: prompt + context signals
+    // Context signals are lowercased tokens from project analysis
+    let context_lower: Vec<String> = context_signals.iter().map(|s| s.to_lowercase()).collect();
+
+    for (canonical_name, domain_entry) in &registry.domains {
+        let mut matched_keywords: Vec<String> = Vec::new();
+
+        for keyword in &domain_entry.example_keywords {
+            // Skip the "generic" meta-keyword — it's not a detection keyword
+            if keyword == "generic" {
+                continue;
+            }
+
+            let kw_lower = keyword.to_lowercase();
+
+            // Source 1: keyword found in prompt text (substring match)
+            if prompt_lower.contains(&kw_lower) {
+                matched_keywords.push(keyword.clone());
+                continue;
+            }
+
+            // Source 2: keyword matches a project context signal
+            // This catches cases like project having objective-c files but prompt
+            // not mentioning it — the domain is still relevant
+            if context_lower.iter().any(|ctx| ctx.contains(&kw_lower) || kw_lower.contains(ctx.as_str())) {
+                matched_keywords.push(format!("ctx:{}", keyword));
+            }
+        }
+
+        if !matched_keywords.is_empty() {
+            debug!(
+                "Domain '{}' detected via keywords: {:?}",
+                canonical_name, matched_keywords
+            );
+            detected.insert(canonical_name.clone(), matched_keywords);
+        }
+    }
+
+    detected
+}
+
+/// Check whether a single skill passes ALL its domain gates.
+///
+/// Gate logic:
+/// - For each gate in the skill's domain_gates:
+///   1. Normalize the gate name to canonical form (already done at index time)
+///   2. Check if the canonical domain was detected from the prompt
+///   3. If the gate contains "generic": passes if domain is detected (any keyword)
+///   4. Otherwise: passes if at least one gate keyword appears in the prompt
+/// - ALL gates must pass. If any gate fails, the skill is filtered out.
+///
+/// Returns (passes, failed_gate_name) — passes=true means all gates OK.
+fn check_domain_gates(
+    skill_name: &str,
+    domain_gates: &HashMap<String, Vec<String>>,
+    detected_domains: &DetectedDomains,
+    prompt_lower: &str,
+    registry: &DomainRegistry,
+) -> (bool, Option<String>) {
+    // Skills with no domain gates always pass
+    if domain_gates.is_empty() {
+        return (true, None);
+    }
+
+    for (gate_name, gate_keywords) in domain_gates {
+        // The gate_name in skill-index.json should already be canonical
+        // (set by haiku during indexing), but we do a lookup in the registry
+        // to handle any aliases
+        let canonical_name = find_canonical_domain(gate_name, registry);
+
+        // Check if this domain was detected from the prompt
+        let domain_detected = detected_domains.contains_key(&canonical_name);
+
+        if !domain_detected {
+            // Domain not detected in prompt at all — gate fails
+            debug!(
+                "Skill '{}' gate '{}' (canonical: '{}'): domain NOT detected in prompt → FAIL",
+                skill_name, gate_name, canonical_name
+            );
+            return (false, Some(gate_name.clone()));
+        }
+
+        // Domain was detected. Now check if the specific gate keywords match.
+        let has_generic = gate_keywords.iter().any(|kw| kw.to_lowercase() == "generic");
+
+        if has_generic {
+            // "generic" wildcard: domain detected = gate passes
+            debug!(
+                "Skill '{}' gate '{}': domain detected + generic wildcard → PASS",
+                skill_name, gate_name
+            );
+            continue;
+        }
+
+        // Check if any gate keyword appears in the prompt
+        let gate_passes = gate_keywords.iter().any(|kw| {
+            prompt_lower.contains(&kw.to_lowercase())
+        });
+
+        if !gate_passes {
+            debug!(
+                "Skill '{}' gate '{}': domain detected but no gate keyword matched ({:?}) → FAIL",
+                skill_name, gate_name, gate_keywords
+            );
+            return (false, Some(gate_name.clone()));
+        }
+
+        debug!(
+            "Skill '{}' gate '{}': gate keyword matched → PASS",
+            skill_name, gate_name
+        );
+    }
+
+    (true, None)
+}
+
+/// Find the canonical domain name for a gate name.
+/// Checks the registry domains and their aliases.
+/// Falls back to the gate name itself if no match found.
+fn find_canonical_domain(gate_name: &str, registry: &DomainRegistry) -> String {
+    let gate_lower = gate_name.to_lowercase();
+
+    // Direct match on canonical name
+    if registry.domains.contains_key(&gate_lower) {
+        return gate_lower;
+    }
+
+    // Check aliases in each domain
+    for (canonical_name, entry) in &registry.domains {
+        for alias in &entry.aliases {
+            if alias.to_lowercase() == gate_lower {
+                return canonical_name.clone();
+            }
+        }
+    }
+
+    // No match found — return gate name as-is (will likely fail detection)
+    gate_lower
+}
+
+// ============================================================================
 // Matching Logic (Enhanced with weighted scoring)
 // ============================================================================
 
@@ -1544,6 +3893,8 @@ fn find_matches(
     cwd: &str,
     context: &ProjectContext,
     incomplete_mode: bool,
+    detected_domains: &DetectedDomains,
+    registry: Option<&DomainRegistry>,
 ) -> Vec<MatchedSkill> {
     let weights = MatchWeights::default();
     let thresholds = ConfidenceThresholds::default();
@@ -1555,6 +3906,12 @@ fn find_matches(
     if incomplete_mode {
         debug!("INCOMPLETE MODE: Skipping tier boost and explicit boost fields");
     }
+
+    // NOTE: The global domain gate early-exit (when ALL skills are gated and no
+    // keyword matches) is handled in run() BEFORE this function is called. That
+    // check uses a flat HashSet scan which is O(K) where K = total unique gate
+    // keywords. By the time we reach this loop, at least one keyword matched or
+    // some skills are ungated. Per-skill gate checks below handle individual filtering.
 
     for (name, entry) in &index.skills {
         let mut score: i32 = 0;
@@ -1569,6 +3926,26 @@ fn find_matches(
         if has_negative {
             debug!("Skipping skill '{}' due to negative keyword match", name);
             continue;
+        }
+
+        // Domain gate hard pre-filter: ALL gates must pass or skill is skipped entirely.
+        // This runs before scoring because failing a gate is a hard disqualification.
+        if let Some(reg) = registry {
+            let (passes, failed_gate) = check_domain_gates(
+                name,
+                &entry.domain_gates,
+                detected_domains,
+                &original_lower,
+                reg,
+            );
+            if !passes {
+                debug!(
+                    "Skipping skill '{}' due to domain gate '{}' failure",
+                    name,
+                    failed_gate.unwrap_or_default()
+                );
+                continue;
+            }
         }
 
         // Project context matching (platform/framework/language)
@@ -1668,7 +4045,39 @@ fn find_matches(
                 }
             }
 
-            // Phase 3: Fuzzy matching for typo tolerance
+            // Phase 2.5: Normalized + stemmed + abbreviation matching
+            // Handles separator variants (geojson / geo-json / geo_json),
+            // morphological forms (deploys/deploying/deployed → deploy,
+            // tests/testing → test, libraries → library),
+            // and common abbreviations (config ↔ configuration, repo ↔ repository).
+            if !matched {
+                let kw_norm = normalize_separators(&kw_lower);
+                let kw_stem = stem_word(&kw_norm);
+                for prompt_word in &prompt_words {
+                    if prompt_word.len() < 2 {
+                        continue;
+                    }
+                    let pw_norm = normalize_separators(prompt_word);
+                    // Normalized form match (separator variants)
+                    if pw_norm == kw_norm {
+                        matched = true;
+                        break;
+                    }
+                    // Stemmed form match (grammatical variants)
+                    let pw_stem = stem_word(&pw_norm);
+                    if pw_stem == kw_stem && pw_stem.len() >= 3 {
+                        matched = true;
+                        break;
+                    }
+                    // Abbreviation match (config ↔ configuration, etc.)
+                    if is_abbreviation_match(&pw_norm, &kw_norm) {
+                        matched = true;
+                        break;
+                    }
+                }
+            }
+
+            // Phase 3: Fuzzy matching for typo tolerance (edit-distance, long words only)
             if !matched {
                 // Split keyword into words for multi-word fuzzy matching
                 let keyword_words: Vec<&str> = kw_lower.split_whitespace().collect();
@@ -1924,6 +4333,66 @@ fn load_index(path: &PathBuf) -> Result<SkillIndex, SuggesterError> {
 }
 
 // ============================================================================
+// Domain Registry Loading
+// ============================================================================
+
+/// Get the path to the domain registry file.
+/// Resolution order: --registry CLI flag > PSS_REGISTRY_PATH env var > ~/.claude/cache/domain-registry.json
+fn get_registry_path(cli_registry: Option<&str>) -> Option<PathBuf> {
+    // 1. CLI flag takes priority
+    if let Some(path) = cli_registry {
+        return Some(PathBuf::from(path));
+    }
+
+    // 2. Environment variable fallback
+    if let Ok(path) = std::env::var("PSS_REGISTRY_PATH") {
+        if !path.is_empty() {
+            return Some(PathBuf::from(path));
+        }
+    }
+
+    // 3. Default: ~/.claude/cache/domain-registry.json (native targets only)
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let home = dirs::home_dir()?;
+        return Some(home.join(".claude").join(CACHE_DIR).join(REGISTRY_FILE));
+    }
+
+    // On WASM, registry is not available unless explicitly set
+    #[cfg(target_arch = "wasm32")]
+    {
+        None
+    }
+}
+
+/// Load and parse the domain registry. Returns None if registry doesn't exist
+/// (domain gates will not be enforced). Returns Err only on parse failure.
+fn load_domain_registry(path: &PathBuf) -> Result<Option<DomainRegistry>, SuggesterError> {
+    if !path.exists() {
+        debug!("Domain registry not found at {:?}, domain gates will not be enforced", path);
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(path).map_err(|e| SuggesterError::IndexRead {
+        path: path.clone(),
+        source: e,
+    })?;
+
+    let registry: DomainRegistry =
+        serde_json::from_str(&content).map_err(|e| SuggesterError::IndexParse(
+            format!("Failed to parse domain registry: {}", e)
+        ))?;
+
+    info!(
+        "Loaded domain registry: {} domains from {:?}",
+        registry.domains.len(),
+        path
+    );
+
+    Ok(Some(registry))
+}
+
+// ============================================================================
 // PSS File Loading
 // ============================================================================
 
@@ -2031,6 +4500,8 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
             domains: vec![],
             tools: vec![],
             file_types: vec![],
+            // Domain gates (empty for PSS files - populated by reindex)
+            domain_gates: HashMap::new(),
             // Co-usage fields (empty for PSS files - populated by reindex)
             usually_with: vec![],
             precedes: vec![],
@@ -2373,22 +4844,212 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
         load_pss_files(&mut index);
     }
 
-    // Create project context from hook input for platform/framework/language filtering
-    let context = ProjectContext::from_hook_input(&input);
+    // Load domain registry for domain gate filtering (graceful: no registry = no gate filtering)
+    let registry = match get_registry_path(cli.registry.as_deref()) {
+        Some(reg_path) => {
+            debug!("Loading domain registry from: {:?}", reg_path);
+            match load_domain_registry(&reg_path) {
+                Ok(Some(reg)) => {
+                    info!("Loaded domain registry: {} domains", reg.domains.len());
+                    Some(reg)
+                }
+                Ok(None) => {
+                    debug!("Domain registry not found at {:?}, gate filtering disabled", reg_path);
+                    None
+                }
+                Err(e) => {
+                    warn!("Failed to load domain registry: {}, gate filtering disabled", e);
+                    None
+                }
+            }
+        }
+        None => {
+            debug!("No domain registry path configured, gate filtering disabled");
+            None
+        }
+    };
+
+    // ========================================================================
+    // STEP 1: Prepare full context BEFORE any domain checking.
+    // Typo correction, synonym expansion, project metadata, and conversation
+    // context must all be assembled first so the domain check runs against
+    // the complete picture — not the raw prompt alone.
+    // ========================================================================
+
+    // 1a. Scan project directory for languages/frameworks/tools from config files.
+    // This runs in Rust (not in the Python hook) because project contents can
+    // change at any time and must be detected fresh on every invocation.
+    let project_scan = scan_project_context(&input.cwd);
+    if !project_scan.languages.is_empty() || !project_scan.tools.is_empty() {
+        debug!(
+            "Project scan: languages={:?}, frameworks={:?}, platforms={:?}, tools={:?}, file_types={:?}",
+            project_scan.languages, project_scan.frameworks,
+            project_scan.platforms, project_scan.tools, project_scan.file_types
+        );
+    }
+
+    // Create project context by merging hook input with fresh disk scan results.
+    // The hook may provide conversation-derived context (e.g., domains mentioned in chat)
+    // that the Rust scan cannot detect, while the scan provides ground-truth project data.
+    let mut context = ProjectContext::from_hook_input(&input);
+    context.merge_scan(&project_scan);
     if !context.is_empty() {
         debug!(
-            "Project context: platforms={:?}, frameworks={:?}, languages={:?}",
+            "Merged project context: platforms={:?}, frameworks={:?}, languages={:?}",
             context.platforms, context.frameworks, context.languages
         );
     }
 
-    // Apply typo corrections first (from Claude-Rio)
+    // 1b. Apply typo corrections (e.g., "pyhton" → "python") so domain keywords match
     let corrected_prompt = correct_typos(&input.prompt);
     if corrected_prompt != input.prompt.to_lowercase() {
         debug!("Typo-corrected prompt: {}", corrected_prompt);
     }
 
-    // Task decomposition: break complex prompts into sub-tasks (from LimorAI research)
+    // 1c. Expand synonyms (e.g., "k8s" → "kubernetes") so domain keywords match
+    let expanded_prompt = expand_synonyms(&corrected_prompt);
+    if expanded_prompt != corrected_prompt {
+        debug!("Synonym-expanded prompt: {}", expanded_prompt);
+    }
+
+    // 1d. Build context signals by merging:
+    //   - Rust project scan results (fresh, from config files on disk — computed in 1a)
+    //   - Python hook context (may include conversation history, session metadata)
+    // Both sources are merged because the hook may provide context the Rust scan
+    // cannot detect (e.g., domains from recent conversation messages, tools mentioned
+    // in chat). The Rust scan provides ground-truth project structure context.
+    let mut context_signals: Vec<String> = Vec::new();
+    // Rust scan results first (ground truth from disk, computed in step 1a)
+    context_signals.extend(project_scan.languages.iter().cloned());
+    context_signals.extend(project_scan.frameworks.iter().cloned());
+    context_signals.extend(project_scan.platforms.iter().cloned());
+    context_signals.extend(project_scan.tools.iter().cloned());
+    context_signals.extend(project_scan.file_types.iter().cloned());
+    // Hook-provided context (may overlap with scan — dedup handles this)
+    context_signals.extend(input.context_languages.iter().cloned());
+    context_signals.extend(input.context_frameworks.iter().cloned());
+    context_signals.extend(input.context_platforms.iter().cloned());
+    context_signals.extend(input.context_tools.iter().cloned());
+    context_signals.extend(input.context_domains.iter().cloned());
+    context_signals.extend(input.context_file_types.iter().cloned());
+    // Deduplicate context signals (Rust scan and hook may report the same items)
+    dedup_vec(&mut context_signals);
+
+    // The full_context_text combines the corrected+expanded prompt with all context
+    // signals into a single lowercased string for domain keyword scanning.
+    // This ensures the domain check considers everything: the user's words (corrected),
+    // their synonyms (expanded), and the project/conversation metadata.
+    let full_context_text = {
+        let mut parts: Vec<String> = vec![expanded_prompt.clone()];
+        for sig in &context_signals {
+            parts.push(sig.to_lowercase());
+        }
+        parts.join(" ")
+    };
+
+    // ========================================================================
+    // STEP 2: Global domain gate early-exit.
+    // Build a flat set of ALL domain keywords from ALL skills' gates, scan the
+    // full context once, short-circuit on first match. If 0 matches AND all
+    // skills are gated → exit immediately, skip all scoring.
+    // ========================================================================
+    if registry.is_some() {
+        let all_skills_gated = !index.skills.is_empty()
+            && index.skills.values().all(|e| !e.domain_gates.is_empty());
+
+        if all_skills_gated {
+            // Collect every keyword that could satisfy any gate in any skill.
+            // For "generic" gates: add the registry's example_keywords for that domain
+            // (because generic passes when the domain is detected via any registry keyword).
+            let mut all_gate_keywords: HashSet<String> = HashSet::new();
+            let reg = registry.as_ref().unwrap();
+
+            for entry in index.skills.values() {
+                for (gate_name, gate_keywords) in &entry.domain_gates {
+                    let has_generic = gate_keywords.iter().any(|kw| kw.eq_ignore_ascii_case("generic"));
+
+                    if has_generic {
+                        let canonical = find_canonical_domain(gate_name, reg);
+                        if let Some(domain_entry) = reg.domains.get(&canonical) {
+                            for kw in &domain_entry.example_keywords {
+                                if !kw.eq_ignore_ascii_case("generic") {
+                                    all_gate_keywords.insert(kw.to_lowercase());
+                                }
+                            }
+                        }
+                    }
+
+                    for kw in gate_keywords {
+                        if !kw.eq_ignore_ascii_case("generic") {
+                            all_gate_keywords.insert(kw.to_lowercase());
+                        }
+                    }
+                }
+            }
+
+            // Single scan of full context: does ANY keyword appear?
+            // Short-circuits on first match — O(1) best case, O(K) worst case.
+            let any_match = all_gate_keywords.iter().any(|kw| {
+                full_context_text.contains(kw.as_str())
+            });
+
+            if !any_match {
+                info!(
+                    "Domain gate early-exit: 0/{} gate keywords matched in prompt+context. \
+                     All {} skills are gated. Skipping scoring entirely.",
+                    all_gate_keywords.len(),
+                    index.skills.len()
+                );
+
+                let processing_ms = start_time.elapsed().as_millis() as u64;
+                let session_id = if input.session_id.is_empty() { None } else { Some(input.session_id.as_str()) };
+                log_activation(
+                    &input.prompt,
+                    session_id,
+                    Some(&input.cwd),
+                    1,
+                    &[],
+                    Some(processing_ms),
+                );
+
+                let output = HookOutput::empty();
+                println!("{}", serde_json::to_string(&output)?);
+                return Ok(());
+            }
+
+            debug!(
+                "Domain gate pre-check passed: at least one keyword matched from {} total gate keywords",
+                all_gate_keywords.len()
+            );
+        }
+    }
+
+    // ========================================================================
+    // STEP 3: Domain detection (uses corrected+expanded prompt + context).
+    // Runs once and is shared across all sub-tasks.
+    // ========================================================================
+    let detected_domains: DetectedDomains = match &registry {
+        Some(reg) => {
+            let detected = detect_domains_from_prompt_with_context(
+                &expanded_prompt,
+                reg,
+                &context_signals,
+            );
+            if !detected.is_empty() {
+                info!(
+                    "Detected {} domains in prompt: {:?}",
+                    detected.len(),
+                    detected.keys().collect::<Vec<_>>()
+                );
+            }
+            detected
+        }
+        None => HashMap::new(),
+    };
+
+    // ========================================================================
+    // STEP 4: Task decomposition and scoring.
+    // ========================================================================
     let sub_tasks = decompose_tasks(&corrected_prompt);
     let is_multi_task = sub_tasks.len() > 1;
 
@@ -2399,24 +5060,18 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
         }
     }
 
-    // Process each sub-task (or just the one if no decomposition)
     let matches = if is_multi_task {
-        // Process each sub-task independently
         let all_matches: Vec<Vec<MatchedSkill>> = sub_tasks
             .iter()
             .map(|task| {
-                let expanded = expand_synonyms(task);
-                find_matches(task, &expanded, &index, &input.cwd, &context, cli.incomplete_mode)
+                let task_expanded = expand_synonyms(task);
+                find_matches(task, &task_expanded, &index, &input.cwd, &context, cli.incomplete_mode, &detected_domains, registry.as_ref())
             })
             .collect();
 
-        // Aggregate results from all sub-tasks
         aggregate_subtask_matches(all_matches)
     } else {
-        // Single task - normal processing
-        let expanded_prompt = expand_synonyms(&corrected_prompt);
-        debug!("Expanded prompt: {}", expanded_prompt);
-        find_matches(&input.prompt, &expanded_prompt, &index, &input.cwd, &context, cli.incomplete_mode)
+        find_matches(&corrected_prompt, &expanded_prompt, &index, &input.cwd, &context, cli.incomplete_mode, &detected_domains, registry.as_ref())
     };
 
     if matches.is_empty() {
@@ -2604,6 +5259,13 @@ mod tests {
                 tier: "primary".to_string(),
                 boost: 0,
                 category: "devops".to_string(),
+                platforms: vec![],
+                frameworks: vec![],
+                languages: vec![],
+                domains: vec![],
+                tools: vec![],
+                file_types: vec![],
+                domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
                 follows: vec![],
@@ -2632,6 +5294,13 @@ mod tests {
                 tier: "secondary".to_string(),
                 boost: 0,
                 category: "containerization".to_string(),
+                platforms: vec![],
+                frameworks: vec![],
+                languages: vec![],
+                domains: vec![],
+                tools: vec![],
+                file_types: vec![],
+                domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
                 follows: vec![],
@@ -2661,7 +5330,7 @@ mod tests {
         let index = create_test_index();
         let original = "help me set up github actions";
         let expanded = expand_synonyms(original);
-        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false);
+        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false, &HashMap::new(), None);
 
         assert!(!matches.is_empty());
         assert_eq!(matches[0].name, "devops-expert");
@@ -2675,14 +5344,14 @@ mod tests {
         // HIGH confidence - many keyword matches
         let original = "help me deploy github actions ci cd pipeline";
         let expanded = expand_synonyms(original);
-        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false);
+        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false, &HashMap::new(), None);
         assert!(!matches.is_empty());
         assert_eq!(matches[0].confidence, Confidence::High);
 
         // LOW confidence - single keyword
         let original2 = "help me with docker";
         let expanded2 = expand_synonyms(original2);
-        let matches2 = find_matches(original2, &expanded2, &index, "", &ProjectContext::default(), false);
+        let matches2 = find_matches(original2, &expanded2, &index, "", &ProjectContext::default(), false, &HashMap::new(), None);
         assert!(!matches2.is_empty());
         // Score should be lower
     }
@@ -2694,10 +5363,10 @@ mod tests {
         let expanded = expand_synonyms(original);
 
         // With matching directory
-        let matches_with_dir = find_matches(original, &expanded, &index, "/project/.github/workflows", &ProjectContext::default(), false);
+        let matches_with_dir = find_matches(original, &expanded, &index, "/project/.github/workflows", &ProjectContext::default(), false, &HashMap::new(), None);
 
         // Without matching directory
-        let matches_no_dir = find_matches(original, &expanded, &index, "/project/src", &ProjectContext::default(), false);
+        let matches_no_dir = find_matches(original, &expanded, &index, "/project/src", &ProjectContext::default(), false, &HashMap::new(), None);
 
         // Directory match should boost score
         if !matches_with_dir.is_empty() && !matches_no_dir.is_empty() {
@@ -2735,7 +5404,7 @@ mod tests {
         // because kubernetes is a negative keyword for docker-expert
         let original = "help me with docker and kubernetes";
         let expanded = expand_synonyms(original);
-        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false);
+        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false, &HashMap::new(), None);
 
         // Docker-expert should be filtered out due to "kubernetes" negative keyword
         let docker_match = matches.iter().find(|m| m.name == "docker-expert");
@@ -2750,7 +5419,7 @@ mod tests {
         // Test that primary tier skills rank higher
         let original = "help me deploy to ci";
         let expanded = expand_synonyms(original);
-        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false);
+        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false, &HashMap::new(), None);
 
         if !matches.is_empty() {
             let devops_match = matches.iter().find(|m| m.name == "devops-expert");
@@ -2780,6 +5449,13 @@ mod tests {
                 tier: String::new(),
                 boost: 0,
                 category: String::new(),
+                platforms: vec![],
+                frameworks: vec![],
+                languages: vec![],
+                domains: vec![],
+                tools: vec![],
+                file_types: vec![],
+                domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
                 follows: vec![],
@@ -2803,6 +5479,13 @@ mod tests {
                 tier: String::new(),
                 boost: 0,
                 category: String::new(),
+                platforms: vec![],
+                frameworks: vec![],
+                languages: vec![],
+                domains: vec![],
+                tools: vec![],
+                file_types: vec![],
+                domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
                 follows: vec![],
@@ -2818,7 +5501,7 @@ mod tests {
             skills,
         };
 
-        let matches = find_matches("run test", "run test", &index, "", &ProjectContext::default(), false);
+        let matches = find_matches("run test", "run test", &index, "", &ProjectContext::default(), false, &HashMap::new(), None);
 
         // With same scores, skill should come before agent
         if matches.len() >= 2 {
@@ -2887,8 +5570,8 @@ mod tests {
 
     #[test]
     fn test_is_fuzzy_match() {
-        // Short words (should be strict)
-        assert!(is_fuzzy_match("git", "gti")); // 1 edit distance, allowed for short words
+        // Short words rejected (< 6 chars) to prevent false positives like lint→link, fix→fax
+        assert!(!is_fuzzy_match("git", "gti")); // Too short for fuzzy matching
         assert!(!is_fuzzy_match("ab", "cd")); // Too short
 
         // Medium words
@@ -2929,6 +5612,13 @@ mod tests {
                 tier: String::new(),
                 boost: 0,
                 category: String::new(),
+                platforms: vec![],
+                frameworks: vec![],
+                languages: vec![],
+                domains: vec![],
+                tools: vec![],
+                file_types: vec![],
+                domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
                 follows: vec![],
@@ -2948,7 +5638,7 @@ mod tests {
         let original = "help me with typscript code";
         let corrected = correct_typos(original);
         let expanded = expand_synonyms(&corrected);
-        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false);
+        let matches = find_matches(original, &expanded, &index, "", &ProjectContext::default(), false, &HashMap::new(), None);
 
         assert!(!matches.is_empty(), "Should match typescript-expert even with typo");
         assert_eq!(matches[0].name, "typescript-expert");
@@ -3100,7 +5790,7 @@ mod tests {
             .iter()
             .map(|task| {
                 let expanded = expand_synonyms(task);
-                find_matches(task, &expanded, &index, "", &ProjectContext::default(), false)
+                find_matches(task, &expanded, &index, "", &ProjectContext::default(), false, &HashMap::new(), None)
             })
             .collect();
 
@@ -3225,5 +5915,1282 @@ mod tests {
         assert!(!json.contains("session_id"));
         assert!(!json.contains("cwd"));
         assert!(!json.contains("processing_ms"));
+    }
+
+    // ========================================================================
+    // Domain Gate Tests
+    // ========================================================================
+
+    /// Build a minimal DomainRegistry for testing domain gate filtering
+    fn create_test_registry() -> DomainRegistry {
+        let mut domains = HashMap::new();
+
+        domains.insert(
+            "target_language".to_string(),
+            DomainRegistryEntry {
+                canonical_name: "target_language".to_string(),
+                aliases: vec!["target_language".to_string(), "programming_language".to_string(), "lang_target".to_string()],
+                example_keywords: vec![
+                    "python".to_string(), "rust".to_string(), "javascript".to_string(),
+                    "typescript".to_string(), "go".to_string(), "swift".to_string(),
+                    "objective-c".to_string(), "java".to_string(), "c++".to_string(),
+                ],
+                has_generic: false,
+                skill_count: 5,
+                skills: vec![],
+            },
+        );
+
+        domains.insert(
+            "cloud_provider".to_string(),
+            DomainRegistryEntry {
+                canonical_name: "cloud_provider".to_string(),
+                aliases: vec!["cloud_provider".to_string()],
+                example_keywords: vec![
+                    "aws".to_string(), "gcp".to_string(), "azure".to_string(),
+                    "heroku".to_string(), "vercel".to_string(),
+                ],
+                has_generic: false,
+                skill_count: 2,
+                skills: vec![],
+            },
+        );
+
+        domains.insert(
+            "output_format".to_string(),
+            DomainRegistryEntry {
+                canonical_name: "output_format".to_string(),
+                aliases: vec!["output_format".to_string()],
+                example_keywords: vec![
+                    "generic".to_string(), "json".to_string(), "csv".to_string(),
+                    "xml".to_string(), "yaml".to_string(),
+                ],
+                has_generic: true,
+                skill_count: 3,
+                skills: vec![],
+            },
+        );
+
+        DomainRegistry {
+            version: "1.0".to_string(),
+            generated: "2026-01-18T00:00:00Z".to_string(),
+            source_index: "test".to_string(),
+            domain_count: 3,
+            domains,
+        }
+    }
+
+    #[test]
+    fn test_domain_gate_no_gates_always_passes() {
+        // A skill with no domain_gates should always pass the gate check
+        let registry = create_test_registry();
+        let detected: DetectedDomains = HashMap::new();
+        let empty_gates: HashMap<String, Vec<String>> = HashMap::new();
+
+        let (passes, failed) = check_domain_gates("test-skill", &empty_gates, &detected, "any prompt", &registry);
+        assert!(passes, "Skills with no gates should always pass");
+        assert!(failed.is_none());
+    }
+
+    #[test]
+    fn test_domain_gate_filters_out_unmatched_skill() {
+        // A skill gated on target_language=["python", "rust"] should be filtered
+        // when the prompt mentions "objective-c" (a different language)
+        let registry = create_test_registry();
+
+        // Prompt mentions objective-c → target_language domain detected
+        let detected = detect_domains_from_prompt("help me debug this objective-c code", &registry);
+        assert!(detected.contains_key("target_language"), "target_language domain should be detected");
+
+        // Skill requires python or rust
+        let mut gates = HashMap::new();
+        gates.insert("target_language".to_string(), vec!["python".to_string(), "rust".to_string()]);
+
+        let (passes, failed) = check_domain_gates(
+            "python-debug-skill",
+            &gates,
+            &detected,
+            "help me debug this objective-c code",
+            &registry,
+        );
+        // Gate should fail: domain detected but keywords don't match
+        assert!(!passes, "Gate should fail — prompt mentions objective-c, not python/rust");
+        assert_eq!(failed, Some("target_language".to_string()));
+    }
+
+    #[test]
+    fn test_domain_gate_passes_matching_skill() {
+        // A skill gated on target_language=["python", "rust"] should pass
+        // when the prompt mentions "python"
+        let registry = create_test_registry();
+
+        let detected = detect_domains_from_prompt("help me write python tests", &registry);
+        assert!(detected.contains_key("target_language"));
+
+        let mut gates = HashMap::new();
+        gates.insert("target_language".to_string(), vec!["python".to_string(), "rust".to_string()]);
+
+        let (passes, failed) = check_domain_gates(
+            "python-test-skill",
+            &gates,
+            &detected,
+            "help me write python tests",
+            &registry,
+        );
+        assert!(passes, "Gate should pass — prompt mentions python which is in the gate keywords");
+        assert!(failed.is_none());
+    }
+
+    #[test]
+    fn test_domain_gate_generic_wildcard() {
+        // A skill with "generic" in its gate keywords should pass whenever
+        // the domain is detected, regardless of which specific keyword matched
+        let registry = create_test_registry();
+
+        // Prompt mentions "json" → output_format domain detected
+        let detected = detect_domains_from_prompt("convert this data to json format", &registry);
+        assert!(detected.contains_key("output_format"));
+
+        // Skill uses generic wildcard for output_format
+        let mut gates = HashMap::new();
+        gates.insert("output_format".to_string(), vec!["generic".to_string()]);
+
+        let (passes, failed) = check_domain_gates(
+            "data-converter",
+            &gates,
+            &detected,
+            "convert this data to json format",
+            &registry,
+        );
+        assert!(passes, "Gate should pass — generic wildcard + domain detected");
+        assert!(failed.is_none());
+    }
+
+    #[test]
+    fn test_domain_gate_generic_fails_when_domain_not_detected() {
+        // Even with "generic" wildcard, the gate should fail if the domain
+        // itself is not detected at all in the prompt
+        let registry = create_test_registry();
+
+        // Prompt mentions nothing about output formats
+        let detected = detect_domains_from_prompt("help me deploy to aws", &registry);
+        assert!(!detected.contains_key("output_format"), "output_format should NOT be detected");
+
+        // Skill uses generic wildcard for output_format
+        let mut gates = HashMap::new();
+        gates.insert("output_format".to_string(), vec!["generic".to_string()]);
+
+        let (passes, failed) = check_domain_gates(
+            "data-converter",
+            &gates,
+            &detected,
+            "help me deploy to aws",
+            &registry,
+        );
+        assert!(!passes, "Gate should fail — domain not detected even with generic wildcard");
+        assert_eq!(failed, Some("output_format".to_string()));
+    }
+
+    #[test]
+    fn test_domain_gate_multiple_gates_all_must_pass() {
+        // A skill with two gates should only pass if BOTH pass
+        let registry = create_test_registry();
+
+        // Prompt mentions "python" AND "aws"
+        let detected = detect_domains_from_prompt("deploy my python app to aws lambda", &registry);
+        assert!(detected.contains_key("target_language"));
+        assert!(detected.contains_key("cloud_provider"));
+
+        let mut gates = HashMap::new();
+        gates.insert("target_language".to_string(), vec!["python".to_string()]);
+        gates.insert("cloud_provider".to_string(), vec!["aws".to_string()]);
+
+        let (passes, _) = check_domain_gates(
+            "aws-python-deploy",
+            &gates,
+            &detected,
+            "deploy my python app to aws lambda",
+            &registry,
+        );
+        assert!(passes, "Both gates should pass");
+    }
+
+    #[test]
+    fn test_domain_gate_multiple_gates_one_fails() {
+        // A skill with two gates where one fails should be filtered out
+        let registry = create_test_registry();
+
+        // Prompt mentions "python" but "gcp" (not "aws")
+        let detected = detect_domains_from_prompt("deploy my python app to gcp cloud run", &registry);
+        assert!(detected.contains_key("target_language"));
+        assert!(detected.contains_key("cloud_provider"));
+
+        let mut gates = HashMap::new();
+        gates.insert("target_language".to_string(), vec!["python".to_string()]);
+        gates.insert("cloud_provider".to_string(), vec!["aws".to_string()]); // requires AWS but prompt says GCP
+
+        let (passes, failed) = check_domain_gates(
+            "aws-python-deploy",
+            &gates,
+            &detected,
+            "deploy my python app to gcp cloud run",
+            &registry,
+        );
+        assert!(!passes, "cloud_provider gate should fail — requires aws but prompt has gcp");
+        assert_eq!(failed, Some("cloud_provider".to_string()));
+    }
+
+    #[test]
+    fn test_domain_gate_in_find_matches_integration() {
+        // Integration test: verify that find_matches actually filters skills via domain gates
+        let registry = create_test_registry();
+        let detected = detect_domains_from_prompt("help me write python unit tests", &registry);
+
+        // Create an index with two skills: one gated on python, one gated on rust
+        let mut skills = HashMap::new();
+
+        skills.insert(
+            "python-test-writer".to_string(),
+            SkillEntry {
+                source: "user".to_string(),
+                path: "/path/to/python-test-writer/SKILL.md".to_string(),
+                skill_type: "skill".to_string(),
+                keywords: vec!["test".to_string(), "unit test".to_string(), "pytest".to_string()],
+                intents: vec![],
+                patterns: vec![],
+                directories: vec![],
+                path_patterns: vec![],
+                description: "Python test writing".to_string(),
+                negative_keywords: vec![],
+                tier: String::new(),
+                boost: 0,
+                category: String::new(),
+                platforms: vec![],
+                frameworks: vec![],
+                languages: vec![],
+                domains: vec![],
+                tools: vec![],
+                file_types: vec![],
+                domain_gates: {
+                    let mut g = HashMap::new();
+                    g.insert("target_language".to_string(), vec!["python".to_string()]);
+                    g
+                },
+                usually_with: vec![],
+                precedes: vec![],
+                follows: vec![],
+                alternatives: vec![],
+            },
+        );
+
+        skills.insert(
+            "rust-test-writer".to_string(),
+            SkillEntry {
+                source: "user".to_string(),
+                path: "/path/to/rust-test-writer/SKILL.md".to_string(),
+                skill_type: "skill".to_string(),
+                keywords: vec!["test".to_string(), "unit test".to_string(), "cargo test".to_string()],
+                intents: vec![],
+                patterns: vec![],
+                directories: vec![],
+                path_patterns: vec![],
+                description: "Rust test writing".to_string(),
+                negative_keywords: vec![],
+                tier: String::new(),
+                boost: 0,
+                category: String::new(),
+                platforms: vec![],
+                frameworks: vec![],
+                languages: vec![],
+                domains: vec![],
+                tools: vec![],
+                file_types: vec![],
+                domain_gates: {
+                    let mut g = HashMap::new();
+                    g.insert("target_language".to_string(), vec!["rust".to_string()]);
+                    g
+                },
+                usually_with: vec![],
+                precedes: vec![],
+                follows: vec![],
+                alternatives: vec![],
+            },
+        );
+
+        let index = SkillIndex {
+            version: "3.0".to_string(),
+            generated: "2026-01-18T00:00:00Z".to_string(),
+            method: "test".to_string(),
+            skills_count: 2,
+            skills,
+        };
+
+        // Prompt: "help me write python unit tests" → should match python-test-writer only
+        let matches = find_matches(
+            "help me write python unit tests",
+            "help me write python unit tests",
+            &index,
+            "",
+            &ProjectContext::default(),
+            false,
+            &detected,
+            Some(&registry),
+        );
+
+        // python-test-writer should be found
+        let python_match = matches.iter().find(|m| m.name == "python-test-writer");
+        assert!(python_match.is_some(), "python-test-writer should match (gate passes)");
+
+        // rust-test-writer should be filtered out by domain gate
+        let rust_match = matches.iter().find(|m| m.name == "rust-test-writer");
+        assert!(rust_match.is_none(), "rust-test-writer should be filtered out (gate fails: needs rust, prompt has python)");
+    }
+
+    #[test]
+    fn test_domain_detection_with_project_context() {
+        // Context signals from the project should trigger domain detection
+        // even when the prompt doesn't mention the language
+        let registry = create_test_registry();
+
+        // Prompt doesn't mention any language
+        let context_signals = vec!["objective-c".to_string(), "ios".to_string()];
+        let detected = detect_domains_from_prompt_with_context(
+            "help me fix this memory leak bug",
+            &registry,
+            &context_signals,
+        );
+
+        // target_language should be detected via context signal "objective-c"
+        assert!(
+            detected.contains_key("target_language"),
+            "target_language should be detected from project context signal 'objective-c'"
+        );
+    }
+
+    #[test]
+    fn test_find_canonical_domain_alias_resolution() {
+        let registry = create_test_registry();
+
+        // Direct canonical name
+        assert_eq!(find_canonical_domain("target_language", &registry), "target_language");
+
+        // Alias resolution
+        assert_eq!(find_canonical_domain("programming_language", &registry), "target_language");
+        assert_eq!(find_canonical_domain("lang_target", &registry), "target_language");
+
+        // Unknown gate name falls through
+        assert_eq!(find_canonical_domain("unknown_gate", &registry), "unknown_gate");
+    }
+
+    // ========================================================================
+    // Project Context Scanning Tests
+    // ========================================================================
+
+    #[test]
+    fn test_scan_project_context_empty_dir() {
+        // Empty cwd string should return empty result
+        let result = scan_project_context("");
+        assert!(result.languages.is_empty());
+        assert!(result.frameworks.is_empty());
+        assert!(result.tools.is_empty());
+    }
+
+    #[test]
+    fn test_scan_project_context_nonexistent_dir() {
+        let result = scan_project_context("/tmp/pss_nonexistent_dir_99999");
+        assert!(result.languages.is_empty());
+    }
+
+    #[test]
+    fn test_scan_project_context_rust_project() {
+        // Create a temp dir with Cargo.toml to simulate a Rust project
+        let tmp = std::env::temp_dir().join("pss_test_rust_project");
+        let _ = fs::create_dir_all(&tmp);
+        let _ = fs::write(tmp.join("Cargo.toml"), "[package]\nname = \"test\"");
+
+        let result = scan_project_context(tmp.to_str().unwrap());
+        assert!(result.languages.contains(&"rust".to_string()));
+        assert!(result.tools.contains(&"cargo".to_string()));
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_scan_project_context_python_project() {
+        let tmp = std::env::temp_dir().join("pss_test_python_project");
+        let _ = fs::create_dir_all(&tmp);
+        let _ = fs::write(
+            tmp.join("requirements.txt"),
+            "django>=4.0\nflask>=3.0\ntorch>=2.0\n",
+        );
+        let _ = fs::write(tmp.join("uv.lock"), "");
+
+        let result = scan_project_context(tmp.to_str().unwrap());
+        assert!(result.languages.contains(&"python".to_string()));
+        assert!(result.frameworks.contains(&"django".to_string()));
+        assert!(result.frameworks.contains(&"flask".to_string()));
+        assert!(result.tools.contains(&"pytorch".to_string()));
+        assert!(result.tools.contains(&"uv".to_string()));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_scan_project_context_js_project() {
+        let tmp = std::env::temp_dir().join("pss_test_js_project");
+        let _ = fs::create_dir_all(&tmp);
+        let _ = fs::write(
+            tmp.join("package.json"),
+            r#"{"dependencies":{"react":"^18","next":"^14"},"devDependencies":{"typescript":"^5","vite":"^5"}}"#,
+        );
+        let _ = fs::write(tmp.join("bun.lockb"), "");
+        let _ = fs::write(tmp.join("tsconfig.json"), "{}");
+
+        let result = scan_project_context(tmp.to_str().unwrap());
+        assert!(result.languages.contains(&"javascript".to_string()));
+        assert!(result.languages.contains(&"typescript".to_string()));
+        assert!(result.frameworks.contains(&"react".to_string()));
+        assert!(result.frameworks.contains(&"nextjs".to_string()));
+        assert!(result.tools.contains(&"bun".to_string()));
+        assert!(result.tools.contains(&"vite".to_string()));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_scan_project_context_swift_ios_project() {
+        let tmp = std::env::temp_dir().join("pss_test_swift_project");
+        let _ = fs::create_dir_all(&tmp);
+        let _ = fs::create_dir_all(tmp.join("MyApp.xcodeproj"));
+        let _ = fs::write(tmp.join("Podfile"), "");
+        // Simulate Objective-C source file
+        let _ = fs::write(tmp.join("bridge.m"), "");
+
+        let result = scan_project_context(tmp.to_str().unwrap());
+        assert!(result.languages.contains(&"swift".to_string()));
+        assert!(result.languages.contains(&"objective-c".to_string()));
+        assert!(result.platforms.contains(&"ios".to_string()));
+        assert!(result.platforms.contains(&"macos".to_string()));
+        assert!(result.tools.contains(&"xcode".to_string()));
+        assert!(result.tools.contains(&"cocoapods".to_string()));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_scan_project_context_deduplication() {
+        // If both Cargo.toml and .rs files exist, "rust" should appear only once
+        let tmp = std::env::temp_dir().join("pss_test_dedup_project");
+        let _ = fs::create_dir_all(&tmp);
+        let _ = fs::write(tmp.join("Cargo.toml"), "");
+        let _ = fs::write(tmp.join("Makefile"), "");
+
+        let result = scan_project_context(tmp.to_str().unwrap());
+        // "rust" should not be duplicated
+        let rust_count = result.languages.iter().filter(|l| *l == "rust").count();
+        assert_eq!(rust_count, 1, "rust should appear exactly once");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_scan_project_context_multi_language() {
+        // Simulate a monorepo with multiple languages
+        let tmp = std::env::temp_dir().join("pss_test_multi_lang");
+        let _ = fs::create_dir_all(&tmp);
+        let _ = fs::write(tmp.join("Cargo.toml"), "");
+        let _ = fs::write(tmp.join("go.mod"), "");
+        let _ = fs::write(
+            tmp.join("package.json"),
+            r#"{"dependencies":{"express":"^4"}}"#,
+        );
+        let _ = fs::write(tmp.join("Dockerfile"), "");
+
+        let result = scan_project_context(tmp.to_str().unwrap());
+        assert!(result.languages.contains(&"rust".to_string()));
+        assert!(result.languages.contains(&"go".to_string()));
+        assert!(result.languages.contains(&"javascript".to_string()));
+        assert!(result.tools.contains(&"docker".to_string()));
+        assert!(result.frameworks.contains(&"express".to_string()));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_scan_root_file_types() {
+        let entries = vec![
+            "README.md".to_string(),
+            "logo.svg".to_string(),
+            "data.csv".to_string(),
+            "main.rs".to_string(),  // Source file - should NOT be added
+            "config.json".to_string(),
+            "another.json".to_string(),  // Duplicate extension - deduped
+        ];
+        let mut result = ProjectScanResult::default();
+        scan_root_file_types(&entries, &mut result);
+
+        assert!(result.file_types.contains(&"md".to_string()));
+        assert!(result.file_types.contains(&"svg".to_string()));
+        assert!(result.file_types.contains(&"csv".to_string()));
+        assert!(result.file_types.contains(&"json".to_string()));
+        // "json" should appear only once even though 2 .json files exist
+        let json_count = result.file_types.iter().filter(|ft| *ft == "json").count();
+        assert_eq!(json_count, 1);
+    }
+
+    #[test]
+    fn test_scan_python_deps_detection() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"
+[project]
+dependencies = [
+    "fastapi>=0.100",
+    "torch>=2.0",
+    "langchain>=0.1",
+]
+"#;
+        scan_python_deps(content, &mut result);
+        assert!(result.frameworks.contains(&"fastapi".to_string()));
+        assert!(result.tools.contains(&"pytorch".to_string()));
+        assert!(result.tools.contains(&"langchain".to_string()));
+    }
+
+    #[test]
+    fn test_scan_package_json_detection() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"{"dependencies":{"vue":"^3","prisma":"^5"},"devDependencies":{"vitest":"^1"}}"#;
+        let root_entries = vec!["package.json".to_string(), "yarn.lock".to_string()];
+        scan_package_json(content, &root_entries, &mut result);
+
+        assert!(result.languages.contains(&"javascript".to_string()));
+        assert!(result.frameworks.contains(&"vue".to_string()));
+        assert!(result.tools.contains(&"yarn".to_string()));
+        assert!(result.tools.contains(&"prisma".to_string()));
+        assert!(result.tools.contains(&"vitest".to_string()));
+    }
+
+    #[test]
+    fn test_dedup_vec() {
+        let mut v = vec![
+            "rust".to_string(),
+            "python".to_string(),
+            "rust".to_string(),
+            "go".to_string(),
+            "python".to_string(),
+        ];
+        dedup_vec(&mut v);
+        assert_eq!(v, vec!["rust", "python", "go"]);
+    }
+
+    #[test]
+    fn test_project_context_merge_scan() {
+        let mut ctx = ProjectContext {
+            languages: vec!["swift".to_string()],
+            frameworks: vec![],
+            platforms: vec!["ios".to_string()],
+            domains: vec![],
+            tools: vec![],
+            file_types: vec![],
+        };
+        let scan = ProjectScanResult {
+            languages: vec!["swift".to_string(), "objective-c".to_string()],
+            frameworks: vec!["swiftui".to_string()],
+            platforms: vec!["ios".to_string(), "macos".to_string()],
+            tools: vec!["xcode".to_string()],
+            file_types: vec!["svg".to_string()],
+        };
+        ctx.merge_scan(&scan);
+
+        // "swift" should not be duplicated (case-insensitive)
+        let swift_count = ctx.languages.iter().filter(|l| l.eq_ignore_ascii_case("swift")).count();
+        assert_eq!(swift_count, 1);
+        // "objective-c" should be added
+        assert!(ctx.languages.contains(&"objective-c".to_string()));
+        // "macos" should be added
+        assert!(ctx.platforms.contains(&"macos".to_string()));
+        // "ios" should not be duplicated
+        let ios_count = ctx.platforms.iter().filter(|p| p.eq_ignore_ascii_case("ios")).count();
+        assert_eq!(ios_count, 1);
+        // New items should be present
+        assert!(ctx.frameworks.contains(&"swiftui".to_string()));
+        assert!(ctx.tools.contains(&"xcode".to_string()));
+        assert!(ctx.file_types.contains(&"svg".to_string()));
+    }
+
+    // ====================================================================
+    // New tests for expanded scanning (embedded, industrial, IoT, etc.)
+    // ====================================================================
+
+    #[test]
+    fn test_scan_platformio_ini_basic() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"
+[env:esp32dev]
+platform = espressif32
+board = esp32dev
+framework = arduino
+"#;
+        scan_platformio_ini(content, &mut result);
+        assert!(result.frameworks.contains(&"arduino".to_string()));
+        assert!(result.platforms.contains(&"esp32".to_string()));
+    }
+
+    #[test]
+    fn test_scan_platformio_ini_espidf() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"
+[env:esp32s3]
+platform = espressif32
+board = esp32-s3-devkitc-1
+framework = espidf
+lib_deps = freertos
+"#;
+        scan_platformio_ini(content, &mut result);
+        assert!(result.frameworks.contains(&"esp-idf".to_string()));
+        assert!(result.frameworks.contains(&"freertos".to_string()));
+        assert!(result.platforms.contains(&"esp32".to_string()));
+    }
+
+    #[test]
+    fn test_scan_platformio_ini_stm32() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"
+[env:nucleo_f446re]
+platform = ststm32
+board = nucleo_f446re
+framework = stm32cube
+"#;
+        scan_platformio_ini(content, &mut result);
+        assert!(result.frameworks.contains(&"stm32cube".to_string()));
+        assert!(result.platforms.contains(&"stm32".to_string()));
+    }
+
+    #[test]
+    fn test_scan_platformio_ini_nrf52() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"
+[env:nrf52840_dk]
+platform = nordicnrf52
+board = nrf52840_dk
+framework = zephyr
+"#;
+        scan_platformio_ini(content, &mut result);
+        assert!(result.frameworks.contains(&"zephyr".to_string()));
+        assert!(result.platforms.contains(&"nrf52".to_string()));
+    }
+
+    #[test]
+    fn test_scan_gradle_project_android() {
+        let tmp = std::env::temp_dir().join("pss_test_gradle_android");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        // Create a build.gradle with Android plugin
+        fs::write(
+            tmp.join("build.gradle"),
+            r#"
+plugins {
+    id 'com.android.application'
+}
+android {
+    compileSdk 34
+}
+"#,
+        )
+        .unwrap();
+
+        let root_entries = vec!["build.gradle".to_string()];
+        let mut result = ProjectScanResult::default();
+        scan_gradle_project(&tmp, &root_entries, &mut result);
+
+        assert!(result.platforms.contains(&"android".to_string()));
+        assert!(result.frameworks.contains(&"android-sdk".to_string()));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_scan_gradle_project_spring_boot() {
+        let tmp = std::env::temp_dir().join("pss_test_gradle_spring");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        fs::write(
+            tmp.join("build.gradle.kts"),
+            r#"
+plugins {
+    id("org.springframework.boot") version "3.2.0"
+}
+"#,
+        )
+        .unwrap();
+
+        let root_entries = vec!["build.gradle.kts".to_string()];
+        let mut result = ProjectScanResult::default();
+        scan_gradle_project(&tmp, &root_entries, &mut result);
+
+        assert!(result.frameworks.contains(&"spring-boot".to_string()));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_scan_python_deps_embedded() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"
+[project]
+dependencies = [
+    "micropython-stubs",
+    "esptool",
+    "pyserial",
+]
+"#;
+        scan_python_deps(content, &mut result);
+        assert!(result.frameworks.contains(&"micropython".to_string()));
+        assert!(result.platforms.contains(&"esp32".to_string()));
+        assert!(result.tools.contains(&"serial".to_string()));
+    }
+
+    #[test]
+    fn test_scan_python_deps_robotics() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"
+rclpy>=1.0
+geometry_msgs
+sensor_msgs
+nav2_msgs
+"#;
+        scan_python_deps(content, &mut result);
+        assert!(result.frameworks.contains(&"ros2".to_string()));
+        assert!(result.platforms.contains(&"robotics".to_string()));
+    }
+
+    #[test]
+    fn test_scan_python_deps_industrial() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"
+pymodbus>=3.0
+asyncua>=1.0
+paho-mqtt>=1.6
+"#;
+        scan_python_deps(content, &mut result);
+        assert!(result.tools.contains(&"modbus".to_string()));
+        assert!(result.tools.contains(&"opcua".to_string()));
+        assert!(result.tools.contains(&"mqtt".to_string()));
+        assert!(result.platforms.contains(&"industrial".to_string()));
+    }
+
+    #[test]
+    fn test_scan_python_deps_ml_expanded() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"
+numpy>=1.24
+pandas>=2.0
+polars>=0.20
+matplotlib>=3.8
+plotly>=5.18
+mlflow>=2.10
+wandb>=0.16
+"#;
+        scan_python_deps(content, &mut result);
+        assert!(result.tools.contains(&"numpy".to_string()));
+        assert!(result.tools.contains(&"pandas".to_string()));
+        assert!(result.tools.contains(&"polars".to_string()));
+        assert!(result.tools.contains(&"matplotlib".to_string()));
+        assert!(result.tools.contains(&"plotly".to_string()));
+        assert!(result.tools.contains(&"mlflow".to_string()));
+        assert!(result.tools.contains(&"wandb".to_string()));
+    }
+
+    #[test]
+    fn test_scan_python_deps_cv() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"
+opencv-python>=4.8
+ultralytics>=8.0
+mediapipe>=0.10
+"#;
+        scan_python_deps(content, &mut result);
+        assert!(result.tools.contains(&"opencv".to_string()));
+        assert!(result.tools.contains(&"yolo".to_string()));
+        assert!(result.tools.contains(&"mediapipe".to_string()));
+    }
+
+    #[test]
+    fn test_scan_package_json_mobile_hybrid() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"{"dependencies":{"@capacitor/core":"^5","@ionic/core":"^7"}}"#;
+        let root_entries = vec!["package.json".to_string()];
+        scan_package_json(content, &root_entries, &mut result);
+
+        assert!(result.frameworks.contains(&"capacitor".to_string()));
+        assert!(result.frameworks.contains(&"ionic".to_string()));
+        assert!(result.platforms.contains(&"mobile".to_string()));
+    }
+
+    #[test]
+    fn test_scan_package_json_iot_hardware() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"{"dependencies":{"johnny-five":"^2","mqtt":"^5","serialport":"^12"}}"#;
+        let root_entries = vec!["package.json".to_string()];
+        scan_package_json(content, &root_entries, &mut result);
+
+        assert!(result.frameworks.contains(&"johnny-five".to_string()));
+        assert!(result.frameworks.contains(&"mqtt".to_string()));
+        assert!(result.frameworks.contains(&"serialport".to_string()));
+        assert!(result.platforms.contains(&"embedded".to_string()));
+    }
+
+    #[test]
+    fn test_scan_package_json_3d_graphics() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"{"dependencies":{"three":"^0.160","@react-three/fiber":"^8"}}"#;
+        let root_entries = vec!["package.json".to_string()];
+        scan_package_json(content, &root_entries, &mut result);
+
+        assert!(result.frameworks.contains(&"threejs".to_string()));
+        assert!(result.frameworks.contains(&"react-three-fiber".to_string()));
+    }
+
+    #[test]
+    fn test_scan_package_json_expanded_tools() {
+        let mut result = ProjectScanResult::default();
+        let content = r#"{"dependencies":{"zustand":"^4","zod":"^3"},"devDependencies":{"biome":"^1","storybook":"^8","puppeteer":"^22"}}"#;
+        let root_entries = vec!["package.json".to_string(), "bun.lockb".to_string()];
+        scan_package_json(content, &root_entries, &mut result);
+
+        assert!(result.tools.contains(&"bun".to_string()));
+        assert!(result.tools.contains(&"zustand".to_string()));
+        assert!(result.tools.contains(&"zod".to_string()));
+        assert!(result.tools.contains(&"biome".to_string()));
+        assert!(result.tools.contains(&"storybook".to_string()));
+        assert!(result.tools.contains(&"puppeteer".to_string()));
+    }
+
+    #[test]
+    fn test_scan_root_file_types_embedded_hardware() {
+        let mut result = ProjectScanResult::default();
+        let entries = vec![
+            "firmware.hex".to_string(),
+            "boot.elf".to_string(),
+            "flash.uf2".to_string(),
+            "device.svd".to_string(),
+            "board.dts".to_string(),
+            "signal.grc".to_string(),
+        ];
+        scan_root_file_types(&entries, &mut result);
+
+        assert!(result.file_types.contains(&"hex".to_string()));
+        assert!(result.file_types.contains(&"elf".to_string()));
+        assert!(result.file_types.contains(&"uf2".to_string()));
+        assert!(result.file_types.contains(&"svd".to_string()));
+        assert!(result.file_types.contains(&"dts".to_string()));
+        assert!(result.file_types.contains(&"grc".to_string()));
+    }
+
+    #[test]
+    fn test_scan_root_file_types_automotive_industrial() {
+        let mut result = ProjectScanResult::default();
+        let entries = vec![
+            "system.arxml".to_string(),
+            "can_bus.dbc".to_string(),
+            "shader.glsl".to_string(),
+            "shader.hlsl".to_string(),
+            "model.gltf".to_string(),
+            "print.gcode".to_string(),
+        ];
+        scan_root_file_types(&entries, &mut result);
+
+        assert!(result.file_types.contains(&"arxml".to_string()));
+        assert!(result.file_types.contains(&"dbc".to_string()));
+        assert!(result.file_types.contains(&"glsl".to_string()));
+        assert!(result.file_types.contains(&"hlsl".to_string()));
+        assert!(result.file_types.contains(&"gltf".to_string()));
+        assert!(result.file_types.contains(&"gcode".to_string()));
+    }
+
+    #[test]
+    fn test_scan_root_file_types_lab_instrumentation() {
+        let mut result = ProjectScanResult::default();
+        let entries = vec![
+            "experiment.vi".to_string(),
+            "project.lvproj".to_string(),
+            "sim.slx".to_string(),
+            "data.mat".to_string(),
+            "notebook.ipynb".to_string(),
+        ];
+        scan_root_file_types(&entries, &mut result);
+
+        assert!(result.file_types.contains(&"vi".to_string()));
+        assert!(result.file_types.contains(&"lvproj".to_string()));
+        assert!(result.file_types.contains(&"slx".to_string()));
+        assert!(result.file_types.contains(&"mat".to_string()));
+        assert!(result.file_types.contains(&"ipynb".to_string()));
+    }
+
+    #[test]
+    fn test_scan_root_file_types_3d_cad() {
+        let mut result = ProjectScanResult::default();
+        let entries = vec![
+            "model.stl".to_string(),
+            "scene.gltf".to_string(),
+            "part.step".to_string(),
+            "anim.fbx".to_string(),
+            "scene.usdz".to_string(),
+        ];
+        scan_root_file_types(&entries, &mut result);
+
+        assert!(result.file_types.contains(&"stl".to_string()));
+        assert!(result.file_types.contains(&"gltf".to_string()));
+        assert!(result.file_types.contains(&"step".to_string()));
+        assert!(result.file_types.contains(&"fbx".to_string()));
+        assert!(result.file_types.contains(&"usdz".to_string()));
+    }
+
+    #[test]
+    fn test_scan_root_file_types_security_certs() {
+        let mut result = ProjectScanResult::default();
+        let entries = vec![
+            "server.pem".to_string(),
+            "ca.crt".to_string(),
+            "private.key".to_string(),
+            "re_project.gpr".to_string(),
+            "binary.idb".to_string(),
+        ];
+        scan_root_file_types(&entries, &mut result);
+
+        assert!(result.file_types.contains(&"pem".to_string()));
+        assert!(result.file_types.contains(&"crt".to_string()));
+        assert!(result.file_types.contains(&"key".to_string()));
+        assert!(result.file_types.contains(&"gpr".to_string()));
+        assert!(result.file_types.contains(&"idb".to_string()));
+    }
+
+    #[test]
+    fn test_scan_project_context_embedded_project() {
+        // Simulate a directory with PlatformIO + Arduino files
+        let tmp = std::env::temp_dir().join("pss_test_embedded");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        fs::write(
+            tmp.join("platformio.ini"),
+            "[env:esp32dev]\nplatform = espressif32\nboard = esp32dev\nframework = arduino\n",
+        )
+        .unwrap();
+        fs::write(tmp.join("main.ino"), "void setup() {} void loop() {}").unwrap();
+
+        let result = scan_project_context(tmp.to_str().unwrap());
+        assert!(result.tools.contains(&"platformio".to_string()));
+        assert!(result.platforms.contains(&"embedded".to_string()));
+        assert!(result.frameworks.contains(&"arduino".to_string()));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_scan_project_context_cuda_project() {
+        let tmp = std::env::temp_dir().join("pss_test_cuda");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        fs::write(tmp.join("kernel.cu"), "__global__ void add() {}").unwrap();
+        fs::write(tmp.join("CMakeLists.txt"), "project(cuda_test)").unwrap();
+
+        let result = scan_project_context(tmp.to_str().unwrap());
+        assert!(result.languages.contains(&"cuda".to_string()));
+        assert!(result.platforms.contains(&"gpu".to_string()));
+        assert!(result.tools.contains(&"cmake".to_string()));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_scan_project_context_ros2_project() {
+        let tmp = std::env::temp_dir().join("pss_test_ros2");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        // ROS 2 uses package.xml with ament build type
+        fs::write(
+            tmp.join("package.xml"),
+            r#"<?xml version="1.0"?>
+<package format="3">
+  <buildtool_depend>ament_cmake</buildtool_depend>
+</package>"#,
+        )
+        .unwrap();
+        fs::write(tmp.join("CMakeLists.txt"), "project(my_ros2_pkg)").unwrap();
+
+        let result = scan_project_context(tmp.to_str().unwrap());
+        assert!(result.frameworks.contains(&"ros2".to_string()));
+        assert!(result.platforms.contains(&"robotics".to_string()));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // ====================================================================
+    // Tests for normalize_separators() and stem_word()
+    // ====================================================================
+
+    #[test]
+    fn test_normalize_separators() {
+        // Hyphens, underscores, spaces all collapse
+        assert_eq!(normalize_separators("geo-json"), "geojson");
+        assert_eq!(normalize_separators("geo_json"), "geojson");
+        assert_eq!(normalize_separators("geo json"), "geojson");
+        assert_eq!(normalize_separators("geojson"), "geojson");
+
+        // camelCase flattened
+        assert_eq!(normalize_separators("geoJson"), "geojson");
+        assert_eq!(normalize_separators("GeoJSON"), "geojson");
+        assert_eq!(normalize_separators("nextJs"), "nextjs");
+
+        // Mixed separators
+        assert_eq!(normalize_separators("react-native"), "reactnative");
+        assert_eq!(normalize_separators("react_native"), "reactnative");
+        assert_eq!(normalize_separators("reactNative"), "reactnative");
+
+        // Already normalized
+        assert_eq!(normalize_separators("docker"), "docker");
+        assert_eq!(normalize_separators("kubernetes"), "kubernetes");
+    }
+
+    #[test]
+    fn test_stem_word_plurals() {
+        assert_eq!(stem_word("tests"), "test");
+        assert_eq!(stem_word("deploys"), "deploy");
+        assert_eq!(stem_word("configs"), "config");
+        assert_eq!(stem_word("libraries"), "library");
+        assert_eq!(stem_word("dependencies"), "dependency");
+        assert_eq!(stem_word("patches"), "patch");
+        assert_eq!(stem_word("fixes"), "fix");
+    }
+
+    #[test]
+    fn test_stem_word_verb_forms() {
+        // -ing forms
+        assert_eq!(stem_word("testing"), "test");
+        assert_eq!(stem_word("building"), "build");
+        assert_eq!(stem_word("deploying"), "deploy");
+        assert_eq!(stem_word("configuring"), "configur"); // acceptable stem for matching
+        assert_eq!(stem_word("generating"), "generat"); // -ting→-te→"generate"→strip trailing e→"generat"
+        assert_eq!(stem_word("running"), "run");      // doubled consonant: nn→n
+        assert_eq!(stem_word("mapping"), "map");       // doubled consonant: pp→p
+        assert_eq!(stem_word("debugging"), "debug");   // doubled consonant: gg→g
+        assert_eq!(stem_word("setting"), "set");       // doubled consonant: tt→t
+        assert_eq!(stem_word("bundling"), "bundl");    // -ling→"bundle"→strip trailing e→"bundl"
+        assert_eq!(stem_word("copying"), "copy");
+
+        // -ed forms
+        assert_eq!(stem_word("tested"), "test");
+        assert_eq!(stem_word("deployed"), "deploy");
+        assert_eq!(stem_word("configured"), "configur"); // -ed→"configur", matches stem_word("configure")→"configur"
+        assert_eq!(stem_word("mapped"), "map");        // doubled consonant: pp→p
+        assert_eq!(stem_word("optimized"), "optimiz"); // -ized→"optimize"→strip trailing e→"optimiz"
+    }
+
+    #[test]
+    fn test_stem_word_other_suffixes() {
+        // -ment
+        assert_eq!(stem_word("deployment"), "deploy");
+        assert_eq!(stem_word("management"), "manag"); // -ment→"manage"→strip trailing e→"manag"
+
+        // -ation (strips "ation" to produce consistent stems)
+        assert_eq!(stem_word("validation"), "valid");
+        assert_eq!(stem_word("generation"), "gener");
+        assert_eq!(stem_word("configuration"), "configur");
+
+        // -ly (strips 2 chars)
+        assert_eq!(stem_word("automatically"), "automatical");
+
+        // -er
+        assert_eq!(stem_word("compiler"), "compil");
+        assert_eq!(stem_word("bundler"), "bundl");
+    }
+
+    #[test]
+    fn test_stem_word_short_words_unchanged() {
+        // Words too short to stem should pass through unchanged
+        assert_eq!(stem_word("git"), "git");
+        assert_eq!(stem_word("npm"), "npm");
+        assert_eq!(stem_word("go"), "go");
+        assert_eq!(stem_word("db"), "db");
+    }
+
+    #[test]
+    fn test_stem_word_already_stemmed() {
+        // Words that don't end in known suffixes pass through
+        assert_eq!(stem_word("docker"), "dock"); // -er strip is ok
+        assert_eq!(stem_word("react"), "react");
+        assert_eq!(stem_word("python"), "python");
+        assert_eq!(stem_word("rust"), "rust");
+    }
+
+    #[test]
+    fn test_normalized_stemmed_matching_in_phase_2_5() {
+        // Verify that Phase 2.5 allows matching across separator variants
+        // and morphological forms by testing find_matches with crafted skills.
+        let mut skills = HashMap::new();
+        skills.insert(
+            "geojson-expert".to_string(),
+            SkillEntry {
+                source: "user".to_string(),
+                path: "/path/to/geojson-expert/SKILL.md".to_string(),
+                skill_type: "skill".to_string(),
+                keywords: vec!["geojson".to_string(), "mapping".to_string()],
+                intents: vec![],
+                patterns: vec![],
+                directories: vec![],
+                path_patterns: vec![],
+                description: "GeoJSON expert".to_string(),
+                negative_keywords: vec![],
+                tier: String::new(),
+                boost: 0,
+                category: String::new(),
+                platforms: vec![],
+                frameworks: vec![],
+                languages: vec![],
+                domains: vec![],
+                tools: vec![],
+                file_types: vec![],
+                domain_gates: HashMap::new(),
+                usually_with: vec![],
+                precedes: vec![],
+                follows: vec![],
+                alternatives: vec![],
+            },
+        );
+
+        let index = SkillIndex {
+            version: "3.0".to_string(),
+            generated: "2026-01-01T00:00:00Z".to_string(),
+            method: "test".to_string(),
+            skills_count: 1,
+            skills,
+        };
+
+        let ctx = ProjectContext::default();
+        let detected: DetectedDomains = HashMap::new();
+
+        // "geo-json" should match "geojson" via separator normalization
+        let results = find_matches("geo-json", "geo-json", &index, "/tmp", &ctx, false, &detected, None);
+        assert!(!results.is_empty(), "geo-json should match geojson via normalization");
+
+        // "geo_json" should match "geojson" via separator normalization
+        let results = find_matches("geo_json", "geo_json", &index, "/tmp", &ctx, false, &detected, None);
+        assert!(!results.is_empty(), "geo_json should match geojson via normalization");
+
+        // "maps" should match "mapping" via stemming (both stem to "map")
+        let results = find_matches("maps", "maps", &index, "/tmp", &ctx, false, &detected, None);
+        assert!(!results.is_empty(), "maps should match mapping via stemming");
+    }
+
+    #[test]
+    fn test_trailing_e_consistency() {
+        // Trailing-e stripping ensures consistent stems across all forms.
+        // "configure", "configured", "configuring", "configuration" all stem consistently.
+        assert_eq!(stem_word("configure"), "configur");
+        assert_eq!(stem_word("configured"), "configur");
+        assert_eq!(stem_word("configuring"), "configur");
+        assert_eq!(stem_word("configuration"), "configur");
+
+        // "generate", "generated", "generating", "generation" all stem consistently.
+        assert_eq!(stem_word("generate"), "generat");
+        assert_eq!(stem_word("generated"), "generat"); // -ed→"generat"→no trailing e
+        assert_eq!(stem_word("generating"), "generat"); // -ting→"generate"→strip e→"generat"
+        assert_eq!(stem_word("generation"), "gener"); // -ation→"gener"
+
+        // "manage", "managed", "managing", "management" all stem consistently.
+        assert_eq!(stem_word("manage"), "manag");
+        assert_eq!(stem_word("managed"), "manag"); // -ed→"manag"
+        assert_eq!(stem_word("managing"), "manag"); // -ing→"manag"
+        assert_eq!(stem_word("management"), "manag"); // -ment→"manage"→strip e→"manag"
+
+        // "cache", "cached", "caching"
+        assert_eq!(stem_word("cache"), "cach");
+        assert_eq!(stem_word("cached"), "cach"); // -ed→"cach"
+        assert_eq!(stem_word("caching"), "cach"); // -ing→"cach"
+
+        // "optimize", "optimized", "optimizing", "optimization"
+        assert_eq!(stem_word("optimize"), "optimiz");
+        assert_eq!(stem_word("optimized"), "optimiz"); // -ized→"optimize"→strip e→"optimiz"
+        assert_eq!(stem_word("optimizing"), "optimiz"); // -ing→"optimiz"
+    }
+
+    #[test]
+    fn test_abbreviation_match() {
+        // Direct abbreviation lookups
+        assert!(is_abbreviation_match("config", "configuration"));
+        assert!(is_abbreviation_match("configuration", "config")); // bidirectional
+        assert!(is_abbreviation_match("repo", "repository"));
+        assert!(is_abbreviation_match("env", "environment"));
+        assert!(is_abbreviation_match("auth", "authentication"));
+        assert!(is_abbreviation_match("db", "database"));
+        assert!(is_abbreviation_match("cfg", "configuration"));
+        assert!(is_abbreviation_match("docs", "documentation"));
+        assert!(is_abbreviation_match("deps", "dependencies"));
+
+        // Non-matches
+        assert!(!is_abbreviation_match("config", "repository"));
+        assert!(!is_abbreviation_match("foo", "bar"));
+        assert!(!is_abbreviation_match("test", "testing")); // not an abbreviation pair
+    }
+
+    #[test]
+    fn test_abbreviation_matching_in_phase_2_5() {
+        // Verify that abbreviations work in find_matches via Phase 2.5.
+        let mut skills = HashMap::new();
+        skills.insert(
+            "config-manager".to_string(),
+            SkillEntry {
+                source: "user".to_string(),
+                path: "/path/to/config-manager/SKILL.md".to_string(),
+                skill_type: "skill".to_string(),
+                keywords: vec!["configuration".to_string(), "settings".to_string()],
+                intents: vec![],
+                patterns: vec![],
+                directories: vec![],
+                path_patterns: vec![],
+                description: "Configuration manager".to_string(),
+                negative_keywords: vec![],
+                tier: String::new(),
+                boost: 0,
+                category: String::new(),
+                platforms: vec![],
+                frameworks: vec![],
+                languages: vec![],
+                domains: vec![],
+                tools: vec![],
+                file_types: vec![],
+                domain_gates: HashMap::new(),
+                usually_with: vec![],
+                precedes: vec![],
+                follows: vec![],
+                alternatives: vec![],
+            },
+        );
+
+        let index = SkillIndex {
+            version: "3.0".to_string(),
+            generated: "2026-01-01T00:00:00Z".to_string(),
+            method: "test".to_string(),
+            skills_count: 1,
+            skills,
+        };
+
+        let ctx = ProjectContext::default();
+        let detected: DetectedDomains = HashMap::new();
+
+        // "config" should match "configuration" via abbreviation
+        let results = find_matches("config", "config", &index, "/tmp", &ctx, false, &detected, None);
+        assert!(!results.is_empty(), "config should match configuration via abbreviation");
+
+        // "cfg" should also match "configuration" via abbreviation
+        let results = find_matches("cfg", "cfg", &index, "/tmp", &ctx, false, &detected, None);
+        assert!(!results.is_empty(), "cfg should match configuration via abbreviation");
+
+        // "repo" should NOT match "configuration" (wrong abbreviation)
+        let results = find_matches("repo", "repo", &index, "/tmp", &ctx, false, &detected, None);
+        assert!(results.is_empty(), "repo should not match configuration");
     }
 }

@@ -44,6 +44,7 @@ PASS1_FIELDS: list[str] = [
     "domains",
     "tools",
     "file_types",
+    "domain_gates",
 ]
 
 # Fields merged during pass 2 (AI co-usage relationships)

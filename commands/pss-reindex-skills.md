@@ -119,11 +119,13 @@ This creates a **superset index** containing ALL skills across all your projects
 4. [Phase 0] VERIFY clean slate - no index files remain
 5. [Phase 1] Run discovery script to generate skill checklist
 6. [Phase 1] Spawn Pass 1 batch agents for keyword analysis
-7. [Phase 1] Compile Pass 1 results into skill-index.json
-8. [Phase 2] Spawn Pass 2 batch agents for co-usage analysis
-9. [Phase 2] Verify Pass 2 results in final index
-10. [Verify] Confirm index has pass:2 and all skills have co_usage
-11. [Report] Report final statistics to user
+7. [Phase 1] Validate Pass 1 index (run pss_validate_index.py --pass 1)
+8. [Phase 1] Check agent tracking files for missed skills, re-run if needed
+9. [Phase 2] Spawn Pass 2 batch agents for co-usage analysis
+10. [Phase 2] Validate final index (run pss_validate_index.py --pass 2 --restore-on-failure --cleanup-pss)
+11. [Phase 2] Check agent tracking files for missed skills, re-run if needed
+12. [Verify] Confirm index has pass:2 and all skills have co_usage
+13. [Report] Report final statistics to user
 ```
 
 **CRITICAL RULES:**
@@ -154,9 +156,11 @@ The backup ensures the old data is preserved for debugging, but moved out of the
 NEVER interfere with the fresh reindex.
 
 ```bash
-# Step 0.0: Create timestamped backup folder in /tmp
+# Step 0.0: Create timestamped backup folder and ensure pss-queue dir exists
 BACKUP_DIR="/tmp/pss-backup-$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
+mkdir -p /tmp/pss-queue
+echo "$BACKUP_DIR" > /tmp/pss-queue/backup-dir.txt
 echo "Backup directory: $BACKUP_DIR"
 
 # Step 0.1: Backup and delete the main skill index
@@ -191,8 +195,17 @@ echo ""
 echo "Proceeding to Phase 1: Discovery..."
 ```
 
+**IMPORTANT: PERSIST $BACKUP_DIR**
+The orchestrator MUST remember the `$BACKUP_DIR` path for the rest of the reindex process.
+The post-reindex validator needs this path to restore the backup if validation fails.
+Store it in a variable or write it to `/tmp/pss-queue/backup-dir.txt`:
+```bash
+echo "$BACKUP_DIR" > /tmp/pss-queue/backup-dir.txt
+```
+
 **CHECKLIST (ALL MUST BE CHECKED BEFORE PROCEEDING):**
 - [ ] Backup directory created in /tmp
+- [ ] `$BACKUP_DIR` path persisted to `/tmp/pss-queue/backup-dir.txt`
 - [ ] `skill-index.json` moved to backup (or did not exist)
 - [ ] `skill-checklist.md` moved to backup (or did not exist)
 - [ ] **VERIFICATION PASSED**: No index files remain
@@ -254,456 +267,62 @@ Batch 22 (skills 211-216) → Agent V
 
 ### Step 3: Subagent Analysis
 
-Each subagent receives a prompt like this:
-
-**Pass 1 Subagent Prompt Template (rio v2.0 compatible):**
-
-```
-You are analyzing skills for Batch {batch_num} (skills {start}-{end}).
-
-For EACH skill in your batch:
-1. Read the SKILL.md at the given path THOROUGHLY - understand what it does
-2. Extract the description and use_cases VERBATIM from the frontmatter or content
-3. **MANDATORY: Assign ONE category from the list below** (NEVER use null)
-4. **MANDATORY: Determine platform/framework/language specificity** (read carefully!)
-5. **MANDATORY: Determine domain/tools/file_types** (for non-programming skills)
-6. Generate rio-compatible keywords (8-15 keywords, multi-word phrases preferred)
-7. Output JSON result AND write a .pss file
-
-Skills to analyze:
-{list_of_skill_paths}
-
-## CATEGORY ASSIGNMENT (MANDATORY - NEVER null)
-
-You MUST assign exactly ONE category to each skill. Categories represent the PRIMARY FIELD OF COMPETENCE.
-
-**CATEGORY SELECTION RULES:**
-1. Read the skill's description and use_cases carefully
-2. Match against the category keywords below
-3. Choose the category with the MOST keyword matches
-4. If tied, choose the MORE SPECIFIC category (e.g., "mobile" over "web-frontend" for iOS skills)
-5. **NEVER leave category as null** - always pick the best fit
-
-**CATEGORIES WITH MATCHING KEYWORDS:**
-
-| Category | Matches When Skill Contains... |
-|----------|-------------------------------|
-| `web-frontend` | react, vue, angular, svelte, css, html, javascript frontend, typescript frontend, ui components, ux design, responsive, tailwind, styled-components |
-| `web-backend` | api, rest, graphql, server, endpoint, route, middleware, express, fastapi, django, flask, node backend |
-| `mobile` | ios, android, swift, kotlin, react native, flutter, mobile app, xcode, app store, play store |
-| `devops-cicd` | deploy, ci/cd, pipeline, github actions, docker, kubernetes, terraform, ansible, jenkins, continuous integration |
-| `testing` | test, unit test, integration test, e2e, jest, pytest, coverage, tdd, mock, assertion, test-driven |
-| `security` | security, vulnerability, audit, authentication, oauth, jwt, encryption, xss, injection, penetration |
-| `data-ml` | data science, machine learning, ml model, training, dataset, pandas, numpy, tensorflow, pytorch, sklearn |
-| `research` | research, paper, arxiv, academic, documentation generation, wiki, technical writing |
-| `code-quality` | refactor, lint, format, clean code, dead code, simplify, code review, static analysis |
-| `debugging` | debug, error handling, bug fix, troubleshoot, diagnose, crash, exception, profiling, logging |
-| `infrastructure` | cloud, aws, gcp, azure, serverless, lambda, container orchestration, vm, infrastructure-as-code |
-| `cli-tools` | cli, terminal, command line, shell, bash, zsh, scripting, shell script |
-| `visualization` | chart, graph visualization, plot, svg, diagram, mermaid, d3.js, matplotlib, data viz |
-| `ai-llm` | llm, gpt, claude, prompt engineering, agent, anthropic api, openai api, huggingface, transformers |
-| `project-mgmt` | planning, task management, todo, project, milestone, roadmap, spec, requirement, agile |
-| `plugin-dev` | plugin, extension, hook, skill development, command creation, agent creation, mcp server |
-
-**VALIDATION:** Your output will be REJECTED if category is null or missing.
-
-For each skill, output a JSON object in Pass 1 format:
-
-{
-  "name": "skill-name",
-  "type": "skill",
-  "source": "user|project|plugin",
-  "path": "/full/path/to/SKILL.md",
-  "description": "VERBATIM description from SKILL.md frontmatter",
-  "use_cases": ["VERBATIM use case 1", "VERBATIM use case 2"],
-  "category": "devops-cicd",
-  "platforms": ["ios", "macos"],
-  "frameworks": ["swiftui"],
-  "languages": ["swift"],
-  "domains": ["620"],
-  "tools": ["ffmpeg", "ffprobe"],
-  "file_types": ["mp4", "mov"],
-  "keywords": ["keyword1", "keyword2", "multi word phrase", ...],
-  "intents": ["deploy", "build", "test"],
-  "pass": 1
-}
-
-**FIELD NOTES:**
-- `domains`: Use Dewey codes from `schemas/pss-domains.json` (e.g., "620" for Video Production)
-- `tools`: Extract EXACT tool/framework/library names mentioned in the skill (build the catalog!)
-- `file_types`: Extract EXACT file extensions the skill handles
-
-CRITICAL: description and use_cases MUST be copied VERBATIM from the skill.
-DO NOT paraphrase, summarize, or rewrite them!
-
-## PLATFORM/FRAMEWORK/LANGUAGE METADATA (MANDATORY)
-
-**Read the SKILL.md carefully to determine if this skill is:**
-1. **Platform-specific**: Does it target iOS, Android, macOS, Windows, Linux, or web?
-2. **Framework-specific**: Does it target a specific framework like SwiftUI, React, Django, Rails?
-3. **Language-specific**: Does it target a specific language like Swift, Rust, Python, TypeScript?
-
-**RULES FOR METADATA EXTRACTION:**
-
-| Field | Values | When to Use |
-|-------|--------|-------------|
-| `platforms` | `["ios"]`, `["android"]`, `["macos"]`, `["windows"]`, `["linux"]`, `["web"]`, or `["universal"]` | Based on what the skill explicitly targets |
-| `frameworks` | `["swiftui"]`, `["uikit"]`, `["react"]`, `["vue"]`, `["django"]`, `["rails"]`, or `[]` | Based on frameworks mentioned in the skill |
-| `languages` | `["swift"]`, `["rust"]`, `["python"]`, `["typescript"]`, or `["any"]` | Based on languages the skill is for |
-
-**CRITICAL RULES:**
-1. **READ THE SKILL THOROUGHLY** - Don't guess, read what the skill actually covers
-2. **Be specific** - If a skill mentions "SwiftUI" and "iOS", set `platforms: ["ios"]`, `frameworks: ["swiftui"]`, `languages: ["swift"]`
-3. **Use "universal" for platforms** only if the skill explicitly works across ALL platforms
-4. **Use "any" for languages** only if the skill is truly language-agnostic (e.g., git workflow)
-5. **Leave empty `[]`** if the field doesn't apply (e.g., no specific framework)
-
-**EXAMPLES:**
-
-iOS debugging skill:
-```json
-{
-  "platforms": ["ios"],
-  "frameworks": ["swiftui", "uikit"],
-  "languages": ["swift"]
-}
-```
-
-Generic git workflow skill:
-```json
-{
-  "platforms": ["universal"],
-  "frameworks": [],
-  "languages": ["any"]
-}
-```
-
-React web development skill:
-```json
-{
-  "platforms": ["web"],
-  "frameworks": ["react"],
-  "languages": ["typescript", "javascript"]
-}
-```
-
-Rust systems programming skill:
-```json
-{
-  "platforms": ["universal"],
-  "frameworks": [],
-  "languages": ["rust"]
-}
-```
-
-**⛔ NEVER leave these fields empty for platform-specific skills!** This metadata is CRITICAL for filtering - without it, iOS skills will be suggested for Rust projects.
-
-## DOMAIN CLASSIFICATION (DEWEY-LIKE SYSTEM)
-
-PSS uses a **Dewey-like hierarchical classification** for domains. Each skill is assigned one or more domain codes based on its content.
-
-**The domain schema is in `schemas/pss-domains.json`** - consult this file for the full classification.
-
-### Main Categories (X00)
-
-| Code | Category | Description |
-|------|----------|-------------|
-| **000** | General & Meta | Cross-cutting skills (docs, planning, workflow, git) |
-| **100** | Software Development | Programming, frontend, backend, mobile, testing |
-| **200** | Data & Analytics | Data science, ML, visualization, databases |
-| **300** | DevOps & Infrastructure | CI/CD, cloud, containers, monitoring |
-| **400** | Security & Compliance | Security audits, auth, encryption, compliance |
-| **500** | Content & Communication | Writing, presentations, social media |
-| **600** | Media & Graphics | Design, video, audio, animation, 3D |
-| **700** | Business & Professional | Project mgmt, finance, legal, marketing |
-| **800** | Science & Research | Academic, bioinformatics, chemistry, physics |
-| **900** | Life & Personal | Health, travel, education, DIY, events |
-
-### Subcategories (X10-X90)
-
-Each main category has subcategories for finer classification:
-
-| Code | Subcategory |
-|------|-------------|
-| **110** | Frontend Development (Web UI) |
-| **120** | Backend Development (APIs, Servers) |
-| **130** | Mobile Development (iOS, Android) |
-| **150** | Testing & QA |
-| **220** | Machine Learning & AI Models |
-| **310** | CI/CD & Automation |
-| **330** | Containers & Orchestration |
-| **410** | Security Auditing |
-| **510** | Technical Writing |
-| **620** | Video Production |
-| **630** | Audio Production |
-| **910** | Health & Fitness |
-| **920** | Travel & Transportation |
-
-**HOW TO ASSIGN DOMAIN CODES:**
-1. Read the SKILL.md thoroughly
-2. Identify the PRIMARY domain from the 000-900 categories
-3. If applicable, use the more specific subcategory (e.g., "620" for video instead of "600")
-4. A skill can have MULTIPLE domain codes if it spans domains
-
----
-
-## TOOL/FRAMEWORK/ARTIFACT EXTRACTION (EXACT NAMES ONLY)
-
-**⛔ CRITICAL: Extract EXACT names - do NOT use generic categories!**
-
-The `tools` field is a **dynamic catalog** built from all skills. The hook matches these exact names against user prompts. Therefore:
-
-1. **Extract the EXACT tool/framework/library/service names** mentioned in the SKILL.md
-2. **Use the canonical name** (lowercase, as written in docs)
-3. **Include version-independent names** (e.g., "ffmpeg" not "ffmpeg 6.0")
-4. **Include common aliases** if the skill mentions them
-
-### What to Extract
-
-| Type | Examples | How to Recognize |
-|------|----------|------------------|
-| **CLI Tools** | `ffmpeg`, `pandoc`, `imagemagick`, `tesseract`, `sox` | Command-line utilities mentioned for processing |
-| **Libraries** | `openpyxl`, `pandas`, `reportlab`, `pillow` | Import statements, pip/npm packages |
-| **Frameworks** | `django`, `react`, `flutter`, `swiftui` | Architecture patterns, project structure |
-| **Services** | `aws-s3`, `github-actions`, `openai-api` | External APIs, cloud services |
-| **Applications** | `blender`, `inkscape`, `gimp`, `audacity` | Desktop applications used |
-| **AI Models** | `stable-diffusion`, `whisper`, `llama` | ML models referenced |
-
-### Extraction Rules
-
-1. **Be exhaustive** - Extract ALL tools/frameworks mentioned in the skill
-2. **Use lowercase** - `FFmpeg` → `ffmpeg`, `ImageMagick` → `imagemagick`
-3. **Keep hyphens** - `stable-diffusion`, `yt-dlp`, `react-native`
-4. **No versions** - `python` not `python3.12`, `node` not `node18`
-5. **Include wrappers** - If skill uses `comfyui` for `stable-diffusion`, include BOTH
-
-### Examples
-
-**Video processing skill mentions:** "use FFmpeg to transcode, HandBrake for quick conversions, and yt-dlp for downloading"
-```json
-{
-  "tools": ["ffmpeg", "handbrake", "yt-dlp"]
-}
-```
-
-**Document skill mentions:** "converts using Pandoc, generates PDFs with wkhtmltopdf, handles DOCX with python-docx"
-```json
-{
-  "tools": ["pandoc", "wkhtmltopdf", "python-docx"]
-}
-```
-
-**ML skill mentions:** "runs Stable Diffusion via ComfyUI or Automatic1111, uses Whisper for transcription"
-```json
-{
-  "tools": ["stable-diffusion", "comfyui", "automatic1111", "whisper"]
-}
-```
-
----
-
-## FILE TYPES (EXACT EXTENSIONS)
-
-Extract the **exact file extensions** the skill handles:
-
-| Category | Extensions |
-|----------|------------|
-| Documents | `pdf`, `docx`, `doc`, `xlsx`, `xls`, `pptx`, `odt` |
-| Text | `md`, `txt`, `rst`, `html`, `xml`, `json`, `yaml`, `csv` |
-| Images | `png`, `jpg`, `jpeg`, `gif`, `svg`, `webp`, `ico`, `tiff` |
-| Video | `mp4`, `mov`, `avi`, `mkv`, `webm`, `m4v` |
-| Audio | `mp3`, `wav`, `flac`, `aac`, `ogg`, `m4a` |
-| Archives | `zip`, `tar`, `gz`, `7z`, `rar` |
-| Code | `py`, `js`, `ts`, `rs`, `go`, `swift`, `kt` |
-| E-books | `epub`, `mobi`, `azw3` |
-
----
-
-## COMPLETE EXAMPLES
-
-**FFmpeg video processing skill:**
-```json
-{
-  "platforms": ["universal"],
-  "frameworks": [],
-  "languages": ["any"],
-  "domains": ["620"],
-  "tools": ["ffmpeg", "ffprobe"],
-  "file_types": ["mp4", "mov", "avi", "mkv", "webm", "gif"]
-}
-```
-
-**PDF generation with Pandoc:**
-```json
-{
-  "platforms": ["universal"],
-  "frameworks": [],
-  "languages": ["any"],
-  "domains": ["510"],
-  "tools": ["pandoc", "wkhtmltopdf", "weasyprint"],
-  "file_types": ["pdf", "html", "docx", "md", "epub"]
-}
-```
-
-**React frontend skill:**
-```json
-{
-  "platforms": ["web"],
-  "frameworks": ["react", "next.js"],
-  "languages": ["typescript", "javascript"],
-  "domains": ["110"],
-  "tools": ["vite", "webpack", "eslint", "prettier"],
-  "file_types": ["tsx", "jsx", "css", "json"]
-}
-```
-
-**Stable Diffusion image generation:**
-```json
-{
-  "platforms": ["universal"],
-  "frameworks": [],
-  "languages": ["python"],
-  "domains": ["220", "610"],
-  "tools": ["stable-diffusion", "comfyui", "automatic1111", "sdxl"],
-  "file_types": ["png", "jpg", "webp", "safetensors"]
-}
-```
-
-**Security audit skill:**
-```json
-{
-  "platforms": ["universal"],
-  "frameworks": [],
-  "languages": ["any"],
-  "domains": ["410"],
-  "tools": ["nmap", "burpsuite", "sqlmap", "nikto"],
-  "file_types": []
-}
-```
-
-**Excel automation with Python:**
-```json
-{
-  "platforms": ["universal"],
-  "frameworks": [],
-  "languages": ["python"],
-  "domains": ["210", "250"],
-  "tools": ["openpyxl", "pandas", "xlsxwriter"],
-  "file_types": ["xlsx", "csv", "xls"]
-}
-```
-
-**⛔ CRITICAL:** The `tools` field builds a **dynamic catalog** used by the hook for matching. Extract EVERY tool/framework/library name from the skill - missing entries means missing matches!
-
-## KEYWORD SELECTION RULES (CRITICAL FOR ACCURACY)
-
-**Generate 10-20 keywords/phrases per skill.** Quality over quantity - bad keywords cause false positives.
-
-**MANDATORY RULES:**
-1. ALL keywords must be LOWERCASE
-2. **PREFER MULTI-WORD PHRASES** (3+ words) - they are MORE SPECIFIC
-3. **AVOID SINGLE COMMON WORDS** like: "test", "code", "file", "run", "build", "fix", "error", "change", "update"
-4. **AVOID AMBIGUOUS WORDS** that match multiple unrelated skills
-5. Keywords must be UNIQUE TO THIS SKILL - don't use words that could match 10+ other skills
-
-**KEYWORD SPECIFICITY HIERARCHY (prefer higher):**
-| Specificity | Example | Why |
-|-------------|---------|-----|
-| **HIGH** | "set up github actions workflow" | Very specific phrase |
-| **HIGH** | "github actions yaml" | Tool + format |
-| **MEDIUM** | "ci/cd pipeline" | Domain-specific compound |
-| **MEDIUM** | "github actions" | Tool name (2 words) |
-| **LOW** | "ci" | Too short, matches many things |
-| **AVOID** | "workflow" | Too generic, matches everything |
-
-**GOOD KEYWORD EXAMPLES:**
-- Tool names (2+ words): "github actions", "docker compose", "react native"
-- Specific actions: "deploy to production", "run integration tests", "lint python files"
-- Error messages: "workflow failed", "type check error", "build step failed"
-- Command phrases: "set up continuous integration", "configure deployment pipeline"
-
-**BAD KEYWORD EXAMPLES (NEVER USE):**
-- Single letters: "ci", "cd", "ml", "ai" (use expanded forms)
-- Generic verbs: "run", "build", "test", "fix" (too broad)
-- Common nouns: "code", "file", "change", "error" (match everything)
-- Ambiguous: "graph" (code graph vs. data visualization graph)
-
-**⛔ PLATFORM-SPECIFIC SKILLS RULE:**
-For skills targeting a SPECIFIC PLATFORM (iOS, Android, macOS, Windows, Linux), ALL keywords MUST include the platform name:
-- iOS skill: "ios memory leak", "swiftui debugging ios", "xcode build failed ios"
-- Android skill: "android gradle build", "kotlin coroutine android"
-- macOS skill: "macos appkit menu", "macos notarization"
-
-**WHY?** Generic keywords like "debug memory leak" would match iOS skills for a Python debugging query.
-The platform name MUST be in every keyword to prevent cross-platform false positives.
-
-**PLATFORM PREFIXING EXAMPLES:**
-| Platform | WRONG (too generic) | CORRECT (platform-specific) |
-|----------|---------------------|----------------------------|
-| iOS | "debug memory leak" | "ios memory leak debugging" |
-| iOS | "navigation stack" | "swiftui navigation stack ios" |
-| Android | "gradle build" | "android gradle build error" |
-| macOS | "menu bar" | "macos menu bar appkit" |
-
-**DISAMBIGUATION RULE:** If a word has multiple meanings, use the SPECIFIC phrase:
-- DON'T: "graph" → DO: "data visualization graph" OR "code dependency graph"
-- DON'T: "test" → DO: "unit test", "integration test", "test coverage"
-- DON'T: "deploy" → DO: "deploy to production", "kubernetes deployment"
-
-INTENT EXTRACTION:
-Identify 3-5 action verbs that represent what the user WANTS TO DO:
-- deploy, build, test, review, debug, refactor, migrate, configure, etc.
-
-**EXAMPLE OUTPUT (with proper category and specific keywords):**
-```json
-{
-  "name": "devops-expert",
-  "type": "skill",
-  "source": "user",
-  "path": "/Users/me/.claude/skills/devops-expert/SKILL.md",
-  "description": "CI/CD pipeline configuration and GitHub Actions workflows",
-  "use_cases": ["Setting up GitHub Actions for automated testing", "Troubleshooting failed pipeline runs"],
-  "category": "devops-cicd",
-  "keywords": [
-    "github actions workflow",
-    "github actions yaml",
-    "ci/cd pipeline configuration",
-    "continuous integration setup",
-    "continuous deployment",
-    "workflow yaml syntax",
-    "github actions job",
-    "workflow run failed",
-    "pipeline step failed",
-    "set up github actions",
-    "configure github workflow",
-    "deployment automation",
-    "github actions cache",
-    "workflow dispatch trigger"
-  ],
-  "intents": ["deploy", "configure", "automate", "troubleshoot"],
-  "pass": 1
-}
-```
-
-**NOTE:** Keywords are now specific multi-word phrases. Avoided: "ci", "cd", "pipeline", "deploy" (too generic).
-
-ALSO WRITE A TEMPORARY .pss FILE AND MERGE IT:
-For each skill, write a .pss file to the temp queue directory:
-- /tmp/pss-queue/<skill-name>.pss
-
-The .pss file should contain the same JSON (prettified).
-
-After writing EACH .pss file, immediately merge it into the index by running:
-
+**IMPORTANT: MODEL SELECTION**
+- Pass 1 agents MUST use `model: haiku` (factual extraction only - cheap)
+- Pass 2 agents MUST use `model: haiku` (guided co-usage with decision gates)
+- The orchestrator (you) runs on the parent model (Sonnet/Opus)
+
+**IMPORTANT: PROMPT TEMPLATES**
+The full Haiku-optimized prompts are in external template files:
+- **Pass 1**: Read `${CLAUDE_PLUGIN_ROOT}/prompts/pass1-haiku.md` for the complete template
+- **Pass 2**: Read `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-haiku.md` for the complete template
+
+Read the appropriate template file, fill in the {variables}, and pass it to the haiku subagent.
+
+**IMPORTANT: TRIPLE VERIFICATION**
+Both templates include mandatory triple-read verification steps where the agent re-reads the SKILL.md
+2 additional times to cross-check its extraction results. This compensates for Haiku's lower accuracy.
+Do NOT remove or skip these verification steps.
+
+**IMPORTANT: AGENT REPORTING**
+All agents must return ONLY a 1-2 line summary. No code blocks, no verbose output.
+Format: `[DONE/PARTIAL/FAILED] Pass N Batch M - count/total skills processed`
+
+Each subagent receives the prompt built from the external template file.
+
+**HOW TO BUILD THE PASS 1 PROMPT:**
+
+1. Read the template file: `${CLAUDE_PLUGIN_ROOT}/prompts/pass1-haiku.md`
+2. Copy the content between `## TEMPLATE START` and `## TEMPLATE END`
+3. Replace these variables:
+   - `{batch_num}` → the batch number (e.g., 3)
+   - `{start}` → first skill number in batch (e.g., 21)
+   - `{end}` → last skill number in batch (e.g., 30)
+   - `{list_of_skill_paths}` → newline-separated list of skill paths with source and name
+4. Replace `${CLAUDE_PLUGIN_ROOT}` with the absolute path to the plugin directory
+5. Send the filled template to the haiku subagent
+
+**CRITICAL**: The `${CLAUDE_PLUGIN_ROOT}` variable may NOT be available inside subagents.
+You MUST resolve it to an absolute path BEFORE sending the prompt. Example:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "/tmp/pss-queue/<skill-name>.pss" --pass 1
+# Resolve plugin root path first
+PLUGIN_ROOT=$(cd "${CLAUDE_PLUGIN_ROOT}" && pwd)
+# Then replace ${CLAUDE_PLUGIN_ROOT} with $PLUGIN_ROOT in the template
 ```
 
-The merge script will atomically update skill-index.json and delete the temp .pss file.
-Report the merge result (1 line per skill).
+**BUILDING {skill_tracking_rows} (MANDATORY):**
 
-Return a minimal report: one JSON object per line, no extra text.
+Both Pass 1 and Pass 2 templates include a `{skill_tracking_rows}` variable for the batch tracking checklist.
+You MUST build this from the batch's skill list. Format:
+
 ```
+| 1 | skill-name-one | PENDING | NO |
+| 2 | skill-name-two | PENDING | NO |
+| 3 | skill-name-three | PENDING | NO |
+```
+
+Each row has: sequential number, skill name, Status (initially PENDING), Merged (initially NO).
+The agent will update this file as it processes each skill.
 
 ### Step 4: Compile Index
 
@@ -727,7 +346,8 @@ Merge all subagent responses into the master index (rio v2.0 compatible format w
       "description": "CI/CD pipeline configuration and GitHub Actions workflows",
       "platforms": ["universal"],
       "frameworks": [],
-      "languages": ["any"]
+      "languages": ["any"],
+      "domain_gates": {}
     }
   }
 }
@@ -750,6 +370,7 @@ Merge all subagent responses into the master index (rio v2.0 compatible format w
 | `domains` | string[] | PSS: Dewey domain codes from `schemas/pss-domains.json` (`310`, `620`, `910`, etc.) |
 | `tools` | string[] | PSS: EXACT tool/library names extracted from skill (builds dynamic catalog) |
 | `file_types` | string[] | PSS: EXACT file extensions handled (`pdf`, `xlsx`, `mp4`, `svg`, etc.) |
+| `domain_gates` | object | PSS: Named keyword groups as hard prerequisite filters. Keys are gate names (`target_language`, `input_language`, `output_language`, `target_platform`, `target_framework`, `text_language`, `output_format`), values are arrays of lowercase keywords. ALL gates must have at least one keyword match in the user prompt or the skill is never suggested. Empty `{}` for generic skills. |
 
 ### Step 5: Pass 1 Index (Built Incrementally via Merge)
 
@@ -764,6 +385,57 @@ mkdir -p ~/.claude/cache
 **NOTE:** No staleness checks are performed. The index is a superset of all skills ever indexed.
 At runtime, the agent filters suggestions against its known available skills (injected by Claude Code).
 See `docs/PSS-ARCHITECTURE.md` for the full rationale.
+
+---
+
+### Step 5a: Validate Pass 1 Index (MANDATORY)
+
+After ALL Pass 1 agents have completed, run the validator to ensure the index is structurally sound:
+
+```bash
+BACKUP_DIR=$(cat /tmp/pss-queue/backup-dir.txt)
+python3 "${PLUGIN_ROOT}/scripts/pss_validate_index.py" \
+    --pass 1 \
+    --backup-dir "$BACKUP_DIR" \
+    --verbose
+```
+
+**If validation FAILS (exit code 1):**
+- The index has structural errors from Pass 1 agents
+- Read the validator output to identify which skills have issues
+- Re-run affected agents if the errors are recoverable
+- If the errors are NOT recoverable: re-run ALL Pass 1 agents from scratch
+- Do NOT proceed to Pass 2 until validation passes
+
+**If validation PASSES (exit code 0):**
+- Proceed to Step 5b
+
+### Step 5b: Check Pass 1 Agent Tracking Files (MANDATORY)
+
+The haiku agents write per-batch tracking files to `/tmp/pss-queue/batch-*-pass1-tracking.md`.
+The orchestrator MUST check these files to verify no skills were skipped:
+
+```bash
+# List all Pass 1 tracking files
+ls /tmp/pss-queue/batch-*-pass1-tracking.md
+
+# For each tracking file, check for PENDING or FAILED skills
+grep -E "PENDING|FAILED" /tmp/pss-queue/batch-*-pass1-tracking.md
+```
+
+**If ANY skill shows PENDING:**
+- The agent forgot to process that skill (common with Haiku)
+- Re-spawn a haiku agent for JUST the missed skills
+- The re-run agent should process ONLY the PENDING skills, not the entire batch
+
+**If ANY skill shows FAILED:**
+- The agent tried but could not process that skill
+- Check if the skill's SKILL.md file exists and is readable
+- If the file exists, re-spawn an agent to retry (up to 2 retries)
+- If the file does NOT exist, log a warning and skip it
+
+**If ALL skills show DONE+YES:**
+- Pass 1 is complete, proceed to Pass 2
 
 ---
 
@@ -807,204 +479,54 @@ This provides heuristic guidance for candidate selection:
 }
 ```
 
-### Step 7: Spawn Pass 2 Agents (Parallel, Batched)
+### Step 7: Spawn Pass 2 Agents (Parallel, Batched, Haiku)
+
+**MODEL**: Use `model: haiku` for all Pass 2 agents.
+
+**PROMPT TEMPLATE**: Read `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-haiku.md` for the complete template.
+Fill in the {variables} and pass to each haiku subagent.
 
 **BATCHING (same as Pass 1):**
 - Group skills into batches of 10
-- Spawn up to 20 agents in parallel (2 batches at a time)
+- Spawn up to 20 agents in parallel (all batches simultaneously, max 20 concurrent)
 - Each agent processes ALL skills in its batch
 - Wait for all batches to complete before proceeding to Step 8
 
-**For EACH batch, spawn an agent with this prompt:**
+**TRIPLE VERIFICATION**: The Pass 2 template includes 3 verification rounds where the agent
+re-reads skill data and re-validates each co-usage link. This is mandatory for Haiku accuracy.
 
-```
-You are analyzing co-usage relationships for Batch {batch_num} (skills {start}-{end}).
+**HOW TO BUILD THE PASS 2 PROMPT:**
 
-For EACH skill in your batch:
-{list_of_skill_names_and_pss_paths}
-```
+1. Read the template file: `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-haiku.md`
+2. Copy the content between `## TEMPLATE START` and `## TEMPLATE END`
+3. Replace these variables:
+   - `{batch_num}` → the batch number (e.g., 3)
+   - `{start}` → first skill number in batch (e.g., 21)
+   - `{end}` → last skill number in batch (e.g., 30)
+   - `{list_of_skill_names_and_pss_paths}` → newline-separated list of skill names
+   - `{skill_name}` → each skill name (template has per-skill sections)
+   - `{keywords_as_phrase}` → skill's keywords joined as a phrase
+   - `{binary_path}` → absolute path to the platform-specific Rust binary (see below)
+4. Replace `${CLAUDE_PLUGIN_ROOT}` with the resolved absolute path to the plugin directory
+5. Send the filled template to the haiku subagent
 
-**Pass 2 Agent Prompt Template (include in batch agent prompt):**
-
-```
-You are analyzing co-usage relationships for Batch {batch_num}.
-
-For EACH skill in your batch, follow these steps:
-
----
-### Processing skill: {skill_name}
-
-## STEP 1: Read Current State from Index
-Read the skill's data from the skill-index.json. You can do this with:
-
+**RESOLVING {binary_path} (platform detection):**
 ```bash
-python3 -c "import json; idx=json.load(open('$HOME/.claude/cache/skill-index.json')); s=idx['skills'].get('{skill_name}', {}); print(json.dumps(s, indent=2))"
+# Detect platform and select the correct binary
+ARCH=$(uname -m)
+OS=$(uname -s)
+if [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then
+    BINARY="${PLUGIN_ROOT}/rust/skill-suggester/bin/pss-darwin-arm64"
+elif [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
+    BINARY="${PLUGIN_ROOT}/rust/skill-suggester/bin/pss-darwin-x86_64"
+elif [ "$OS" = "Linux" ] && [ "$ARCH" = "x86_64" ]; then
+    BINARY="${PLUGIN_ROOT}/rust/skill-suggester/bin/pss-linux-x86_64"
+elif [ "$OS" = "Linux" ] && [ "$ARCH" = "aarch64" ]; then
+    BINARY="${PLUGIN_ROOT}/rust/skill-suggester/bin/pss-linux-arm64"
+fi
 ```
 
-Note the skill's:
-- description (VERBATIM - do not paraphrase)
-- use_cases (VERBATIM - do not paraphrase)
-- keywords
-- category
-
-## STEP 2: Find Candidate Skills
-Run the skill-suggester in incomplete-mode to find similar skills:
-
-```bash
-echo '{{"prompt": "{keywords_as_phrase}"}}' | {binary_path} --incomplete-mode
-```
-
-The skill-suggester returns skills matching by keyword similarity.
-
-ALSO consider the CxC matrix heuristics:
-- Skills in category "{category}" have high co-usage with: {high_probability_categories}
-- Use the probability scores to prioritize candidates
-
-## STEP 3: Read Candidate Data from Index
-For each candidate skill returned, read its data from skill-index.json to understand:
-- What the skill actually does (from description/use_cases)
-- Its category and keywords
-- Any existing co-usage data
-
-Use the same python one-liner from Step 1 to read each candidate's data.
-
-**ERROR HANDLING**: If a candidate doesn't exist in the index, SKIP it.
-
-## STEP 4: Determine Co-Usage Relationships (AI INTELLIGENCE)
-
-> **⛔ CRITICAL: CO-USAGE VALIDATION RULES**
->
-> Bad co-usage associations cause TERRIBLE user experience - irrelevant skills flood the context.
-> You MUST follow these strict validation rules:
-
-### CO-USAGE VALIDATION RULES (MANDATORY)
-
-**RULE 1: SAME-DOMAIN PREFERENCE**
-Co-usage should PRIMARILY link skills in the SAME or CLOSELY RELATED categories:
-- ✅ mobile → mobile (iOS skill with another iOS skill)
-- ✅ devops-cicd → testing (deployment needs tests)
-- ✅ web-frontend → web-backend (frontend calls APIs)
-- ❌ mobile → plugin-dev (completely unrelated domains!)
-- ❌ debugging → project-mgmt (no workflow connection!)
-
-**RULE 2: WORKFLOW JUSTIFICATION REQUIRED**
-For EVERY co-usage link, you MUST be able to answer: "In what realistic workflow would a developer use BOTH skills in the same session?"
-- ✅ "code-review" precedes "merge-branch" - PR workflow
-- ✅ "docker" usually_with "docker-compose" - container workflow
-- ❌ "swiftui-debugging" usually_with "plugin-structure" - NO logical workflow!
-
-**RULE 3: CATEGORY BOUNDARY CROSSING**
-Cross-category co-usage is ONLY valid when:
-1. There's a DIRECT workflow dependency (testing → deployment)
-2. One skill OUTPUTS what the other skill INPUTS
-3. They solve ADJACENT steps in the same development pipeline
-
-**RULE 4: QUANTITY LIMITS**
-- `usually_with`: MAX 3-5 skills (only the STRONGEST associations)
-- `precedes`: MAX 2-3 skills
-- `follows`: MAX 2-3 skills
-- `alternatives`: MAX 2-3 skills
-- If uncertain, use FEWER associations, not more!
-
-**RULE 5: NO KEYWORD-BASED ASSOCIATIONS**
-Do NOT create co-usage just because skills share keywords like:
-- "debug", "test", "deploy", "fix", "build" - too generic
-- "github", "code", "file" - appear in many skills
-- Platform names like "ios", "swift" - need workflow justification
-
-### Co-Usage Relationship Types
-
-Using your understanding of software development workflows, determine:
-
-1. **usually_with**: Skills typically used in the SAME session/task
-   - Example: "docker" usually_with "docker-compose", "container-security"
-   - VALIDATION: Would a developer ACTUALLY use both in one coding session?
-
-2. **precedes**: Skills typically used BEFORE this skill
-   - Example: "code-review" precedes "merge-branch"
-   - VALIDATION: Is this skill a logical PREREQUISITE?
-
-3. **follows**: Skills typically used AFTER this skill
-   - Example: "write-tests" follows "implement-feature"
-   - VALIDATION: Is this skill a logical NEXT STEP?
-
-4. **alternatives**: Skills that solve the SAME problem differently
-   - Example: "terraform" alternative to "pulumi"
-   - VALIDATION: Are they genuinely INTERCHANGEABLE solutions?
-
-5. **rationale**: A brief explanation of WHY these relationships exist
-   - MUST include specific workflow justification
-   - If you can't write a clear rationale, DO NOT include the association!
-
-## STEP 5: Write Temporary .pss File and Merge
-Write the co-usage data to a temporary .pss file and merge it into the index:
-
-1. Write to: `/tmp/pss-queue/{skill_name}.pss`
-2. The .pss file should contain:
-```json
-{{
-  "name": "{skill_name}",
-  "type": "{type}",
-  "source": "{source}",
-  "path": "{skill_path}",
-  "description": "{VERBATIM_description}",
-  "use_cases": {VERBATIM_use_cases},
-  "category": "{category}",
-  "keywords": {keywords},
-  "intents": {intents},
-  "patterns": {patterns},
-  "directories": {directories},
-  "co_usage": {{
-    "usually_with": ["skill-a", "skill-b"],
-    "precedes": ["skill-x"],
-    "follows": ["skill-y", "skill-z"],
-    "alternatives": ["alt-skill"],
-    "rationale": "Web frontend development typically requires backend APIs (web-backend), testing, and deployment pipelines."
-  }},
-  "tier": "primary|secondary|specialized",
-  "pass": 2,
-  "generated": "{timestamp}"
-}}
-```
-
-3. Immediately merge into the index:
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "/tmp/pss-queue/{skill_name}.pss" --pass 2
-```
-
-The merge script handles atomic index updates and deletes the temp file.
-
-## STEP 6: Return Batch Summary
-After processing ALL skills in your batch, return a minimal report (1-2 lines max):
-```
-[DONE] Pass 2 Batch {batch_num} - {skills_processed}/{total_skills} skills with co-usage data
-```
-
-If any skills failed, report:
-```
-[PARTIAL] Pass 2 Batch {batch_num} - {success_count} OK, {fail_count} failed: {failed_skill_names}
-```
-
-CRITICAL RULES:
-- description and use_cases MUST be VERBATIM from the SKILL.md - NEVER paraphrase
-- Only include skills in co_usage that you ACTUALLY verified exist
-- Do not guess - if uncertain, omit that relationship
-- Write to a temp .pss file in /tmp/pss-queue/ and merge via pss_merge_queue.py
-
-**⛔ CO-USAGE ANTI-PATTERNS (NEVER DO):**
-- NEVER link skills just because they share intents like "debug", "fix", "troubleshoot"
-- NEVER link skills from completely different tech stacks (e.g., iOS + Python)
-- NEVER link platform-specific skills with generic tools (e.g., SwiftUI + plugin-dev)
-- NEVER create more than 5 usually_with relationships - pick only the STRONGEST
-- NEVER include a skill in co_usage if you cannot explain the workflow connection
-
-**VALIDATION CHECKLIST (for each co_usage entry):**
-□ Can I describe a specific workflow where both skills are needed together?
-□ Are the skills in the same or adjacent categories?
-□ Is this a relationship most developers would recognize?
-□ Would suggesting skill B when skill A is active actually HELP the user?
-If ANY answer is NO, DO NOT include that co_usage relationship!
-```
+**CRITICAL**: Same as Pass 1 - resolve `${CLAUDE_PLUGIN_ROOT}` to an absolute path BEFORE sending to subagents.
 
 ### Step 8: Verify Pass 2 Results in Global Index
 
@@ -1039,6 +561,7 @@ Pass 2 agents merge their results directly into skill-index.json via pss_merge_q
       "platforms": ["universal"],
       "frameworks": [],
       "languages": ["any"],
+      "domain_gates": {},
       "co_usage": {
         "usually_with": ["github-workflow", "container-security"],
         "precedes": ["deploy-to-production"],
@@ -1055,27 +578,145 @@ Pass 2 agents merge their results directly into skill-index.json via pss_merge_q
 **NOTE:** Category is REQUIRED and must be one of the 16 predefined categories. Keywords are specific multi-word phrases.
 ```
 
+### Step 8a: Validate Final Index (MANDATORY)
+
+After ALL Pass 2 agents have completed, run the FULL validator with backup restoration enabled:
+
+```bash
+BACKUP_DIR=$(cat /tmp/pss-queue/backup-dir.txt)
+python3 "${PLUGIN_ROOT}/scripts/pss_validate_index.py" \
+    --pass 2 \
+    --backup-dir "$BACKUP_DIR" \
+    --restore-on-failure \
+    --cleanup-pss \
+    --verbose
+```
+
+**What this does:**
+- Validates ALL Pass 1 fields (structure, enums, keywords)
+- Validates ALL Pass 2 fields (co_usage, tiers, cross-references)
+- Checks completeness against `skill-checklist.md`
+- **If validation FAILS**: automatically deletes the bad index, restores the backup, and cleans up `.pss` files
+- **If validation PASSES**: the index is ready for use
+
+**If validation FAILS (exit code 1) with --restore-on-failure:**
+- The validator already restored the backup index
+- The reindex has FAILED - report to user that the old index was restored
+- Include the validator's error output in the report so the user can diagnose
+- Do NOT attempt to manually fix the index - it was already replaced with the backup
+
+**If validation PASSES (exit code 0):**
+- Proceed to Step 8b
+
+### Step 8b: Check Pass 2 Agent Tracking Files (MANDATORY)
+
+Same procedure as Step 5b, but for Pass 2 tracking files:
+
+```bash
+# List all Pass 2 tracking files
+ls /tmp/pss-queue/batch-*-pass2-tracking.md
+
+# For each tracking file, check for PENDING or FAILED skills
+grep -E "PENDING|FAILED" /tmp/pss-queue/batch-*-pass2-tracking.md
+```
+
+**If ANY skill shows PENDING:**
+- Re-spawn a haiku agent for JUST the missed skills
+- After the re-run completes, run the validator AGAIN (Step 8a)
+
+**If ANY skill shows FAILED:**
+- Check if the skill exists in the Pass 1 index
+- If yes, re-spawn an agent to retry (up to 2 retries)
+- After retries complete, run the validator AGAIN (Step 8a)
+
+**If ALL skills show DONE+YES:**
+- Proceed to the COMPLETION CHECKPOINT
+
+### Step 8c: Final Cleanup
+
+After validation passes, clean up temporary files:
+
+```bash
+# Remove tracking files (no longer needed)
+rm -f /tmp/pss-queue/batch-*-tracking.md
+
+# Remove backup-dir pointer
+rm -f /tmp/pss-queue/backup-dir.txt
+
+# Remove any remaining .pss files (should already be merged)
+rm -f /tmp/pss-queue/*.pss
+```
+
+**NOTE:** The backup directory in `/tmp/pss-backup-*` is intentionally NOT deleted.
+It persists until the system clears `/tmp` or the user manually removes it.
+This provides a safety net if issues are discovered later.
+
+### Step 8d: Aggregate Domain Gates into Domain Registry (MANDATORY)
+
+After validation passes, aggregate all domain gates from the index into a normalized domain registry.
+This registry enables the suggester to perform two-phase matching:
+1. Detect which domains are relevant to the user prompt (using example keywords from the registry)
+2. Check each skill's domain gates against detected domains (boolean pass/fail)
+
+```bash
+python3 "${PLUGIN_ROOT}/scripts/pss_aggregate_domains.py" --verbose
+```
+
+**What this does:**
+- Reads all `domain_gates` from every skill in `~/.claude/cache/skill-index.json`
+- Normalizes similar gate names to canonical forms (e.g., `input_language`, `language_input`, `input_lang` → `input_language`)
+- Aggregates all keywords found across skills for each canonical domain
+- Detects which domains have the `generic` wildcard keyword
+- Writes the registry to `~/.claude/cache/domain-registry.json`
+
+**If the aggregation FAILS (exit code 1):**
+- The domain registry was NOT written
+- This does NOT invalidate the skill index — the index is still usable
+- Report the error to the user but do NOT fail the entire reindex
+
+**If the aggregation SUCCEEDS (exit code 0):**
+- Proceed to the COMPLETION CHECKPOINT
+
 ### COMPLETION CHECKPOINT (MANDATORY)
 
-**The reindex operation is ONLY COMPLETE when:**
+**The reindex operation is ONLY COMPLETE when ALL of these are true:**
 
 1. ✅ Pass 1 completed - All skills have keywords, categories, and intents
-2. ✅ Pass 2 completed - All skills have co_usage relationships (usually_with, precedes, follows, alternatives)
-3. ✅ Global index updated - `~/.claude/cache/skill-index.json` contains `"pass": 2`
-4. ✅ No .pss files remain in /tmp/pss-queue/
+2. ✅ Pass 1 validated - `pss_validate_index.py --pass 1` returned exit code 0
+3. ✅ Pass 1 tracking verified - All batch tracking files show DONE+YES for all skills
+4. ✅ Pass 2 completed - All skills have co_usage relationships (usually_with, precedes, follows, alternatives)
+5. ✅ Pass 2 validated - `pss_validate_index.py --pass 2` returned exit code 0
+6. ✅ Pass 2 tracking verified - All batch tracking files show DONE+YES for all skills
+7. ✅ Global index updated - `~/.claude/cache/skill-index.json` contains `"pass": 2`
+8. ✅ Domain registry generated - `~/.claude/cache/domain-registry.json` exists with aggregated domains
+9. ✅ Temporary files cleaned up - No .pss files or tracking files remain in /tmp/pss-queue/
 
 **FAILURE CONDITIONS:**
 - If index shows `"pass": 1`, Pass 2 was NOT executed
 - If only some skills have `co_usage`, Pass 2 agents only partially completed
+- If validator fails with `--restore-on-failure`, the OLD index was restored and reindex FAILED
+- If tracking files show PENDING skills, some agents forgot to process them
 
 **REPORT TO USER:**
-After completion, report:
+After successful completion, report:
 ```
 PSS Reindex Complete
 ====================
-Pass 1: {N} skills with keywords/categories
-Pass 2: {M} skills with co-usage relationships
+Pass 1: {N} skills with keywords/categories (validated ✅)
+Pass 2: {M} skills with co-usage relationships (validated ✅)
+Domains: {D} canonical domains aggregated (registry ✅)
 Index: ~/.claude/cache/skill-index.json (pass: 2)
+Registry: ~/.claude/cache/domain-registry.json
+Backup: {BACKUP_DIR} (preserved for safety)
+```
+
+After failed completion (validator restored backup), report:
+```
+PSS Reindex FAILED
+==================
+Validation errors detected - old index restored from backup.
+Backup restored from: {BACKUP_DIR}
+Errors: {validator error summary}
 ```
 
 ---

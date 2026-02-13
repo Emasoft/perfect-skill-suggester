@@ -88,7 +88,8 @@ def check_rust_installed() -> bool:
                 file=sys.stderr,
             )
             print(
-                "Fix: Run 'source $HOME/.cargo/env' or add $HOME/.cargo/bin to your PATH.",
+                "Fix: Run 'source $HOME/.cargo/env'"
+                " or add $HOME/.cargo/bin to your PATH.",
                 file=sys.stderr,
             )
             return False
@@ -258,7 +259,8 @@ def build_wasm(release: bool = True) -> bool:
             return False
     except FileNotFoundError:
         print(
-            "Error: 'rustup' not found. WASM builds require rustup (not Homebrew Rust).",
+            "Error: 'rustup' not found."
+            " WASM builds require rustup (not Homebrew Rust).",
             file=sys.stderr,
         )
         print(
@@ -287,7 +289,8 @@ def build_wasm(release: bool = True) -> bool:
             "  1. Missing wasm target: rustup target add wasm32-wasip1", file=sys.stderr
         )
         print(
-            '  2. Code uses platform-specific APIs not gated with #[cfg(not(target_arch = "wasm32"))]',
+            "  2. Code uses platform-specific APIs"
+            ' not gated with #[cfg(not(target_arch = "wasm32"))]',
             file=sys.stderr,
         )
         return False
@@ -331,15 +334,18 @@ def build_cross(target_key: str, release: bool = True) -> bool:
         print("", file=sys.stderr)
         print("Common causes:", file=sys.stderr)
         print(
-            "  1. Docker not running: open -a Docker (macOS) or sudo systemctl start docker (Linux)",
+            "  1. Docker not running: open -a Docker (macOS)"
+            " or sudo systemctl start docker (Linux)",
             file=sys.stderr,
         )
         print(
-            "  2. First build for this target: Docker needs to pull the cross image (may take minutes)",
+            "  2. First build for this target: Docker needs"
+            " to pull the cross image (may take minutes)",
             file=sys.stderr,
         )
         print(
-            "  3. Network error: Docker needs internet to pull cross-rs images from ghcr.io",
+            "  3. Network error: Docker needs internet"
+            " to pull cross-rs images from ghcr.io",
             file=sys.stderr,
         )
         return False
@@ -472,7 +478,8 @@ def main() -> int:
             return 0 if build_native(release) else 1
         if not check_cross_installed():
             print(
-                f"Error: 'cross' is required to build for {args.target} (non-native target).",
+                f"Error: 'cross' is required to build for"
+                f" {args.target} (non-native target).",
                 file=sys.stderr,
             )
             print(

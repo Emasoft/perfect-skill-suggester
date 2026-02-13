@@ -563,7 +563,8 @@ def phase5_binary_scoring(env: dict[str, Any], verbose: bool) -> TestResult:
                 False,
                 f"Binary failed (exit {result.returncode}). "
                 f"Stderr: {result.stderr[:500]}. "
-                f"Try rebuilding: uv run python {env['plugin_root']}/scripts/pss_build.py",
+                "Try rebuilding: uv run python"
+                f" {env['plugin_root']}/scripts/pss_build.py",
             )
 
         # Verify output is valid JSON
@@ -638,7 +639,8 @@ def phase6_hook_simulation(env: dict[str, Any], verbose: bool) -> TestResult:
                 errors.append(
                     f"'{prompt}': Binary failed (exit {result.returncode}). "
                     f"Stderr: {result.stderr[:500]}. "
-                    f"Try rebuilding: uv run python {env['plugin_root']}/scripts/pss_build.py"
+                    "Try rebuilding: uv run python"
+                    f" {env['plugin_root']}/scripts/pss_build.py"
                 )
                 continue
 
@@ -776,7 +778,8 @@ def main() -> int:
         print(
             f"Could not determine plugin root directory. "
             f"Resolved path '{plugin_root}' is not a directory. "
-            f"This script must be run from inside the perfect-skill-suggester plugin directory, "
+            "This script must be run from inside the"
+            " perfect-skill-suggester plugin directory, "
             f"or the plugin directory must contain scripts/pss_test_e2e.py.",
             file=sys.stderr,
         )

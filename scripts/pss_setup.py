@@ -116,10 +116,12 @@ def check_rust_installed() -> bool:
     print_fail("Rust toolchain not found")
     print("         PSS requires Rust installed via rustup (NOT Homebrew).")
     print(
-        "         Homebrew Rust lacks 'rustup' and cannot add cross-compilation targets."
+        "         Homebrew Rust lacks 'rustup' and cannot"
+        " add cross-compilation targets."
     )
     print(
-        "         Install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+        "         Install: curl --proto '=https' --tlsv1.2"
+        " -sSf https://sh.rustup.rs | sh"
     )
     print("         Then: source $HOME/.cargo/env")
     return False
@@ -162,7 +164,8 @@ def check_skill_index() -> bool:
     if not index_path.exists():
         print_warn("Skill index not found")
         print(
-            "         The skill index maps user prompts to relevant skills using AI-analyzed keywords."
+            "         The skill index maps user prompts to"
+            " relevant skills using AI-analyzed keywords."
         )
         print("         Without it, PSS cannot suggest skills.")
         print("         Generate it: use /pss-reindex-skills in Claude Code")
@@ -176,7 +179,8 @@ def check_skill_index() -> bool:
         method = data.get("method", "unknown")
         pass_num = data.get("pass", "unknown")
         print_ok(
-            f"Skill index: {skills_count} skills (v{version}, {method}, pass {pass_num})"
+            f"Skill index: {skills_count} skills"
+            f" (v{version}, {method}, pass {pass_num})"
         )
         return True
     except (json.JSONDecodeError, OSError) as e:

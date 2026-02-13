@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PSS Domain Registry",
+  "description": "Aggregated domain registry generated after reindex. Contains canonical domain names and all discovered keywords across skills, used by the suggester for two-phase matching: first detect relevant domains in user prompt, then check skill domain gates.",
+  "version": "1.0",
+  "type": "object",
+  "required": ["version", "generated", "source_index", "domains"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version for the domain registry",
+      "const": "1.0"
+    },
+    "generated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this registry was generated"
+    },
+    "source_index": {
+      "type": "string",
+      "description": "Path to the skill-index.json that was used to generate this registry"
+    },
+    "domain_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of canonical domains in the registry"
+    },
+    "domains": {
+      "type": "object",
+      "description": "Map of canonical domain name to domain entry",
+      "additionalProperties": {
+        "$ref": "#/definitions/DomainEntry"
+      }
+    }
+  },
+  "definitions": {
+    "DomainEntry": {
+      "type": "object",
+      "description": "A single domain in the registry, aggregated from all skills that use gates with this canonical domain name",
+      "required": ["canonical_name", "aliases", "example_keywords", "skill_count", "skills"],
+      "properties": {
+        "canonical_name": {
+          "type": "string",
+          "description": "The normalized canonical name for this domain (snake_case)"
+        },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "All original gate names found across skills that were normalized to this canonical name (e.g., ['target_language', 'programming_language', 'lang_target', 'language'])"
+        },
+        "example_keywords": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Union of ALL keywords found across ALL skills for this domain. Used by the suggester as examples to detect the domain in user prompts. Includes the special 'generic' wildcard if any skill uses it."
+        },
+        "has_generic": {
+          "type": "boolean",
+          "description": "True if at least one skill uses the 'generic' wildcard keyword for this domain"
+        },
+        "skill_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of skills that have a gate for this domain"
+        },
+        "skills": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of skill names that have a gate for this domain"
+        }
+      }
+    }
+  }
+}

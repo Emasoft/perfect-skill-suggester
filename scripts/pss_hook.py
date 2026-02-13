@@ -751,9 +751,11 @@ def main() -> None:
         if result.returncode == 0:
             print(result.stdout, end="")
         else:
+            build_script = Path(__file__).parent / "pss_build.py"
             _exit_warning(
-                f"binary exited with code {result.returncode}: {result.stderr[:300]}. "
-                f"Try rebuilding: uv run python {Path(__file__).parent / 'pss_build.py'}"
+                f"binary exited with code {result.returncode}: "
+                f"{result.stderr[:300]}. "
+                f"Try rebuilding: uv run python {build_script}"
             )
 
         sys.exit(0)  # Always exit 0 to not block Claude
