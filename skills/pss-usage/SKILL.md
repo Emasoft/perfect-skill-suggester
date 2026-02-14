@@ -1,6 +1,6 @@
 ---
 name: pss-usage
-description: "Use when you need to work with Perfect Skill Suggester commands, interpret skill suggestions, understand confidence levels, or troubleshoot PSS issues"
+description: "Use when working with Perfect Skill Suggester commands, interpreting skill suggestions, understanding confidence levels, or troubleshooting PSS issues"
 argument-hint: ""
 user-invocable: false
 ---
@@ -42,32 +42,27 @@ If index has never been built, PSS will show "Index file missing" error when try
 
 ### Step-by-Step Usage
 
-**Step 1: Verify PSS is working**
-```
-/pss-status
-```
-Check that index exists and shows recent timestamp.
+1. **Verify PSS is working** - Run the status command to confirm the index exists and shows a recent timestamp:
+   ```
+   /pss-status
+   ```
 
-**Step 2: Build/rebuild index after installing skills**
-```
-/pss-reindex-skills
-```
-Wait for "Phase 2: Analysis... ✓ Index updated successfully" message.
+2. **Build or rebuild the index after installing skills** - Run the reindex command and wait for the "Phase 2: Analysis... Index updated successfully" message:
+   ```
+   /pss-reindex-skills
+   ```
 
-**Step 3: Use natural prompts and review suggestions**
-```
-"I need to write Python unit tests"
-```
-PSS will suggest relevant skills with confidence levels and evidence.
+3. **Use natural prompts and review suggestions** - Enter a prompt describing the task; PSS will suggest relevant skills with confidence levels and evidence:
+   ```
+   "I need to write Python unit tests"
+   ```
 
-**Step 4: Activate HIGH confidence skills**
-```
-/skill activate python-test-writer
-```
-Review MEDIUM confidence based on evidence; skip LOW confidence.
+4. **Activate HIGH confidence skills** - Activate skills that PSS rates as HIGH confidence, review MEDIUM confidence based on evidence, and skip LOW confidence:
+   ```
+   /skill activate python-test-writer
+   ```
 
-**Step 5: Reindex after major changes**
-Run `/pss-reindex-skills` after installing/modifying/deleting skills to keep suggestions accurate.
+5. **Reindex after major changes** - Run `/pss-reindex-skills` after installing, modifying, or deleting skills to keep suggestions accurate.
 
 ---
 
