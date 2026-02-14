@@ -67,29 +67,28 @@ Each skill can have a `.pss` file for custom matching rules:
 - Tier (primary/secondary/utility) for priority
 - Score boost (-10 to +10)
 
-## Installation
+## Installation (Production)
 
-### Install from Emasoft Marketplace (Recommended)
+Install from the Emasoft marketplace. Use `--scope local` to install only for the current project directory, or `--scope global` for all projects.
 
 ```bash
-# Step 1: Add the Emasoft marketplace
-claude plugin marketplace add https://github.com/Emasoft/emasoft-plugins
+# Add Emasoft marketplace (first time only)
+claude plugin marketplace add emasoft-plugins --url https://github.com/Emasoft/emasoft-plugins
 
-# Step 2: Install this plugin
-claude plugin install perfect-skill-suggester@emasoft-plugins
+# Install plugin (--scope local = this project only, recommended)
+claude plugin install perfect-skill-suggester@emasoft-plugins --scope local
 
-# Step 3: Verify installation
-claude plugin list
-
-# Step 4: Restart Claude Code
+# RESTART Claude Code after installing (required!)
 ```
 
-For detailed installation instructions, troubleshooting, and updates, see the **[Emasoft Plugins Marketplace README](https://github.com/Emasoft/emasoft-plugins#readme)**.
+This is a utility plugin — it provides skill suggestion hooks. No `--agent` flag needed; just start Claude Code normally and the skill suggestions will activate automatically via hooks.
 
-### Local Development (for contributors)
+## Development Only (--plugin-dir)
+
+`--plugin-dir` loads a plugin directly from a local directory without marketplace installation. Use only during plugin development.
 
 ```bash
-claude --plugin-dir /path/to/perfect-skill-suggester
+claude --plugin-dir ./OUTPUT_SKILLS/perfect-skill-suggester
 ```
 
 ## Update
