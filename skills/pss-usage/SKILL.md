@@ -1,6 +1,6 @@
 ---
 name: pss-usage
-description: "Use when working with Perfect Skill Suggester commands, interpreting skill suggestions, understanding confidence levels, or troubleshooting PSS issues. Trigger with /pss-usage or /pss-status slash commands."
+description: "Use when interpreting skill suggestions, understanding confidence levels, or troubleshooting PSS issues. Trigger with /pss-usage or /pss-status slash commands."
 argument-hint: "skill-name or keyword to search"
 user-invocable: false
 ---
@@ -441,6 +441,8 @@ Output: "Index Status: ✓ Exists. Total Skills Indexed: 42"
 ## Checklist
 
 Use this checklist to verify your PSS workflow is complete:
+
+Copy this checklist and track your progress:
 
 - [ ] PSS plugin is installed and enabled (`/plugin list` shows it)
 - [ ] Skill index has been built at least once (`/pss-reindex-skills`)
