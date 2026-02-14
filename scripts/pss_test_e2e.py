@@ -18,7 +18,7 @@ Usage:
     python3 scripts/pss_test_e2e.py --verbose     # Detailed output per phase
     python3 scripts/pss_test_e2e.py --keep-temp   # Don't cleanup (for debugging)
 
-Library usage (from pss_validate_plugin.py):
+Library usage (from validate_plugin.py):
     from pss_test_e2e import run_all_tests
     results = run_all_tests(plugin_root)
 """
@@ -687,7 +687,7 @@ def run_all_tests(
 ) -> list[TestResult]:
     """Run all 6 test phases. Returns list of TestResult objects.
 
-    This is the library entry point for pss_validate_plugin.py integration.
+    This is the library entry point for validate_plugin.py integration.
 
     Args:
         plugin_root: Path to the PSS plugin root directory.

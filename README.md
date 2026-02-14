@@ -409,7 +409,7 @@ cargo build --release --target x86_64-pc-windows-gnu
 Run the validation script after every change:
 
 ```bash
-uv run python scripts/pss_validate_plugin.py --verbose
+uv run python scripts/validate_plugin.py . --verbose
 ```
 
 ## License

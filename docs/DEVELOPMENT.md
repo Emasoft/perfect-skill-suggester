@@ -242,8 +242,8 @@ After building, validate the plugin structure:
 ```bash
 cd /path/to/perfect-skill-suggester
 
-# Run PSS-specific validator
-uv run python scripts/pss_validate_plugin.py --verbose
+# Run plugin validator
+uv run python scripts/validate_plugin.py . --verbose
 
 # Or from Claude Code
 claude plugin validate /path/to/perfect-skill-suggester
@@ -358,7 +358,7 @@ Before releasing a new version:
 4. ✅ Run linter: `cargo clippy --all-targets`
 5. ✅ Build all platform binaries
 6. ✅ Copy binaries to `bin/` with correct names
-7. ✅ Validate plugin: `uv run python scripts/pss_validate_plugin.py`
+7. ✅ Validate plugin: `uv run python scripts/validate_plugin.py . --verbose`
 8. ✅ Test with Claude Code: `claude --plugin-dir .`
 9. ✅ Update CHANGELOG.md
 10. ✅ Commit and tag: `git tag v1.0.0`

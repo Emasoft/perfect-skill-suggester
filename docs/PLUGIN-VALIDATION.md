@@ -408,7 +408,7 @@ PSS has additional validation requirements:
    - `pss-reindex-skills` must exist
    - `pss-status` must exist
 
-See `scripts/pss_validate_plugin.py` for implementation.
+See `scripts/validate_plugin.py` for implementation.
 
 ---
 
@@ -489,13 +489,13 @@ if __name__ == "__main__":
 
 ```bash
 # Validate after every change
-uv run python scripts/pss_validate_plugin.py
+uv run python scripts/validate_plugin.py . --verbose
 
 # Verbose output
-uv run python scripts/pss_validate_plugin.py --verbose
+uv run python scripts/validate_plugin.py . --verbose
 
 # JSON output for CI
-uv run python scripts/pss_validate_plugin.py --json
+uv run python scripts/validate_plugin.py . --json
 ```
 
 ### In CI/CD
@@ -511,7 +511,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
-      - run: uv run python scripts/pss_validate_plugin.py --json
+      - run: uv run python scripts/validate_plugin.py . --json
 ```
 
 ---

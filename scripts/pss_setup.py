@@ -295,7 +295,7 @@ def run_validation() -> bool:
     """Run plugin validation."""
     print_step("Running plugin validation...")
 
-    validator = get_plugin_root() / "scripts" / "pss_validate_plugin.py"
+    validator = get_plugin_root() / "scripts" / "validate_plugin.py"
 
     result = subprocess.run([sys.executable, str(validator)], cwd=get_plugin_root())
 
