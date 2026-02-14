@@ -69,17 +69,19 @@ Each skill can have a `.pss` file for custom matching rules:
 
 ## Installation (Production)
 
-Install from the Emasoft marketplace. Use `--scope local` to install only for the current project directory, or `--scope global` for all projects.
+Install from the Emasoft marketplace. Use `--scope user` to install for all Claude Code instances, or `--scope global` for all projects.
 
 ```bash
 # Add Emasoft marketplace (first time only)
 claude plugin marketplace add emasoft-plugins --url https://github.com/Emasoft/emasoft-plugins
 
-# Install plugin (--scope local = this project only, recommended)
-claude plugin install perfect-skill-suggester@emasoft-plugins --scope local
+# Install plugin (--scope user = all Claude Code instances, recommended for utility plugins)
+claude plugin install perfect-skill-suggester@emasoft-plugins --scope user
 
 # RESTART Claude Code after installing (required!)
 ```
+
+Utility plugins are installed once with `--scope user` and become available to all Claude Code instances.
 
 This is a utility plugin — it provides skill suggestion hooks. No `--agent` flag needed; just start Claude Code normally and the skill suggestions will activate automatically via hooks.
 
