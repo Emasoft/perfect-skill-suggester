@@ -1,7 +1,7 @@
 ---
 name: pss-usage
-description: "Use when working with Perfect Skill Suggester commands, interpreting skill suggestions, understanding confidence levels, or troubleshooting PSS issues"
-argument-hint: ""
+description: "Use when working with Perfect Skill Suggester commands, interpreting skill suggestions, understanding confidence levels, or troubleshooting PSS issues. Trigger with /pss-usage or /pss-status slash commands."
+argument-hint: "skill-name or keyword to search"
 user-invocable: false
 ---
 
@@ -345,51 +345,19 @@ For detailed troubleshooting, see section 5.2 in [pss-commands.md](references/ps
 
 ## Best Practices
 
-### When to Reindex
+For detailed best practices, see [pss-best-practices.md](references/pss-best-practices.md):
 
-**Always reindex after:**
-- Installing new skills
-- Modifying skill metadata (name, description, keywords, categories)
-- Moving skills between directories
-- Deleting skills
-
-**Check but may not need reindex:**
-- Modifying skill content (SKILL.md body, references)
-- Adding/removing skill references (does not affect suggestions)
-
-### Interpreting Suggestions
-
-**Trust the confidence level:**
-- HIGH = activate unless you know better
-- MEDIUM = consider the evidence
-- LOW = skip unless you recognize the need
-
-**Read the evidence:**
-- `intent` evidence is strongest (semantic understanding)
-- `keyword` evidence is explicit (word matching)
-- `co_usage` evidence is weakest (correlation only)
-
-**Multiple evidence types are stronger:**
-- `intent:testing, keyword:pytest` = very strong
-- `keyword:docker` alone = moderate
-- `co_usage:skill(0.5)` alone = weak
-
-### Maintaining Index Health
-
-**Regular checks:**
-- Run `/pss-status` weekly or after major skill changes
-- Look for warnings about stale index
-- Verify skill counts match expectations
-
-**Keep metadata current:**
-- Update skill keywords when adding new features
-- Review skill categories for accuracy
-- Add co-usage hints in skill descriptions
-
-**Clean index occasionally:**
-- Delete index file every few months
-- Rebuild with `/pss-reindex-skills`
-- Ensures AI co-usage analysis is fresh
+- **1.0 When to reindex your skill index**
+  - 1.1 Events that always require reindexing
+  - 1.2 Events that may not require reindexing
+- **2.0 Interpreting PSS skill suggestions accurately**
+  - 2.1 Trusting confidence levels: HIGH, MEDIUM, LOW
+  - 2.2 Reading evidence types: intent, keyword, co_usage
+  - 2.3 Evaluating suggestions with multiple evidence types
+- **3.0 Maintaining index health over time**
+  - 3.1 Regular health checks with /pss-status
+  - 3.2 Keeping skill metadata current
+  - 3.3 Periodic clean rebuilds of the index
 
 ---
 
@@ -470,6 +438,23 @@ Output: "Index Status: ✓ Exists. Total Skills Indexed: 42"
 
 ---
 
+## Checklist
+
+Use this checklist to verify your PSS workflow is complete:
+
+- [ ] PSS plugin is installed and enabled (`/plugin list` shows it)
+- [ ] Skill index has been built at least once (`/pss-reindex-skills`)
+- [ ] `/pss-status` shows "Index Status: Exists" with a recent timestamp
+- [ ] Skill count in `/pss-status` matches expected number of installed skills
+- [ ] Test a natural language prompt and verify suggestions appear
+- [ ] HIGH confidence suggestions match your task intent
+- [ ] MEDIUM confidence suggestions have relevant evidence
+- [ ] After installing new skills, reindex was run again
+- [ ] After modifying skill metadata, reindex was run again
+- [ ] Skills you authored have `keywords` and `categories` in frontmatter
+
+---
+
 ## Summary
 
 **Two commands, simple usage:**
@@ -493,32 +478,14 @@ Output: "Index Status: ✓ Exists. Total Skills Indexed: 42"
 
 ## Notes for Skill Authors
 
-If you are developing skills and want PSS to suggest them effectively:
+For tips on making your skills discoverable by PSS, see [pss-skill-authoring-tips.md](references/pss-skill-authoring-tips.md):
 
-**Essential frontmatter fields:**
-```yaml
----
-name: my-skill
-description: "When and why to use this skill (be specific!)"
-categories: ["testing", "debugging"]  # Pick from 16 standard categories
-keywords: ["pytest", "unittest", "test-fixture", "mock"]
----
-```
-
-**Tips for better suggestions:**
-- Use specific keywords that users naturally type
-- Include tool names (pytest, docker, git, etc.)
-- Include action verbs (debug, deploy, refactor, etc.)
-- Mention common use cases in description
-- Choose accurate categories from the 16 standard options
-
-**Categories list:**
-debugging, testing, deployment, refactoring, documentation, performance, security, database, api, frontend, backend, devops, data-processing, ml-ai, collaboration, other
-
-**Co-usage relationships:**
-- PSS automatically detects co-usage during indexing
-- Mention related skills in your SKILL.md content
-- Reference complementary skills in examples
-- No manual co-usage configuration needed
-
-For PSS architecture and design, see `docs/PSS-ARCHITECTURE.md` in the PSS plugin directory.
+- **1.0 Making your skills discoverable by PSS**
+  - 1.1 Essential frontmatter fields for PSS indexing
+  - 1.2 Choosing effective keywords that match user prompts
+  - 1.3 Selecting accurate categories from the 16 standard options
+- **2.0 Improving suggestion quality for your skills**
+  - 2.1 Writing descriptions that help PSS match intent
+  - 2.2 Including tool and action keywords
+  - 2.3 Leveraging co-usage relationships automatically
+- **3.0 Reference: Standard categories list**
