@@ -119,10 +119,10 @@ This creates a **superset index** containing ALL skills across all your projects
 4. [Phase 0] VERIFY clean slate - no index files remain
 5. [Phase 1] Run discovery script to generate skill checklist
 6. [Phase 1] Spawn Pass 1 batch agents for keyword analysis
-7. [Phase 1] Validate Pass 1 index (run pss_validate_index.py --pass 1)
+7. [Phase 1] Validate Pass 1 index (run CPV plugin validator: uv run --with pyyaml python scripts/validate_plugin.py . --verbose)
 8. [Phase 1] Check agent tracking files for missed skills, re-run if needed
 9. [Phase 2] Spawn Pass 2 batch agents for co-usage analysis
-10. [Phase 2] Validate final index (run pss_validate_index.py --pass 2 --restore-on-failure --cleanup-pss)
+10. [Phase 2] Validate final index (run CPV plugin validator: uv run --with pyyaml python scripts/validate_plugin.py . --verbose)
 11. [Phase 2] Check agent tracking files for missed skills, re-run if needed
 12. [Verify] Confirm index has pass:2 and all skills have co_usage
 13. [Report] Report final statistics to user
@@ -390,17 +390,13 @@ See `docs/PSS-ARCHITECTURE.md` for the full rationale.
 
 ### Step 5a: Validate Pass 1 Index (MANDATORY)
 
-After ALL Pass 1 agents have completed, run the validator to ensure the index is structurally sound:
+After ALL Pass 1 agents have completed, run the CPV plugin validator to ensure the index is structurally sound:
 
 ```bash
-BACKUP_DIR=$(cat /tmp/pss-queue/backup-dir.txt)
-python3 "${PLUGIN_ROOT}/scripts/pss_validate_index.py" \
-    --pass 1 \
-    --backup-dir "$BACKUP_DIR" \
-    --verbose
+cd "${PLUGIN_ROOT}" && uv run --with pyyaml python scripts/validate_plugin.py . --verbose
 ```
 
-**If validation FAILS (exit code 1):**
+**If validation FAILS (non-zero exit code):**
 - The index has structural errors from Pass 1 agents
 - Read the validator output to identify which skills have issues
 - Re-run affected agents if the errors are recoverable
@@ -580,30 +576,25 @@ Pass 2 agents merge their results directly into skill-index.json via pss_merge_q
 
 ### Step 8a: Validate Final Index (MANDATORY)
 
-After ALL Pass 2 agents have completed, run the FULL validator with backup restoration enabled:
+After ALL Pass 2 agents have completed, run the CPV plugin validator to ensure the final index is sound:
 
 ```bash
-BACKUP_DIR=$(cat /tmp/pss-queue/backup-dir.txt)
-python3 "${PLUGIN_ROOT}/scripts/pss_validate_index.py" \
-    --pass 2 \
-    --backup-dir "$BACKUP_DIR" \
-    --restore-on-failure \
-    --cleanup-pss \
-    --verbose
+cd "${PLUGIN_ROOT}" && uv run --with pyyaml python scripts/validate_plugin.py . --verbose
 ```
 
 **What this does:**
-- Validates ALL Pass 1 fields (structure, enums, keywords)
-- Validates ALL Pass 2 fields (co_usage, tiers, cross-references)
-- Checks completeness against `skill-checklist.md`
-- **If validation FAILS**: automatically deletes the bad index, restores the backup, and cleans up `.pss` files
-- **If validation PASSES**: the index is ready for use
+- Validates plugin structure, manifest, and all skill/agent/command definitions
+- Checks for CRITICAL and MAJOR issues that would prevent the plugin from working
 
-**If validation FAILS (exit code 1) with --restore-on-failure:**
-- The validator already restored the backup index
-- The reindex has FAILED - report to user that the old index was restored
+**If validation FAILS (non-zero exit code):**
+- The reindex has FAILED - report to user
+- If a backup exists (from Phase 0), manually restore it:
+  ```bash
+  BACKUP_DIR=$(cat /tmp/pss-queue/backup-dir.txt)
+  cp "$BACKUP_DIR/skill-index.json" ~/.claude/cache/skill-index.json
+  ```
 - Include the validator's error output in the report so the user can diagnose
-- Do NOT attempt to manually fix the index - it was already replaced with the backup
+- Clean up temporary `.pss` files: `rm -f /tmp/pss-queue/*.pss`
 
 **If validation PASSES (exit code 0):**
 - Proceed to Step 8b
@@ -682,10 +673,10 @@ python3 "${PLUGIN_ROOT}/scripts/pss_aggregate_domains.py" --verbose
 **The reindex operation is ONLY COMPLETE when ALL of these are true:**
 
 1. ✅ Pass 1 completed - All skills have keywords, categories, and intents
-2. ✅ Pass 1 validated - `pss_validate_index.py --pass 1` returned exit code 0
+2. ✅ Pass 1 validated - CPV plugin validator returned exit code 0
 3. ✅ Pass 1 tracking verified - All batch tracking files show DONE+YES for all skills
 4. ✅ Pass 2 completed - All skills have co_usage relationships (usually_with, precedes, follows, alternatives)
-5. ✅ Pass 2 validated - `pss_validate_index.py --pass 2` returned exit code 0
+5. ✅ Pass 2 validated - CPV plugin validator returned exit code 0
 6. ✅ Pass 2 tracking verified - All batch tracking files show DONE+YES for all skills
 7. ✅ Global index updated - `~/.claude/cache/skill-index.json` contains `"pass": 2`
 8. ✅ Domain registry generated - `~/.claude/cache/domain-registry.json` exists with aggregated domains
