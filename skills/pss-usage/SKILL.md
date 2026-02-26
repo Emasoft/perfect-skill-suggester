@@ -74,7 +74,7 @@ If index has never been built, PSS will show "Index file missing" error when try
 |------|---------|-------------|
 | **Check PSS health** | `/pss-status` | Before first use, after installing skills, when debugging issues |
 | **Rebuild skill index** | `/pss-reindex-skills` | After adding/modifying skills, when suggestions are stale |
-| **Profile an agent** | `/pss-setup-agent <agent.md>` | Configure best-fit skills for an agent, optionally with design requirements |
+| **Profile an agent** | `/pss-setup-agent <agent-name>.md` | Configure best-fit skills for an agent, optionally with design requirements |
 | **Understand suggestion** | Read confidence + evidence | Every time PSS suggests skills |
 
 ### Command Quick Examples

@@ -19,7 +19,7 @@ You MUST write TOML that conforms to this schema. After writing, you MUST valida
 ## Inputs
 
 You receive these from the command:
-- `AGENT_PATH` — absolute path to the agent.md file
+- `AGENT_PATH` — absolute path to the <agent-name>.md file
 - `REQUIREMENTS_PATHS` — list of absolute paths to design/requirements files (may be empty)
 - `INDEX_PATH` — absolute path to skill-index.json (usually `~/.claude/cache/skill-index.json`)
 - `BINARY_PATH` — absolute path to the platform-specific Rust binary
@@ -29,7 +29,7 @@ You receive these from the command:
 
 ### Step 1: Read and Analyze the Agent
 
-Read the agent.md file completely. Extract:
+Read the <agent-name>.md file completely. Extract:
 - **name**: The agent's name (from filename or content header)
 - **description**: What the agent does (from first paragraph or description field)
 - **role**: The agent's primary role (developer, tester, reviewer, deployer, etc.)
@@ -153,7 +153,7 @@ Create the output directory if needed. Write the TOML file:
 [agent]
 name = "<agent-name>"
 source = "<how agent was specified: path or plugin:name>"
-path = "<absolute path to agent.md>"
+path = "<absolute path to <agent-name>.md>"
 
 [requirements]
 # Design documents used for profiling (empty if none provided)
@@ -237,7 +237,7 @@ python3 "${PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH}" --c
 
 Every error is fatal. Do NOT attempt workarounds, bypasses, or simplified alternatives. Either the pipeline works correctly end-to-end, or it fails with a clear error.
 
-- If agent.md doesn't exist → `[FAILED] Agent file not found: <path>` — EXIT
+- If <agent-name>.md doesn't exist → `[FAILED] Agent file not found: <path>` — EXIT
 - If any requirements file doesn't exist → `[FAILED] Requirements file not found: <path>` — EXIT
 - If skill-index.json doesn't exist → `[FAILED] Skill index not found. Run /pss-reindex-skills first.` — EXIT
 - If Rust binary doesn't exist → `[FAILED] PSS binary not found for this platform. Run cargo build.` — EXIT

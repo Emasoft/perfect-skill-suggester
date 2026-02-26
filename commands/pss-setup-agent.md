@@ -12,27 +12,27 @@ Analyze an agent definition file and recommend best-fit skills from the PSS skil
 ## Usage
 
 ```
-/pss-setup-agent /path/to/agent.md
+/pss-setup-agent /path/to/<agent-name>.md
 /pss-setup-agent plugin-name:agent-name
-/pss-setup-agent /path/to/agent.md --requirements /path/to/prd.md
-/pss-setup-agent /path/to/agent.md --requirements /path/to/prd.md /path/to/tech-spec.md /path/to/arch.md
-/pss-setup-agent /path/to/agent.md --requirements /path/to/prd.md --output /custom/output.agent.toml
+/pss-setup-agent /path/to/<agent-name>.md --requirements /path/to/prd.md
+/pss-setup-agent /path/to/<agent-name>.md --requirements /path/to/prd.md /path/to/tech-spec.md /path/to/arch.md
+/pss-setup-agent /path/to/<agent-name>.md --requirements /path/to/prd.md --output /custom/output.agent.toml
 ```
 
 ## Argument Parsing
 
 1. **Agent source** (required, first positional argument):
    - If it contains `:` → treat as `plugin-name:agent-name` notation
-     - Resolve by searching `~/.claude/plugins/cache/*/plugin-name/*/agents/agent-name.md`
-     - Also check `~/.claude/plugins/plugin-name/agents/agent-name.md`
-   - If it's a file path → use directly as the agent.md file path
+     - Resolve by searching `~/.claude/plugins/cache/*/plugin-name/*/agents/<agent-name>.md`
+     - Also check `~/.claude/plugins/plugin-name/agents/<agent-name>.md`
+   - If it's a file path → use directly as the <agent-name>.md file path
    - If no argument → error with usage instructions
 
 2. **`--requirements PATH...`** (optional, one or more paths):
    - Accepts one or more file paths after the flag (space-separated, until next flag or end)
    - Each path points to a design document: PRD, tech spec, architecture doc, requirements file, etc.
    - The profiler agent reads ALL of them to understand what the agent will actually build
-   - These files provide project-specific context that the agent.md alone cannot convey
+   - These files provide project-specific context that the <agent-name>.md alone cannot convey
    - Without requirements: profiling is based only on the agent's role/description (generic)
    - With requirements: profiling accounts for the specific project stack, APIs, libraries needed
 
@@ -43,7 +43,7 @@ Analyze an agent definition file and recommend best-fit skills from the PSS skil
 
 ## Execution
 
-1. Verify the resolved agent.md path exists and is readable
+1. Verify the resolved <agent-name>.md path exists and is readable
 2. Verify each `--requirements` path exists and is readable (error with specific path if not)
 3. Verify `~/.claude/cache/skill-index.json` exists (error if not — tell user to run `/pss-reindex-skills` first)
 4. Determine the output path
@@ -65,7 +65,7 @@ Analyze an agent definition file and recommend best-fit skills from the PSS skil
 6. Spawn the `pss-agent-profiler` agent using the Task tool
 
 The prompt to the agent MUST include:
-- The resolved absolute path to the agent.md file
+- The resolved absolute path to the <agent-name>.md file
 - The list of requirements file paths (may be empty)
 - The path to skill-index.json (`~/.claude/cache/skill-index.json`)
 - The absolute path to the Rust binary (resolved in step 5)
@@ -80,7 +80,7 @@ The prompt to the agent MUST include:
 
 ## Error Handling
 
-- Missing agent.md: `ERROR: Agent file not found: <path>`
+- Missing <agent-name>.md: `ERROR: Agent file not found: <path>`
 - Missing requirements file: `ERROR: Requirements file not found: <path>`
 - Missing skill-index.json: `ERROR: Skill index not found. Run /pss-reindex-skills first.`
 - Missing Rust binary: `ERROR: PSS binary not found for platform <OS>/<ARCH>. Run cargo build.`

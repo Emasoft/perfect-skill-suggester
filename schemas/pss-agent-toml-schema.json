@@ -23,7 +23,7 @@
         },
         "path": {
           "type": "string",
-          "description": "Absolute path to the agent.md definition file"
+          "description": "Absolute path to the <agent-name>.md definition file"
         }
       },
       "additionalProperties": false
