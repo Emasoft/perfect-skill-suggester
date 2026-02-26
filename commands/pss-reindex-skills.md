@@ -1,6 +1,6 @@
 ---
 name: pss-reindex-skills
-description: "Scan ALL skills and generate AI-analyzed keyword/phrase index for skill activation."
+description: "Scan ALL elements (skills, agents, commands, rules, MCP, LSP) and generate AI-analyzed keyword/phrase index."
 argument-hint: "[--batch-size N] [--pass1-only] [--pass2-only] [--all-projects]"
 allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep", "Task"]
 ---
@@ -42,7 +42,7 @@ This is the **MOST IMPORTANT** feature of Perfect Skill Suggester - AI-generated
 PSS uses a sophisticated two-pass agent swarm to generate both keywords AND co-usage relationships:
 
 ### Pass 1: Discovery + Keyword Analysis
-The Python script `pss_discover_skills.py` scans ALL skill locations. Parallel agents then read each SKILL.md and formulate **rio-compatible keywords**:
+The Python script `pss_discover.py` scans ALL element locations (skills, agents, commands, rules, MCP servers, LSP servers). Parallel agents then read each element's definition file and formulate **rio-compatible keywords**. All element types produce the same output fields (keywords, intents, category, patterns, etc.):
 - **Single keywords**: `docker`, `test`, `deploy`
 - **Multi-word phrases**: `fix ci pipeline`, `review pull request`, `set up github actions`
 - **Error patterns**: `build failed`, `type error`, `connection refused`
@@ -103,9 +103,14 @@ For EACH skill, a dedicated agent:
 3. Plugin cache: `~/.claude/plugins/cache/*/`
 4. Local plugins: `~/.claude/plugins/*/skills/`
 5. Current project plugins: `.claude/plugins/*/skills/`
+6. Agents: `~/.claude/agents/`, `.claude/agents/`, plugin agents/
+7. Commands: `~/.claude/commands/`, `.claude/commands/`, plugin commands/
+8. Rules: `~/.claude/rules/`, `.claude/rules/`
+9. MCP servers: `~/.claude.json`, `.mcp.json`
+10. LSP servers: `~/.claude/settings.json` enabled plugins
 
 **With `--all-projects`**, it ALSO scans:
-6. ALL projects registered in `~/.claude.json`:
+11. ALL projects registered in `~/.claude.json`:
    - `<project>/.claude/skills/`
    - `<project>/.claude/plugins/*/skills/`
 
@@ -263,18 +268,18 @@ python3 "${PLUGIN_ROOT}/scripts/pss_cleanup.py" --all-projects --verbose
 Run the discovery script with `--checklist` and `--all-projects` to generate a markdown checklist with batches:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pss_discover_skills.py --checklist --batch-size 10 --all-projects
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pss_discover.py --checklist --batch-size 10 --all-projects
 ```
 
 This creates `~/.claude/cache/skill-checklist.md` with:
-- All skills organized into batches (default: 10 per batch)
+- All elements (skills, agents, commands, rules, MCP, LSP) organized into batches (default: 10 per batch)
 - Checkbox format for tracking progress
 - Agent assignment suggestions (Agent A, B, C, etc.)
 
 Example output:
 ```
 Checklist written to: /Users/you/.claude/cache/skill-checklist.md
-  216 skills in 22 batches
+  350 elements in 35 batches
 ```
 
 ### Step 2: Divide Work Among Agents

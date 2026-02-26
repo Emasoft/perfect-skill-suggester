@@ -1,7 +1,7 @@
-# PSS Pass 1 Haiku Agent Prompt Template
+# PSS Pass 1 Haiku Agent Prompt Template (Multi-Type)
 
 **Model**: haiku
-**Purpose**: Extract structured metadata from SKILL.md files
+**Purpose**: Extract structured metadata from element files (skills, agents, commands, rules, MCP servers)
 **This is a READ-ONLY extraction task. Do NOT invent or paraphrase anything.**
 
 ---
@@ -90,6 +90,70 @@ In this case:
 
 ---
 
+## OTHER ELEMENT TYPES (agents, commands, rules)
+
+In addition to skills (SKILL.md files), you will also process agents, commands, and rules.
+ALL types produce the EXACT SAME output fields (keywords, intents, category, description, use_cases, etc.).
+The difference is only in HOW you read and extract information from each type.
+
+### AGENTS (`<name>.md` in `agents/` directories)
+
+Agents are autonomous AI workers that perform specific tasks. They have rich frontmatter.
+
+**How to extract data:**
+- **description**: From frontmatter `description` field (VERBATIM)
+- **use_cases**: From the agent's duties, capabilities, and trigger conditions in the body
+- **keywords**: From description + tools list + skills list + body content. Include: agent name, specialization, tools it uses, domains it covers. 8-15 keywords.
+- **category**: Infer from agent description (e.g., "security agent" → "security", "test writer" → "testing")
+- **intents**: From agent's primary actions/duties (e.g., "audit", "test", "review", "deploy", "analyze")
+- **frontmatter fields to read**: name, description, model, tools, disallowedTools, skills, mcpServers
+
+### COMMANDS (`<name>.md` in `commands/` directories)
+
+Commands are slash commands users invoke explicitly. They are as important as skills.
+
+**How to extract data:**
+- **description**: VERBATIM from frontmatter `description` field
+- **use_cases**: Extract from the command body — what scenarios trigger this command? What does the user achieve? (e.g., `/pss-reindex-skills` → ["Rebuild skill index after installing new plugins", "Fix stale skill suggestions"])
+- **keywords**: From description + argument-hint + body content. Include: the command name itself, action verbs, technologies mentioned, tools referenced. 8-15 keywords.
+- **category**: Infer from command purpose (e.g., "validate plugin" → "code-quality", "deploy" → "devops-cicd")
+- **intents**: From command's primary actions (e.g., "validate" → ["validate", "check", "audit"])
+- **patterns**: Regex patterns from argument-hint and expected input formats
+- **directories**: Directory patterns where command is relevant
+- **domain_gates**: If command is specific to a technology, add gates
+- **tier**: "primary" for frequently-used commands, "secondary" for domain-specific, "specialized" for rare
+- **frontmatter fields to read**: description, argument-hint, model, allowed-tools
+
+### RULES (`<name>.md` in `rules/` directories)
+
+Rules are enforcement policies that constrain agent behavior. They prevent errors and maintain quality.
+
+**How to extract data:**
+- Rules may or may NOT have YAML frontmatter. Some use `<rules>` XML tags.
+- **description**: If frontmatter exists, use it. Otherwise, first non-heading paragraph.
+- **use_cases**: What situations trigger this rule? When should an agent consider it? (e.g., "claim-verification" → ["Before asserting code exists", "After grep searches when making factual claims"])
+- **keywords**: From body content — extract enforcement topics, prohibited actions, required behaviors. Include: rule name, key verbs (verify, prevent, require, enforce, check), specific patterns. 8-15 keywords.
+- **category**: Infer from rule's domain (code quality → "code-quality", security → "security", testing → "testing", tool usage → "cli-tools")
+- **intents**: What actions does the rule regulate? (e.g., "verify", "validate", "enforce", "prevent")
+- **domain_gates**: If rule is language/framework-specific, add gates
+- **tier**: "primary" for rules that apply every session, "secondary" for domain-specific, "specialized" for narrow
+
+### MCP SERVERS (JSON config entries)
+
+MCP servers are discovered from JSON config files, not markdown.
+
+**How to extract data:**
+- **description**: From README.md in server directory, or generate from name
+- **keywords**: From server name, command, args, README content. Include: server name parts, tool name, transport type. 8-15 keywords.
+- **category**: Infer from name/purpose (e.g., "chrome-devtools" → "debugging", "slack" → "communication")
+- **intents**: From tool capabilities if discoverable
+
+### LSP SERVERS — NOT processed by haiku agents
+
+LSP servers use hardcoded metadata from the discovery script. Skip any LSP entries in your batch.
+
+---
+
 RULES YOU MUST NEVER BREAK:
 - NEVER invent descriptions or use_cases. Copy them EXACTLY from the file.
 - NEVER use a category not in the VALID CATEGORIES list below.
@@ -110,7 +174,7 @@ SKILLS TO PROCESS:
 
 ```markdown
 # Pass 1 Batch {batch_num} Tracking
-| # | Skill Name | Status | Merged |
+| # | Element Name | Type | Status | Merged |
 |---|-----------|--------|--------|
 {skill_tracking_rows}
 ```
@@ -127,7 +191,7 @@ SKILLS TO PROCESS:
 ## FOLLOW THESE 17 STEPS FOR EACH SKILL. DO NOT SKIP ANY STEP.
 
 ### STEP 1: READ THE SKILL FILE
-Read the SKILL.md file at the given path. Read the ENTIRE file from beginning to end.
+Read the element file at the given path. Check the element type (skill, agent, command, rule, or mcp) and follow the corresponding extraction rules above. Read the ENTIRE file from beginning to end.
 As you read, mentally note:
 - Does the file start with YAML frontmatter (a block between two `---` lines)?
 - What is in the `description:` field of the frontmatter?

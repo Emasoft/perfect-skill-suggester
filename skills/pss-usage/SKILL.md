@@ -1,6 +1,6 @@
 ---
 name: pss-usage
-description: "Use when interpreting skill suggestions, understanding confidence levels, or troubleshooting PSS issues. Trigger with /pss-usage or /pss-status slash commands."
+description: "Use when interpreting element suggestions (skills, agents, commands, rules, MCP, LSP), understanding confidence levels, or troubleshooting PSS issues. Trigger with /pss-usage or /pss-status slash commands."
 argument-hint: "skill-name or keyword to search"
 user-invocable: false
 ---
@@ -9,7 +9,7 @@ user-invocable: false
 
 ## Overview
 
-Perfect Skill Suggester (PSS) is an AI-powered plugin that automatically suggests relevant skills based on your prompts. This skill teaches you how to use PSS commands (`/pss-status`, `/pss-reindex-skills`), interpret skill suggestion output with confidence levels (HIGH/MEDIUM/LOW) and evidence types (intent/keyword/co_usage), and maintain the skill index for optimal performance.
+Perfect Skill Suggester (PSS) is an AI-powered plugin that automatically suggests relevant Claude Code elements (skills, agents, commands, rules, MCP servers, LSP servers) based on your prompts and agent profiles. This skill teaches you how to use PSS commands (`/pss-status`, `/pss-reindex-skills`), interpret skill suggestion output with confidence levels (HIGH/MEDIUM/LOW) and evidence types (intent/keyword/co_usage), and maintain the skill index for optimal performance.
 
 ## Prerequisites
 
@@ -20,6 +20,19 @@ Before using PSS, ensure:
 - **Write permissions** - PSS needs to write `skill-index.json` to `~/.claude/` directory
 
 If index has never been built, PSS will show "Index file missing" error when trying to suggest skills.
+
+## Multi-Type Indexing
+
+PSS indexes **6 element types**:
+- **Skills**: SKILL.md instruction files (suggested during prompting via hook)
+- **Agents**: Agent definition .md files (suggested during prompting via hook)
+- **Commands**: Slash command .md files (recommended in agent profiles only)
+- **Rules**: Enforcement policy .md files (recommended in agent profiles only)
+- **MCP servers**: Model Context Protocol server configs (recommended in agent profiles only)
+- **LSP servers**: Language Server Protocol plugins (assigned by project language detection)
+
+**Hook mode** (normal prompting): Suggests skills and agents only.
+**Agent-profile mode** (`/pss-setup-agent`): Recommends all 6 types in `.agent.toml` files.
 
 ## When to Use This Skill
 

@@ -96,9 +96,35 @@
       },
       "additionalProperties": false
     },
+    "commands": {
+      "type": "object",
+      "description": "Recommended slash commands for this agent",
+      "properties": {
+        "recommended": {
+          "type": "array",
+          "description": "Command names that enhance this agent's workflow",
+          "items": { "type": "string" },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "rules": {
+      "type": "object",
+      "description": "Rules that should be active when this agent runs",
+      "properties": {
+        "recommended": {
+          "type": "array",
+          "description": "Rule names that enforce quality constraints for this agent",
+          "items": { "type": "string" },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
     "mcp": {
       "type": "object",
-      "description": "MCP servers that enhance this agent's capabilities (future)",
+      "description": "MCP servers that enhance this agent's capabilities",
       "properties": {
         "recommended": {
           "type": "array",
@@ -110,7 +136,7 @@
     },
     "hooks": {
       "type": "object",
-      "description": "Hooks relevant to this agent's workflow (future)",
+      "description": "Hooks relevant to this agent's workflow",
       "properties": {
         "recommended": {
           "type": "array",
@@ -122,7 +148,7 @@
     },
     "lsp": {
       "type": "object",
-      "description": "LSP servers relevant to this agent (future)",
+      "description": "LSP servers relevant to this agent",
       "properties": {
         "recommended": {
           "type": "array",
@@ -156,9 +182,11 @@
       "agents": {
         "recommended": ["sleuth", "e2e-tester"]
       },
-      "mcp": { "recommended": [] },
+      "commands": { "recommended": ["/pss-reindex-skills"] },
+      "rules": { "recommended": ["claim-verification"] },
+      "mcp": { "recommended": ["chrome-devtools"] },
       "hooks": { "recommended": [] },
-      "lsp": { "recommended": [] }
+      "lsp": { "recommended": ["pyright-lsp"] }
     }
   ]
 }

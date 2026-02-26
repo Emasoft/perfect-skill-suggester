@@ -35,9 +35,11 @@ PASS1_FIELDS: list[str] = [
     "intents",
     "patterns",
     "directories",
+    "path_patterns",
     "description",
     "use_cases",
     "category",
+    "secondary_categories",
     "platforms",
     "frameworks",
     "languages",
@@ -45,6 +47,12 @@ PASS1_FIELDS: list[str] = [
     "tools",
     "file_types",
     "domain_gates",
+    "tier",
+    "boost",
+    "server_type",
+    "server_command",
+    "server_args",
+    "language_ids",
 ]
 
 # Fields merged during pass 2 (AI co-usage relationships)

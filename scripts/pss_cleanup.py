@@ -3,7 +3,7 @@
 Perfect Skill Suggester - Stale .pss File Cleanup Script.
 
 Finds and removes stale .pss files left behind by crashed agents or by
-pss_generate.py. Scans all skill directories discovered by pss_discover_skills
+pss_generate.py. Scans all skill directories discovered by pss_discover
 plus the system temp pss-queue staging directory.
 
 Usage:
@@ -28,17 +28,17 @@ from pathlib import Path
 
 
 def _import_discover_skills() -> object:
-    """Import get_all_skill_locations from the sibling pss_discover_skills module.
+    """Import get_all_skill_locations from the sibling pss_discover module.
 
-    Adds the scripts/ directory to sys.path so pss_discover_skills can be
+    Adds the scripts/ directory to sys.path so pss_discover can be
     found as a sibling script regardless of how pss_cleanup.py is invoked.
     """
     scripts_dir = str(Path(__file__).resolve().parent)
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
-    import pss_discover_skills  # noqa: E402 -- dynamic path manipulation required
+    import pss_discover  # noqa: E402 -- dynamic path manipulation required
 
-    return pss_discover_skills
+    return pss_discover
 
 
 def _get_skill_locations(scan_all_projects: bool) -> list[tuple[str, Path]]:

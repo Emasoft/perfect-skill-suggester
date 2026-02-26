@@ -82,17 +82,22 @@ find ~/.claude/plugins/cache -name ".pss" -type f -exec mv {} "$BACKUP_DIR/" \; 
 | Local plugins | `~/.claude/plugins/*/skills/` | Always scanned |
 | Current project plugins | `.claude/plugins/*/skills/` | Always scanned |
 | **All other projects** | `<project>/.claude/skills/` and `<project>/.claude/plugins/*/skills/` | **`--all-projects`** |
+| Agents | `~/.claude/agents/`, `.claude/agents/`, plugin `agents/` | Always scanned |
+| Commands | `~/.claude/commands/`, `.claude/commands/`, plugin `commands/` | Always scanned |
+| Rules | `~/.claude/rules/`, `.claude/rules/` | Always scanned |
+| MCP servers | `~/.claude.json`, `.mcp.json` | Always scanned |
+| LSP servers | `~/.claude/settings.json` enabledPlugins | Always scanned |
 
 **Usage:**
 ```bash
 # Standard discovery (current project + global)
-python3 pss_discover_skills.py
+python3 pss_discover.py
 
 # Comprehensive discovery (ALL projects from ~/.claude.json)
-python3 pss_discover_skills.py --all-projects
+python3 pss_discover.py --all-projects
 
 # Generate .pss metadata files for each discovered skill
-python3 pss_discover_skills.py --all-projects --generate-pss
+python3 pss_discover.py --all-projects --generate-pss
 ```
 
 **Deleted Project Handling:**
@@ -147,7 +152,7 @@ Scripts can match keywords; only agents can understand semantic relationships.
 **Input:** All skill locations (user, project, plugin)
 
 **Process:**
-1. `pss_discover_skills.py` scans all skill locations
+1. `pss_discover.py` scans all skill locations
 2. Generates checklist with batches (10 skills per batch)
 3. Orchestrator spawns parallel agents (one per batch)
 4. Each agent reads SKILL.md files and extracts:
@@ -315,6 +320,11 @@ Agent presents relevant suggestions to user
 ```
 
 **Key point:** The hook doesn't validate availability - the agent does, using its context-injected skills list.
+
+### Hook Mode vs Agent-Profile Mode
+
+- **Hook mode** (`--format hook`, UserPromptSubmit): Suggests **skills and agents only**. Rules, MCP servers, and LSP servers are configuration elements and not useful as prompt-time suggestions.
+- **Agent-profile mode** (`--agent-profile`): Returns **all 6 types** (skills, agents, commands, rules, MCP, LSP) grouped by type. Used by `/pss-setup-agent` to generate complete `.agent.toml` files.
 
 ---
 

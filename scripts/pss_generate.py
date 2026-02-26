@@ -75,6 +75,8 @@ def extract_skill_type(content: str, skill_path: Path) -> str:
         return "agent"
     if "/commands/" in path_str:
         return "command"
+    if "/rules/" in path_str:
+        return "rule"
 
     # Check content patterns
     if "task tool" in content_lower or "subagent_type" in content_lower:
@@ -302,6 +304,104 @@ def save_pss(pss_data: dict[str, Any], output_path: Path) -> None:
     print(f"Generated: {output_path}")
 
 
+def generate_pss_for_mcp(name: str, server_config: dict[str, Any], source: str) -> dict[str, Any]:
+    """Generate PSS data for an MCP server entry.
+
+    Args:
+        name: Server name (e.g., "chrome-devtools")
+        server_config: Raw config dict with type, command, args
+        source: Source identifier (user, project, etc.)
+    """
+    # Extract keywords from server name and command
+    keywords = set()
+    # Split name on hyphens/underscores for keywords
+    for part in re.split(r"[-_]", name.lower()):
+        if len(part) > 2:
+            keywords.add(part)
+    keywords.add(name.lower())
+
+    # Add command as keyword
+    cmd = server_config.get("command", "")
+    if cmd:
+        keywords.add(cmd.lower())
+
+    # Add keywords from args
+    for arg in server_config.get("args", []):
+        if isinstance(arg, str) and not arg.startswith("-"):
+            # Extract package/tool names from args like "chrome-devtools-mcp@latest"
+            for part in re.split(r"[@/]", arg):
+                for sub in re.split(r"[-_]", part.lower()):
+                    if len(sub) > 2 and sub not in ("latest", "npx", "node"):
+                        keywords.add(sub)
+
+    skill_dict: dict[str, Any] = {
+        "name": name,
+        "type": "mcp",
+        "source": source,
+    }
+    matchers_dict: dict[str, Any] = {"keywords": sorted(keywords)}
+
+    pss: dict[str, Any] = {
+        "version": "1.0",
+        "skill": skill_dict,
+        "matchers": matchers_dict,
+        "scoring": {"tier": "secondary"},
+        "metadata": {
+            "generated_by": "manual",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generator_version": "generate_pss_for_mcp/1.0",
+        },
+        "mcp": {
+            "server_type": server_config.get("type", "stdio"),
+            "server_command": server_config.get("command", ""),
+            "server_args": server_config.get("args", []),
+        },
+    }
+
+    return pss
+
+
+def generate_pss_for_lsp(name: str, marketplace: str) -> dict[str, Any]:
+    """Generate PSS data for an LSP server.
+
+    Args:
+        name: LSP name (e.g., "pyright-lsp")
+        marketplace: Marketplace identifier (e.g., "claude-plugins-official")
+    """
+    # Extract keywords from name
+    keywords = set()
+    for part in re.split(r"[-_]", name.lower()):
+        if len(part) > 1 and part != "lsp":
+            keywords.add(part)
+    keywords.add(name.lower())
+    keywords.add("lsp")
+    keywords.add("language server")
+
+    skill_dict: dict[str, Any] = {
+        "name": name,
+        "type": "lsp",
+        "source": "built-in",
+    }
+    matchers_dict: dict[str, Any] = {"keywords": sorted(keywords)}
+
+    pss: dict[str, Any] = {
+        "version": "1.0",
+        "skill": skill_dict,
+        "matchers": matchers_dict,
+        "scoring": {"tier": "secondary"},
+        "metadata": {
+            "generated_by": "manual",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generator_version": "generate_pss_for_lsp/1.0",
+        },
+        "lsp": {
+            "marketplace": marketplace,
+        },
+    }
+
+    return pss
+
+
 def generate_for_directory(
     dir_path: Path,
     tier: str = "secondary",
@@ -341,7 +441,7 @@ def generate_for_directory(
             continue
 
         parent_name = agent_md.parent.name
-        if parent_name in ("agents", "commands"):
+        if parent_name in ("agents", "commands", "rules"):
             pss_path = queue_dir / f"{agent_md.stem}.pss"
 
             if pss_path.exists() and not force:

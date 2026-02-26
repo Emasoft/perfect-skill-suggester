@@ -28,9 +28,9 @@ class TestCleanupDryRun:
         (skill_dir / "some_skill.md").touch()
 
         # We patch get_all_skill_locations via env or by running as subprocess
-        # Since the script imports from pss_discover_skills, we test via subprocess
+        # Since the script imports from pss_discover, we test via subprocess
         # using a mock discover script
-        mock_discover = tmp_path / "pss_discover_skills.py"
+        mock_discover = tmp_path / "pss_discover.py"
         mock_discover.write_text(
             f"from pathlib import Path\n"
             f"def get_all_skill_locations(scan_all_projects=False):\n"
@@ -43,10 +43,10 @@ class TestCleanupDryRun:
             f"import sys\n"
             f"sys.path.insert(0, '{tmp_path}')\n"
             f"sys.path.insert(0, '{SCRIPT_PATH.parent}')\n"
-            f"# Override the import path so pss_discover_skills resolves to our mock\n"
+            f"# Override the import path so pss_discover resolves to our mock\n"
             f"import importlib\n"
-            f"import pss_discover_skills\n"
-            f"importlib.reload(pss_discover_skills)\n"
+            f"import pss_discover\n"
+            f"importlib.reload(pss_discover)\n"
             f"# Now run the actual script's main\n"
             f"exec(open('{SCRIPT_PATH}').read())\n"
         )

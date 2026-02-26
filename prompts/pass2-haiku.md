@@ -1,7 +1,7 @@
-# PSS Pass 2 Haiku Agent Prompt Template
+# PSS Pass 2 Haiku Agent Prompt Template (Multi-Type)
 
 **Model**: haiku
-**Purpose**: Determine co-usage relationships between skills
+**Purpose**: Determine co-usage relationships between elements (skills, agents, commands, rules, MCP servers)
 **This requires reasoning about workflows. Follow the decision gates strictly.**
 
 ---
@@ -54,14 +54,39 @@ need Skill B (read its description and use_cases) in the SAME coding session?"
 - Skill B: "Create Claude Code plugins" (use_cases: "Developing CLI plugins")
 - These are NOT co-used: an iOS developer and a plugin developer are different people doing different work
 
+### MULTI-TYPE CO-USAGE (NEW)
+
+The index now contains not just skills but also agents, commands, rules, and MCP servers.
+Co-usage relationships can cross type boundaries. Each type can co-use ANY other type:
+
+**Cross-type co-usage examples:**
+- **Skill ↔ Agent**: security skill usually_with aegis agent
+- **Skill ↔ Command**: git-workflow skill usually_with /commit command
+- **Skill ↔ Rule**: code-quality skill usually_with claim-verification rule
+- **Skill ↔ MCP**: debugging skill usually_with chrome-devtools MCP
+- **Agent ↔ Agent**: sleuth agent usually_with debug-agent agent
+- **Agent ↔ Command**: python-test-writer agent follows /tdd command
+- **Agent ↔ Rule**: aegis agent usually_with security rule enforcement
+- **Command ↔ Command**: /pss-reindex-skills precedes /pss-status
+- **Command ↔ Rule**: /commit command usually_with git-workflow rules
+- **Rule ↔ Rule**: claim-verification rule usually_with observe-before-editing rule
+- **MCP ↔ anything**: chrome-devtools MCP usually_with debugging skill
+
+**LSPs are EXCLUDED from Pass 2** — their relationships are language-based, not workflow-based.
+The profiler assigns them via language detection, not co-usage analysis.
+
+When checking candidates, the element's `type` field tells you what it is.
+Apply the same 4 validation gates regardless of type.
+
 ---
 
 RULES YOU MUST NEVER BREAK:
-- NEVER link skills from completely unrelated domains (e.g., iOS + plugin-dev).
+- NEVER link elements from completely unrelated domains (e.g., iOS + plugin-dev).
 - NEVER create a co-usage link without passing ALL 4 validation gates below.
-- NEVER invent skill names that do not exist in the index.
-- NEVER create more than 5 usually_with links per skill.
+- NEVER invent element names that do not exist in the index.
+- NEVER create more than 5 usually_with links per element.
 - NEVER modify description, use_cases, keywords, or domain_gates from Pass 1. Copy them VERBATIM.
+- NEVER include LSP entries in co-usage analysis. Skip any type=lsp entries.
 - If unsure about a relationship, DO NOT include it. Fewer links is better than wrong links.
 
 YOUR BATCH: {batch_num} (skills {start}-{end})
@@ -76,8 +101,8 @@ SKILLS TO PROCESS:
 
 ```markdown
 # Pass 2 Batch {batch_num} Tracking
-| # | Skill Name | Status | Merged |
-|---|-----------|--------|--------|
+| # | Element Name | Type | Status | Merged |
+|---|-----------|------|--------|--------|
 {skill_tracking_rows}
 ```
 
@@ -92,7 +117,7 @@ SKILLS TO PROCESS:
 
 ## FOLLOW THESE 9 STEPS FOR EACH SKILL. DO NOT SKIP ANY STEP.
 
-### STEP 1: READ SKILL DATA FROM INDEX
+### STEP 1: READ ELEMENT DATA FROM INDEX
 
 Read the skill's existing Pass 1 data:
 
@@ -108,6 +133,7 @@ python3 -c "import json; idx=json.load(open('$HOME/.claude/cache/skill-index.jso
 | `use_cases` | Tells you WHEN a developer would use this skill. These are real scenarios. |
 | `category` | Tells you which domain this skill belongs to (e.g., "testing", "devops-cicd"). Use this with the CO-USAGE PROBABILITY TABLE below. |
 | `keywords` | Multi-word phrases describing the skill. Look for keyword overlap with candidates. |
+| `type` | Tells you what kind of element this is (skill, agent, command, rule, mcp). Affects which cross-type relationships make sense. |
 
 **IMPORTANT**: The `description` and `use_cases` fields are the MOST VALUABLE for determining
 co-usage relationships. They tell you the real-world developer workflow this skill supports.

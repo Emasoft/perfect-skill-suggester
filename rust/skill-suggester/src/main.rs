@@ -399,6 +399,18 @@ pub struct AgentProfileOutput {
 
     /// Complementary agents found via co_usage data
     pub complementary_agents: Vec<String>,
+
+    /// Recommended slash commands for this agent
+    pub commands: Vec<AgentProfileCandidate>,
+
+    /// Rules that should be active when this agent runs
+    pub rules: Vec<AgentProfileCandidate>,
+
+    /// MCP servers that enhance this agent's capabilities
+    pub mcp: Vec<AgentProfileCandidate>,
+
+    /// LSP servers relevant to this agent
+    pub lsp: Vec<AgentProfileCandidate>,
 }
 
 /// Tiered skill lists for agent profile output
@@ -2420,6 +2432,26 @@ pub struct SkillEntry {
     #[serde(default)]
     pub domain_gates: HashMap<String, Vec<String>>,
 
+    // MCP server additional metadata (only for type=mcp entries)
+
+    /// MCP server transport type (stdio, sse)
+    #[serde(default)]
+    pub server_type: String,
+
+    /// MCP server launch command
+    #[serde(default)]
+    pub server_command: String,
+
+    /// MCP server command arguments
+    #[serde(default)]
+    pub server_args: Vec<String>,
+
+    // LSP server additional metadata (only for type=lsp entries)
+
+    /// LSP language identifiers (e.g., ["python"], ["typescript", "javascript"])
+    #[serde(default)]
+    pub language_ids: Vec<String>,
+
     // Co-usage fields (from Pass 2)
 
     /// Skills often used in the SAME session/task
@@ -2580,7 +2612,7 @@ impl ContextItem {
 
         for item in items {
             context.push_str(&format!(
-                "SUGGESTED SKILL: {} [{}]\n  Path: {}\n  Confidence: {} (score: {:.2})\n  Evidence: {}\n",
+                "SUGGESTED: {} [{}]\n  Path: {}\n  Confidence: {} (score: {:.2})\n  Evidence: {}\n",
                 item.name,
                 item.item_type,
                 item.path,
@@ -4582,6 +4614,12 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
             file_types: vec![],
             // Domain gates (empty for PSS files - populated by reindex)
             domain_gates: HashMap::new(),
+            // MCP server metadata (empty for PSS files - populated by reindex)
+            server_type: String::new(),
+            server_command: String::new(),
+            server_args: vec![],
+            // LSP server metadata (empty for PSS files - populated by reindex)
+            language_ids: vec![],
             // Co-usage fields (empty for PSS files - populated by reindex)
             usually_with: vec![],
             precedes: vec![],
@@ -4958,6 +4996,10 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
                 specialized: vec![],
             },
             complementary_agents: vec![],
+            commands: vec![],
+            rules: vec![],
+            mcp: vec![],
+            lsp: vec![],
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
@@ -5037,14 +5079,37 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     // Find max score for relative scoring
     let max_score = sorted_skills.first().map(|s| s.1).unwrap_or(1).max(1);
 
-    // Classify into tiers based on relative score (percentage of max)
+    // Separate entries by type for multi-type output
+    let mut skill_candidates: Vec<(String, i32, Vec<String>, String, String, String, String)> = Vec::new();
+    let mut command_candidates: Vec<(String, i32, Vec<String>, String, String, String)> = Vec::new();
+    let mut rule_candidates: Vec<(String, i32, Vec<String>, String, String, String)> = Vec::new();
+    let mut mcp_candidates: Vec<(String, i32, Vec<String>, String, String, String)> = Vec::new();
+    let mut lsp_candidates: Vec<(String, i32, Vec<String>, String, String, String)> = Vec::new();
+
+    let top_n = cli.top;
+
+    for (name, score, evidence, path, confidence, description) in sorted_skills.into_iter().take(top_n) {
+        // Look up the entry's type from the index
+        let entry_type = index.skills.get(&name)
+            .map(|e| e.skill_type.as_str())
+            .unwrap_or("skill");
+
+        match entry_type {
+            "command" => command_candidates.push((name, score, evidence, path, confidence, description)),
+            "rule" => rule_candidates.push((name, score, evidence, path, confidence, description)),
+            "mcp" => mcp_candidates.push((name, score, evidence, path, confidence, description)),
+            "lsp" => lsp_candidates.push((name, score, evidence, path, confidence, description)),
+            // "skill" and "agent" go into the tiered skills output
+            _ => skill_candidates.push((name, score, evidence, path, confidence, description, entry_type.to_string())),
+        }
+    }
+
+    // Classify skills+agents into tiers based on relative score
     let mut primary: Vec<AgentProfileCandidate> = Vec::new();
     let mut secondary: Vec<AgentProfileCandidate> = Vec::new();
     let mut specialized: Vec<AgentProfileCandidate> = Vec::new();
 
-    let top_n = cli.top; // Use --top flag (default 4, but profiler command passes 30)
-
-    for (name, score, evidence, path, confidence, description) in sorted_skills.into_iter().take(top_n) {
+    for (name, score, evidence, path, confidence, description, _etype) in skill_candidates {
         let relative = (score as f64) / (max_score as f64);
         let candidate = AgentProfileCandidate {
             name,
@@ -5062,12 +5127,23 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         } else if relative >= 0.15 && specialized.len() < 8 {
             specialized.push(candidate);
         }
-        // Skills below 15% relative score are discarded
     }
 
-    // Find complementary agents from co_usage data of primary skills.
-    // Co-usage fields (usually_with, precedes, follows, alternatives) are
-    // flat fields on SkillEntry, not nested under a co_usage object.
+    // Convert other type candidates to AgentProfileCandidate
+    let to_candidates = |items: Vec<(String, i32, Vec<String>, String, String, String)>| -> Vec<AgentProfileCandidate> {
+        items.into_iter().map(|(name, score, evidence, path, confidence, description)| {
+            AgentProfileCandidate {
+                name,
+                path,
+                score: (score as f64) / (max_score as f64),
+                confidence,
+                evidence,
+                description,
+            }
+        }).collect()
+    };
+
+    // Find complementary agents from co_usage data of primary skills
     let mut complementary: HashSet<String> = HashSet::new();
     for p in &primary {
         if let Some(entry) = index.skills.get(&p.name) {
@@ -5083,8 +5159,9 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     let complementary_agents: Vec<String> = complementary.into_iter().collect();
 
     info!(
-        "Agent profile result: {} primary, {} secondary, {} specialized, {} complementary agents",
-        primary.len(), secondary.len(), specialized.len(), complementary_agents.len()
+        "Agent profile result: {} primary, {} secondary, {} specialized, {} complementary agents, {} commands, {} rules, {} mcp, {} lsp",
+        primary.len(), secondary.len(), specialized.len(), complementary_agents.len(),
+        command_candidates.len(), rule_candidates.len(), mcp_candidates.len(), lsp_candidates.len()
     );
 
     let output = AgentProfileOutput {
@@ -5095,6 +5172,10 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
             specialized,
         },
         complementary_agents,
+        commands: to_candidates(command_candidates),
+        rules: to_candidates(rule_candidates),
+        mcp: to_candidates(mcp_candidates),
+        lsp: to_candidates(lsp_candidates),
     };
 
     println!("{}", serde_json::to_string_pretty(&output)?);
@@ -5483,8 +5564,17 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
         );
     }
 
+    // In hook mode, only suggest skills and agents (not rules/mcp/lsp which are configuration elements)
+    let filtered_items: Vec<_> = context_items
+        .into_iter()
+        .filter(|item| {
+            let t = item.item_type.as_str();
+            t == "skill" || t == "agent" || t.is_empty()
+        })
+        .collect();
+
     // Apply filters: require evidence, min-score, then --top limit
-    let limited_items: Vec<_> = context_items
+    let limited_items: Vec<_> = filtered_items
         .into_iter()
         .filter(|item| !item.evidence.is_empty())  // Must have at least 1 keyword match
         .filter(|item| item.score >= cli.min_score)
