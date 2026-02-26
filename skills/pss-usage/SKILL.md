@@ -74,6 +74,7 @@ If index has never been built, PSS will show "Index file missing" error when try
 |------|---------|-------------|
 | **Check PSS health** | `/pss-status` | Before first use, after installing skills, when debugging issues |
 | **Rebuild skill index** | `/pss-reindex-skills` | After adding/modifying skills, when suggestions are stale |
+| **Profile an agent** | `/pss-setup-agent <agent.md>` | Configure best-fit skills for an agent, optionally with design requirements |
 | **Understand suggestion** | Read confidence + evidence | Every time PSS suggests skills |
 
 ### Command Quick Examples
@@ -114,6 +115,13 @@ Phase 1: Discovery...
 Phase 2: Analysis...
   ✓ Index updated successfully
 ```
+
+**Profile an agent with design requirements:**
+```
+/pss-setup-agent /path/to/my-agent.md --requirements /path/to/prd.md /path/to/tech-spec.md
+```
+
+This uses the Rust binary for fast candidate scoring, then an AI agent for intelligent post-filtering (conflict detection, obsolescence checks, stack compatibility). Output is a `.agent.toml` file validated against the schema at `schemas/pss-agent-toml-schema.json`.
 
 ---
 
