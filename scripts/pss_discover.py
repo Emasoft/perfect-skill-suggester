@@ -173,9 +173,9 @@ def get_all_element_locations(
                     plugin_source = f"plugin:{marketplace.name}/{plugin.name}"
                     # Scan for element subdirectories in the plugin version dir
                     _add_element_dirs(version, plugin_source, include_rules=False)
-                    # Also check for SKILL.md directly in version dir (legacy layout)
-                    if "skill" in subdirs_to_scan.values() and (version / "SKILL.md").exists():
-                        locations.append((plugin_source, "skill", version.parent))
+                    # Legacy layout (SKILL.md directly in version dir) is NOT supported
+                    # for multi-type indexing because the version number becomes the skill name.
+                    # Plugins should use the skills/ subdirectory layout instead.
 
     # 4. Local plugins: ~/.claude/plugins/<plugin>/
     user_plugins = home / ".claude" / "plugins"
@@ -310,7 +310,7 @@ def discover_mcp_servers(scan_all_projects: bool = False) -> list[dict[str, Any]
                     "server_args": config.get("args", []),
                 }
                 servers.append(server_data)
-        except (json.JSONDecodeError, Exception) as e:
+        except Exception as e:
             print(f"Warning: Error reading {config_path}: {e}", file=sys.stderr)
 
     # 1. User-level: ~/.claude.json
@@ -442,7 +442,7 @@ def discover_lsp_servers() -> list[dict[str, Any]]:
                 "language_ids": registry_entry["language_ids"],
             })
 
-    except (json.JSONDecodeError, Exception) as e:
+    except Exception as e:
         print(f"Warning: Error reading {settings_path}: {e}", file=sys.stderr)
 
     return servers
@@ -480,14 +480,20 @@ def discover_elements(
                 skill_md = skill_path / "SKILL.md"
                 if not skill_md.exists():
                     continue
-                if skill_path.name in seen_names:
+                # Use type-prefixed key to avoid cross-type name collisions
+                dedup_key = f"skill:{skill_path.name}"
+                if dedup_key in seen_names:
                     continue
                 try:
                     content = skill_md.read_text(encoding="utf-8")
                     frontmatter = parse_frontmatter(content)
-                    body_start = content.find("---", 3)
-                    if body_start != -1:
-                        body = content[body_start + 3:].strip()[:500]
+                    # Only look for frontmatter end delimiter if content starts with frontmatter
+                    if content.startswith("---"):
+                        body_start = content.find("---", 3)
+                        if body_start != -1:
+                            body = content[body_start + 3:].strip()[:500]
+                        else:
+                            body = content[:500]
                     else:
                         body = content[:500]
                     elements.append({
@@ -498,7 +504,7 @@ def discover_elements(
                         "description": frontmatter.get("description", "")[:200],
                         "preview": body,
                     })
-                    seen_names.add(skill_path.name)
+                    seen_names.add(dedup_key)
                 except Exception as e:
                     print(f"Error reading {skill_md}: {e}", file=sys.stderr)
         else:
@@ -541,10 +547,13 @@ def discover_elements(
                     else:
                         description = frontmatter.get("description", "")[:200]
 
-                    # Extract body preview
-                    body_start = content.find("---", 3)
-                    if body_start != -1:
-                        body = content[body_start + 3:].strip()[:500]
+                    # Extract body preview - only parse frontmatter delimiter if present
+                    if content.startswith("---"):
+                        body_start = content.find("---", 3)
+                        if body_start != -1:
+                            body = content[body_start + 3:].strip()[:500]
+                        else:
+                            body = content[:500]
                     else:
                         body = content[:500]
 
@@ -563,25 +572,25 @@ def discover_elements(
     return elements
 
 
-def generate_checklist(skills: list[dict[str, Any]], batch_size: int = 10) -> str:
+def generate_checklist(elements: list[dict[str, Any]], batch_size: int = 10) -> str:
     """Generate a markdown checklist with batches for parallel agent processing.
 
     Args:
-        skills: List of discovered skills with name, path, source
-        batch_size: Number of skills per batch (for dividing among agents)
+        elements: List of discovered elements with name, path, source, type
+        batch_size: Number of elements per batch (for dividing among agents)
 
     Returns:
         Markdown formatted checklist string
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    total_skills = len(skills)
-    num_batches = math.ceil(total_skills / batch_size)
+    total_elements = len(elements)
+    num_batches = math.ceil(total_elements / batch_size)
 
     lines = [
         "# PSS Element Index Checklist",
         "",
         f"**Generated:** {now}",
-        f"**Total Elements:** {total_skills}",
+        f"**Total Elements:** {total_elements}",
         f"**Batch Size:** {batch_size}",
         f"**Number of Batches:** {num_batches}",
         "",
@@ -596,7 +605,7 @@ def generate_checklist(skills: list[dict[str, Any]], batch_size: int = 10) -> st
         "1. Spawn N subagents (one per batch)",
         "2. Assign each subagent its batch range "
         "(e.g., Agent A → Batch 1, Agent B → Batch 2)",
-        "3. Each subagent reads the SKILL.md at the given path",
+        "3. Each subagent reads the element file at the given path",
         "4. Each subagent generates patterns: "
         "keywords, phrases, intents, errors, triggers",
         "5. Each subagent marks entries as complete with [x]",
@@ -609,27 +618,27 @@ def generate_checklist(skills: list[dict[str, Any]], batch_size: int = 10) -> st
     # Generate batches
     for batch_num in range(num_batches):
         start_idx = batch_num * batch_size
-        end_idx = min(start_idx + batch_size, total_skills)
-        batch_skills = skills[start_idx:end_idx]
+        end_idx = min(start_idx + batch_size, total_elements)
+        batch_elements = elements[start_idx:end_idx]
 
         # Batch header with agent assignment suggestion
         agent_letter = chr(ord("A") + (batch_num % 26))  # A-Z, then wraps
         batch_range = f"{start_idx + 1}-{end_idx}"
         lines.append(f"## Batch {batch_num + 1} ({batch_range}) - Agent {agent_letter}")
         lines.append("")
-        lines.append(f"**Skills in this batch:** {len(batch_skills)}")
+        lines.append(f"**Elements in this batch:** {len(batch_elements)}")
         lines.append("")
 
-        # Add each skill as a checkbox item
-        for i, skill in enumerate(batch_skills, start=start_idx + 1):
-            skill_name = skill["name"]
-            skill_path = skill["path"]
-            skill_source = skill["source"]
-            elem_type = skill.get("type", "skill")
-            lines.append(f"- [ ] **{i}.** `{skill_name}` [{skill_source}] ({elem_type})")
-            lines.append(f"  - Path: `{skill_path}`")
-            if skill.get("description"):
-                desc = skill["description"][:100]
+        # Add each element as a checkbox item
+        for i, elem in enumerate(batch_elements, start=start_idx + 1):
+            elem_name = elem["name"]
+            elem_path = elem["path"]
+            elem_source = elem["source"]
+            elem_type = elem.get("type", "skill")
+            lines.append(f"- [ ] **{i}.** `{elem_name}` [{elem_source}] ({elem_type})")
+            lines.append(f"  - Path: `{elem_path}`")
+            if elem.get("description"):
+                desc = elem["description"][:100]
                 lines.append(f"  - Description: {desc}...")
             lines.append("")
 
@@ -652,7 +661,7 @@ def generate_checklist(skills: list[dict[str, Any]], batch_size: int = 10) -> st
     for batch_num in range(num_batches):
         agent_letter = chr(ord("A") + (batch_num % 26))
         start_idx = batch_num * batch_size
-        end_idx = min(start_idx + batch_size, total_skills)
+        end_idx = min(start_idx + batch_size, total_elements)
         batch_count = end_idx - start_idx
         lines.append(
             f"| {batch_num + 1} | Agent {agent_letter} | {batch_count} | ⏳ Pending |"
@@ -750,6 +759,12 @@ def main() -> int:
     if not element_types or "lsp" in element_types:
         lsp_servers = discover_lsp_servers()
         elements.extend(lsp_servers)
+
+    # Apply source filter to MCP/LSP results too
+    if args.project_only:
+        elements = [e for e in elements if e.get("source") == "project"]
+    elif args.user_only:
+        elements = [e for e in elements if e.get("source") == "user"]
 
     # Checklist mode: generate markdown checklist with batches
     if args.checklist:

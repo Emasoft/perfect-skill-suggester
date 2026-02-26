@@ -5698,6 +5698,10 @@ mod tests {
                 precedes: vec![],
                 follows: vec![],
                 alternatives: vec![],
+                server_type: String::new(),
+                server_command: String::new(),
+                server_args: vec![],
+                language_ids: vec![],
             },
         );
 
@@ -5733,6 +5737,10 @@ mod tests {
                 precedes: vec![],
                 follows: vec![],
                 alternatives: vec![],
+                server_type: String::new(),
+                server_command: String::new(),
+                server_args: vec![],
+                language_ids: vec![],
             },
         );
 
@@ -5888,6 +5896,10 @@ mod tests {
                 precedes: vec![],
                 follows: vec![],
                 alternatives: vec![],
+                server_type: String::new(),
+                server_command: String::new(),
+                server_args: vec![],
+                language_ids: vec![],
             },
         );
 
@@ -5918,6 +5930,10 @@ mod tests {
                 precedes: vec![],
                 follows: vec![],
                 alternatives: vec![],
+                server_type: String::new(),
+                server_command: String::new(),
+                server_args: vec![],
+                language_ids: vec![],
             },
         );
 
@@ -6051,6 +6067,10 @@ mod tests {
                 precedes: vec![],
                 follows: vec![],
                 alternatives: vec![],
+                server_type: String::new(),
+                server_command: String::new(),
+                server_args: vec![],
+                language_ids: vec![],
             },
         );
 
@@ -6608,6 +6628,10 @@ mod tests {
                 precedes: vec![],
                 follows: vec![],
                 alternatives: vec![],
+                server_type: String::new(),
+                server_command: String::new(),
+                server_args: vec![],
+                language_ids: vec![],
             },
         );
 
@@ -6642,6 +6666,10 @@ mod tests {
                 precedes: vec![],
                 follows: vec![],
                 alternatives: vec![],
+                server_type: String::new(),
+                server_command: String::new(),
+                server_args: vec![],
+                language_ids: vec![],
             },
         );
 
@@ -7486,6 +7514,10 @@ mediapipe>=0.10
                 precedes: vec![],
                 follows: vec![],
                 alternatives: vec![],
+                server_type: String::new(),
+                server_command: String::new(),
+                server_args: vec![],
+                language_ids: vec![],
             },
         );
 
@@ -7595,6 +7627,10 @@ mediapipe>=0.10
                 precedes: vec![],
                 follows: vec![],
                 alternatives: vec![],
+                server_type: String::new(),
+                server_command: String::new(),
+                server_args: vec![],
+                language_ids: vec![],
             },
         );
 

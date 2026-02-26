@@ -29,12 +29,12 @@
         },
         "type": {
           "type": "string",
-          "enum": ["skill", "agent", "command"],
+          "enum": ["skill", "agent", "command", "rule", "mcp", "lsp"],
           "description": "Type of skill component"
         },
         "source": {
           "type": "string",
-          "enum": ["user", "project", "plugin"],
+          "enum": ["user", "project", "plugin", "built-in"],
           "description": "Where the skill is installed"
         },
         "path": {
