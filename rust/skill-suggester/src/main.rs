@@ -775,12 +775,11 @@ fn scan_project_context(cwd: &str) -> ProjectScanResult {
         result.platforms.push("dotnet".into());
     }
     // Meadow (Wilderness Labs) IoT .NET platform
-    if has_file("meadow.config.yaml") || has_file("app.config.yaml") {
-        if has_suffix(".csproj") {
+    if (has_file("meadow.config.yaml") || has_file("app.config.yaml"))
+        && has_suffix(".csproj") {
             result.frameworks.push("meadow".into());
             result.platforms.push("embedded".into());
         }
-    }
 
     // -- Docker --
     if has_file("Dockerfile")
@@ -1021,7 +1020,7 @@ fn scan_project_context(cwd: &str) -> ProjectScanResult {
     }
 
     // -- Buildroot --
-    if has_file("Config.in") && has_file("Makefile") && has_file("package") == false {
+    if has_file("Config.in") && has_file("Makefile") && !has_file("package") {
         // Buildroot has Config.in + Makefile at root
         // More reliable: check for buildroot-specific files
     }
@@ -1047,11 +1046,10 @@ fn scan_project_context(cwd: &str) -> ProjectScanResult {
         result.languages.push("kotlin".into());
     }
     // Android NDK (native C/C++ for Android)
-    if has_file("Android.mk") || has_file("Application.mk") || has_file("CMakeLists.txt") {
-        if has_file("AndroidManifest.xml") || has_file("jni") == false {
+    if (has_file("Android.mk") || has_file("Application.mk") || has_file("CMakeLists.txt"))
+        && (has_file("AndroidManifest.xml") || !has_file("jni")) {
             // Only tag android-ndk if Android project context exists
         }
-    }
     if dir.join("jni").is_dir() {
         result.tools.push("android-ndk".into());
         result.platforms.push("android".into());
@@ -1447,7 +1445,7 @@ fn scan_project_context(cwd: &str) -> ProjectScanResult {
     }
 
     // -- Kubernetes --
-    if has_file("skaffold.yaml") || has_file("helm") == false {
+    if has_file("skaffold.yaml") || !has_file("helm") {
         // More reliable K8s detection
     }
     if has_file("skaffold.yaml") || has_file("Chart.yaml") {
@@ -1594,7 +1592,7 @@ fn scan_project_context(cwd: &str) -> ProjectScanResult {
     // ====================================================================
 
     // -- Unity --
-    if has_file("ProjectSettings") == false {
+    if !has_file("ProjectSettings") {
         // Unity detection via Assets directory
     }
     if dir.join("Assets").is_dir() && dir.join("ProjectSettings").is_dir() {
@@ -1631,12 +1629,11 @@ fn scan_project_context(cwd: &str) -> ProjectScanResult {
     // ====================================================================
 
     // -- Mender.io OTA --
-    if has_file("mender.conf") || has_file("mender-artifact") == false {
-        if has_file("mender.conf") {
+    if (has_file("mender.conf") || !has_file("mender-artifact"))
+        && has_file("mender.conf") {
             result.tools.push("mender".into());
             result.platforms.push("embedded".into());
         }
-    }
 
     // -- SWUpdate --
     if has_file("sw-description") {
@@ -4004,6 +4001,7 @@ struct MatchedSkill {
 /// * `cwd` - Current working directory for directory context matching
 /// * `context` - Project context for platform/framework/language filtering
 /// * `incomplete_mode` - If true, skip co_usage boosts (for Pass 2 candidate finding)
+#[allow(clippy::too_many_arguments)]
 fn find_matches(
     original_prompt: &str,
     expanded_prompt: &str,
@@ -4423,7 +4421,7 @@ fn get_index_path(cli_index: Option<&str>) -> Result<PathBuf, SuggesterError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let home = dirs::home_dir().ok_or(SuggesterError::NoHomeDir)?;
-        return Ok(home.join(".claude").join(CACHE_DIR).join(INDEX_FILE));
+        Ok(home.join(".claude").join(CACHE_DIR).join(INDEX_FILE))
     }
 
     // On WASM, --index or PSS_INDEX_PATH is required
@@ -4473,7 +4471,7 @@ fn get_registry_path(cli_registry: Option<&str>) -> Option<PathBuf> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let home = dirs::home_dir()?;
-        return Some(home.join(".claude").join(CACHE_DIR).join(REGISTRY_FILE));
+        Some(home.join(".claude").join(CACHE_DIR).join(REGISTRY_FILE))
     }
 
     // On WASM, registry is not available unless explicitly set
@@ -4947,10 +4945,11 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         ctx
     } else {
         // No cwd: build context purely from agent descriptor fields
-        let mut ctx = ProjectContext::default();
-        ctx.domains = profile.domains.iter().map(|d| d.to_lowercase()).collect();
-        ctx.tools = profile.tools.iter().map(|t| t.to_lowercase()).collect();
-        ctx
+        ProjectContext {
+            domains: profile.domains.iter().map(|d| d.to_lowercase()).collect(),
+            tools: profile.tools.iter().map(|t| t.to_lowercase()).collect(),
+            ..Default::default()
+        }
     };
 
     // Synthesize multiple scoring queries from agent descriptor fields.
@@ -5390,7 +5389,7 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
     // full context once, short-circuit on first match. If 0 matches AND all
     // skills are gated → exit immediately, skip all scoring.
     // ========================================================================
-    if registry.is_some() {
+    if let Some(reg) = registry.as_ref() {
         let all_skills_gated = !index.skills.is_empty()
             && index.skills.values().all(|e| !e.domain_gates.is_empty());
 
@@ -5399,7 +5398,6 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
             // For "generic" gates: add the registry's example_keywords for that domain
             // (because generic passes when the domain is detected via any registry keyword).
             let mut all_gate_keywords: HashSet<String> = HashSet::new();
-            let reg = registry.as_ref().unwrap();
 
             for entry in index.skills.values() {
                 for (gate_name, gate_keywords) in &entry.domain_gates {
