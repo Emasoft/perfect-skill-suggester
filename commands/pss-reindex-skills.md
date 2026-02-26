@@ -16,7 +16,7 @@ allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep", "Task"]
 > 2. Delete `~/.claude/cache/skill-checklist.md`
 > 3. Verify clean slate before proceeding
 >
-> **WHY?** Incremental indexing causes: stale version paths, orphaned entries, name mismatches, missing new skills.
+> **WHY?** Incremental indexing causes: stale version paths, orphaned entries, name mismatches, missing new elements.
 > **The ONLY reliable approach is DELETE → DISCOVER → REINDEX from scratch.**
 >
 > **⚠️ NEVER skip Phase 0. NEVER do partial/incremental updates. ALWAYS regenerate completely.**
@@ -31,9 +31,9 @@ All temporary paths below use `${PSS_TMPDIR}` as the base. This resolves to `/tm
 
 ---
 
-Generate an **AI-analyzed** keyword and phrase index for ALL skills available to Claude Code. Unlike heuristic approaches, this command has the agent **read and understand each skill** to formulate optimal activation patterns.
+Generate an **AI-analyzed** keyword and phrase index for ALL elements available to Claude Code. Unlike heuristic approaches, this command has the agent **read and understand each element** to formulate optimal activation patterns.
 
-This is the **MOST IMPORTANT** feature of Perfect Skill Suggester - AI-generated keywords ensure 88%+ accuracy in skill matching.
+This is the **MOST IMPORTANT** feature of Perfect Skill Suggester - AI-generated keywords ensure 88%+ accuracy in element matching.
 
 > **Architecture Reference:** See [docs/PSS-ARCHITECTURE.md](../docs/PSS-ARCHITECTURE.md) for the complete design rationale.
 
@@ -50,18 +50,18 @@ The Python script `pss_discover.py` scans ALL element locations (skills, agents,
 **Output**: `skill-index.json` with keywords (Pass 1 format - keywords only, merged incrementally via pss_merge_queue.py)
 
 ### Pass 2: Co-Usage Correlation (AI Intelligence)
-For EACH skill, a dedicated agent:
-1. Reads the skill's data from the skill-index.json (from Pass 1)
-2. Calls `skill-suggester --incomplete-mode` to find CANDIDATE skills via keyword similarity + CxC matrix heuristics
+For EACH element, a dedicated agent:
+1. Reads the element's data from the skill-index.json (from Pass 1)
+2. Calls `skill-suggester --incomplete-mode` to find CANDIDATE elements via keyword similarity + CxC matrix heuristics
 3. Reads candidate data from skill-index.json to understand their use cases
-4. **Uses its own AI intelligence** to determine which skills are logically co-used
+4. **Uses its own AI intelligence** to determine which elements are logically co-used
 5. Writes co-usage data to a temp .pss file and merges it into the global index via pss_merge_queue.py
 
 **Why Pass 2 requires agents (not scripts)**:
 - Only AI can understand that "docker-compose" and "microservices-architecture" are logically related
 - Only AI can reason that "security-audit" typically FOLLOWS "code-review" but PRECEDES "deployment"
 - Only AI can identify that "terraform" is an ALTERNATIVE to "pulumi" for infrastructure
-- Scripts can only match keywords; agents understand semantic relationships
+- Scripts can only match keywords; agents understand semantic relationships between elements
 
 **Rio Compatibility**: Keywords are stored in a flat array and matched using `.includes()` against the lowercase user prompt. The `matchCount` is simply the number of matching keywords.
 
@@ -72,9 +72,9 @@ For EACH skill, a dedicated agent:
 >
 > **Why?** Incremental indexing causes:
 > - Stale version paths (plugins update, old paths remain)
-> - Missing skills (new skills in updated plugins not detected)
-> - Orphaned entries (deleted skills remain in index)
-> - Name mismatches (skill renamed but old name persists)
+> - Missing elements (new elements in updated plugins not detected)
+> - Orphaned entries (deleted elements remain in index)
+> - Name mismatches (element renamed but old name persists)
 >
 > **The ONLY reliable approach is DELETE → DISCOVER → REINDEX from scratch.**
 
@@ -86,7 +86,7 @@ For EACH skill, a dedicated agent:
 
 | Flag | Description |
 |------|-------------|
-| `--batch-size N` | Skills per batch (default: 10) |
+| `--batch-size N` | Elements per batch (default: 10) |
 | `--pass1-only` | Run Pass 1 only (keywords, no co-usage) |
 | `--pass2-only` | Run Pass 2 only (requires existing Pass 1 index) |
 | `--all-projects` | Scan ALL projects registered in `~/.claude.json` |
@@ -95,7 +95,7 @@ For EACH skill, a dedicated agent:
 - ~~`--force`~~ - No longer needed, full reindex is ALWAYS performed
 - ~~`--skill NAME`~~ - Single-skill reindex removed to prevent partial updates
 
-## Comprehensive Skill Discovery
+## Comprehensive Element Discovery
 
 **By default**, the discovery script scans:
 1. User-level skills: `~/.claude/skills/`
@@ -114,7 +114,7 @@ For EACH skill, a dedicated agent:
    - `<project>/.claude/skills/`
    - `<project>/.claude/plugins/*/skills/`
 
-This creates a **superset index** containing ALL skills across all your projects. At runtime, the agent filters suggestions against its context-injected available skills list (see `docs/PSS-ARCHITECTURE.md`).
+This creates a **superset index** containing ALL elements across all your projects. At runtime, the agent filters suggestions against its context-injected available elements list (see `docs/PSS-ARCHITECTURE.md`).
 
 **NOTE:** Deleted projects are automatically detected and skipped with a warning.
 
@@ -133,14 +133,14 @@ This creates a **superset index** containing ALL skills across all your projects
 3. [Phase 0] Backup and remove skill-checklist.md
 4. [Phase 0] VERIFY clean slate - no index files remain
 5. [Phase 0.5] Run pss_cleanup.py --all-projects to remove stale .pss files
-6. [Phase 1] Run discovery script to generate skill checklist
+6. [Phase 1] Run discovery script to generate element checklist
 7. [Phase 1] Spawn Pass 1 batch agents for keyword analysis
 8. [Phase 1] Validate Pass 1 index (run CPV plugin validator: uv run --with pyyaml python scripts/validate_plugin.py . --verbose)
-9. [Phase 1] Check agent tracking files for missed skills, re-run if needed
+9. [Phase 1] Check agent tracking files for missed elements, re-run if needed
 10. [Phase 2] Spawn Pass 2 batch agents for co-usage analysis
 11. [Phase 2] Validate final index (run CPV plugin validator: uv run --with pyyaml python scripts/validate_plugin.py . --verbose)
-12. [Phase 2] Check agent tracking files for missed skills, re-run if needed
-13. [Verify] Confirm index has pass:2 and all skills have co_usage
+12. [Phase 2] Check agent tracking files for missed elements, re-run if needed
+13. [Verify] Confirm index has pass:2 and all elements have co_usage
 14. [Report] Report final statistics to user
 ```
 
@@ -168,7 +168,7 @@ TaskCreate({
 > **You MUST complete ALL steps before proceeding to Phase 1.**
 > **If ANY step fails, STOP and report the error. Do NOT proceed.**
 
-Before discovering or analyzing ANY skills, you MUST backup and delete ALL previous index data.
+Before discovering or analyzing ANY elements, you MUST backup and delete ALL previous index data.
 The backup ensures the old data is preserved for debugging, but moved out of the way so it can
 NEVER interfere with the fresh reindex.
 
@@ -231,10 +231,10 @@ echo "$BACKUP_DIR" > ${PSS_TMPDIR}/pss-queue/backup-dir.txt
 
 **WHY THIS IS NON-NEGOTIABLE:**
 1. Old index paths point to outdated plugin versions → skills not found
-2. Renamed/moved skills create orphaned entries → phantom skills suggested
-3. Skills with wrong names persist → matching fails silently
-4. Deleted skills remain as phantom entries → broken suggestions
-5. Co-usage data references non-existent skills → cascading errors
+2. Renamed/moved elements create orphaned entries → phantom elements suggested
+3. Elements with wrong names persist → matching fails silently
+4. Deleted elements remain as phantom entries → broken suggestions
+5. Co-usage data references non-existent elements → cascading errors
 6. **ANY remnant of old data will corrupt the fresh index**
 
 **The backup in `${PSS_TMPDIR}` ensures you can debug issues if needed, but the old data is GONE from the active paths.**
@@ -247,13 +247,13 @@ echo "$BACKUP_DIR" > ${PSS_TMPDIR}/pss-queue/backup-dir.txt
 > This removes orphaned .pss files left by crashed agents or previous runs.
 
 ```bash
-# Clean ALL stale .pss files system-wide (skill dirs + ${PSS_TMPDIR}/pss-queue/)
+# Clean ALL stale .pss files system-wide (element dirs + ${PSS_TMPDIR}/pss-queue/)
 python3 "${PLUGIN_ROOT}/scripts/pss_cleanup.py" --all-projects --verbose
 ```
 
 **What this does:**
-- Scans ALL skill locations (user, project, plugin cache, local plugins, all projects)
-- Removes any `*.pss` files found in skill directories (leftovers from pss_generate.py)
+- Scans ALL element locations (user, project, plugin cache, local plugins, all projects)
+- Removes any `*.pss` files found in element directories (leftovers from pss_generate.py)
 - Removes any `*.pss` files in `${PSS_TMPDIR}/pss-queue/` (leftovers from crashed agents)
 - Reports count of files deleted per location
 
@@ -263,7 +263,7 @@ python3 "${PLUGIN_ROOT}/scripts/pss_cleanup.py" --all-projects --verbose
 
 ---
 
-### Step 1: Generate Skill Checklist
+### Step 1: Generate Element Checklist
 
 Run the discovery script with `--checklist` and `--all-projects` to generate a markdown checklist with batches:
 
@@ -287,19 +287,19 @@ Checklist written to: /Users/you/.claude/cache/skill-checklist.md
 The orchestrator reads the checklist and spawns haiku subagents, one per batch:
 
 ```
-Batch 1 (skills 1-10)   → Agent A
-Batch 2 (skills 11-20)  → Agent B
-Batch 3 (skills 21-30)  → Agent C
+Batch 1 (elements 1-10)   → Agent A
+Batch 2 (elements 11-20)  → Agent B
+Batch 3 (elements 21-30)  → Agent C
 ...
-Batch 22 (skills 211-216) → Agent V
+Batch 22 (elements 211-216) → Agent V
 ```
 
 **Key Workflow:**
 1. Orchestrator reads the checklist file
 2. For each batch, spawn a haiku subagent with:
    - The batch number and range
-   - The list of skill paths in that batch
-   - Instructions to read each skill and generate patterns
+   - The list of element paths in that batch
+   - Instructions to read each element and generate patterns
 3. All subagents run in parallel (up to 20 concurrent)
 4. Each subagent marks entries with [x] as complete
 5. Orchestrator collects all results
@@ -319,13 +319,13 @@ The full Haiku-optimized prompts are in external template files:
 Read the appropriate template file, fill in the {variables}, and pass it to the haiku subagent.
 
 **IMPORTANT: TRIPLE VERIFICATION**
-Both templates include mandatory triple-read verification steps where the agent re-reads the SKILL.md
+Both templates include mandatory triple-read verification steps where the agent re-reads the element file
 2 additional times to cross-check its extraction results. This compensates for Haiku's lower accuracy.
 Do NOT remove or skip these verification steps.
 
 **IMPORTANT: AGENT REPORTING**
 All agents must return ONLY a 1-2 line summary. No code blocks, no verbose output.
-Format: `[DONE/PARTIAL/FAILED] Pass N Batch M - count/total skills processed`
+Format: `[DONE/PARTIAL/FAILED] Pass N Batch M - count/total elements processed`
 
 Each subagent receives the prompt built from the external template file.
 
@@ -335,9 +335,9 @@ Each subagent receives the prompt built from the external template file.
 2. Copy the content between `## TEMPLATE START` and `## TEMPLATE END`
 3. Replace these variables:
    - `{batch_num}` → the batch number (e.g., 3)
-   - `{start}` → first skill number in batch (e.g., 21)
-   - `{end}` → last skill number in batch (e.g., 30)
-   - `{list_of_skill_paths}` → newline-separated list of skill paths with source and name
+   - `{start}` → first element number in batch (e.g., 21)
+   - `{end}` → last element number in batch (e.g., 30)
+   - `{list_of_element_paths}` → newline-separated list of element paths with source and name
 4. Replace `${CLAUDE_PLUGIN_ROOT}` with the absolute path to the plugin directory
 5. Send the filled template to the haiku subagent
 
@@ -349,19 +349,19 @@ PLUGIN_ROOT=$(cd "${CLAUDE_PLUGIN_ROOT}" && pwd)
 # Then replace ${CLAUDE_PLUGIN_ROOT} with $PLUGIN_ROOT in the template
 ```
 
-**BUILDING {skill_tracking_rows} (MANDATORY):**
+**BUILDING {element_tracking_rows} (MANDATORY):**
 
-Both Pass 1 and Pass 2 templates include a `{skill_tracking_rows}` variable for the batch tracking checklist.
-You MUST build this from the batch's skill list. Format:
+Both Pass 1 and Pass 2 templates include a `{element_tracking_rows}` variable for the batch tracking checklist.
+You MUST build this from the batch's element list. Format:
 
 ```
-| 1 | skill-name-one | PENDING | NO |
-| 2 | skill-name-two | PENDING | NO |
-| 3 | skill-name-three | PENDING | NO |
+| 1 | element-name-one | PENDING | NO |
+| 2 | element-name-two | PENDING | NO |
+| 3 | element-name-three | PENDING | NO |
 ```
 
-Each row has: sequential number, skill name, Status (initially PENDING), Merged (initially NO).
-The agent will update this file as it processes each skill.
+Each row has: sequential number, element name, Status (initially PENDING), Merged (initially NO).
+The agent will update this file as it processes each element.
 
 ### Step 4: Compile Index
 
@@ -395,34 +395,34 @@ Merge all subagent responses into the master index (rio v2.0 compatible format w
 **Index Schema (PSS v3.0 - extends rio v2.0):**
 | Field | Type | Description |
 |-------|------|-------------|
-| `source` | string | Where skill comes from: `user`, `project`, `plugin` |
+| `source` | string | Where element comes from: `user`, `project`, `plugin` |
 | `path` | string | Full path to SKILL.md |
-| `type` | string | `skill`, `agent`, or `command` (rio type field) |
+| `type` | string | `"skill"`, `"agent"`, `"command"`, `"rule"`, `"mcp"`, or `"lsp"` (rio type field) |
 | `keywords` | string[] | Flat array of lowercase keywords/phrases (rio compatible) |
 | `intents` | string[] | PSS: Action verbs for weighted scoring (+4 points) |
 | `patterns` | string[] | PSS: Regex patterns for pattern matching (+3 points) |
 | `directories` | string[] | PSS: Directory contexts for directory boost (+5 points) |
 | `description` | string | One-line description |
 | `platforms` | string[] | PSS: Target platforms (`ios`, `android`, `macos`, `windows`, `linux`, `web`, `universal`) |
-| `frameworks` | string[] | PSS: EXACT framework names extracted from skill (`react`, `django`, `swiftui`, etc.) |
+| `frameworks` | string[] | PSS: EXACT framework names extracted from element (`react`, `django`, `swiftui`, etc.) |
 | `languages` | string[] | PSS: Target languages (`swift`, `rust`, `python`, etc., or `any`) |
 | `domains` | string[] | PSS: Dewey domain codes from `schemas/pss-domains.json` (`310`, `620`, `910`, etc.) |
-| `tools` | string[] | PSS: EXACT tool/library names extracted from skill (builds dynamic catalog) |
+| `tools` | string[] | PSS: EXACT tool/library names extracted from element (builds dynamic catalog) |
 | `file_types` | string[] | PSS: EXACT file extensions handled (`pdf`, `xlsx`, `mp4`, `svg`, etc.) |
-| `domain_gates` | object | PSS: Named keyword groups as hard prerequisite filters. Keys are gate names (`target_language`, `input_language`, `output_language`, `target_platform`, `target_framework`, `text_language`, `output_format`), values are arrays of lowercase keywords. ALL gates must have at least one keyword match in the user prompt or the skill is never suggested. Empty `{}` for generic skills. |
+| `domain_gates` | object | PSS: Named keyword groups as hard prerequisite filters. Keys are gate names (`target_language`, `input_language`, `output_language`, `target_platform`, `target_framework`, `text_language`, `output_format`), values are arrays of lowercase keywords. ALL gates must have at least one keyword match in the user prompt or the element is never suggested. Empty `{}` for generic elements. |
 
 ### Step 5: Pass 1 Index (Built Incrementally via Merge)
 
 Pass 1 agents write temporary `.pss` files to `${PSS_TMPDIR}/pss-queue/` and immediately merge them into `~/.claude/cache/skill-index.json` via `pss_merge_queue.py`. No explicit "Save" step is needed -- the merge happens inline during Pass 1 processing.
 
-The orchestrator should verify after all Pass 1 agents complete that `skill-index.json` exists and contains all discovered skills with `"pass": 1`.
+The orchestrator should verify after all Pass 1 agents complete that `skill-index.json` exists and contains all discovered elements with `"pass": 1`.
 
 ```bash
 mkdir -p ~/.claude/cache
 ```
 
-**NOTE:** No staleness checks are performed. The index is a superset of all skills ever indexed.
-At runtime, the agent filters suggestions against its known available skills (injected by Claude Code).
+**NOTE:** No staleness checks are performed. The index is a superset of all elements ever indexed.
+At runtime, the agent filters suggestions against its known available elements (injected by Claude Code).
 See `docs/PSS-ARCHITECTURE.md` for the full rationale.
 
 ---
@@ -437,7 +437,7 @@ cd "${PLUGIN_ROOT}" && uv run --with pyyaml python scripts/validate_plugin.py . 
 
 **If validation FAILS (non-zero exit code):**
 - The index has structural errors from Pass 1 agents
-- Read the validator output to identify which skills have issues
+- Read the validator output to identify which elements have issues
 - Re-run affected agents if the errors are recoverable
 - If the errors are NOT recoverable: re-run ALL Pass 1 agents from scratch
 - Do NOT proceed to Pass 2 until validation passes
@@ -448,28 +448,28 @@ cd "${PLUGIN_ROOT}" && uv run --with pyyaml python scripts/validate_plugin.py . 
 ### Step 5b: Check Pass 1 Agent Tracking Files (MANDATORY)
 
 The haiku agents write per-batch tracking files to `${PSS_TMPDIR}/pss-queue/batch-*-pass1-tracking.md`.
-The orchestrator MUST check these files to verify no skills were skipped:
+The orchestrator MUST check these files to verify no elements were skipped:
 
 ```bash
 # List all Pass 1 tracking files
 ls ${PSS_TMPDIR}/pss-queue/batch-*-pass1-tracking.md
 
-# For each tracking file, check for PENDING or FAILED skills
+# For each tracking file, check for PENDING or FAILED elements
 grep -E "PENDING|FAILED" ${PSS_TMPDIR}/pss-queue/batch-*-pass1-tracking.md
 ```
 
-**If ANY skill shows PENDING:**
-- The agent forgot to process that skill (common with Haiku)
-- Re-spawn a haiku agent for JUST the missed skills
-- The re-run agent should process ONLY the PENDING skills, not the entire batch
+**If ANY element shows PENDING:**
+- The agent forgot to process that element (common with Haiku)
+- Re-spawn a haiku agent for JUST the missed elements
+- The re-run agent should process ONLY the PENDING elements, not the entire batch
 
-**If ANY skill shows FAILED:**
-- The agent tried but could not process that skill
-- Check if the skill's SKILL.md file exists and is readable
+**If ANY element shows FAILED:**
+- The agent tried but could not process that element
+- Check if the element's definition file exists and is readable
 - If the file exists, re-spawn an agent to retry (up to 2 retries)
 - If the file does NOT exist, log a warning and skip it
 
-**If ALL skills show DONE+YES:**
+**If ALL elements show DONE+YES:**
 - Pass 1 is complete, proceed to Pass 2
 
 ---
@@ -481,7 +481,7 @@ grep -E "PENDING|FAILED" ${PSS_TMPDIR}/pss-queue/batch-*-pass1-tracking.md
 When ALL Pass 1 batch agents have completed (all batches return results):
 
 1. **Compile Pass 1 Index** - Merge all agent results into `~/.claude/cache/skill-index.json`
-2. **Verify Pass 1 Success** - Confirm index contains all discovered skills with keywords and categories
+2. **Verify Pass 1 Success** - Confirm index contains all discovered elements with keywords and categories
 3. **IMMEDIATELY PROCEED TO PASS 2** - Do NOT stop after Pass 1
 
 **DO NOT WAIT FOR USER INPUT** between Pass 1 and Pass 2. The reindex command is a SINGLE operation that MUST complete both passes.
@@ -522,13 +522,13 @@ This provides heuristic guidance for candidate selection:
 Fill in the {variables} and pass to each haiku subagent.
 
 **BATCHING (same as Pass 1):**
-- Group skills into batches of 10
+- Group elements into batches of 10
 - Spawn up to 20 agents in parallel (all batches simultaneously, max 20 concurrent)
-- Each agent processes ALL skills in its batch
+- Each agent processes ALL elements in its batch
 - Wait for all batches to complete before proceeding to Step 8
 
 **TRIPLE VERIFICATION**: The Pass 2 template includes 3 verification rounds where the agent
-re-reads skill data and re-validates each co-usage link. This is mandatory for Haiku accuracy.
+re-reads element data and re-validates each co-usage link. This is mandatory for Haiku accuracy.
 
 **HOW TO BUILD THE PASS 2 PROMPT:**
 
@@ -536,11 +536,11 @@ re-reads skill data and re-validates each co-usage link. This is mandatory for H
 2. Copy the content between `## TEMPLATE START` and `## TEMPLATE END`
 3. Replace these variables:
    - `{batch_num}` → the batch number (e.g., 3)
-   - `{start}` → first skill number in batch (e.g., 21)
-   - `{end}` → last skill number in batch (e.g., 30)
-   - `{list_of_skill_names_and_pss_paths}` → newline-separated list of skill names
-   - `{skill_name}` → each skill name (template has per-skill sections)
-   - `{keywords_as_phrase}` → skill's keywords joined as a phrase
+   - `{start}` → first element number in batch (e.g., 21)
+   - `{end}` → last element number in batch (e.g., 30)
+   - `{list_of_element_names_and_pss_paths}` → newline-separated list of element names
+   - `{element_name}` → each element name (template has per-element sections)
+   - `{keywords_as_phrase}` → element's keywords joined as a phrase
    - `{binary_path}` → absolute path to the platform-specific Rust binary (see below)
 4. Replace `${CLAUDE_PLUGIN_ROOT}` with the resolved absolute path to the plugin directory
 5. Send the filled template to the haiku subagent
@@ -565,7 +565,7 @@ fi
 
 ### Step 8: Verify Pass 2 Results in Global Index
 
-Pass 2 agents merge their results directly into skill-index.json via pss_merge_queue.py during processing. No separate merge step is needed. The orchestrator should verify the final index has `pass: 2` and all skills have co_usage data.
+Pass 2 agents merge their results directly into skill-index.json via pss_merge_queue.py during processing. No separate merge step is needed. The orchestrator should verify the final index has `pass: 2` and all elements have co_usage data.
 
 **Final Index Format (Pass 2 complete):**
 ```json
@@ -622,7 +622,7 @@ cd "${PLUGIN_ROOT}" && uv run --with pyyaml python scripts/validate_plugin.py . 
 ```
 
 **What this does:**
-- Validates plugin structure, manifest, and all skill/agent/command definitions
+- Validates plugin structure, manifest, and all element definitions (skills, agents, commands, rules, MCP, LSP)
 - Checks for CRITICAL and MAJOR issues that would prevent the plugin from working
 
 **If validation FAILS (non-zero exit code):**
@@ -646,20 +646,20 @@ Same procedure as Step 5b, but for Pass 2 tracking files:
 # List all Pass 2 tracking files
 ls ${PSS_TMPDIR}/pss-queue/batch-*-pass2-tracking.md
 
-# For each tracking file, check for PENDING or FAILED skills
+# For each tracking file, check for PENDING or FAILED elements
 grep -E "PENDING|FAILED" ${PSS_TMPDIR}/pss-queue/batch-*-pass2-tracking.md
 ```
 
-**If ANY skill shows PENDING:**
-- Re-spawn a haiku agent for JUST the missed skills
+**If ANY element shows PENDING:**
+- Re-spawn a haiku agent for JUST the missed elements
 - After the re-run completes, run the validator AGAIN (Step 8a)
 
-**If ANY skill shows FAILED:**
-- Check if the skill exists in the Pass 1 index
+**If ANY element shows FAILED:**
+- Check if the element exists in the Pass 1 index
 - If yes, re-spawn an agent to retry (up to 2 retries)
 - After retries complete, run the validator AGAIN (Step 8a)
 
-**If ALL skills show DONE+YES:**
+**If ALL elements show DONE+YES:**
 - Proceed to the COMPLETION CHECKPOINT
 
 ### Step 8c: Final Cleanup
@@ -673,7 +673,7 @@ rm -f ${PSS_TMPDIR}/pss-queue/batch-*-tracking.md
 # Remove backup-dir pointer
 rm -f ${PSS_TMPDIR}/pss-queue/backup-dir.txt
 
-# Comprehensive .pss cleanup: skill dirs + ${PSS_TMPDIR}/pss-queue/ (replaces simple rm -f)
+# Comprehensive .pss cleanup: element dirs + ${PSS_TMPDIR}/pss-queue/ (replaces simple rm -f)
 python3 "${PLUGIN_ROOT}/scripts/pss_cleanup.py" --all-projects --verbose
 ```
 
@@ -686,14 +686,14 @@ This provides a safety net if issues are discovered later.
 After validation passes, aggregate all domain gates from the index into a normalized domain registry.
 This registry enables the suggester to perform two-phase matching:
 1. Detect which domains are relevant to the user prompt (using example keywords from the registry)
-2. Check each skill's domain gates against detected domains (boolean pass/fail)
+2. Check each element's domain gates against detected domains (boolean pass/fail)
 
 ```bash
 python3 "${PLUGIN_ROOT}/scripts/pss_aggregate_domains.py" --verbose
 ```
 
 **What this does:**
-- Reads all `domain_gates` from every skill in `~/.claude/cache/skill-index.json`
+- Reads all `domain_gates` from every element in `~/.claude/cache/skill-index.json`
 - Normalizes similar gate names to canonical forms (e.g., `input_language`, `language_input`, `input_lang` → `input_language`)
 - Aggregates all keywords found across skills for each canonical domain
 - Detects which domains have the `generic` wildcard keyword
@@ -701,7 +701,7 @@ python3 "${PLUGIN_ROOT}/scripts/pss_aggregate_domains.py" --verbose
 
 **If the aggregation FAILS (exit code 1):**
 - The domain registry was NOT written
-- This does NOT invalidate the skill index — the index is still usable
+- This does NOT invalidate the element index — the index is still usable
 - Report the error to the user but do NOT fail the entire reindex
 
 **If the aggregation SUCCEEDS (exit code 0):**
@@ -711,29 +711,29 @@ python3 "${PLUGIN_ROOT}/scripts/pss_aggregate_domains.py" --verbose
 
 **The reindex operation is ONLY COMPLETE when ALL of these are true:**
 
-1. ✅ Pass 1 completed - All skills have keywords, categories, and intents
+1. ✅ Pass 1 completed - All elements have keywords, categories, and intents
 2. ✅ Pass 1 validated - CPV plugin validator returned exit code 0
-3. ✅ Pass 1 tracking verified - All batch tracking files show DONE+YES for all skills
-4. ✅ Pass 2 completed - All skills have co_usage relationships (usually_with, precedes, follows, alternatives)
+3. ✅ Pass 1 tracking verified - All batch tracking files show DONE+YES for all elements
+4. ✅ Pass 2 completed - All elements have co_usage relationships (usually_with, precedes, follows, alternatives)
 5. ✅ Pass 2 validated - CPV plugin validator returned exit code 0
-6. ✅ Pass 2 tracking verified - All batch tracking files show DONE+YES for all skills
+6. ✅ Pass 2 tracking verified - All batch tracking files show DONE+YES for all elements
 7. ✅ Global index updated - `~/.claude/cache/skill-index.json` contains `"pass": 2`
 8. ✅ Domain registry generated - `~/.claude/cache/domain-registry.json` exists with aggregated domains
 9. ✅ Temporary files cleaned up - No .pss files or tracking files remain in ${PSS_TMPDIR}/pss-queue/
 
 **FAILURE CONDITIONS:**
 - If index shows `"pass": 1`, Pass 2 was NOT executed
-- If only some skills have `co_usage`, Pass 2 agents only partially completed
+- If only some elements have `co_usage`, Pass 2 agents only partially completed
 - If validator fails with `--restore-on-failure`, the OLD index was restored and reindex FAILED
-- If tracking files show PENDING skills, some agents forgot to process them
+- If tracking files show PENDING elements, some agents forgot to process them
 
 **REPORT TO USER:**
 After successful completion, report:
 ```
 PSS Reindex Complete
 ====================
-Pass 1: {N} skills with keywords/categories (validated ✅)
-Pass 2: {M} skills with co-usage relationships (validated ✅)
+Pass 1: {N} elements with keywords/categories (validated ✅)
+Pass 2: {M} elements with co-usage relationships (validated ✅)
 Domains: {D} canonical domains aggregated (registry ✅)
 Index: ~/.claude/cache/skill-index.json (pass: 2)
 Registry: ~/.claude/cache/domain-registry.json
@@ -774,7 +774,7 @@ Full phrases users would type:
 - **AVOID**: `fix build`, `run tests` (still too generic)
 
 ### Error Patterns (Specific messages)
-Messages that indicate the skill is needed:
+Messages that indicate the element is needed:
 - **GOOD**: `workflow run failed`, `typescript type error`, `connection refused error`
 - **GOOD**: `permission denied ssh`, `module not found node`
 - **AVOID**: `failed`, `error`, `denied` (match everything)
@@ -786,7 +786,7 @@ PSS extends rio's matchCount with weighted scoring:
 ```rust
 // Weighted scoring (from reliable skill-activator)
 const WEIGHTS = {
-    directory: 5,    // +5 - skill in matching directory
+    directory: 5,    // +5 - element in matching directory
     path: 4,         // +4 - prompt mentions file path
     intent: 4,       // +4 - action verb matches
     pattern: 3,      // +3 - regex pattern matches
@@ -819,18 +819,18 @@ This improves matching accuracy significantly.
 
 ## Parallel Processing
 
-For 200+ skills, process in batches:
+For 200+ elements, process in batches:
 
 ```
-Batch 1: Skills 1-20   → 20 parallel haiku subagents
-Batch 2: Skills 21-40  → 20 parallel haiku subagents
+Batch 1: Elements 1-20   → 20 parallel haiku subagents
+Batch 2: Elements 21-40  → 20 parallel haiku subagents
 ...
-Batch 11: Skills 201-216 → 16 parallel haiku subagents
+Batch 11: Elements 201-216 → 16 parallel haiku subagents
 ```
 
 Each subagent:
-1. Reads the full SKILL.md (not just preview)
-2. Analyzes content to understand the skill's purpose
+1. Reads the full element file (not just preview)
+2. Analyzes content to understand the element's purpose
 3. Generates optimal activation patterns
 4. Returns JSON result
 
@@ -850,23 +850,23 @@ Each subagent:
 
 **WHY FULL REINDEX ONLY:**
 1. Plugin versions change - old paths become invalid
-2. Skills get renamed/moved - creates orphaned entries
-3. Skills get deleted - phantom entries persist
-4. Co-usage references stale skills - causes broken relationships
+2. Elements get renamed/moved - creates orphaned entries
+3. Elements get deleted - phantom entries persist
+4. Co-usage references stale elements - causes broken relationships
 5. Partial updates create inconsistent state - impossible to debug
 
 ## Example Output
 
 ```
-Discovering skills...
-Found 216 skills across 19 sources.
+Discovering elements...
+Found 216 elements across 19 sources.
 
 Generating checklist: ~/.claude/cache/skill-checklist.md
-  22 batches (10 skills per batch)
+  22 batches (10 elements per batch)
 
 Spawning haiku subagents (22 parallel)...
-  Batch 1 (Agent A): analyzing skills 1-10...
-  Batch 2 (Agent B): analyzing skills 11-20...
+  Batch 1 (Agent A): analyzing elements 1-10...
+  Batch 2 (Agent B): analyzing elements 11-20...
   ...
 
 Collecting results...
@@ -876,7 +876,7 @@ Collecting results...
   ... (213 more)
 
 Index generated: ~/.claude/cache/skill-index.json
-  216 skills analyzed
+  216 elements analyzed
   Method: AI-analyzed (haiku)
   Format: PSS v3.0 (rio compatible)
   Total keywords: 2,592
@@ -930,7 +930,7 @@ RUST_LOG=debug ./rust/skill-suggester/bin/pss-darwin-arm64 < payload.json
 
 ## Related Commands
 
-- `/pss-status` - View current skill index status and statistics
+- `/pss-status` - View current element index status and statistics
 
 ## Why AI-Analyzed Keywords Matter
 

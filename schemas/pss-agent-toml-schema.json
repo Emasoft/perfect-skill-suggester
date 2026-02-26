@@ -128,6 +128,7 @@
       "properties": {
         "recommended": {
           "type": "array",
+          "description": "MCP server names that enhance this agent's capabilities",
           "items": { "type": "string" },
           "default": []
         }
@@ -140,6 +141,7 @@
       "properties": {
         "recommended": {
           "type": "array",
+          "description": "Hook configurations relevant to this agent's workflow",
           "items": { "type": "string" },
           "default": []
         }
@@ -152,6 +154,7 @@
       "properties": {
         "recommended": {
           "type": "array",
+          "description": "LSP server names for languages this agent works with",
           "items": { "type": "string" },
           "default": []
         }

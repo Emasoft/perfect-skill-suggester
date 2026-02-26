@@ -239,7 +239,7 @@ def get_all_skill_locations(scan_all_projects: bool = False) -> list[tuple[str, 
         element_types=["skill"],
     )
     # Convert (source, element_type, path) -> (source, path)
-    return [(source, path) for source, _elem_type, path in element_locs]
+    return [(source, path) for source, _, path in element_locs]
 
 
 def parse_frontmatter(content: str) -> dict[str, Any]:
@@ -328,7 +328,7 @@ def discover_mcp_servers(scan_all_projects: bool = False) -> list[dict[str, Any]
     # 3. All projects (if requested)
     if scan_all_projects:
         seen_paths: set[Path] = {cwd}
-        for _name, project_path in get_all_projects_from_claude_config():
+        for _, project_path in get_all_projects_from_claude_config():
             if project_path in seen_paths:
                 continue
             seen_paths.add(project_path)
@@ -690,7 +690,10 @@ def generate_checklist(elements: list[dict[str, Any]], batch_size: int = 10) -> 
         batch_elements = elements[start_idx:end_idx]
 
         # Batch header with agent assignment suggestion
-        agent_letter = chr(ord("A") + (batch_num % 26))  # A-Z, then wraps
+        if batch_num < 26:
+            agent_letter = chr(ord("A") + batch_num)
+        else:
+            agent_letter = chr(ord("A") + batch_num // 26 - 1) + chr(ord("A") + batch_num % 26)
         batch_range = f"{start_idx + 1}-{end_idx}"
         lines.append(f"## Batch {batch_num + 1} ({batch_range}) - Agent {agent_letter}")
         lines.append("")
@@ -723,13 +726,16 @@ def generate_checklist(elements: list[dict[str, Any]], batch_size: int = 10) -> 
             "After all batches are complete, "
             "the orchestrator should compile results here:",
             "",
-            "| Batch | Agent | Skills Processed | Status |",
+            "| Batch | Agent | Elements Processed | Status |",
             "|-------|-------|------------------|--------|",
         ]
     )
 
     for batch_num in range(num_batches):
-        agent_letter = chr(ord("A") + (batch_num % 26))
+        if batch_num < 26:
+            agent_letter = chr(ord("A") + batch_num)
+        else:
+            agent_letter = chr(ord("A") + batch_num // 26 - 1) + chr(ord("A") + batch_num % 26)
         start_idx = batch_num * batch_size
         end_idx = min(start_idx + batch_size, total_elements)
         batch_count = end_idx - start_idx

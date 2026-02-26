@@ -37,7 +37,7 @@ use tracing::{debug, error, info, warn};
 /// Perfect Skill Suggester (PSS) - High-accuracy skill activation for Claude Code
 #[derive(Parser, Debug)]
 #[command(name = "pss")]
-#[command(version = "1.0.0")]
+#[command(version = "2.0.0")]
 #[command(about = "High-accuracy skill suggester for Claude Code")]
 struct Cli {
     /// Run in incomplete mode for Pass 2 co-usage analysis.
@@ -436,6 +436,12 @@ pub struct AgentProfileCandidate {
     pub evidence: Vec<String>,
     pub description: String,
 }
+
+/// Typed candidate tuple for skill entries: (name, score, evidence, path, confidence, description, entry_type)
+type SkillCandidate = (String, i32, Vec<String>, String, String, String, String);
+
+/// Typed candidate tuple for non-skill entries: (name, score, evidence, path, confidence, description)
+type TypedCandidate = (String, i32, Vec<String>, String, String, String);
 
 /// Project context for filtering skills by platform/framework/language/domain/tools/file-types
 #[derive(Debug, Clone, Default)]
@@ -5080,11 +5086,11 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     let max_score = sorted_skills.first().map(|s| s.1).unwrap_or(1).max(1);
 
     // Separate entries by type for multi-type output
-    let mut skill_candidates: Vec<(String, i32, Vec<String>, String, String, String, String)> = Vec::new();
-    let mut command_candidates: Vec<(String, i32, Vec<String>, String, String, String)> = Vec::new();
-    let mut rule_candidates: Vec<(String, i32, Vec<String>, String, String, String)> = Vec::new();
-    let mut mcp_candidates: Vec<(String, i32, Vec<String>, String, String, String)> = Vec::new();
-    let mut lsp_candidates: Vec<(String, i32, Vec<String>, String, String, String)> = Vec::new();
+    let mut skill_candidates: Vec<SkillCandidate> = Vec::new();
+    let mut command_candidates: Vec<TypedCandidate> = Vec::new();
+    let mut rule_candidates: Vec<TypedCandidate> = Vec::new();
+    let mut mcp_candidates: Vec<TypedCandidate> = Vec::new();
+    let mut lsp_candidates: Vec<TypedCandidate> = Vec::new();
 
     let top_n = cli.top;
 
