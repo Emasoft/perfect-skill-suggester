@@ -12,12 +12,12 @@
     },
     "type": {
       "type": "string",
-      "enum": ["skill", "agent", "command"],
+      "enum": ["skill", "agent", "command", "rule", "mcp", "lsp"],
       "description": "Component type"
     },
     "source": {
       "type": "string",
-      "enum": ["user", "project", "plugin"],
+      "enum": ["user", "project", "plugin", "built-in"],
       "description": "Where the skill is installed"
     },
     "path": {
@@ -118,6 +118,28 @@
     "pass": {
       "type": "integer",
       "description": "Which pass generated this: 1 = keywords only, 2 = with co-usage"
+    },
+    "server_type": {
+      "type": "string",
+      "description": "MCP server transport type (stdio or sse)"
+    },
+    "server_command": {
+      "type": "string",
+      "description": "MCP server launch command"
+    },
+    "server_args": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "MCP server command arguments"
+    },
+    "language_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Programming language IDs for LSP servers"
+    },
+    "domain_gates": {
+      "type": "object",
+      "description": "Named keyword groups for prerequisite filtering"
     }
   }
 }

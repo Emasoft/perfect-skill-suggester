@@ -73,9 +73,9 @@ def create_skeleton_index() -> dict[str, Any]:
     return {
         "version": "3.0",
         "generated": datetime.now(timezone.utc).isoformat(),
-        "method": "ai-analyzed",
+        "generator": "ai-analyzed",
         "pass": 1,
-        "skills_count": 0,
+        "skill_count": 0,
         "skills": {},
     }
 
@@ -313,7 +313,7 @@ def run_merge(
                 sys.exit(1)
 
         # Update index metadata
-        index["skills_count"] = len(index.get("skills", {}))
+        index["skill_count"] = len(index.get("skills", {}))
         index["generated"] = datetime.now(timezone.utc).isoformat()
 
         # Atomic write

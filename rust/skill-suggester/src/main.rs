@@ -5088,7 +5088,11 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
 
     let top_n = cli.top;
 
-    for (name, score, evidence, path, confidence, description) in sorted_skills.into_iter().take(top_n) {
+    // Use a larger internal buffer so type-routing sees candidates across all types,
+    // not just the top_n overall (which could all be one type, starving others).
+    let internal_limit = (top_n * 5).max(20);
+
+    for (name, score, evidence, path, confidence, description) in sorted_skills.into_iter().take(internal_limit) {
         // Look up the entry's type from the index
         let entry_type = index.skills.get(&name)
             .map(|e| e.skill_type.as_str())
@@ -5103,6 +5107,14 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
             _ => skill_candidates.push((name, score, evidence, path, confidence, description, entry_type.to_string())),
         }
     }
+
+    // Truncate non-skill type vectors to top_n (or 5, whichever is larger)
+    // so each type gets fair representation after the expanded internal buffer.
+    let per_type_limit = top_n.max(5);
+    command_candidates.truncate(per_type_limit);
+    rule_candidates.truncate(per_type_limit);
+    mcp_candidates.truncate(per_type_limit);
+    lsp_candidates.truncate(per_type_limit);
 
     // Classify skills+agents into tiers based on relative score
     let mut primary: Vec<AgentProfileCandidate> = Vec::new();

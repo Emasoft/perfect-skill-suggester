@@ -63,11 +63,20 @@ def extract_skill_type(content: str, skill_path: Path) -> str:
     """Determine skill type from content or path."""
     content_lower = content.lower()
 
-    # Check frontmatter
-    if re.search(r"^type:\s*agent", content, re.MULTILINE | re.IGNORECASE):
-        return "agent"
-    if re.search(r"^type:\s*command", content, re.MULTILINE | re.IGNORECASE):
-        return "command"
+    # Check frontmatter type field
+    fm_match = re.search(r"^type:\s*(\S+)", content, re.MULTILINE | re.IGNORECASE)
+    if fm_match:
+        fm_type = fm_match.group(1).strip().lower()
+        if fm_type == "agent":
+            return "agent"
+        if fm_type == "command":
+            return "command"
+        if fm_type == "rule":
+            return "rule"
+        if fm_type == "mcp":
+            return "mcp"
+        if fm_type == "lsp":
+            return "lsp"
 
     # Check path
     path_str = str(skill_path).lower()
@@ -261,7 +270,7 @@ def generate_pss(
     if not skill_path.exists():
         raise FileNotFoundError(f"Skill file not found: {skill_path}")
 
-    with open(skill_path) as f:
+    with open(skill_path, encoding="utf-8") as f:
         content = f.read()
 
     # Extract info
@@ -301,18 +310,21 @@ def generate_pss(
 
 def save_pss(pss_data: dict[str, Any], output_path: Path) -> None:
     """Save PSS data to file."""
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(pss_data, f, indent=2)
     print(f"Generated: {output_path}")
 
 
-def generate_pss_for_mcp(name: str, server_config: dict[str, Any], source: str) -> dict[str, Any]:
+def generate_pss_for_mcp(
+    name: str, server_config: dict[str, Any], source: str, path: str = ""
+) -> dict[str, Any]:
     """Generate PSS data for an MCP server entry (flat format for merge_pass1).
 
     Args:
         name: Server name (e.g., "chrome-devtools")
         server_config: Raw config dict with type, command, args
         source: Source identifier (user, project, etc.)
+        path: Path to the config file that defines this MCP server
     """
     # Extract keywords from server name and command
     keywords: set[str] = set()
@@ -336,6 +348,7 @@ def generate_pss_for_mcp(name: str, server_config: dict[str, Any], source: str) 
         "name": name,
         "type": "mcp",
         "source": source,
+        "path": path,
         "keywords": sorted(keywords),
         "intents": [],
         "patterns": [],
@@ -352,18 +365,38 @@ def generate_pss_for_mcp(name: str, server_config: dict[str, Any], source: str) 
     }
 
 
-def generate_pss_for_lsp(name: str, marketplace: str) -> dict[str, Any]:  # noqa: ARG001
+def generate_pss_for_lsp(name: str, marketplace: str, path: str = "") -> dict[str, Any]:  # noqa: ARG001
     """Generate PSS data for an LSP server (flat format for merge_pass1).
 
     Args:
         name: LSP name (e.g., "pyright-lsp")
         marketplace: Marketplace identifier (reserved for future use)
+        path: Path to the config file that defines this LSP server
     """
+    # Common LSP name-to-language mapping for automatic language_ids detection
+    lsp_languages = {
+        "pyright": ["python"],
+        "typescript": ["typescript", "javascript"],
+        "gopls": ["go"],
+        "rust-analyzer": ["rust"],
+        "jdtls": ["java"],
+        "clangd": ["c", "cpp"],
+        "swift": ["swift"],
+        "csharp": ["csharp"],
+    }
+    # Try to match against the name
+    lang_ids: list[str] = []
+    name_lower = name.lower()
+    for key, langs in lsp_languages.items():
+        if key in name_lower:
+            lang_ids = langs
+            break
+
     keywords: set[str] = set()
-    for part in re.split(r"[-_]", name.lower()):
+    for part in re.split(r"[-_]", name_lower):
         if len(part) > 1 and part != "lsp":
             keywords.add(part)
-    keywords.add(name.lower())
+    keywords.add(name_lower)
     keywords.add("lsp")
     keywords.add("language server")
 
@@ -371,6 +404,7 @@ def generate_pss_for_lsp(name: str, marketplace: str) -> dict[str, Any]:  # noqa
         "name": name,
         "type": "lsp",
         "source": "built-in",
+        "path": path,
         "keywords": sorted(keywords),
         "intents": [],
         "patterns": [],
@@ -381,7 +415,7 @@ def generate_pss_for_lsp(name: str, marketplace: str) -> dict[str, Any]:  # noqa
         "tier": "secondary",
         "boost": 0,
         "domain_gates": {},
-        "language_ids": [],
+        "language_ids": lang_ids,
     }
 
 
@@ -447,7 +481,7 @@ def import_from_index(index_path: Path, output_dir: Path, force: bool = False) -
 
     Creates .pss files for each skill in the index.
     """
-    with open(index_path) as f:
+    with open(index_path, encoding="utf-8") as f:
         index = json.load(f)
 
     skills = index.get("skills", {})
@@ -506,7 +540,7 @@ def main() -> int:
     parser.add_argument("--output", "-o", help="Output path for .pss file or directory")
     parser.add_argument(
         "--tier",
-        choices=["primary", "secondary", "utility"],
+        choices=["primary", "secondary", "specialized"],
         default="secondary",
         help="Skill tier (default: secondary)",
     )

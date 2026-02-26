@@ -304,7 +304,7 @@ User types prompt
     ↓
 UserPromptSubmit hook fires
     ↓
-hook.sh receives prompt via stdin
+pss_hook.py receives prompt via stdin
     ↓
 skill-suggester binary matches against index
     ↓
@@ -337,7 +337,7 @@ Agent presents relevant suggestions to user
 | `schemas/pss-categories.json` | Category definitions + CxC matrix |
 | `schemas/pss-schema.json` | JSON schema for .pss files |
 | `schemas/pss-skill-index-schema.json` | JSON schema for skill-index.json |
-| `bin/pss-<platform>` | Pre-compiled skill-suggester binaries |
+| `rust/skill-suggester/bin/pss-<platform>` | Pre-compiled skill-suggester binaries |
 
 ---
 

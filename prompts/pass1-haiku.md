@@ -8,7 +8,7 @@
 
 **Cross-platform temp directory**: Before any file operations, determine the system temp dir:
 `PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")`
-Use `${PSS_TMPDIR}/pss-queue/` instead of `${PSS_TMPDIR}/pss-queue/` throughout.
+Use `${PSS_TMPDIR}/pss-queue/` instead of `/tmp/pss-queue/` throughout.
 
 ## TEMPLATE START (copy everything below this line into the agent prompt)
 
@@ -175,7 +175,7 @@ SKILLS TO PROCESS:
 ```markdown
 # Pass 1 Batch {batch_num} Tracking
 | # | Element Name | Type | Status | Merged |
-|---|-----------|--------|--------|
+|---|-----------|------|--------|--------|
 {skill_tracking_rows}
 ```
 
@@ -894,7 +894,7 @@ For each skill, write this JSON to ${PSS_TMPDIR}/pss-queue/<skill-name>.pss:
 ```json
 {
   "name": "<skill directory name>",
-  "type": "skill",
+  "type": "<element type from discovery>",
   "source": "<user|project|plugin>",
   "path": "<full path to SKILL.md>",
   "description": "<VERBATIM from SKILL.md>",

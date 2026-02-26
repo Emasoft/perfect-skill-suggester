@@ -102,6 +102,42 @@
           "items": { "type": "string" },
           "description": "File path patterns for matching"
         },
+        "platforms": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Target platforms (e.g., ios, android, web, macos)"
+        },
+        "frameworks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Related frameworks (e.g., react, flutter, django)"
+        },
+        "languages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Programming languages (e.g., python, typescript, rust)"
+        },
+        "domains": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Dewey domain classification codes"
+        },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Related development tools"
+        },
+        "file_types": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Relevant file extensions (e.g., .py, .ts, .rs)"
+        },
         "tier": {
           "type": "string",
           "enum": ["primary", "secondary", "specialized"],

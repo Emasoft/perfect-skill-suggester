@@ -257,7 +257,7 @@ The full schema is at `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`
 After writing the file, you MUST validate it before reporting success.
 
 ```bash
-python3 "${PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH}" --check-index --verbose
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH}" --check-index --verbose
 ```
 
 **What the validator checks:**

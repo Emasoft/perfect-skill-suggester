@@ -142,7 +142,9 @@ def get_all_element_locations(
     home = get_home_dir()
     cwd = get_cwd()
 
-    def _add_element_dirs(parent: Path, source: str, include_rules: bool = True) -> None:
+    def _add_element_dirs(
+        parent: Path, source: str, include_rules: bool = True
+    ) -> None:
         """Scan parent directory for element subdirectories and add them."""
         for subdir_name, elem_type in subdirs_to_scan.items():
             # Rules are NOT in plugins, only at user/project level
@@ -185,14 +187,18 @@ def get_all_element_locations(
                 continue
             if plugin_dir.name in ("cache", "_disabled", "repos", "marketplaces"):
                 continue
-            _add_element_dirs(plugin_dir, f"plugin:{plugin_dir.name}", include_rules=False)
+            _add_element_dirs(
+                plugin_dir, f"plugin:{plugin_dir.name}", include_rules=False
+            )
 
     # 5. Current project plugins: .claude/plugins/*/
     project_plugins = cwd / ".claude" / "plugins"
     if project_plugins.exists():
         for plugin_dir in project_plugins.iterdir():
             if plugin_dir.is_dir():
-                _add_element_dirs(plugin_dir, f"plugin:{plugin_dir.name}", include_rules=False)
+                _add_element_dirs(
+                    plugin_dir, f"plugin:{plugin_dir.name}", include_rules=False
+                )
 
     # 6. All projects from ~/.claude.json (comprehensive indexing)
     if scan_all_projects:
@@ -241,7 +247,7 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
     if not content.startswith("---"):
         return {}
 
-    end_idx = content.find("---", 3)
+    end_idx = content.find("\n---", 3)
     if end_idx == -1:
         return {}
 
@@ -336,14 +342,30 @@ LSP_REGISTRY: dict[str, dict[str, Any]] = {
     "pyright-lsp": {
         "description": "Python language server providing type checking, diagnostics, and autocomplete",
         "language_ids": ["python"],
-        "keywords": ["python", "type checking", "pyright", "lsp", "diagnostics", "autocomplete", "lint"],
+        "keywords": [
+            "python",
+            "type checking",
+            "pyright",
+            "lsp",
+            "diagnostics",
+            "autocomplete",
+            "lint",
+        ],
         "category": "code-quality",
         "intents": ["type-check", "lint", "autocomplete", "diagnose"],
     },
     "typescript-lsp": {
         "description": "TypeScript/JavaScript language server for type checking and diagnostics",
         "language_ids": ["typescript", "javascript"],
-        "keywords": ["typescript", "javascript", "type checking", "lsp", "diagnostics", "ts", "js"],
+        "keywords": [
+            "typescript",
+            "javascript",
+            "type checking",
+            "lsp",
+            "diagnostics",
+            "ts",
+            "js",
+        ],
         "category": "code-quality",
         "intents": ["type-check", "lint", "autocomplete", "diagnose"],
     },
@@ -364,7 +386,15 @@ LSP_REGISTRY: dict[str, dict[str, Any]] = {
     "jdtls-lsp": {
         "description": "Java language server for Eclipse JDT-based diagnostics and refactoring",
         "language_ids": ["java"],
-        "keywords": ["java", "jdtls", "eclipse", "lsp", "diagnostics", "maven", "gradle"],
+        "keywords": [
+            "java",
+            "jdtls",
+            "eclipse",
+            "lsp",
+            "diagnostics",
+            "maven",
+            "gradle",
+        ],
         "category": "code-quality",
         "intents": ["type-check", "lint", "autocomplete", "diagnose"],
     },
@@ -378,14 +408,30 @@ LSP_REGISTRY: dict[str, dict[str, Any]] = {
     "swift-lsp": {
         "description": "Swift language server for iOS/macOS development diagnostics",
         "language_ids": ["swift"],
-        "keywords": ["swift", "ios", "macos", "sourcekit", "lsp", "diagnostics", "xcode"],
+        "keywords": [
+            "swift",
+            "ios",
+            "macos",
+            "sourcekit",
+            "lsp",
+            "diagnostics",
+            "xcode",
+        ],
         "category": "code-quality",
         "intents": ["type-check", "lint", "autocomplete", "diagnose"],
     },
     "csharp-lsp": {
         "description": "C# language server for .NET development diagnostics",
         "language_ids": ["csharp"],
-        "keywords": ["csharp", "c#", "dotnet", ".net", "lsp", "diagnostics", "omnisharp"],
+        "keywords": [
+            "csharp",
+            "c#",
+            "dotnet",
+            ".net",
+            "lsp",
+            "diagnostics",
+            "omnisharp",
+        ],
         "category": "code-quality",
         "intents": ["type-check", "lint", "autocomplete", "diagnose"],
     },
@@ -421,26 +467,30 @@ def discover_lsp_servers() -> list[dict[str, Any]]:
             registry_entry = LSP_REGISTRY.get(lsp_name)
             if not registry_entry:
                 # Unknown LSP -- still include with minimal metadata
-                servers.append({
+                servers.append(
+                    {
+                        "name": lsp_name,
+                        "type": "lsp",
+                        "source": "built-in",
+                        "path": f"{settings_path}#enabledPlugins.{plugin_id}",
+                        "description": f"{lsp_name} language server",
+                        "preview": "",
+                        "language_ids": [],
+                    }
+                )
+                continue
+
+            servers.append(
+                {
                     "name": lsp_name,
                     "type": "lsp",
                     "source": "built-in",
                     "path": f"{settings_path}#enabledPlugins.{plugin_id}",
-                    "description": f"{lsp_name} language server",
+                    "description": registry_entry["description"],
                     "preview": "",
-                    "language_ids": [],
-                })
-                continue
-
-            servers.append({
-                "name": lsp_name,
-                "type": "lsp",
-                "source": "built-in",
-                "path": f"{settings_path}#enabledPlugins.{plugin_id}",
-                "description": registry_entry["description"],
-                "preview": "",
-                "language_ids": registry_entry["language_ids"],
-            })
+                    "language_ids": registry_entry["language_ids"],
+                }
+            )
 
     except Exception as e:
         print(f"Warning: Error reading {settings_path}: {e}", file=sys.stderr)
@@ -472,10 +522,15 @@ def discover_elements(
 
         if element_type == "skill":
             # Skills: <dir>/<name>/SKILL.md (subdirectory with SKILL.md)
-            for skill_path in sorted(elem_dir.iterdir()):
+            try:
+                skill_entries = sorted(elem_dir.iterdir())
+            except OSError as e:
+                print(f"  Warning: Cannot read {elem_dir}: {e}", file=sys.stderr)
+                continue
+            for skill_path in skill_entries:
                 if not skill_path.is_dir():
                     continue
-                if specific_name and skill_path.name != specific_name:
+                if specific_name and skill_path.name.lower() != specific_name.lower():
                     continue
                 skill_md = skill_path / "SKILL.md"
                 if not skill_md.exists():
@@ -489,27 +544,34 @@ def discover_elements(
                     frontmatter = parse_frontmatter(content)
                     # Only look for frontmatter end delimiter if content starts with frontmatter
                     if content.startswith("---"):
-                        body_start = content.find("---", 3)
+                        body_start = content.find("\n---", 3)
                         if body_start != -1:
-                            body = content[body_start + 3:].strip()[:500]
+                            body = content[body_start + 4 :].strip()[:500]
                         else:
                             body = content[:500]
                     else:
                         body = content[:500]
-                    elements.append({
-                        "name": frontmatter.get("name", skill_path.name),
-                        "path": str(skill_md),
-                        "source": source,
-                        "type": "skill",
-                        "description": frontmatter.get("description", "")[:200],
-                        "preview": body,
-                    })
+                    elements.append(
+                        {
+                            "name": frontmatter.get("name") or skill_path.name,
+                            "path": str(skill_md),
+                            "source": source,
+                            "type": "skill",
+                            "description": frontmatter.get("description", "")[:200],
+                            "preview": body,
+                        }
+                    )
                     seen_names.add(dedup_key)
                 except Exception as e:
                     print(f"Error reading {skill_md}: {e}", file=sys.stderr)
         else:
             # Agents, commands, rules: <dir>/<name>.md (direct .md files)
-            for md_file in sorted(elem_dir.iterdir()):
+            try:
+                md_entries = sorted(elem_dir.iterdir())
+            except OSError as e:
+                print(f"  Warning: Cannot read {elem_dir}: {e}", file=sys.stderr)
+                continue
+            for md_file in md_entries:
                 if not md_file.is_file():
                     continue
                 if not md_file.name.endswith(".md"):
@@ -534,14 +596,18 @@ def discover_elements(
                         # Rules may lack frontmatter -- extract from first paragraph
                         body_text = content
                         if content.startswith("---"):
-                            end_idx = content.find("---", 3)
+                            end_idx = content.find("\n---", 3)
                             if end_idx != -1:
-                                body_text = content[end_idx + 3:].strip()
+                                body_text = content[end_idx + 4 :].strip()
                         # Skip headings, get first real paragraph
                         description = ""
                         for line in body_text.split("\n"):
                             line = line.strip()
-                            if line and not line.startswith("#") and not line.startswith("---"):
+                            if (
+                                line
+                                and not line.startswith("#")
+                                and not line.startswith("---")
+                            ):
                                 description = line[:200]
                                 break
                     else:
@@ -549,22 +615,24 @@ def discover_elements(
 
                     # Extract body preview - only parse frontmatter delimiter if present
                     if content.startswith("---"):
-                        body_start = content.find("---", 3)
+                        body_start = content.find("\n---", 3)
                         if body_start != -1:
-                            body = content[body_start + 3:].strip()[:500]
+                            body = content[body_start + 4 :].strip()[:500]
                         else:
                             body = content[:500]
                     else:
                         body = content[:500]
 
-                    elements.append({
-                        "name": frontmatter.get("name", elem_name),
-                        "path": str(md_file),
-                        "source": source,
-                        "type": element_type,
-                        "description": description,
-                        "preview": body,
-                    })
+                    elements.append(
+                        {
+                            "name": frontmatter.get("name") or elem_name,
+                            "path": str(md_file),
+                            "source": source,
+                            "type": element_type,
+                            "description": description,
+                            "preview": body,
+                        }
+                    )
                     seen_names.add(dedup_key)
                 except Exception as e:
                     print(f"Error reading {md_file}: {e}", file=sys.stderr)
@@ -638,8 +706,10 @@ def generate_checklist(elements: list[dict[str, Any]], batch_size: int = 10) -> 
             lines.append(f"- [ ] **{i}.** `{elem_name}` [{elem_source}] ({elem_type})")
             lines.append(f"  - Path: `{elem_path}`")
             if elem.get("description"):
-                desc = elem["description"][:100]
-                lines.append(f"  - Description: {desc}...")
+                desc = elem["description"]
+                if len(desc) > 100:
+                    desc = desc[:100] + "..."
+                lines.append(f"  - Description: {desc}")
             lines.append("")
 
         lines.append("---")
@@ -690,7 +760,9 @@ def main() -> int:
         description="PSS - Discover ALL elements (skills, agents, commands, rules, MCP, LSP) available to Claude Code"
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
-    parser.add_argument("--skill", type=str, help="Only discover specific element by name")
+    parser.add_argument(
+        "--skill", type=str, help="Only discover specific element by name"
+    )
     parser.add_argument(
         "--project-only", action="store_true", help="Only scan current project elements"
     )
@@ -729,6 +801,24 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    # Validate --batch-size is positive
+    if (
+        hasattr(args, "batch_size")
+        and args.batch_size is not None
+        and args.batch_size <= 0
+    ):
+        parser.error("--batch-size must be a positive integer")
+
+    # Validate --type values against known element types
+    VALID_TYPES = {"skill", "agent", "command", "rule", "mcp", "lsp"}
+    if args.type:
+        for t in args.type.split(","):
+            t = t.strip()
+            if t not in VALID_TYPES:
+                parser.error(
+                    f"Unknown element type: {t}. Valid types: {', '.join(sorted(VALID_TYPES))}"
+                )
+
     # Determine if we should scan all projects (comprehensive indexing)
     # Skip if --project-only or --user-only is specified
     scan_all_projects = args.all_projects and not (args.project_only or args.user_only)
@@ -764,7 +854,7 @@ def main() -> int:
     if args.project_only:
         elements = [e for e in elements if e.get("source") == "project"]
     elif args.user_only:
-        elements = [e for e in elements if e.get("source") == "user"]
+        elements = [e for e in elements if e.get("source") in ("user", "built-in")]
 
     # Checklist mode: generate markdown checklist with batches
     if args.checklist:
@@ -794,7 +884,10 @@ def main() -> int:
             print(f"  {elem['name']} [{elem['source']}] ({elem.get('type', 'skill')})")
             print(f"    Path: {elem['path']}")
             if elem.get("description"):
-                print(f"    Desc: {elem['description'][:80]}...")
+                desc = elem["description"]
+                if len(desc) > 80:
+                    desc = desc[:80] + "..."
+                print(f"    Desc: {desc}")
             print()
 
     return 0

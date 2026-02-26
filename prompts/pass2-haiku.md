@@ -8,7 +8,7 @@
 
 **Cross-platform temp directory**: Before any file operations, determine the system temp dir:
 `PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")`
-Use `${PSS_TMPDIR}/pss-queue/` instead of `${PSS_TMPDIR}/pss-queue/` throughout.
+Use `${PSS_TMPDIR}/pss-queue/` instead of `/tmp/pss-queue/` throughout.
 
 ## TEMPLATE START (copy everything below this line into the agent prompt)
 
