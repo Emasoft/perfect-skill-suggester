@@ -85,7 +85,7 @@ When PSS provides multiple evidence types for a suggestion, you can be more conf
 ### 3.3 Periodic clean rebuilds of the index
 
 **Occasional full rebuild ensures accuracy:**
-- Delete the index file (`~/.claude/skill_index.json`) every few months
+- Delete the index file (`~/.claude/cache/skill-index.json`) every few months
 - Rebuild with `/pss-reindex-skills`
 - This ensures that AI co-usage analysis (Phase 2) reflects the current skill landscape
 

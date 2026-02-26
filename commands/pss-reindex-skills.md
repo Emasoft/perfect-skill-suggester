@@ -371,8 +371,8 @@ Merge all subagent responses into the master index (rio v2.0 compatible format w
 {
   "version": "3.0",
   "generated": "2026-01-18T06:00:00Z",
-  "method": "ai-analyzed",
-  "skills_count": 216,
+  "generator": "ai-analyzed",
+  "skill_count": 216,
   "skills": {
     "devops-expert": {
       "source": "user",
@@ -572,9 +572,9 @@ Pass 2 agents merge their results directly into skill-index.json via pss_merge_q
 {
   "version": "3.0",
   "generated": "2026-01-19T00:00:00Z",
-  "method": "ai-analyzed",
+  "generator": "ai-analyzed",
   "pass": 2,
-  "skills_count": 216,
+  "skill_count": 216,
   "skills": {
     "devops-expert": {
       "source": "user",

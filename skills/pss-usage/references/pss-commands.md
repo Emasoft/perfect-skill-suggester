@@ -89,7 +89,7 @@ The `/pss-status` command requires no arguments. Simply type it in the chat:
 Perfect Skill Suggester Status
 ==============================
 
-Index File: /Users/name/.claude/skill_index.json
+Index File: /Users/name/.claude/cache/skill-index.json
 Index Status: ✓ Exists
 Total Skills Indexed: 42
 Last Modified: 2026-01-23 14:30:00
@@ -188,7 +188,7 @@ The command will:
 2. Read SKILL.md files and frontmatter
 3. Extract metadata (name, description, categories, keywords)
 4. Use AI to analyze co-usage relationships
-5. Write updated index to `~/.claude/skill_index.json`
+5. Write updated index to `~/.claude/cache/skill-index.json`
 
 **Step 3: Verify completion**
 
@@ -240,7 +240,7 @@ After reindexing, always run `/pss-status` to confirm:
 - Check for error messages in `/pss-status` output
 - Review troubleshooting section 5.4 below
 - Try reindexing again
-- Check file permissions on `~/.claude/skill_index.json`
+- Check file permissions on `~/.claude/cache/skill-index.json`
 
 ---
 
@@ -520,10 +520,10 @@ cat ~/.claude/skills/python-test-writer/SKILL.md | head -20
 
 ```bash
 # 1. Back up corrupted index (optional)
-cp ~/.claude/skill_index.json ~/.claude/skill_index.json.backup
+cp ~/.claude/cache/skill-index.json ~/.claude/cache/skill-index.json.backup
 
 # 2. Delete corrupted index
-rm ~/.claude/skill_index.json
+rm ~/.claude/cache/skill-index.json
 
 # 3. Rebuild from scratch
 /pss-reindex-skills
@@ -535,7 +535,7 @@ rm ~/.claude/skill_index.json
 **Prevention:**
 
 - Do not interrupt `/pss-reindex-skills` while running
-- Do not manually edit `skill_index.json`
+- Do not manually edit `cache/skill-index.json`
 - Ensure adequate disk space before reindexing
 
 ### 5.4 Reindexing failures and recovery
@@ -546,13 +546,13 @@ rm ~/.claude/skill_index.json
 
 **1. Permission denied on index file**
 
-**Error message:** `Cannot write to ~/.claude/skill_index.json`
+**Error message:** `Cannot write to ~/.claude/cache/skill-index.json`
 
 **Cause:** File permissions prevent writing
 
 **Fix:**
 ```bash
-chmod u+w ~/.claude/skill_index.json
+chmod u+w ~/.claude/cache/skill-index.json
 /pss-reindex-skills
 ```
 
@@ -614,7 +614,7 @@ grep -r "name: <skill_name>" ~/.claude/skills/
 
 # 4. If still failing, try manual rebuild
 # Delete index and retry
-rm ~/.claude/skill_index.json
+rm ~/.claude/cache/skill-index.json
 /pss-reindex-skills
 
 # 5. If all else fails, report issue

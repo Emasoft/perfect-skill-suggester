@@ -356,7 +356,7 @@ For detailed troubleshooting, see section 5.2 in [pss-commands.md](references/ps
 
 **Problem: Index file corrupted**
 - See section 5.3 in [pss-commands.md](references/pss-commands.md)
-- Quick fix: Delete `~/.claude/skill_index.json` and reindex
+- Quick fix: Delete `~/.claude/cache/skill-index.json` and reindex
 
 **Problem: Reindexing fails**
 - See section 5.4 in [pss-commands.md](references/pss-commands.md)

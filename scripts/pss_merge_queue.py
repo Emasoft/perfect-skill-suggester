@@ -13,7 +13,10 @@ Usage:
 """
 
 import argparse
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]  # Windows has no fcntl
 import json
 import os
 import sys
@@ -291,7 +294,8 @@ def run_merge(
     # Acquire exclusive file lock
     lock_fd = open(lock_path, "w")  # noqa: SIM115
     try:
-        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
 
         # Read or create the index
         if index_path.exists():
@@ -326,7 +330,8 @@ def run_merge(
 
     finally:
         # Release lock and close file descriptor
-        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+        if fcntl is not None:
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
         lock_fd.close()
 
 
