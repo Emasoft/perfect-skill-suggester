@@ -56,7 +56,12 @@ Combine the agent's role with the requirements to build a complete picture. For 
 
 ### Step 3: Build Agent Descriptor and Invoke Rust Binary
 
-Write a temporary JSON file at `/tmp/pss-agent-profile-input.json`:
+Determine the system temp directory (cross-platform):
+```bash
+PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
+```
+
+Write a temporary JSON file at `${PSS_TMPDIR}/pss-agent-profile-input.json`:
 
 ```json
 {
@@ -74,7 +79,7 @@ Write a temporary JSON file at `/tmp/pss-agent-profile-input.json`:
 Then invoke the Rust binary in `--agent-profile` mode:
 
 ```bash
-"${BINARY_PATH}" --agent-profile /tmp/pss-agent-profile-input.json --format json --top 30
+"${BINARY_PATH}" --agent-profile "${PSS_TMPDIR}/pss-agent-profile-input.json" --format json --top 30
 ```
 
 The binary will:
@@ -230,7 +235,7 @@ python3 "${PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH}" --c
 
 ### Step 9: Clean Up and Report
 
-- Delete the temporary `/tmp/pss-agent-profile-input.json` file
+- Delete the temporary `${PSS_TMPDIR}/pss-agent-profile-input.json` file
 - Print the output path and a 1-line summary: how many primary/secondary/specialized skills recommended, how many excluded and why
 
 ## Error Handling (FAIL-FAST — NO FALLBACKS)

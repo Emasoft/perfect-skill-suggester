@@ -147,10 +147,10 @@ class TestCleanupActualDeletion:
 
 
 class TestCleanupTmpQueue:
-    """Tests for /tmp/pss-queue/ scanning."""
+    """Tests for pss-queue temp directory scanning."""
 
     def test_scans_tmp_queue(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Cleanup scans /tmp/pss-queue/ for .pss files (non-recursive)."""
+        """Cleanup scans system temp pss-queue for .pss files (non-recursive)."""
         # Create a fake tmp queue dir
         queue_dir = tmp_path / "pss-queue"
         queue_dir.mkdir()

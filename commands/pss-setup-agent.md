@@ -48,19 +48,25 @@ Analyze an agent definition file and recommend best-fit skills from the PSS skil
 3. Verify `~/.claude/cache/skill-index.json` exists (error if not — tell user to run `/pss-reindex-skills` first)
 4. Determine the output path
 5. Detect the platform-specific Rust binary:
-   ```bash
-   ARCH=$(uname -m)
-   OS=$(uname -s)
-   PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
-   if [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then
-       BINARY="${PLUGIN_ROOT}/rust/skill-suggester/bin/pss-darwin-arm64"
-   elif [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
-       BINARY="${PLUGIN_ROOT}/rust/skill-suggester/bin/pss-darwin-x86_64"
-   elif [ "$OS" = "Linux" ] && [ "$ARCH" = "x86_64" ]; then
-       BINARY="${PLUGIN_ROOT}/rust/skill-suggester/bin/pss-linux-x86_64"
-   elif [ "$OS" = "Linux" ] && [ "$ARCH" = "aarch64" ]; then
-       BINARY="${PLUGIN_ROOT}/rust/skill-suggester/bin/pss-linux-arm64"
-   fi
+   ```python
+   import platform, os
+   system = platform.system()   # 'Darwin', 'Linux', 'Windows'
+   machine = platform.machine() # 'arm64', 'x86_64', 'AMD64'
+   plugin_root = os.environ["CLAUDE_PLUGIN_ROOT"]
+
+   PLATFORM_MAP = {
+       ("Darwin", "arm64"):   "pss-darwin-arm64",
+       ("Darwin", "x86_64"):  "pss-darwin-x86_64",
+       ("Linux", "x86_64"):   "pss-linux-x86_64",
+       ("Linux", "aarch64"):  "pss-linux-arm64",
+       ("Windows", "AMD64"):  "pss-windows-x86_64.exe",
+       ("Windows", "x86_64"): "pss-windows-x86_64.exe",
+   }
+
+   binary_name = PLATFORM_MAP.get((system, machine))
+   if binary_name is None:
+       raise RuntimeError(f"Unsupported platform: {system}/{machine}")
+   BINARY = os.path.join(plugin_root, "rust", "skill-suggester", "bin", binary_name)
    ```
 6. Spawn the `pss-agent-profiler` agent using the Task tool
 

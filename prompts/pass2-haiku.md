@@ -6,6 +6,10 @@
 
 ---
 
+**Cross-platform temp directory**: Before any file operations, determine the system temp dir:
+`PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")`
+Use `${PSS_TMPDIR}/pss-queue/` instead of `${PSS_TMPDIR}/pss-queue/` throughout.
+
 ## TEMPLATE START (copy everything below this line into the agent prompt)
 
 ```
@@ -68,7 +72,7 @@ SKILLS TO PROCESS:
 
 ## BATCH TRACKING CHECKLIST (MANDATORY)
 
-**Before starting, write this checklist to /tmp/pss-queue/batch-{batch_num}-pass2-tracking.md:**
+**Before starting, write this checklist to ${PSS_TMPDIR}/pss-queue/batch-{batch_num}-pass2-tracking.md:**
 
 ```markdown
 # Pass 2 Batch {batch_num} Tracking
@@ -288,7 +292,7 @@ These specific cross-domain links are ALWAYS wrong:
 
 ## OUTPUT FORMAT
 
-For each skill, write this JSON to /tmp/pss-queue/<skill-name>.pss:
+For each skill, write this JSON to ${PSS_TMPDIR}/pss-queue/<skill-name>.pss:
 
 ```json
 {
@@ -334,14 +338,14 @@ Q: Is this skill used frequently but only for specific project types?
 After writing EACH .pss file, immediately merge it:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "/tmp/pss-queue/<skill-name>.pss" --pass 2
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "${PSS_TMPDIR}/pss-queue/<skill-name>.pss" --pass 2
 ```
 
 ## COMPLETION VERIFICATION (MANDATORY - DO THIS BEFORE THE FINAL REPORT)
 
 Before reporting, you MUST:
 
-1. **Read back** the tracking file: `/tmp/pss-queue/batch-{batch_num}-pass2-tracking.md`
+1. **Read back** the tracking file: `${PSS_TMPDIR}/pss-queue/batch-{batch_num}-pass2-tracking.md`
 2. **Count** how many skills show Status=DONE and Merged=YES
 3. **Count** how many skills show Status=FAILED or are still PENDING
 4. **If ANY skill is PENDING** (not DONE and not FAILED): go back and process it NOW

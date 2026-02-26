@@ -21,6 +21,16 @@ allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep", "Task"]
 >
 > **⚠️ NEVER skip Phase 0. NEVER do partial/incremental updates. ALWAYS regenerate completely.**
 
+## Cross-Platform Temp Directory
+
+Before executing any phase, determine the system temp directory:
+```bash
+PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
+```
+All temporary paths below use `${PSS_TMPDIR}` as the base. This resolves to `/tmp` on Linux, a system temp dir on macOS, and the user's temp folder on Windows.
+
+---
+
 Generate an **AI-analyzed** keyword and phrase index for ALL skills available to Claude Code. Unlike heuristic approaches, this command has the agent **read and understand each skill** to formulate optimal activation patterns.
 
 This is the **MOST IMPORTANT** feature of Perfect Skill Suggester - AI-generated keywords ensure 88%+ accuracy in skill matching.
@@ -113,7 +123,7 @@ This creates a **superset index** containing ALL skills across all your projects
 **Create these tasks IN THIS EXACT ORDER using TaskCreate:**
 
 ```
-1. [Phase 0] Create backup directory in /tmp
+1. [Phase 0] Create backup directory in system temp
 2. [Phase 0] Backup and remove skill-index.json
 3. [Phase 0] Backup and remove skill-checklist.md
 4. [Phase 0] VERIFY clean slate - no index files remain
@@ -139,8 +149,8 @@ This creates a **superset index** containing ALL skills across all your projects
 **Example TaskCreate call for first task:**
 ```
 TaskCreate({
-  subject: "[Phase 0] Create backup directory in /tmp",
-  description: "Create timestamped backup dir: /tmp/pss-backup-YYYYMMDD_HHMMSS",
+  subject: "[Phase 0] Create backup directory in system temp",
+  description: "Create timestamped backup dir: ${PSS_TMPDIR}/pss-backup-YYYYMMDD_HHMMSS",
   activeForm: "Creating backup directory"
 })
 ```
@@ -159,10 +169,10 @@ NEVER interfere with the fresh reindex.
 
 ```bash
 # Step 0.0: Create timestamped backup folder and ensure pss-queue dir exists
-BACKUP_DIR="/tmp/pss-backup-$(date +%Y%m%d_%H%M%S)"
+BACKUP_DIR="${PSS_TMPDIR}/pss-backup-$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
-mkdir -p /tmp/pss-queue
-echo "$BACKUP_DIR" > /tmp/pss-queue/backup-dir.txt
+mkdir -p ${PSS_TMPDIR}/pss-queue
+echo "$BACKUP_DIR" > ${PSS_TMPDIR}/pss-queue/backup-dir.txt
 echo "Backup directory: $BACKUP_DIR"
 
 # Step 0.1: Backup and delete the main skill index
@@ -200,14 +210,14 @@ echo "Proceeding to Phase 1: Discovery..."
 **IMPORTANT: PERSIST $BACKUP_DIR**
 The orchestrator MUST remember the `$BACKUP_DIR` path for the rest of the reindex process.
 The post-reindex validator needs this path to restore the backup if validation fails.
-Store it in a variable or write it to `/tmp/pss-queue/backup-dir.txt`:
+Store it in a variable or write it to `${PSS_TMPDIR}/pss-queue/backup-dir.txt`:
 ```bash
-echo "$BACKUP_DIR" > /tmp/pss-queue/backup-dir.txt
+echo "$BACKUP_DIR" > ${PSS_TMPDIR}/pss-queue/backup-dir.txt
 ```
 
 **CHECKLIST (ALL MUST BE CHECKED BEFORE PROCEEDING):**
-- [ ] Backup directory created in /tmp
-- [ ] `$BACKUP_DIR` path persisted to `/tmp/pss-queue/backup-dir.txt`
+- [ ] Backup directory created in `${PSS_TMPDIR}`
+- [ ] `$BACKUP_DIR` path persisted to `${PSS_TMPDIR}/pss-queue/backup-dir.txt`
 - [ ] `skill-index.json` moved to backup (or did not exist)
 - [ ] `skill-checklist.md` moved to backup (or did not exist)
 - [ ] **VERIFICATION PASSED**: No index files remain
@@ -222,7 +232,7 @@ echo "$BACKUP_DIR" > /tmp/pss-queue/backup-dir.txt
 5. Co-usage data references non-existent skills → cascading errors
 6. **ANY remnant of old data will corrupt the fresh index**
 
-**The backup in /tmp ensures you can debug issues if needed, but the old data is GONE from the active paths.**
+**The backup in `${PSS_TMPDIR}` ensures you can debug issues if needed, but the old data is GONE from the active paths.**
 
 ---
 
@@ -232,14 +242,14 @@ echo "$BACKUP_DIR" > /tmp/pss-queue/backup-dir.txt
 > This removes orphaned .pss files left by crashed agents or previous runs.
 
 ```bash
-# Clean ALL stale .pss files system-wide (skill dirs + /tmp/pss-queue/)
+# Clean ALL stale .pss files system-wide (skill dirs + ${PSS_TMPDIR}/pss-queue/)
 python3 "${PLUGIN_ROOT}/scripts/pss_cleanup.py" --all-projects --verbose
 ```
 
 **What this does:**
 - Scans ALL skill locations (user, project, plugin cache, local plugins, all projects)
 - Removes any `*.pss` files found in skill directories (leftovers from pss_generate.py)
-- Removes any `*.pss` files in `/tmp/pss-queue/` (leftovers from crashed agents)
+- Removes any `*.pss` files in `${PSS_TMPDIR}/pss-queue/` (leftovers from crashed agents)
 - Reports count of files deleted per location
 
 **If cleanup reports 0 files:** Good — no stale files existed. Proceed.
@@ -398,7 +408,7 @@ Merge all subagent responses into the master index (rio v2.0 compatible format w
 
 ### Step 5: Pass 1 Index (Built Incrementally via Merge)
 
-Pass 1 agents write temporary `.pss` files to `/tmp/pss-queue/` and immediately merge them into `~/.claude/cache/skill-index.json` via `pss_merge_queue.py`. No explicit "Save" step is needed -- the merge happens inline during Pass 1 processing.
+Pass 1 agents write temporary `.pss` files to `${PSS_TMPDIR}/pss-queue/` and immediately merge them into `~/.claude/cache/skill-index.json` via `pss_merge_queue.py`. No explicit "Save" step is needed -- the merge happens inline during Pass 1 processing.
 
 The orchestrator should verify after all Pass 1 agents complete that `skill-index.json` exists and contains all discovered skills with `"pass": 1`.
 
@@ -432,15 +442,15 @@ cd "${PLUGIN_ROOT}" && uv run --with pyyaml python scripts/validate_plugin.py . 
 
 ### Step 5b: Check Pass 1 Agent Tracking Files (MANDATORY)
 
-The haiku agents write per-batch tracking files to `/tmp/pss-queue/batch-*-pass1-tracking.md`.
+The haiku agents write per-batch tracking files to `${PSS_TMPDIR}/pss-queue/batch-*-pass1-tracking.md`.
 The orchestrator MUST check these files to verify no skills were skipped:
 
 ```bash
 # List all Pass 1 tracking files
-ls /tmp/pss-queue/batch-*-pass1-tracking.md
+ls ${PSS_TMPDIR}/pss-queue/batch-*-pass1-tracking.md
 
 # For each tracking file, check for PENDING or FAILED skills
-grep -E "PENDING|FAILED" /tmp/pss-queue/batch-*-pass1-tracking.md
+grep -E "PENDING|FAILED" ${PSS_TMPDIR}/pss-queue/batch-*-pass1-tracking.md
 ```
 
 **If ANY skill shows PENDING:**
@@ -614,11 +624,11 @@ cd "${PLUGIN_ROOT}" && uv run --with pyyaml python scripts/validate_plugin.py . 
 - The reindex has FAILED - report to user
 - If a backup exists (from Phase 0), manually restore it:
   ```bash
-  BACKUP_DIR=$(cat /tmp/pss-queue/backup-dir.txt)
+  BACKUP_DIR=$(cat ${PSS_TMPDIR}/pss-queue/backup-dir.txt)
   cp "$BACKUP_DIR/skill-index.json" ~/.claude/cache/skill-index.json
   ```
 - Include the validator's error output in the report so the user can diagnose
-- Clean up temporary `.pss` files: `rm -f /tmp/pss-queue/*.pss`
+- Clean up temporary `.pss` files: `rm -f ${PSS_TMPDIR}/pss-queue/*.pss`
 
 **If validation PASSES (exit code 0):**
 - Proceed to Step 8b
@@ -629,10 +639,10 @@ Same procedure as Step 5b, but for Pass 2 tracking files:
 
 ```bash
 # List all Pass 2 tracking files
-ls /tmp/pss-queue/batch-*-pass2-tracking.md
+ls ${PSS_TMPDIR}/pss-queue/batch-*-pass2-tracking.md
 
 # For each tracking file, check for PENDING or FAILED skills
-grep -E "PENDING|FAILED" /tmp/pss-queue/batch-*-pass2-tracking.md
+grep -E "PENDING|FAILED" ${PSS_TMPDIR}/pss-queue/batch-*-pass2-tracking.md
 ```
 
 **If ANY skill shows PENDING:**
@@ -653,17 +663,17 @@ After validation passes, clean up temporary files:
 
 ```bash
 # Remove tracking files (no longer needed)
-rm -f /tmp/pss-queue/batch-*-tracking.md
+rm -f ${PSS_TMPDIR}/pss-queue/batch-*-tracking.md
 
 # Remove backup-dir pointer
-rm -f /tmp/pss-queue/backup-dir.txt
+rm -f ${PSS_TMPDIR}/pss-queue/backup-dir.txt
 
-# Comprehensive .pss cleanup: skill dirs + /tmp/pss-queue/ (replaces simple rm -f)
+# Comprehensive .pss cleanup: skill dirs + ${PSS_TMPDIR}/pss-queue/ (replaces simple rm -f)
 python3 "${PLUGIN_ROOT}/scripts/pss_cleanup.py" --all-projects --verbose
 ```
 
-**NOTE:** The backup directory in `/tmp/pss-backup-*` is intentionally NOT deleted.
-It persists until the system clears `/tmp` or the user manually removes it.
+**NOTE:** The backup directory in `${PSS_TMPDIR}/pss-backup-*` is intentionally NOT deleted.
+It persists until the system clears the temp directory or the user manually removes it.
 This provides a safety net if issues are discovered later.
 
 ### Step 8d: Aggregate Domain Gates into Domain Registry (MANDATORY)
@@ -704,7 +714,7 @@ python3 "${PLUGIN_ROOT}/scripts/pss_aggregate_domains.py" --verbose
 6. ✅ Pass 2 tracking verified - All batch tracking files show DONE+YES for all skills
 7. ✅ Global index updated - `~/.claude/cache/skill-index.json` contains `"pass": 2`
 8. ✅ Domain registry generated - `~/.claude/cache/domain-registry.json` exists with aggregated domains
-9. ✅ Temporary files cleaned up - No .pss files or tracking files remain in /tmp/pss-queue/
+9. ✅ Temporary files cleaned up - No .pss files or tracking files remain in ${PSS_TMPDIR}/pss-queue/
 
 **FAILURE CONDITIONS:**
 - If index shows `"pass": 1`, Pass 2 was NOT executed

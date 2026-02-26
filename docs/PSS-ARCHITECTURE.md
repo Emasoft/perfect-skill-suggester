@@ -26,8 +26,9 @@
 
 **Phase 0 (MANDATORY, NON-NEGOTIABLE) - Backup and delete ALL previous data BEFORE discovery:**
 ```bash
-# Create timestamped backup in /tmp (data is preserved but GONE from active paths)
-BACKUP_DIR="/tmp/pss-backup-$(date +%Y%m%d_%H%M%S)"
+# Create timestamped backup in system temp dir (data is preserved but GONE from active paths)
+PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
+BACKUP_DIR="${PSS_TMPDIR}/pss-backup-$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 
 # Move (not delete) all index data to backup

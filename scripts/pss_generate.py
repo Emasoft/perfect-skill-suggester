@@ -26,6 +26,7 @@ import hashlib
 import json
 import re
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -311,11 +312,11 @@ def generate_for_directory(
     """
     Generate .pss files for all skills in a directory.
 
-    Output goes to /tmp/pss-queue/ to prevent .pss accumulation in skill dirs.
+    Output goes to the system temp pss-queue dir to prevent .pss accumulation in skill dirs.
     Returns count of generated files.
     """
     # Write .pss to queue dir, not skill dirs, to prevent orphaned file buildup
-    queue_dir = Path("/tmp/pss-queue")
+    queue_dir = Path(tempfile.gettempdir()) / "pss-queue"
     queue_dir.mkdir(parents=True, exist_ok=True)
     count = 0
 
@@ -469,12 +470,12 @@ def main() -> int:
                 skill_path, args.tier, args.category, args.source, args.force
             )
 
-            # Determine output path — default to /tmp/pss-queue/ to avoid
+            # Determine output path — default to system temp pss-queue to avoid
             # polluting skill directories with .pss files
             if args.output:
                 output_path = Path(args.output)
             else:
-                queue_dir = Path("/tmp/pss-queue")
+                queue_dir = Path(tempfile.gettempdir()) / "pss-queue"
                 queue_dir.mkdir(parents=True, exist_ok=True)
                 skill_name = extract_skill_name(skill_path)
                 output_path = queue_dir / f"{skill_name}.pss"

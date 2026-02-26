@@ -4,7 +4,7 @@ Perfect Skill Suggester - Stale .pss File Cleanup Script.
 
 Finds and removes stale .pss files left behind by crashed agents or by
 pss_generate.py. Scans all skill directories discovered by pss_discover_skills
-plus the /tmp/pss-queue/ staging directory.
+plus the system temp pss-queue staging directory.
 
 Usage:
     python3 pss_cleanup.py [--dry-run] [--all-projects] [--verbose]
@@ -17,12 +17,13 @@ Options:
 Environment (for testing only):
     PSS_CLEANUP_TEST_SKILL_DIRS  Comma-separated skill dir paths to use instead
                                  of calling get_all_skill_locations()
-    PSS_CLEANUP_TEST_QUEUE_DIR   Override /tmp/pss-queue/ with a custom path
+    PSS_CLEANUP_TEST_QUEUE_DIR   Override the system temp pss-queue dir with a custom path
 """
 
 import argparse
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -63,7 +64,7 @@ def _get_queue_dir() -> Path:
     test_queue = os.environ.get("PSS_CLEANUP_TEST_QUEUE_DIR")
     if test_queue is not None:
         return Path(test_queue)
-    return Path("/tmp/pss-queue")
+    return Path(tempfile.gettempdir()) / "pss-queue"
 
 
 def _collect_pss_files(
