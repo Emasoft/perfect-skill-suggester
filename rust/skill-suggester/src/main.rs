@@ -75,6 +75,13 @@ struct Cli {
     /// Can also be set via PSS_REGISTRY_PATH environment variable.
     #[arg(long)]
     registry: Option<String>,
+
+    /// Run in agent-profile mode: score all skills against an agent descriptor
+    /// JSON file and return tiered recommendations. The JSON file should contain
+    /// name, description, role, duties, tools, domains, and requirements_summary.
+    /// Bypasses stdin reading — input comes from the file, not the hook.
+    #[arg(long)]
+    agent_profile: Option<String>,
 }
 
 // ============================================================================
@@ -343,6 +350,79 @@ pub struct HookInput {
     /// Detected file types from conversation context (e.g., ["pdf", "xlsx"])
     #[serde(default)]
     pub context_file_types: Vec<String>,
+}
+
+/// Input for --agent-profile mode: describes an agent to profile against the skill index.
+/// The profiler agent writes this JSON file, then invokes the binary with --agent-profile <path>.
+#[derive(Debug, Deserialize)]
+pub struct AgentProfileInput {
+    /// Agent name (e.g., "security-auditor")
+    pub name: String,
+
+    /// Full agent description — what the agent does, its specialization
+    #[serde(default)]
+    pub description: String,
+
+    /// Agent's primary role (e.g., "developer", "tester", "reviewer")
+    #[serde(default)]
+    pub role: String,
+
+    /// List of duties/responsibilities extracted from the agent definition
+    #[serde(default)]
+    pub duties: Vec<String>,
+
+    /// Tools the agent uses (e.g., ["grep", "semgrep", "bandit"])
+    #[serde(default)]
+    pub tools: Vec<String>,
+
+    /// Domain tags (e.g., ["security", "testing"])
+    #[serde(default)]
+    pub domains: Vec<String>,
+
+    /// Condensed summary of all requirements/design documents
+    #[serde(default)]
+    pub requirements_summary: String,
+
+    /// Current working directory for project context scanning
+    #[serde(default)]
+    pub cwd: String,
+}
+
+/// Output for --agent-profile mode: tiered skill recommendations
+#[derive(Debug, Serialize)]
+pub struct AgentProfileOutput {
+    /// Agent name
+    pub agent: String,
+
+    /// Tiered skill recommendations
+    pub skills: AgentProfileSkills,
+
+    /// Complementary agents found via co_usage data
+    pub complementary_agents: Vec<String>,
+}
+
+/// Tiered skill lists for agent profile output
+#[derive(Debug, Serialize)]
+pub struct AgentProfileSkills {
+    /// Core skills (score >= 60% of max)
+    pub primary: Vec<AgentProfileCandidate>,
+
+    /// Useful skills (score 30-59% of max)
+    pub secondary: Vec<AgentProfileCandidate>,
+
+    /// Niche skills (score 15-29% of max)
+    pub specialized: Vec<AgentProfileCandidate>,
+}
+
+/// A single skill candidate in the agent profile output
+#[derive(Debug, Serialize)]
+pub struct AgentProfileCandidate {
+    pub name: String,
+    pub path: String,
+    pub score: f64,
+    pub confidence: String,
+    pub evidence: Vec<String>,
+    pub description: String,
 }
 
 /// Project context for filtering skills by platform/framework/language/domain/tools/file-types
@@ -4771,6 +4851,256 @@ fn rotate_log_if_needed(log_path: &PathBuf) {
 // Main Entry Point
 // ============================================================================
 
+/// Run in agent-profile mode: score all skills against an agent descriptor,
+/// synthesizing multiple queries from the agent's description, duties, and requirements.
+/// Returns tiered recommendations as JSON.
+fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError> {
+    // Read and parse the agent descriptor JSON file
+    let profile_json = fs::read_to_string(profile_path)
+        .map_err(|e| SuggesterError::IndexRead { path: PathBuf::from(profile_path), source: e })?;
+    let profile: AgentProfileInput = serde_json::from_str(&profile_json)?;
+
+    info!("Agent profile mode: analyzing agent '{}'", profile.name);
+
+    // Load skill index
+    let index_path = get_index_path(cli.index.as_deref())?;
+    let index = match load_index(&index_path) {
+        Ok(idx) => idx,
+        Err(SuggesterError::IndexNotFound(path)) => {
+            error!("Skill index not found at {:?}", path);
+            return Err(SuggesterError::IndexNotFound(path));
+        }
+        Err(e) => return Err(e),
+    };
+    info!("Loaded {} skills from index", index.skills.len());
+
+    // Load domain registry (optional, graceful)
+    let registry = match get_registry_path(cli.registry.as_deref()) {
+        Some(reg_path) => match load_domain_registry(&reg_path) {
+            Ok(Some(reg)) => {
+                info!("Loaded domain registry: {} domains", reg.domains.len());
+                Some(reg)
+            }
+            _ => None,
+        },
+        None => None,
+    };
+
+    // Build project context from the agent descriptor's cwd (if provided)
+    let context = if !profile.cwd.is_empty() {
+        let project_scan = scan_project_context(&profile.cwd);
+        let mut ctx = ProjectContext::default();
+        ctx.merge_scan(&project_scan);
+        // Also inject the agent's declared domains/tools into context
+        for d in &profile.domains {
+            ctx.domains.push(d.to_lowercase());
+        }
+        for t in &profile.tools {
+            ctx.tools.push(t.to_lowercase());
+        }
+        dedup_vec(&mut ctx.domains);
+        dedup_vec(&mut ctx.tools);
+        ctx
+    } else {
+        // No cwd: build context purely from agent descriptor fields
+        let mut ctx = ProjectContext::default();
+        ctx.domains = profile.domains.iter().map(|d| d.to_lowercase()).collect();
+        ctx.tools = profile.tools.iter().map(|t| t.to_lowercase()).collect();
+        ctx
+    };
+
+    // Synthesize multiple scoring queries from agent descriptor fields.
+    // Each query is run through the full scoring pipeline independently,
+    // and scores are aggregated per skill. This gives broad coverage:
+    // the description catches general matches, duties catch action-oriented
+    // matches, and requirements catch project-specific matches.
+    let mut queries: Vec<String> = Vec::new();
+
+    // Query 1: Full agent description (broadest match)
+    if !profile.description.is_empty() {
+        queries.push(profile.description.clone());
+    }
+
+    // Query 2: Role + domain as a phrase (matches category-level keywords)
+    if !profile.role.is_empty() {
+        let role_query = if profile.domains.is_empty() {
+            profile.role.clone()
+        } else {
+            format!("{} {}", profile.role, profile.domains.join(" "))
+        };
+        queries.push(role_query);
+    }
+
+    // Query 3: Each duty as a separate query (matches action-oriented keywords)
+    for duty in &profile.duties {
+        if duty.len() > 5 {
+            queries.push(duty.clone());
+        }
+    }
+
+    // Query 4: Requirements summary (matches project-specific skills)
+    if !profile.requirements_summary.is_empty() {
+        queries.push(profile.requirements_summary.clone());
+    }
+
+    // Query 5: Tools as a query (matches tool-specific skills)
+    if !profile.tools.is_empty() {
+        queries.push(profile.tools.join(" "));
+    }
+
+    if queries.is_empty() {
+        error!("Agent profile has no description, duties, or requirements to score against");
+        let output = AgentProfileOutput {
+            agent: profile.name,
+            skills: AgentProfileSkills {
+                primary: vec![],
+                secondary: vec![],
+                specialized: vec![],
+            },
+            complementary_agents: vec![],
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
+
+    info!("Synthesized {} scoring queries from agent descriptor", queries.len());
+
+    // Run each query through find_matches and aggregate scores per skill
+    let mut skill_scores: HashMap<String, (i32, Vec<String>, String, String, String)> = HashMap::new();
+    // Key: skill name, Value: (aggregated_score, merged_evidence, path, confidence_str, description)
+
+    let empty_domains: DetectedDomains = HashMap::new();
+
+    for (qi, query) in queries.iter().enumerate() {
+        let corrected = correct_typos(query);
+        let expanded = expand_synonyms(&corrected);
+
+        // Detect domains for this query (uses registry if available)
+        let detected_domains: DetectedDomains = match &registry {
+            Some(reg) => {
+                let mut context_signals: Vec<String> = Vec::new();
+                context_signals.extend(context.domains.iter().cloned());
+                context_signals.extend(context.tools.iter().cloned());
+                context_signals.extend(context.frameworks.iter().cloned());
+                context_signals.extend(context.languages.iter().cloned());
+                detect_domains_from_prompt_with_context(&expanded, reg, &context_signals)
+            }
+            None => HashMap::new(),
+        };
+
+        let matches = find_matches(
+            &corrected,
+            &expanded,
+            &index,
+            &profile.cwd,
+            &context,
+            false, // not incomplete_mode — use full scoring including co_usage
+            if detected_domains.is_empty() { &empty_domains } else { &detected_domains },
+            registry.as_ref(),
+        );
+
+        debug!("Query {}/{}: '{}' → {} matches", qi + 1, queries.len(),
+            &query[..query.len().min(60)], matches.len());
+
+        for m in matches {
+            let entry = skill_scores.entry(m.name.clone()).or_insert_with(|| {
+                (0, Vec::new(), m.path.clone(), "LOW".to_string(), m.description.clone())
+            });
+            // Aggregate: add scores across queries
+            entry.0 += m.score;
+            // Merge evidence (deduplicated later)
+            for ev in &m.evidence {
+                if !entry.1.contains(ev) {
+                    entry.1.push(ev.clone());
+                }
+            }
+            // Keep highest confidence seen
+            let conf_rank = |c: &str| -> u8 {
+                match c { "HIGH" => 3, "MEDIUM" => 2, _ => 1 }
+            };
+            let new_conf = m.confidence.as_str().to_string();
+            if conf_rank(&new_conf) > conf_rank(&entry.3) {
+                entry.3 = new_conf;
+            }
+        }
+    }
+
+    // Sort skills by aggregated score descending
+    let mut sorted_skills: Vec<(String, i32, Vec<String>, String, String, String)> = skill_scores
+        .into_iter()
+        .map(|(name, (score, evidence, path, confidence, description))| {
+            (name, score, evidence, path, confidence, description)
+        })
+        .collect();
+    sorted_skills.sort_by(|a, b| b.1.cmp(&a.1));
+
+    // Find max score for relative scoring
+    let max_score = sorted_skills.first().map(|s| s.1).unwrap_or(1).max(1);
+
+    // Classify into tiers based on relative score (percentage of max)
+    let mut primary: Vec<AgentProfileCandidate> = Vec::new();
+    let mut secondary: Vec<AgentProfileCandidate> = Vec::new();
+    let mut specialized: Vec<AgentProfileCandidate> = Vec::new();
+
+    let top_n = cli.top; // Use --top flag (default 4, but profiler command passes 30)
+
+    for (name, score, evidence, path, confidence, description) in sorted_skills.into_iter().take(top_n) {
+        let relative = (score as f64) / (max_score as f64);
+        let candidate = AgentProfileCandidate {
+            name,
+            path,
+            score: relative,
+            confidence,
+            evidence,
+            description,
+        };
+
+        if relative >= 0.60 && primary.len() < 7 {
+            primary.push(candidate);
+        } else if relative >= 0.30 && secondary.len() < 12 {
+            secondary.push(candidate);
+        } else if relative >= 0.15 && specialized.len() < 8 {
+            specialized.push(candidate);
+        }
+        // Skills below 15% relative score are discarded
+    }
+
+    // Find complementary agents from co_usage data of primary skills.
+    // Co-usage fields (usually_with, precedes, follows, alternatives) are
+    // flat fields on SkillEntry, not nested under a co_usage object.
+    let mut complementary: HashSet<String> = HashSet::new();
+    for p in &primary {
+        if let Some(entry) = index.skills.get(&p.name) {
+            for uw in &entry.usually_with {
+                if let Some(uw_entry) = index.skills.get(uw.as_str()) {
+                    if uw_entry.skill_type == "agent" {
+                        complementary.insert(uw.clone());
+                    }
+                }
+            }
+        }
+    }
+    let complementary_agents: Vec<String> = complementary.into_iter().collect();
+
+    info!(
+        "Agent profile result: {} primary, {} secondary, {} specialized, {} complementary agents",
+        primary.len(), secondary.len(), specialized.len(), complementary_agents.len()
+    );
+
+    let output = AgentProfileOutput {
+        agent: profile.name,
+        skills: AgentProfileSkills {
+            primary,
+            secondary,
+            specialized,
+        },
+        complementary_agents,
+    };
+
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+
 fn main() {
     // Initialize tracing if RUST_LOG is set
     tracing_subscriber::fmt()
@@ -4785,7 +5115,15 @@ fn main() {
         info!("Running in INCOMPLETE MODE - co_usage data will be ignored");
     }
 
-    if let Err(e) = run(&cli) {
+    // Dispatch: agent-profile mode vs normal hook mode
+    let result = if let Some(ref profile_path) = cli.agent_profile {
+        info!("Running in AGENT PROFILE mode: {}", profile_path);
+        run_agent_profile(&cli, profile_path)
+    } else {
+        run(&cli)
+    };
+
+    if let Err(e) = result {
         error!("Error: {}", e);
         // Output empty response on error (non-blocking)
         let output = HookOutput::empty();

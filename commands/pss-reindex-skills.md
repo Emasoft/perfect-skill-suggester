@@ -117,19 +117,21 @@ This creates a **superset index** containing ALL skills across all your projects
 2. [Phase 0] Backup and remove skill-index.json
 3. [Phase 0] Backup and remove skill-checklist.md
 4. [Phase 0] VERIFY clean slate - no index files remain
-5. [Phase 1] Run discovery script to generate skill checklist
-6. [Phase 1] Spawn Pass 1 batch agents for keyword analysis
-7. [Phase 1] Validate Pass 1 index (run CPV plugin validator: uv run --with pyyaml python scripts/validate_plugin.py . --verbose)
-8. [Phase 1] Check agent tracking files for missed skills, re-run if needed
-9. [Phase 2] Spawn Pass 2 batch agents for co-usage analysis
-10. [Phase 2] Validate final index (run CPV plugin validator: uv run --with pyyaml python scripts/validate_plugin.py . --verbose)
-11. [Phase 2] Check agent tracking files for missed skills, re-run if needed
-12. [Verify] Confirm index has pass:2 and all skills have co_usage
-13. [Report] Report final statistics to user
+5. [Phase 0.5] Run pss_cleanup.py --all-projects to remove stale .pss files
+6. [Phase 1] Run discovery script to generate skill checklist
+7. [Phase 1] Spawn Pass 1 batch agents for keyword analysis
+8. [Phase 1] Validate Pass 1 index (run CPV plugin validator: uv run --with pyyaml python scripts/validate_plugin.py . --verbose)
+9. [Phase 1] Check agent tracking files for missed skills, re-run if needed
+10. [Phase 2] Spawn Pass 2 batch agents for co-usage analysis
+11. [Phase 2] Validate final index (run CPV plugin validator: uv run --with pyyaml python scripts/validate_plugin.py . --verbose)
+12. [Phase 2] Check agent tracking files for missed skills, re-run if needed
+13. [Verify] Confirm index has pass:2 and all skills have co_usage
+14. [Report] Report final statistics to user
 ```
 
 **CRITICAL RULES:**
 - Tasks 1-4 (Phase 0) MUST ALL be marked `completed` BEFORE starting task 5
+- Task 5 (Phase 0.5 cleanup) MUST complete before starting task 6
 - If task 4 verification FAILS, do NOT proceed - mark remaining tasks as blocked
 - Update task status to `in_progress` when starting, `completed` when done
 - If ANY Phase 0 task fails, STOP and report error to user
@@ -221,6 +223,28 @@ echo "$BACKUP_DIR" > /tmp/pss-queue/backup-dir.txt
 6. **ANY remnant of old data will corrupt the fresh index**
 
 **The backup in /tmp ensures you can debug issues if needed, but the old data is GONE from the active paths.**
+
+---
+
+### PHASE 0.5: CLEAN STALE .PSS FILES (MANDATORY)
+
+> **Run AFTER Phase 0 backup/deletion, BEFORE Phase 1 discovery.**
+> This removes orphaned .pss files left by crashed agents or previous runs.
+
+```bash
+# Clean ALL stale .pss files system-wide (skill dirs + /tmp/pss-queue/)
+python3 "${PLUGIN_ROOT}/scripts/pss_cleanup.py" --all-projects --verbose
+```
+
+**What this does:**
+- Scans ALL skill locations (user, project, plugin cache, local plugins, all projects)
+- Removes any `*.pss` files found in skill directories (leftovers from pss_generate.py)
+- Removes any `*.pss` files in `/tmp/pss-queue/` (leftovers from crashed agents)
+- Reports count of files deleted per location
+
+**If cleanup reports 0 files:** Good — no stale files existed. Proceed.
+**If cleanup reports N files:** Files were cleaned. Proceed to Phase 1.
+**If cleanup fails (exit code 1):** Non-fatal warning — log it and proceed to Phase 1.
 
 ---
 
@@ -634,8 +658,8 @@ rm -f /tmp/pss-queue/batch-*-tracking.md
 # Remove backup-dir pointer
 rm -f /tmp/pss-queue/backup-dir.txt
 
-# Remove any remaining .pss files (should already be merged)
-rm -f /tmp/pss-queue/*.pss
+# Comprehensive .pss cleanup: skill dirs + /tmp/pss-queue/ (replaces simple rm -f)
+python3 "${PLUGIN_ROOT}/scripts/pss_cleanup.py" --all-projects --verbose
 ```
 
 **NOTE:** The backup directory in `/tmp/pss-backup-*` is intentionally NOT deleted.

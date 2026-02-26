@@ -311,13 +311,17 @@ def generate_for_directory(
     """
     Generate .pss files for all skills in a directory.
 
+    Output goes to /tmp/pss-queue/ to prevent .pss accumulation in skill dirs.
     Returns count of generated files.
     """
+    # Write .pss to queue dir, not skill dirs, to prevent orphaned file buildup
+    queue_dir = Path("/tmp/pss-queue")
+    queue_dir.mkdir(parents=True, exist_ok=True)
     count = 0
 
     # Find SKILL.md files
     for skill_md in dir_path.rglob("SKILL.md"):
-        pss_path = skill_md.parent / f"{extract_skill_name(skill_md)}.pss"
+        pss_path = queue_dir / f"{extract_skill_name(skill_md)}.pss"
 
         if pss_path.exists() and not force:
             print(f"Skipping (exists): {pss_path}")
@@ -337,7 +341,7 @@ def generate_for_directory(
 
         parent_name = agent_md.parent.name
         if parent_name in ("agents", "commands"):
-            pss_path = agent_md.parent / f"{agent_md.stem}.pss"
+            pss_path = queue_dir / f"{agent_md.stem}.pss"
 
             if pss_path.exists() and not force:
                 print(f"Skipping (exists): {pss_path}")
@@ -465,12 +469,15 @@ def main() -> int:
                 skill_path, args.tier, args.category, args.source, args.force
             )
 
-            # Determine output path
+            # Determine output path — default to /tmp/pss-queue/ to avoid
+            # polluting skill directories with .pss files
             if args.output:
                 output_path = Path(args.output)
             else:
+                queue_dir = Path("/tmp/pss-queue")
+                queue_dir.mkdir(parents=True, exist_ok=True)
                 skill_name = extract_skill_name(skill_path)
-                output_path = skill_path.parent / f"{skill_name}.pss"
+                output_path = queue_dir / f"{skill_name}.pss"
 
             save_pss(pss_data, output_path)
             return 0

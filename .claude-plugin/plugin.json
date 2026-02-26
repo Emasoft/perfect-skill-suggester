@@ -21,10 +21,13 @@
   ],
   "commands": [
     "./commands/pss-reindex-skills.md",
-    "./commands/pss-status.md"
+    "./commands/pss-status.md",
+    "./commands/pss-setup-agent.md"
   ],
   "skills": [
     "./skills/pss-usage"
   ],
-  "agents": []
+  "agents": [
+    "./agents/pss-agent-profiler.md"
+  ]
 }

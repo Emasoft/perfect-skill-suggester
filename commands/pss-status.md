@@ -186,8 +186,6 @@ The command also checks if the Rust binary is available for the detected platfor
 | Linux x86_64 | `bin/pss-linux-x86_64` | Static (musl) |
 | Linux ARM64 | `bin/pss-linux-arm64` | Static (musl) |
 | Windows x86_64 | `bin/pss-windows-x86_64.exe` | Cross-compiled |
-| Windows ARM64 | `bin/pss-windows-arm64.exe` | Cross-compiled |
-| Android ARM64 | `bin/pss-android-arm64` | Termux compatible |
 | WASM | `bin/pss-wasm32.wasm` | For web sandboxes/containers |
 
 ### Example Output
