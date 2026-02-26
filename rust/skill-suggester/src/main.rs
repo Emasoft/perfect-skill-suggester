@@ -7669,4 +7669,266 @@ mediapipe>=0.10
         let results = find_matches("repo", "repo", &index, "/tmp", &ctx, false, &detected, None);
         assert!(results.is_empty(), "repo should not match configuration");
     }
+
+    // ========================================================================
+    // Multi-Type Functionality Tests
+    // ========================================================================
+
+    #[test]
+    fn test_hook_filter_blocks_non_skill_types() {
+        // Verify that the hook-mode filter keeps only skill/agent/empty types,
+        // blocking command, rule, mcp, and lsp entries.
+        let mut skills = HashMap::new();
+
+        // Create entries of each type, all sharing the keyword "automation"
+        for (name, stype) in &[
+            ("auto-skill", "skill"),
+            ("auto-agent", "agent"),
+            ("auto-command", "command"),
+            ("auto-rule", "rule"),
+            ("auto-mcp", "mcp"),
+            ("auto-lsp", "lsp"),
+        ] {
+            skills.insert(
+                name.to_string(),
+                SkillEntry {
+                    source: "user".to_string(),
+                    path: format!("/path/to/{}/SKILL.md", name),
+                    skill_type: stype.to_string(),
+                    keywords: vec!["automation".to_string()],
+                    intents: vec![],
+                    patterns: vec![],
+                    directories: vec![],
+                    path_patterns: vec![],
+                    description: format!("{} entry", stype),
+                    negative_keywords: vec![],
+                    tier: String::new(),
+                    boost: 0,
+                    category: String::new(),
+                    platforms: vec![],
+                    frameworks: vec![],
+                    languages: vec![],
+                    domains: vec![],
+                    tools: vec![],
+                    file_types: vec![],
+                    domain_gates: HashMap::new(),
+                    usually_with: vec![],
+                    precedes: vec![],
+                    follows: vec![],
+                    alternatives: vec![],
+                    server_type: String::new(),
+                    server_command: String::new(),
+                    server_args: vec![],
+                    language_ids: vec![],
+                },
+            );
+        }
+
+        let index = SkillIndex {
+            version: "3.0".to_string(),
+            generated: "2026-01-18T00:00:00Z".to_string(),
+            method: "test".to_string(),
+            skills_count: 6,
+            skills,
+        };
+
+        // find_matches returns all types
+        let matches = find_matches(
+            "automation",
+            "automation",
+            &index,
+            "",
+            &ProjectContext::default(),
+            false,
+            &HashMap::new(),
+            None,
+        );
+
+        // Apply the same hook-mode filter as production code (line 5582-5584):
+        // keep only entries where item_type is "skill", "agent", or empty
+        let filtered: Vec<_> = matches
+            .iter()
+            .filter(|m| {
+                let t = m.skill_type.as_str();
+                t == "skill" || t == "agent" || t.is_empty()
+            })
+            .collect();
+
+        // skill and agent should survive the filter
+        assert!(
+            filtered.iter().any(|m| m.name == "auto-skill"),
+            "skill type should pass hook filter"
+        );
+        assert!(
+            filtered.iter().any(|m| m.name == "auto-agent"),
+            "agent type should pass hook filter"
+        );
+
+        // command, rule, mcp, lsp should be blocked
+        assert!(
+            !filtered.iter().any(|m| m.name == "auto-command"),
+            "command type should be blocked by hook filter"
+        );
+        assert!(
+            !filtered.iter().any(|m| m.name == "auto-rule"),
+            "rule type should be blocked by hook filter"
+        );
+        assert!(
+            !filtered.iter().any(|m| m.name == "auto-mcp"),
+            "mcp type should be blocked by hook filter"
+        );
+        assert!(
+            !filtered.iter().any(|m| m.name == "auto-lsp"),
+            "lsp type should be blocked by hook filter"
+        );
+    }
+
+    #[test]
+    fn test_skill_entry_mcp_fields_deserialize() {
+        // MCP-specific fields should deserialize correctly from JSON
+        let json = r#"{
+            "source": "user",
+            "path": "/test",
+            "type": "mcp",
+            "keywords": ["chrome", "devtools"],
+            "server_type": "stdio",
+            "server_command": "npx",
+            "server_args": ["-y", "chrome-devtools-mcp"]
+        }"#;
+
+        let entry: SkillEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.server_type, "stdio");
+        assert_eq!(entry.server_command, "npx");
+        assert_eq!(entry.server_args, vec!["-y", "chrome-devtools-mcp"]);
+        assert_eq!(entry.skill_type, "mcp");
+    }
+
+    #[test]
+    fn test_skill_entry_lsp_fields_deserialize() {
+        // LSP-specific fields should deserialize correctly from JSON
+        let json = r#"{
+            "source": "built-in",
+            "path": "/test",
+            "type": "lsp",
+            "keywords": ["python", "pyright"],
+            "language_ids": ["python"]
+        }"#;
+
+        let entry: SkillEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.language_ids, vec!["python"]);
+        assert_eq!(entry.server_type, "", "server_type should default to empty for LSP");
+        assert!(entry.server_args.is_empty(), "server_args should default to empty vec for LSP");
+        assert_eq!(entry.skill_type, "lsp");
+    }
+
+    #[test]
+    fn test_skill_entry_backward_compat_missing_new_fields() {
+        // Simulating an old index entry without MCP/LSP fields; all new fields
+        // should default to empty values for backward compatibility.
+        let json = r#"{
+            "source": "user",
+            "path": "/test",
+            "type": "skill",
+            "keywords": ["docker"]
+        }"#;
+
+        let entry: SkillEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.server_type, "", "server_type should default to empty");
+        assert_eq!(entry.server_command, "", "server_command should default to empty");
+        assert!(entry.server_args.is_empty(), "server_args should default to empty vec");
+        assert!(entry.language_ids.is_empty(), "language_ids should default to empty vec");
+        assert_eq!(entry.skill_type, "skill");
+    }
+
+    #[test]
+    fn test_type_based_ordering_in_find_matches() {
+        // Verify that find_matches orders results: skill first, agent second,
+        // command third, matching the type_order tiebreaker logic.
+        let mut skills = HashMap::new();
+
+        // All three entries share the same keyword so they get similar scores
+        for (name, stype) in &[
+            ("order-skill", "skill"),
+            ("order-agent", "agent"),
+            ("order-command", "command"),
+        ] {
+            skills.insert(
+                name.to_string(),
+                SkillEntry {
+                    source: "user".to_string(),
+                    path: format!("/path/to/{}/SKILL.md", name),
+                    skill_type: stype.to_string(),
+                    keywords: vec!["sorting".to_string()],
+                    intents: vec![],
+                    patterns: vec![],
+                    directories: vec![],
+                    path_patterns: vec![],
+                    description: format!("{} for sorting test", stype),
+                    negative_keywords: vec![],
+                    tier: String::new(),
+                    boost: 0,
+                    category: String::new(),
+                    platforms: vec![],
+                    frameworks: vec![],
+                    languages: vec![],
+                    domains: vec![],
+                    tools: vec![],
+                    file_types: vec![],
+                    domain_gates: HashMap::new(),
+                    usually_with: vec![],
+                    precedes: vec![],
+                    follows: vec![],
+                    alternatives: vec![],
+                    server_type: String::new(),
+                    server_command: String::new(),
+                    server_args: vec![],
+                    language_ids: vec![],
+                },
+            );
+        }
+
+        let index = SkillIndex {
+            version: "3.0".to_string(),
+            generated: "2026-01-18T00:00:00Z".to_string(),
+            method: "test".to_string(),
+            skills_count: 3,
+            skills,
+        };
+
+        let matches = find_matches(
+            "sorting",
+            "sorting",
+            &index,
+            "",
+            &ProjectContext::default(),
+            false,
+            &HashMap::new(),
+            None,
+        );
+
+        // All three should match
+        assert_eq!(matches.len(), 3, "All three entries should match 'sorting'");
+
+        // Verify type ordering: skill < agent < command
+        let skill_pos = matches.iter().position(|m| m.skill_type == "skill");
+        let agent_pos = matches.iter().position(|m| m.skill_type == "agent");
+        let command_pos = matches.iter().position(|m| m.skill_type == "command");
+
+        assert!(skill_pos.is_some(), "skill entry should be in results");
+        assert!(agent_pos.is_some(), "agent entry should be in results");
+        assert!(command_pos.is_some(), "command entry should be in results");
+
+        assert!(
+            skill_pos.unwrap() < agent_pos.unwrap(),
+            "skill (pos {}) should come before agent (pos {})",
+            skill_pos.unwrap(),
+            agent_pos.unwrap()
+        );
+        assert!(
+            agent_pos.unwrap() < command_pos.unwrap(),
+            "agent (pos {}) should come before command (pos {})",
+            agent_pos.unwrap(),
+            command_pos.unwrap()
+        );
+    }
 }
