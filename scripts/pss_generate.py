@@ -199,7 +199,9 @@ def extract_intents_from_content(content: str) -> list[str]:
         r"^\s*[-*]\s*([A-Z][a-z]+(?:\s+\w+){1,5})", content, re.MULTILINE
     )
     for bullet in bullets:
-        if bullet[0].lower() in [
+        # Extract first word (verb) from the bullet phrase
+        first_word = bullet.split()[0].lower() if bullet.split() else ""
+        if first_word in [
             "create",
             "build",
             "write",
