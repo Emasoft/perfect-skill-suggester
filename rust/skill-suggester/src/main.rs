@@ -267,7 +267,7 @@ pub struct PssMatchers {
 /// Scoring hints in PSS file
 #[derive(Debug, Deserialize, Default)]
 pub struct PssScoring {
-    /// Skill importance tier: primary, secondary, utility
+    /// Element importance tier: primary, secondary, specialized
     #[serde(default)]
     pub tier: String,
 
@@ -2392,7 +2392,7 @@ pub struct SkillEntry {
     #[serde(default)]
     pub negative_keywords: Vec<String>,
 
-    /// Skill importance tier: primary, secondary, utility (from PSS)
+    /// Element importance tier: primary, secondary, specialized (from PSS)
     #[serde(default)]
     pub tier: String,
 
@@ -4254,9 +4254,9 @@ fn find_matches(
         // Apply tier boost from PSS file (skip in incomplete_mode - populated in Pass 2)
         if !incomplete_mode {
             let tier_boost = match entry.tier.as_str() {
-                "primary" => 5,    // Primary skills get boost
+                "primary" => 5,    // Primary elements get boost
                 "secondary" => 0,  // Default, no change
-                "utility" => -2,   // Utility skills slightly deprioritized
+                "specialized" => -2,   // Specialized elements slightly deprioritized
                 _ => 0,
             };
             score += tier_boost;
@@ -5572,6 +5572,9 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
                 "skill" => "📚".green(),
                 "agent" => "🤖".blue(),
                 "command" => "⚡".yellow(),
+                "rule" => "📏".cyan(),
+                "mcp" => "🔌".magenta(),
+                "lsp" => "🔤".white(),
                 _ => "❓".white(),
             },
             item.name.bold(),

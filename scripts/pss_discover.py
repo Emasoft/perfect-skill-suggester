@@ -102,7 +102,7 @@ def get_all_projects_from_claude_config() -> list[tuple[str, Path]]:
     except json.JSONDecodeError as e:
         print(f"Error parsing {config_path}: {e}", file=sys.stderr)
         return projects
-    except Exception as e:
+    except OSError as e:
         print(f"Error reading {config_path}: {e}", file=sys.stderr)
         return projects
 
@@ -301,8 +301,23 @@ def discover_mcp_servers(scan_all_projects: bool = False) -> list[dict[str, Any]
                             if line and not line.startswith("#"):
                                 description = line[:200]
                                 break
-                    except Exception:
+                    except (OSError, UnicodeDecodeError):
                         pass
+
+                # Also check project-level server README
+                if not description:
+                    project_server_dir = get_cwd() / ".claude" / "servers" / name
+                    project_readme = project_server_dir / "README.md"
+                    if project_readme.exists():
+                        try:
+                            readme_text = project_readme.read_text(encoding="utf-8")
+                            for line in readme_text.split("\n"):
+                                line = line.strip()
+                                if line and not line.startswith("#"):
+                                    description = line[:200]
+                                    break
+                        except (OSError, UnicodeDecodeError):
+                            pass
 
                 server_data: dict[str, Any] = {
                     "name": name,
@@ -316,8 +331,10 @@ def discover_mcp_servers(scan_all_projects: bool = False) -> list[dict[str, Any]
                     "server_args": config.get("args", []),
                 }
                 servers.append(server_data)
-        except Exception as e:
-            print(f"Warning: Error reading {config_path}: {e}", file=sys.stderr)
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            print(f"Warning: Error parsing {config_path}: {e}", file=sys.stderr)
+        except OSError as e:
+            print(f"Warning: Cannot read {config_path}: {e}", file=sys.stderr)
 
     # 1. User-level: ~/.claude.json
     _extract_servers(home / ".claude.json", "user")
@@ -492,10 +509,21 @@ def discover_lsp_servers() -> list[dict[str, Any]]:
                 }
             )
 
-    except Exception as e:
-        print(f"Warning: Error reading {settings_path}: {e}", file=sys.stderr)
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        print(f"Warning: Error parsing {settings_path}: {e}", file=sys.stderr)
+    except OSError as e:
+        print(f"Warning: Cannot read {settings_path}: {e}", file=sys.stderr)
 
     return servers
+
+
+def _extract_body_preview(content: str, max_len: int = 500) -> str:
+    """Extract body preview from markdown content, skipping YAML frontmatter."""
+    if content.startswith("---"):
+        end_idx = content.find("\n---", 3)
+        if end_idx != -1:
+            return content[end_idx + 4 :].strip()[:max_len]
+    return content[:max_len]
 
 
 def discover_elements(
@@ -542,15 +570,7 @@ def discover_elements(
                 try:
                     content = skill_md.read_text(encoding="utf-8")
                     frontmatter = parse_frontmatter(content)
-                    # Only look for frontmatter end delimiter if content starts with frontmatter
-                    if content.startswith("---"):
-                        body_start = content.find("\n---", 3)
-                        if body_start != -1:
-                            body = content[body_start + 4 :].strip()[:500]
-                        else:
-                            body = content[:500]
-                    else:
-                        body = content[:500]
+                    body = _extract_body_preview(content)
                     elements.append(
                         {
                             "name": frontmatter.get("name") or skill_path.name,
@@ -562,8 +582,8 @@ def discover_elements(
                         }
                     )
                     seen_names.add(dedup_key)
-                except Exception as e:
-                    print(f"Error reading {skill_md}: {e}", file=sys.stderr)
+                except (OSError, UnicodeDecodeError) as e:
+                    print(f"Warning: Cannot read {skill_md}: {e}", file=sys.stderr)
         else:
             # Agents, commands, rules: <dir>/<name>.md (direct .md files)
             try:
@@ -613,15 +633,7 @@ def discover_elements(
                     else:
                         description = frontmatter.get("description", "")[:200]
 
-                    # Extract body preview - only parse frontmatter delimiter if present
-                    if content.startswith("---"):
-                        body_start = content.find("\n---", 3)
-                        if body_start != -1:
-                            body = content[body_start + 4 :].strip()[:500]
-                        else:
-                            body = content[:500]
-                    else:
-                        body = content[:500]
+                    body = _extract_body_preview(content)
 
                     elements.append(
                         {
@@ -634,8 +646,8 @@ def discover_elements(
                         }
                     )
                     seen_names.add(dedup_key)
-                except Exception as e:
-                    print(f"Error reading {md_file}: {e}", file=sys.stderr)
+                except (OSError, UnicodeDecodeError) as e:
+                    print(f"Warning: Cannot read {md_file}: {e}", file=sys.stderr)
 
     return elements
 
@@ -693,7 +705,9 @@ def generate_checklist(elements: list[dict[str, Any]], batch_size: int = 10) -> 
         if batch_num < 26:
             agent_letter = chr(ord("A") + batch_num)
         else:
-            agent_letter = chr(ord("A") + batch_num // 26 - 1) + chr(ord("A") + batch_num % 26)
+            agent_letter = chr(ord("A") + batch_num // 26 - 1) + chr(
+                ord("A") + batch_num % 26
+            )
         batch_range = f"{start_idx + 1}-{end_idx}"
         lines.append(f"## Batch {batch_num + 1} ({batch_range}) - Agent {agent_letter}")
         lines.append("")
@@ -735,7 +749,9 @@ def generate_checklist(elements: list[dict[str, Any]], batch_size: int = 10) -> 
         if batch_num < 26:
             agent_letter = chr(ord("A") + batch_num)
         else:
-            agent_letter = chr(ord("A") + batch_num // 26 - 1) + chr(ord("A") + batch_num % 26)
+            agent_letter = chr(ord("A") + batch_num // 26 - 1) + chr(
+                ord("A") + batch_num % 26
+            )
         start_idx = batch_num * batch_size
         end_idx = min(start_idx + batch_size, total_elements)
         batch_count = end_idx - start_idx

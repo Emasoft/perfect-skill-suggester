@@ -32,6 +32,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Pre-compiled regex patterns used across extraction functions
+FM_TYPE_RE = re.compile(r"^type:\s*(\S+)", re.MULTILINE | re.IGNORECASE)
+TRIGGERS_RE = re.compile(
+    r"^(?:triggers|keywords|activators):\s*\n((?:\s*-\s*.+\n)*)",
+    re.MULTILINE | re.IGNORECASE,
+)
+CODE_BLOCK_RE = re.compile(r"```(?:bash|shell|sh)?\n(.*?)```", re.DOTALL)
+TECH_TERM_RE = re.compile(
+    r"\b([A-Z][a-z]+(?:[A-Z][a-z]+)+|[a-z]+-[a-z]+(?:-[a-z]+)*)\b"
+)
+HEADER_RE = re.compile(r"^#+\s+(.+)$", re.MULTILINE)
+USE_WHEN_RE = re.compile(
+    r"use (?:this (?:skill|element) )?when[:\s]+(.+?)(?:\.|$)", re.IGNORECASE
+)
+HELPS_RE = re.compile(r"helps? you (?:to )?(.+?)(?:\.|$)", re.IGNORECASE)
+BULLET_VERB_RE = re.compile(r"^\s*[-*]\s*([A-Z][a-z]+(?:\s+\w+){1,5})", re.MULTILINE)
+
 
 @dataclass
 class SkillInfo:
@@ -64,7 +81,7 @@ def extract_skill_type(content: str, skill_path: Path) -> str:
     content_lower = content.lower()
 
     # Check frontmatter type field
-    fm_match = re.search(r"^type:\s*(\S+)", content, re.MULTILINE | re.IGNORECASE)
+    fm_match = FM_TYPE_RE.search(content)
     if fm_match:
         fm_type = fm_match.group(1).strip().lower()
         if fm_type == "agent":
@@ -98,7 +115,7 @@ def extract_skill_type(content: str, skill_path: Path) -> str:
 
 def extract_keywords_from_content(content: str) -> list[str]:
     """
-    Extract potential keywords from SKILL.md content.
+    Extract potential keywords from element content (SKILL.md, agent, command, or rule).
 
     This is a heuristic-based approach. For production use,
     AI-based extraction via /pss-reindex-skills is recommended.
@@ -106,11 +123,7 @@ def extract_keywords_from_content(content: str) -> list[str]:
     keywords = set()
 
     # Extract from frontmatter triggers/keywords
-    triggers_match = re.search(
-        r"^(?:triggers|keywords|activators):\s*\n((?:\s*-\s*.+\n)*)",
-        content,
-        re.MULTILINE | re.IGNORECASE,
-    )
+    triggers_match = TRIGGERS_RE.search(content)
     if triggers_match:
         for line in triggers_match.group(1).split("\n"):
             kw = line.strip().lstrip("-").strip().strip('"').strip("'").lower()
@@ -118,7 +131,7 @@ def extract_keywords_from_content(content: str) -> list[str]:
                 keywords.add(kw)
 
     # Extract code blocks and commands
-    code_blocks = re.findall(r"```(?:bash|shell|sh)?\n(.*?)```", content, re.DOTALL)
+    code_blocks = CODE_BLOCK_RE.findall(content)
     for block in code_blocks:
         # Extract command names
         commands = re.findall(r"^\s*(\w+(?:-\w+)*)\s", block, re.MULTILINE)
@@ -127,16 +140,14 @@ def extract_keywords_from_content(content: str) -> list[str]:
                 keywords.add(cmd.lower())
 
     # Extract technical terms (capitalized or hyphenated)
-    tech_terms = re.findall(
-        r"\b([A-Z][a-z]+(?:[A-Z][a-z]+)+|[a-z]+-[a-z]+(?:-[a-z]+)*)\b", content
-    )
+    tech_terms = TECH_TERM_RE.findall(content)
     for term in tech_terms:
         term_lower = term.lower()
         if len(term_lower) > 2:
             keywords.add(term_lower)
 
     # Extract from headers
-    headers = re.findall(r"^#+\s+(.+)$", content, re.MULTILINE)
+    headers = HEADER_RE.findall(content)
     for header in headers:
         words = header.lower().split()
         for word in words:
@@ -155,9 +166,7 @@ def extract_keywords_from_content(content: str) -> list[str]:
                 keywords.add(word)
 
     # Extract from "Use when" patterns
-    use_when = re.findall(
-        r"use (?:this skill )?when[:\s]+(.+?)(?:\.|$)", content, re.IGNORECASE
-    )
+    use_when = USE_WHEN_RE.findall(content)
     for phrase in use_when:
         words = phrase.lower().split()
         for word in words:
@@ -190,23 +199,19 @@ def extract_keywords_from_content(content: str) -> list[str]:
 
 
 def extract_intents_from_content(content: str) -> list[str]:
-    """Extract intent phrases from SKILL.md content."""
+    """Extract intent phrases from element content."""
     intents = []
 
     # Extract from "Use when" patterns
-    use_when = re.findall(
-        r"use (?:this skill )?when[:\s]+(.+?)(?:\.|$)", content, re.IGNORECASE
-    )
+    use_when = USE_WHEN_RE.findall(content)
     intents.extend(use_when)
 
     # Extract from "This skill helps you" patterns
-    helps = re.findall(r"helps? you (?:to )?(.+?)(?:\.|$)", content, re.IGNORECASE)
+    helps = HELPS_RE.findall(content)
     intents.extend(helps)
 
     # Extract from bullet points starting with verbs
-    bullets = re.findall(
-        r"^\s*[-*]\s*([A-Z][a-z]+(?:\s+\w+){1,5})", content, re.MULTILINE
-    )
+    bullets = BULLET_VERB_RE.findall(content)
     for bullet in bullets:
         # Extract first word (verb) from the bullet phrase
         first_word = bullet.split()[0].lower() if bullet.split() else ""
@@ -241,7 +246,7 @@ def extract_intents_from_content(content: str) -> list[str]:
 
 
 def calculate_skill_hash(skill_path: Path) -> str:
-    """Calculate SHA-256 hash of SKILL.md content."""
+    """Calculate SHA-256 hash of element file content."""
     with open(skill_path, "rb") as f:
         return hashlib.sha256(f.read()).hexdigest()
 
@@ -452,25 +457,33 @@ def generate_for_directory(
         except Exception as e:
             print(f"Error processing {skill_md}: {e}", file=sys.stderr)
 
-    # Also check for agent.md files
-    for agent_md in dir_path.rglob("*.md"):
-        if agent_md.name.lower() in ("skill.md", "readme.md"):
-            continue
+    # Check for agent/command/rule .md files in known subdirectories (one level deep)
+    for subdir_name in ("agents", "commands", "rules"):
+        subdir = dir_path / subdir_name
+        if not subdir.is_dir():
+            # Also check if dir_path itself IS an agents/commands/rules dir
+            if dir_path.name == subdir_name:
+                subdir = dir_path
+            else:
+                continue
 
-        parent_name = agent_md.parent.name
-        if parent_name in ("agents", "commands", "rules"):
-            pss_path = queue_dir / f"{agent_md.stem}.pss"
+        for md_file in sorted(subdir.iterdir()):
+            if not md_file.is_file() or not md_file.name.endswith(".md"):
+                continue
+            if md_file.name.lower() in ("skill.md", "readme.md"):
+                continue
 
+            pss_path = queue_dir / f"{md_file.stem}.pss"
             if pss_path.exists() and not force:
                 print(f"Skipping (exists): {pss_path}")
                 continue
 
             try:
-                pss_data = generate_pss(agent_md, tier, category, source, force)
+                pss_data = generate_pss(md_file, tier, category, source, force)
                 save_pss(pss_data, pss_path)
                 count += 1
             except Exception as e:
-                print(f"Error processing {agent_md}: {e}", file=sys.stderr)
+                print(f"Error processing {md_file}: {e}", file=sys.stderr)
 
     return count
 
@@ -501,11 +514,13 @@ def import_from_index(index_path: Path, output_dir: Path, force: bool = False) -
             "source": skill_data.get("source", "user"),
         }
         matchers_dict: dict[str, Any] = {"keywords": skill_data.get("keywords", [])}
+        scoring_dict: dict[str, Any] = {"tier": skill_data.get("tier", "secondary")}
 
         pss: dict[str, Any] = {
             "version": "1.0",
             "skill": skill_dict,
             "matchers": matchers_dict,
+            "scoring": scoring_dict,
             "metadata": {
                 "generated_by": "manual",
                 "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -513,13 +528,35 @@ def import_from_index(index_path: Path, output_dir: Path, force: bool = False) -
             },
         }
 
-        # Add optional fields
+        # Add optional matcher fields
         if skill_data.get("intents"):
             matchers_dict["intents"] = skill_data["intents"]
         if skill_data.get("patterns"):
             matchers_dict["patterns"] = skill_data["patterns"]
         if skill_data.get("directories"):
             matchers_dict["directories"] = skill_data["directories"]
+
+        # Multi-type fields (MCP/LSP)
+        if skill_data.get("server_type"):
+            skill_dict["server_type"] = skill_data["server_type"]
+        if skill_data.get("server_command"):
+            skill_dict["server_command"] = skill_data["server_command"]
+        if skill_data.get("server_args"):
+            skill_dict["server_args"] = skill_data["server_args"]
+        if skill_data.get("language_ids"):
+            skill_dict["language_ids"] = skill_data["language_ids"]
+
+        # Scoring fields
+        if skill_data.get("category"):
+            scoring_dict["category"] = skill_data["category"]
+        if skill_data.get("boost"):
+            scoring_dict["boost"] = skill_data["boost"]
+
+        # Domain gates and path patterns
+        if skill_data.get("domain_gates"):
+            matchers_dict["domain_gates"] = skill_data["domain_gates"]
+        if skill_data.get("path_patterns"):
+            matchers_dict["path_patterns"] = skill_data["path_patterns"]
 
         save_pss(pss, pss_path)
         count += 1
