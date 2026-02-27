@@ -63,7 +63,18 @@ Determine the system temp directory (cross-platform):
 PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
 ```
 
-Write a temporary JSON file at `${PSS_TMPDIR}/pss-agent-profile-input.json`:
+Write the descriptor to a session-unique temp file (use `$$` PID suffix to avoid race conditions with concurrent profiler runs):
+
+```bash
+PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
+PSS_INPUT="${PSS_TMPDIR}/pss-agent-profile-input-$$.json"
+```
+
+Write the JSON using the Bash tool with a heredoc:
+
+```bash
+cat > "${PSS_INPUT}" << 'ENDJSON'
+```
 
 ```json
 {
@@ -73,15 +84,17 @@ Write a temporary JSON file at `${PSS_TMPDIR}/pss-agent-profile-input.json`:
   "duties": ["<duty1>", "<duty2>", ...],
   "tools": ["<tool1>", "<tool2>", ...],
   "domains": ["<domain1>", "<domain2>", ...],
-  "requirements_summary": "<condensed summary of all requirements files>",
+  "requirements_summary": "<condensed summary of all requirements files — MAX 2000 characters>",
   "cwd": "<current working directory>"
 }
 ```
 
+**IMPORTANT**: `requirements_summary` must be 2000 characters or fewer. If the combined requirements exceed this, prioritize: project_type, tech_stack, key_features, then constraints. Truncate the rest.
+
 Then invoke the Rust binary in `--agent-profile` mode:
 
 ```bash
-"${BINARY_PATH}" --agent-profile "${PSS_TMPDIR}/pss-agent-profile-input.json" --format json --top 30
+"${BINARY_PATH}" --agent-profile "${PSS_INPUT}" --format json --top 30
 ```
 
 The binary will:
@@ -156,6 +169,19 @@ From the skill index's `co_usage` data and your understanding of the agent's rol
 - Find agents that commonly work alongside this agent's primary skills
 - Identify agents covering complementary domains (e.g., security agent for a frontend agent)
 - List only agents that genuinely add value — not every tangentially related agent
+
+### Step 6a: Review and Confirm Step 5 Tier Assignments
+
+Before identifying complementary elements, verify the skill tier assignments from Step 5:
+
+- [ ] `primary` contains 1-7 skills genuinely core to this agent's daily work
+- [ ] `secondary` contains useful-but-not-daily skills — max 12
+- [ ] `specialized` contains niche skills for specific situations — max 8
+- [ ] No skill appears in more than one tier
+- [ ] No empty skill names in any tier
+- [ ] Total primary + secondary + specialized ≤ 27
+
+If any tier exceeds its limit or a skill appears in multiple tiers, re-classify before proceeding.
 
 ### Step 6b: Identify Recommended Commands
 
@@ -267,7 +293,7 @@ The full schema is at `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`
 After writing the file, you MUST validate it before reporting success.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH}" --check-index --verbose
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH}" --check-index --verbose
 ```
 
 **What the validator checks:**
@@ -298,8 +324,16 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PAT
 
 ### Step 9: Clean Up and Report
 
-- Delete the temporary `${PSS_TMPDIR}/pss-agent-profile-input.json` file
+- Delete the temporary `${PSS_INPUT}` file
 - Print the output path and a 1-line summary: how many primary/secondary/specialized skills recommended, how many excluded and why
+
+**Step 9 Completion Checklist** (MANDATORY before reporting DONE):
+
+- [ ] Validator returned exit code 0 (never report success on exit 1 or 2)
+- [ ] Temporary input file `${PSS_INPUT}` deleted
+- [ ] Output file exists at `${OUTPUT_PATH}` and is non-empty
+- [ ] Summary includes: primary count, secondary count, specialized count, excluded count
+- [ ] No validation errors remain
 
 ## Error Handling (FAIL-FAST — NO FALLBACKS)
 

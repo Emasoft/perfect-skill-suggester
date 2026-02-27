@@ -530,6 +530,27 @@ Fill in the {variables} and pass to each haiku subagent.
 **TRIPLE VERIFICATION**: The Pass 2 template includes 3 verification rounds where the agent
 re-reads element data and re-validates each co-usage link. This is mandatory for Haiku accuracy.
 
+**MANDATORY BINARY CHECK (before spawning ANY Pass 2 agents):**
+
+Pass 2 agents invoke the Rust binary in `--incomplete-mode` for candidate generation. If the binary is missing or not executable, ALL Pass 2 agents will fail. Verify first:
+
+```bash
+# Verify binary exists and is executable
+if [ ! -f "${BINARY}" ]; then
+    echo "[FAILED] PSS binary not found at: ${BINARY}"
+    echo "Build with: cd ${PLUGIN_ROOT}/rust/skill-suggester && cargo build --release"
+    # Attempt restore from backup before exiting
+    exit 1
+fi
+if [ ! -x "${BINARY}" ]; then
+    chmod +x "${BINARY}"
+    echo "Fixed binary permissions: ${BINARY}"
+fi
+echo "✓ Binary verified: ${BINARY}"
+```
+
+Do NOT spawn any Pass 2 agents if the binary check fails. This is a hard gate.
+
 **HOW TO BUILD THE PASS 2 PROMPT:**
 
 1. Read the template file: `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-haiku.md`

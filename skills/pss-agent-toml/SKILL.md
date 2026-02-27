@@ -142,6 +142,25 @@ Scan the working directory for:
 
 This determines LSP server assignment.
 
+**Phase 1 Completion Checklist** (ALL items must be checked before proceeding to Phase 2):
+
+- [ ] Agent `.md` file has been read in full (not just frontmatter)
+- [ ] `name` extracted (from frontmatter `name:` or filename stem)
+- [ ] `description` extracted (frontmatter or first non-heading paragraph)
+- [ ] `role` classified (developer/tester/reviewer/deployer/designer/security/data-scientist)
+- [ ] `duties` extracted (bullet lists under responsibilities/duties/tasks headings)
+- [ ] `tools` extracted (from frontmatter `tools:`/`allowed-tools:` or tool mentions in body)
+- [ ] `domains` extracted or inferred (security/frontend/backend/devops/data/etc.)
+- [ ] All `--requirements` files have been read in full (or confirmed: no requirements provided)
+- [ ] `project_type` identified from requirements (web-app/cli-tool/mobile-app/library/api/microservice)
+- [ ] `tech_stack` extracted from requirements (specific frameworks, languages, databases)
+- [ ] `key_features` noted from requirements (features that drive skill selection)
+- [ ] `constraints` noted from requirements (performance, compliance, platform targets)
+- [ ] Project languages detected from cwd (presence of Cargo.toml/package.json/pyproject.toml/go.mod/etc.)
+- [ ] LSP server assignment pre-determined from detected languages
+
+**If ANY item is unchecked: re-read the relevant file before proceeding.**
+
 ---
 
 ### Phase 2: Get Candidates from the Index
@@ -151,8 +170,8 @@ This determines LSP server assignment.
 Build a JSON descriptor and invoke the binary:
 
 ```bash
-# Create descriptor file
-cat > /tmp/pss-agent-profile-input.json << 'EOF'
+# $$ = current shell PID, ensures unique temp file per session
+cat > /tmp/pss-agent-profile-input-$$.json << 'EOF'
 {
   "name": "<agent-name>",
   "description": "<agent description + requirements summary>",
@@ -166,7 +185,7 @@ cat > /tmp/pss-agent-profile-input.json << 'EOF'
 EOF
 
 # Invoke binary — returns up to 30 scored candidates grouped by type
-"$BINARY_PATH" --agent-profile /tmp/pss-agent-profile-input.json --format json --top 30
+"$BINARY_PATH" --agent-profile /tmp/pss-agent-profile-input-$$.json --format json --top 30
 ```
 
 The binary returns scored candidates grouped by type:
@@ -205,6 +224,20 @@ for name, entry in idx['skills'].items():
         print(f'{entry.get(\"type\",\"skill\"):8} {name:30} {desc[:60]}')
 " "<search-term>"
 ```
+
+**Phase 2 Completion Checklist** (ALL items must be checked before proceeding to Phase 3):
+
+- [ ] Temporary JSON descriptor written with session-unique filename (use PID suffix: `pss-agent-profile-input-$$.json`)
+- [ ] Descriptor contains all 8 fields: `name`, `description`, `role`, `duties`, `tools`, `domains`, `requirements_summary`, `cwd`
+- [ ] `requirements_summary` is 2000 characters or fewer (truncate if needed)
+- [ ] Rust binary invoked with `--agent-profile`, `--format json`, `--top 30`
+- [ ] Binary returned exit code 0 (non-zero = STOP and report error)
+- [ ] Binary output is valid JSON (parse to verify)
+- [ ] Candidates grouped by type: `skills`, `complementary_agents`, `commands`, `rules`, `mcp`, `lsp` all present
+- [ ] Candidate count per type noted (for gap analysis in Phase 3)
+- [ ] Additional manual index search performed for any known needs not covered by binary output
+
+**If binary fails: do NOT proceed. Report the error and stop.**
 
 ---
 
@@ -278,6 +311,20 @@ Search the index for each gap and add qualified matches.
 **3.7 Prune redundancy**
 
 If skill A covers everything skill B does plus more, remove skill B. Example: `exhaustive-testing` subsumes `unit-testing` — keep only `exhaustive-testing`.
+
+**Phase 3 Completion Checklist** (ALL items must be checked before proceeding to Phase 4):
+
+- [ ] Every candidate's SKILL.md/agent.md has been READ IN FULL (not just the binary's description)
+- [ ] Every candidate evaluated: "Does this solve a problem this agent will ACTUALLY encounter?"
+- [ ] Mutual exclusivity checked for ALL 11 families (JS framework, runtime, bundler, CSS, ORM, testing, state mgmt, deployment, Python web, Python test, mobile)
+- [ ] Only ONE element remains from each mutually exclusive family
+- [ ] Obsolescence/deprecation check completed for all candidates
+- [ ] Stack compatibility verified: no cross-stack elements (Python skill for TS project, iOS for web, etc.)
+- [ ] Gap analysis done: every key requirement scanned for missing coverage
+- [ ] Redundancy pruning done: no strict-subset skills remain alongside their superset
+- [ ] Final candidates list assembled with intended tier assignment (primary/secondary/specialized)
+
+**If ANY candidate was NOT individually read: go back and read it before proceeding.**
 
 ---
 
@@ -359,6 +406,19 @@ Action:
 1. Fetch the file content via WebFetch
 2. **Read and evaluate** the content — understand what it does, check compatibility
 3. Add to `.agent.toml` only if it passes evaluation
+
+**Phase 4 Completion Checklist** (ALL items must be checked before proceeding to Phase 5):
+
+- [ ] Every external element has been read in full (not just accepted based on name/source)
+- [ ] Every external element evaluated against Phase 3 criteria (relevance, compatibility, conflicts)
+- [ ] No external element added without checking for conflicts with already-selected elements
+- [ ] For plugin sources: correct version and path confirmed
+- [ ] For GitHub/URL sources: content fetched and read (not assumed from URL alone)
+- [ ] For network share sources: file exists and is readable
+- [ ] All added external elements assigned to correct tier (primary/secondary/specialized)
+- [ ] `agent.source` field value prepared for any plugin-sourced elements
+
+**If no external elements were requested: mark all items N/A and proceed.**
 
 ---
 
@@ -454,6 +514,22 @@ If validation fails, fix the errors and re-validate. Common issues:
 **6.3 Clean up**
 
 Delete the temporary JSON descriptor file.
+
+**Phase 6 Completion Checklist** (profile is ONLY complete when ALL items are checked):
+
+- [ ] `.agent.toml` file written to the correct output path
+- [ ] `[agent]` section has `name`, `source`, `path` — all correct
+- [ ] `[requirements]` section present if requirements were provided; omitted if none
+- [ ] `[skills]` section: `primary` has 1-7 items, `secondary` has 0-12, `specialized` has 0-8
+- [ ] `[skills.excluded]` has a comment for every rejected candidate with the rejection reason
+- [ ] ALL optional sections present: `[agents]`, `[commands]`, `[rules]`, `[mcp]`, `[hooks]`, `[lsp]` (even if `recommended = []`)
+- [ ] Validator run: `uv run "$CLAUDE_PLUGIN_ROOT/scripts/pss_validate_agent_toml.py" <file> --check-index --verbose`
+- [ ] Validator exited with code 0 (if code 1: fix errors, re-validate; if code 2: fix TOML syntax, re-validate)
+- [ ] No validation errors remain — validator returned exit code 0
+- [ ] Temporary descriptor file deleted
+- [ ] Summary reported: X primary + Y secondary + Z specialized skills; N excluded candidates
+
+**Do NOT report success until the validator returns exit code 0.**
 
 ---
 

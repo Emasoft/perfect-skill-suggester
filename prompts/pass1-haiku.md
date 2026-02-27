@@ -921,6 +921,33 @@ For each element, write this JSON to ${PSS_TMPDIR}/pss-queue/<element-name>.pss:
 }
 ```
 
+**JSON Validation Gate (MANDATORY — do NOT merge invalid .pss files):**
+
+Before merging, validate the `.pss` file contains valid JSON with required fields:
+
+```bash
+python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+required = ['name', 'keywords', 'category', 'description']
+missing = [k for k in required if k not in data]
+if missing:
+    print(f'INVALID .pss: missing fields: {missing}', file=sys.stderr)
+    sys.exit(1)
+if not isinstance(data.get('keywords'), list) or len(data['keywords']) == 0:
+    print('INVALID .pss: keywords must be a non-empty list', file=sys.stderr)
+    sys.exit(1)
+print('✓ .pss validation passed')
+" "${PSS_FILE}"
+```
+
+If this validation fails:
+- Mark the element as **FAILED** in the tracking table
+- Do NOT call `pss_merge_queue.py` for this element
+- Proceed to the next element in the batch
+- Report the failure in your batch summary
+
 After writing EACH .pss file, immediately merge it:
 
 ```bash
