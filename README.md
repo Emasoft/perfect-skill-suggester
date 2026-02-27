@@ -276,8 +276,15 @@ This helps Claude pause and evaluate before blindly following skill instructions
 Generate AI-analyzed keyword index for all elements (skills, agents, commands, rules, MCP, LSP).
 
 ```
-/pss-reindex-skills
+/pss-reindex-skills [--batch-size N] [--pass1-only] [--pass2-only] [--all-projects]
 ```
+
+| Flag | Description |
+|------|-------------|
+| `--batch-size N` | Elements per Haiku batch (default: 10) |
+| `--pass1-only` | Run only Pass 1 (keyword extraction) |
+| `--pass2-only` | Run only Pass 2 (co-usage analysis) |
+| `--all-projects` | Scan all known projects, not just current |
 
 Always performs a full clean-slate regeneration. Two-pass architecture: Pass 1 extracts keywords/metadata, Pass 2 builds co-usage relationships.
 
