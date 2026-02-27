@@ -9,6 +9,8 @@ allowed-tools: ["Task", "Read", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
 
 Analyze an agent definition file and recommend best-fit skills from the PSS skill index, writing results to a `.agent.toml` configuration file. Uses the Rust skill-suggester binary for fast candidate scoring, then an AI agent for intelligent post-filtering.
 
+**IMPORTANT**: An AI agent is ALWAYS required to produce `.agent.toml` files. The Rust binary generates scored candidates, but element selection requires AI reasoning — conflict detection, cross-type coherence validation, framework compatibility, and use-case prediction cannot be done mechanically. This command spawns the `pss-agent-profiler` agent specifically for this purpose.
+
 ## Usage
 
 ```
@@ -69,6 +71,8 @@ Analyze an agent definition file and recommend best-fit skills from the PSS skil
    BINARY = os.path.join(plugin_root, "rust", "skill-suggester", "bin", binary_name)
    ```
 6. Spawn the `pss-agent-profiler` agent using the Task tool
+
+   The profiler agent is MANDATORY — it applies AI reasoning (conflict detection, mutual exclusivity, cross-type coherence, stack compatibility) that no script can replicate. Do NOT attempt to generate `.agent.toml` without an AI agent.
 
 The prompt to the agent MUST include:
 - The resolved absolute path to the <agent-name>.md file

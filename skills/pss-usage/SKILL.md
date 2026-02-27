@@ -134,7 +134,7 @@ Phase 2: Analysis...
 /pss-setup-agent /path/to/my-agent.md --requirements /path/to/prd.md /path/to/tech-spec.md
 ```
 
-This uses the Rust binary for fast candidate scoring, then an AI agent for intelligent post-filtering (conflict detection, obsolescence checks, stack compatibility). Output is a `.agent.toml` file validated against the schema at `schemas/pss-agent-toml-schema.json`.
+This spawns the `pss-agent-profiler` AI agent (MANDATORY — no script alternative exists). The Rust binary provides scored candidates, but element selection REQUIRES AI reasoning for conflict detection, cross-type coherence validation, mutual exclusivity resolution, and stack compatibility verification. Output is a `.agent.toml` file validated against the schema at `schemas/pss-agent-toml-schema.json`.
 
 ---
 
