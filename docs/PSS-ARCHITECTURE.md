@@ -70,6 +70,8 @@ find ~/.claude/plugins/cache -name ".pss" -type f -exec mv {} "$BACKUP_DIR/" \; 
 
 ### 3. Comprehensive Multi-Project Skill Discovery
 
+> **v2.1.0**: PSS now indexes 6 element types: **skills**, **agents**, **commands**, **rules**, **MCP servers**, and **LSP servers**. The term "skill" in this document refers to any indexed element unless otherwise specified.
+
 **NEW in PSS 1.0:** The discovery script can scan ALL projects registered in `~/.claude.json`, not just the current project.
 
 **Skill Discovery Sources:**
@@ -326,6 +328,14 @@ Agent presents relevant suggestions to user
 - **Hook mode** (`--format hook`, UserPromptSubmit): Suggests **skills and agents only**. Rules, MCP servers, and LSP servers are configuration elements and not useful as prompt-time suggestions.
 - **Agent-profile mode** (`--agent-profile`): Returns **all 6 types** (skills, agents, commands, rules, MCP, LSP) grouped by type. Used by `/pss-setup-agent` to generate complete `.agent.toml` files.
 
+### Runtime Modes
+
+The Rust binary operates in two modes:
+
+1. **Hook mode** (`--format hook`): Real-time skill suggestion during user prompt submission. Returns top matches with confidence levels. Used by `pss_hook.py` in the `UserPromptSubmit` hook.
+
+2. **Agent-profile mode** (`--agent-profile`): Batch scoring of ALL indexed elements against an agent's requirements. Returns scored candidates across all 6 element types for the `pss-agent-profiler` agent to post-filter. Used by `/pss-setup-agent`.
+
 ---
 
 ## File Locations
@@ -348,6 +358,19 @@ Agent presents relevant suggestions to user
 3. **No incremental updates** - full regeneration is simpler and reliable
 4. **No hash-based change detection** - adds complexity without value
 5. **No cleanup scripts** - the index is a superset by design
+
+### Agent TOML Generation (v2.1.0)
+
+The `/pss-setup-agent` command + `pss-agent-profiler` agent generate `.agent.toml` configuration files:
+
+1. **Discovery**: Analyze agent definition (.md) + optional requirements docs
+2. **Scoring**: Rust binary scores ALL indexed elements against agent requirements
+3. **AI Post-filtering**: Profiler agent applies intelligent filters:
+   - Mutual exclusivity (e.g., Jest vs Vitest, React vs Vue)
+   - Stack compatibility (language/framework alignment)
+   - Redundancy pruning (overlapping capabilities)
+4. **Tier assignment**: Elements sorted into primary/secondary/specialized tiers
+5. **Validation**: `pss_validate_agent_toml.py` checks schema conformance + index cross-reference
 
 ---
 

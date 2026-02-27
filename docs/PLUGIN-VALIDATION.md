@@ -396,9 +396,12 @@ PSS has additional validation requirements:
 
 2. **Binary files**:
    - `bin/pss-darwin-arm64` (macOS ARM)
-   - `bin/pss-darwin-x64` (macOS Intel)
-   - `bin/pss-linux-x64` (Linux)
-   - At least one must exist
+   - `bin/pss-darwin-x86_64` (macOS Intel)
+   - `bin/pss-linux-x86_64` (Linux x86_64)
+   - `bin/pss-linux-arm64` (Linux ARM64)
+   - `bin/pss-windows-x86_64.exe` (Windows)
+   - `bin/pss-wasm32.wasm` (WebAssembly)
+   - At least one native binary must exist
 
 3. **Categories validation**:
    - All 16 predefined categories must be present
@@ -407,6 +410,15 @@ PSS has additional validation requirements:
 4. **Command validation**:
    - `pss-reindex-skills` must exist
    - `pss-status` must exist
+   - `pss-setup-agent` must exist
+
+5. **Agent validation**:
+   - `pss-agent-profiler.md` must exist in `agents/`
+
+6. **Schema validation**:
+   - `schemas/pss-skill-index-schema.json` must exist
+   - `schemas/pss-agent-toml-schema.json` must exist
+   - `schemas/pss-categories.json` must exist
 
 See `scripts/validate_plugin.py` for implementation.
 

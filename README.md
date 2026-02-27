@@ -305,6 +305,7 @@ View current status and test matching.
 |------|-------------|
 | `--verbose` | Show detailed breakdown |
 | `--test "PROMPT"` | Test matching against prompt |
+| `--run-tests` | Run end-to-end pipeline tests |
 
 ## Configuration
 
@@ -332,12 +333,12 @@ const HIGH_THRESHOLD: i32 = 12;
 const MEDIUM_THRESHOLD: i32 = 6;
 ```
 
-## Skill Index Format (v3.0)
+## Element Index Format (v3.0)
 
 ```json
 {
   "version": "3.0",
-  "generated": "2026-01-18T06:00:00Z",
+  "generated": "2026-02-27T06:00:00Z",
   "method": "ai-analyzed",
   "skills_count": 216,
   "skills": {
@@ -345,10 +346,16 @@ const MEDIUM_THRESHOLD: i32 = 6;
       "source": "user",
       "path": "/path/to/SKILL.md",
       "type": "skill",
+      "category": "devops-cicd",
+      "secondary_categories": ["testing"],
       "keywords": ["github", "actions", "ci", "deploy"],
       "intents": ["deploy", "build", "test"],
       "patterns": ["workflow.*failed", "ci.*error"],
       "directories": ["workflows", ".github"],
+      "platforms": [],
+      "frameworks": [],
+      "languages": ["yaml"],
+      "tools": ["github-actions"],
       "description": "CI/CD pipeline configuration"
     }
   }

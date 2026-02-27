@@ -1,8 +1,8 @@
 # Anthropic Specification Compliance Report
 
-**Plugin**: Perfect Skill Suggester (PSS) v1.1.0
-**Marketplace**: emasoft-plugins v1.1.0
-**Verification Date**: 2026-01-23
+**Plugin**: Perfect Skill Suggester (PSS) v2.1.0
+**Marketplace**: emasoft-plugins v2.1.0
+**Verification Date**: 2026-02-27
 **Anthropic Docs Reference**: https://code.claude.com/docs/en/plugins-reference
 
 ---
