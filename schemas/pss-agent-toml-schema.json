@@ -185,11 +185,40 @@
       "agents": {
         "recommended": ["sleuth", "e2e-tester"]
       },
-      "commands": { "recommended": ["/pss-reindex-skills"] },
+      "commands": { "recommended": ["pss-reindex-skills"] },
       "rules": { "recommended": ["claim-verification"] },
       "mcp": { "recommended": ["chrome-devtools"] },
       "hooks": { "recommended": [] },
       "lsp": { "recommended": ["pyright-lsp"] }
+    },
+    {
+      "agent": {
+        "name": "frontend-developer",
+        "source": "plugin:multi-platform-apps",
+        "path": "/Users/me/.claude/plugins/cache/abc/multi-platform-apps/1.0/agents/frontend-developer.md"
+      },
+      "requirements": {
+        "files": ["prd.md", "design-system.md"],
+        "project_type": "web-app",
+        "tech_stack": ["typescript", "react", "nextjs", "tailwind", "postgresql"]
+      },
+      "skills": {
+        "primary": ["building-with-bun", "css-to-svg-conversion", "development-standards"],
+        "secondary": ["exhaustive-testing", "handle-deprecation-warnings", "dependency-management", "git-workflow"],
+        "specialized": ["accessibility-compliance", "responsive-design"],
+        "excluded": {
+          "vue-frontend": "Excluded: conflicts with React (requirements specify React/Next.js)",
+          "angular-dev": "Excluded: conflicts with React (requirements specify React/Next.js)"
+        }
+      },
+      "agents": {
+        "recommended": ["ui-ux-designer", "e2e-tester"]
+      },
+      "commands": { "recommended": ["commit", "describe-pr"] },
+      "rules": { "recommended": ["claim-verification", "observe-before-editing"] },
+      "mcp": { "recommended": ["chrome-devtools"] },
+      "hooks": { "recommended": [] },
+      "lsp": { "recommended": ["typescript-lsp"] }
     }
   ]
 }

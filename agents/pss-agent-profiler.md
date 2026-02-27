@@ -190,6 +190,14 @@ LSP assignment is language-based, NOT score-based:
    - C# → csharp-lsp
 3. If no software project detected, default to pyright-lsp (for writing scripts)
 
+### Step 6f: Identify Recommended Hooks
+
+From the agent's definition file and project context, identify hook configurations:
+1. Check the agent's `.md` frontmatter for a `hooks:` field — if present, include those hook names
+2. Check `~/.claude/settings.json` and project `.claude/settings.json` for hook configurations relevant to the agent's tools (e.g., PreToolUse hooks for Bash, PostToolUse hooks for Write)
+3. If the agent's primary skills define hooks in their frontmatter, include those
+4. If no hook information is available from any source, leave `recommended = []`
+
 ### Step 7: Write .agent.toml
 
 Create the output directory if needed. Write the TOML file:
@@ -240,7 +248,7 @@ recommended = ["rule-a", "rule-b"]
 recommended = ["mcp-server-a"]
 
 [hooks]
-# Hooks relevant to this agent's workflow
+# Hooks relevant to this agent's workflow (from agent frontmatter or project .claude/settings.json)
 recommended = []
 
 [lsp]

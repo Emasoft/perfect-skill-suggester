@@ -27,7 +27,7 @@ from typing import Any
 
 # Schema constraints matching schemas/pss-agent-toml-schema.json
 REQUIRED_SECTIONS = ["agent", "skills"]
-OPTIONAL_SECTIONS = ["requirements", "agents", "mcp", "hooks", "lsp"]
+OPTIONAL_SECTIONS = ["requirements", "agents", "commands", "rules", "mcp", "hooks", "lsp"]
 ALL_KNOWN_SECTIONS = REQUIRED_SECTIONS + OPTIONAL_SECTIONS
 
 AGENT_REQUIRED_FIELDS = ["name", "path"]
@@ -300,7 +300,7 @@ def validate_toml(
     validate_agent_section(data, result)
     validate_requirements_section(data, result)
     validate_skills_section(data, result, index_skills)
-    for section in ("agents", "mcp", "hooks", "lsp"):
+    for section in ("agents", "commands", "rules", "mcp", "hooks", "lsp"):
         validate_recommendation_section(data, section, result)
 
 
