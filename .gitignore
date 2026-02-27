@@ -32,6 +32,19 @@ Thumbs.db
 # examples_dev, downloads_dev, libs_dev, builds_dev, etc.
 *_dev/
 
+# Claude Code local state
+.claude/
+
+# TLDR CLI cache
+.tldr/
+.tldrignore
+
+# Virtual environments
+.venv/
+
+# Testing cache
+.pytest_cache/
+
 # Rust
 target/
 Cargo.lock

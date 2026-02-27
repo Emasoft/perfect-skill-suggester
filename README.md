@@ -3,12 +3,15 @@
 > **Installation:** This plugin is distributed via the [Emasoft Plugins Marketplace](https://github.com/Emasoft/emasoft-plugins).
 > See [Installation](#installation) below for instructions.
 
-**High-accuracy skill activation (88%+) for Claude Code** with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing.
+**High-accuracy skill activation (88%+) for Claude Code** with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing. Indexes 6 element types: skills, agents, commands, rules, MCP servers, and LSP servers.
 
 ## Features
 
+### Multi-Type Element Indexing
+Indexes all 6 Claude Code element types — not just skills. The unified index powers both real-time hook suggestions and AI-driven agent configuration profiling.
+
 ### AI-Analyzed Keywords
-Haiku subagents analyze each SKILL.md to extract optimal activation patterns. Instead of relying on manually defined keywords, the AI reads the skill content and determines what user prompts should trigger it.
+Haiku subagents analyze each element's source file to extract optimal activation patterns. Instead of relying on manually defined keywords, the AI reads the content and determines what user prompts should trigger it.
 
 ### Native Rust Binary (~10ms)
 A pre-compiled Rust binary handles all matching logic, keeping hook latency minimal. No Python interpreter startup, no JIT compilation - just fast native code.
@@ -270,17 +273,25 @@ This helps Claude pause and evaluate before blindly following skill instructions
 
 ### /pss-reindex-skills
 
-Generate AI-analyzed keyword index for all skills.
+Generate AI-analyzed keyword index for all elements (skills, agents, commands, rules, MCP, LSP).
 
 ```
-/pss-reindex-skills [--force] [--skill SKILL_NAME] [--batch-size N]
+/pss-reindex-skills
 ```
 
-| Flag | Description |
-|------|-------------|
-| `--force` | Force reindex even if cache is fresh |
-| `--skill NAME` | Only reindex specific skill |
-| `--batch-size N` | Skills per batch (default: 10) |
+Always performs a full clean-slate regeneration. Two-pass architecture: Pass 1 extracts keywords/metadata, Pass 2 builds co-usage relationships.
+
+### /pss-setup-agent
+
+Analyze an agent definition and generate a `.agent.toml` configuration with AI-recommended skills, commands, rules, MCP servers, and LSP servers.
+
+```
+/pss-setup-agent /path/to/agent.md
+/pss-setup-agent /path/to/agent.md --requirements /path/to/prd.md /path/to/tech-spec.md
+/pss-setup-agent /path/to/agent.md --output /custom/output.agent.toml
+```
+
+Uses the Rust binary for fast candidate scoring + an AI agent for intelligent post-filtering (mutual exclusivity, stack compatibility, redundancy pruning).
 
 ### /pss-status
 

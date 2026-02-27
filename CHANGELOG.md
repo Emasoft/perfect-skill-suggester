@@ -2,6 +2,51 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.1.0] - 2026-02-27
+
+### Features
+
+- **Multi-type element indexing**: Index now covers 6 element types: skills, agents, commands, rules, MCP servers, LSP servers
+- **Agent TOML profiler**: New `/pss-setup-agent` command + `pss-agent-profiler` agent for AI-powered agent configuration
+- **Powerful index search**: Phase 2.2 search now supports `--type`, `--category`, `--language`, `--framework` filters
+- **Polyglot project detection**: Hook now detects all project markers instead of stopping at first match
+- **Category enum validation**: Schema enforces 16 predefined categories on index entries
+
+### Bug Fixes
+
+- **Validator: invented skills now fail** — `--check-index` missing skills upgraded from WARN to ERROR (critical gap)
+- **Validator: empty primary rejected** — `skills.primary` must have at least 1 skill
+- **Validator: duplicate detection** — within-tier duplicates now caught
+- **Validator: path existence** — `agent.path` verified on disk
+- **Hook output format** — `_exit_empty()` and `_exit_warning()` now output proper `hookSpecificOutput` JSON
+- **Hook fallback format** — `hook.sh` fallback updated from stale v1.0 format to current `HookOutput` shape
+- **Deterministic hashing** — `hash_prompt` replaced `DefaultHasher` with FNV-1a 64-bit for stable deduplication
+- **YAML frontmatter** — `parse_frontmatter` now uses PyYAML `safe_load` instead of hand-rolled line splitter
+- **Race condition** — `pss_cleanup.py` `unlink()` now uses `missing_ok=True`
+- **Dead code removed** — glob patterns (`*.vcxproj`, `*.csproj`, `*.sln`) that never matched in `PROJECT_MARKERS`
+- **Augment threshold** — relaxed from 30 to 80 chars so augmentation actually triggers
+
+### Documentation
+
+- **AI-mandatory principle** enforced across all plugin files (profiler, setup-agent, usage skill)
+- **Mandatory checklists** added to all 6 phases of the agent TOML creation skill
+- **Step 6a tier review** added to profiler agent with 5-item verification checklist
+- **Step 9 completion checklist** added to profiler agent
+- **`CLAUDE_PLUGIN_ROOT` validation** added to setup-agent command
+- **Binary existence check** added before Pass 2 in reindex command
+- **JSON validation gate** added to Pass 1 Haiku prompt before merge
+- **Session-unique temp files** using PID suffix to prevent race conditions
+- **Requirements summary** documented 2000-char limit
+
+### Schema
+
+- `pss-agent-toml-schema.json`: Added `minItems: 1` on primary, `uniqueItems: true` on all tiers, `agent.source` pattern
+- `pss-skill-index-schema.json`: Added enum constraint with 16 predefined categories
+
+### Breaking Changes
+
+- `pss_discover.py`: `--skill` flag renamed to `--name` for multi-type consistency
+
 ## [1.2.3] - 2026-01-31
 
 ### Critical Changes
@@ -23,16 +68,6 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 - Added prominent warning boxes about mandatory full regeneration
 - Updated PSS-ARCHITECTURE.md with non-negotiable clean slate requirement
 - Updated pss-usage SKILL.md with expected Phase 0 output
-
-## [Unreleased]
-
-### Bug Fixes
-
-- Timeout validator bug and bump to v1.2.0
-
-### Miscellaneous Tasks
-
-- Add requirements.txt and script improvements
 
 ## [1.1.0] - 2026-01-23
 
