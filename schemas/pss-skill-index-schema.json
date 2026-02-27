@@ -70,11 +70,12 @@
         },
         "category": {
           "type": "string",
-          "description": "Primary category from pss-categories.json (e.g., 'web-frontend', 'devops-cicd'). Categories are FIELDS OF COMPETENCE/USAGE (web design, ML training, code optimization, etc.) - used to build the CxC co-usage frequency matrix. Must be one of the 16 predefined categories."
+          "description": "Primary category from pss-categories.json (e.g., 'web-frontend', 'devops-cicd'). Categories are FIELDS OF COMPETENCE/USAGE (web design, ML training, code optimization, etc.) - used to build the CxC co-usage frequency matrix. Must be one of the 16 predefined categories.",
+          "enum": ["web-frontend", "web-backend", "mobile", "devops-cicd", "testing", "security", "data-ml", "research", "code-quality", "debugging", "infrastructure", "cli-tools", "visualization", "ai-llm", "project-mgmt", "plugin-dev"]
         },
         "secondary_categories": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": { "type": "string", "enum": ["web-frontend", "web-backend", "mobile", "devops-cicd", "testing", "security", "data-ml", "research", "code-quality", "debugging", "infrastructure", "cli-tools", "visualization", "ai-llm", "project-mgmt", "plugin-dev"] },
           "description": "Additional categories this skill belongs to. Categories are broader domains, not specific tools."
         },
         "keywords": {

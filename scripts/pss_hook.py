@@ -351,19 +351,16 @@ def detect_project_type(cwd: str) -> list[str]:
 
     context_keywords = []
 
-    # Check for project marker files
+    # Check for project marker files (no break — support polyglot projects)
     for marker, (_, keywords) in PROJECT_MARKERS.items():
         if (cwd_path / marker).exists():
             context_keywords.extend(keywords)
-            break  # Use first match
 
     # If no marker found, check for common source files
     if not context_keywords:
         for ext, keywords in EXTENSION_CONTEXT.items():
-            # Check if any files with this extension exist in cwd (shallow)
-            if list(cwd_path.glob(f"*{ext}"))[:1]:  # Just check if any exist
+            if list(cwd_path.glob(f"*{ext}"))[:1]:
                 context_keywords.extend(keywords)
-                break
 
     # Also check parent directories (up to 3 levels) for project markers
     if not context_keywords:

@@ -243,7 +243,7 @@ def get_all_skill_locations(scan_all_projects: bool = False) -> list[tuple[str, 
 
 
 def parse_frontmatter(content: str) -> dict[str, Any]:
-    """Parse YAML frontmatter from markdown content."""
+    """Parse YAML frontmatter from markdown content using PyYAML."""
     if not content.startswith("---"):
         return {}
 
@@ -252,15 +252,13 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
         return {}
 
     frontmatter_text = content[3:end_idx].strip()
-    result: dict[str, Any] = {}
-    for line in frontmatter_text.split("\n"):
-        if ":" in line:
-            key, value = line.split(":", 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            result[key] = value
+    try:
+        import yaml
 
-    return result
+        parsed = yaml.safe_load(frontmatter_text)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
 
 
 def discover_mcp_servers(scan_all_projects: bool = False) -> list[dict[str, Any]]:
@@ -783,7 +781,7 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(
-        "--skill", type=str, help="Only discover specific element by name"
+        "--name", type=str, help="Only discover specific element by name"
     )
     parser.add_argument(
         "--project-only", action="store_true", help="Only scan current project elements"
@@ -860,7 +858,7 @@ def main() -> int:
     elif args.user_only:
         all_locations = [(s, t, p) for s, t, p in all_locations if s == "user"]
 
-    elements = discover_elements(all_locations, args.skill)
+    elements = discover_elements(all_locations, args.name)
 
     # Discover MCP servers (if type filter includes mcp or no filter)
     if not element_types or "mcp" in element_types:

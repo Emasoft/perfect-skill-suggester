@@ -126,7 +126,7 @@ def _run_cleanup(
             if dry_run:
                 print(f"  [DRY RUN] Would delete: {pss_path}")
             else:
-                pss_path.unlink()
+                pss_path.unlink(missing_ok=True)
                 if verbose:
                     print(f"  Deleted: {pss_path}")
             total_deleted += 1
@@ -177,14 +177,18 @@ def main() -> int:
         location_count = len(collected)
 
         if args.dry_run:
-            print(f"[DRY RUN] Found {total_files} .pss file(s) in {location_count} location(s):")
+            print(
+                f"[DRY RUN] Found {total_files} .pss file(s) in {location_count} location(s):"
+            )
 
         # Run cleanup (or dry-run report)
         processed = _run_cleanup(collected, dry_run=args.dry_run, verbose=args.verbose)
 
         # Print summary
         if args.dry_run:
-            print(f"\n[DRY RUN] Would clean {processed} .pss files from {location_count} locations")
+            print(
+                f"\n[DRY RUN] Would clean {processed} .pss files from {location_count} locations"
+            )
         else:
             print(f"Cleaned {processed} .pss files from {location_count} locations")
 

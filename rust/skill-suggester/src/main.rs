@@ -4735,12 +4735,13 @@ fn get_log_path() -> Option<PathBuf> {
 
 /// Calculate a simple hash of the prompt for deduplication
 fn hash_prompt(prompt: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    prompt.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    // FNV-1a 64-bit — deterministic across runs unlike DefaultHasher
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in prompt.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{:016x}", hash)
 }
 
 /// Truncate prompt for privacy while preserving meaning

@@ -52,7 +52,7 @@ if [ ! -f "$BINARY" ]; then
     echo "Binary not found: $BINARY" >&2
     echo "Please build the project or download pre-built binaries." >&2
     # Return empty response to not block Claude
-    echo '{"version":"1.0","additionalContext":[]}'
+    echo '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit"}}'
     exit 0
 fi
 

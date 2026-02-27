@@ -212,18 +212,56 @@ The binary returns scored candidates grouped by type:
 If the binary output doesn't cover a known need from the requirements, search the index directly:
 
 ```bash
-# Search by keyword across all element types
+# Powerful multi-field index search — supports type, category, language, framework filters
 cat ~/.claude/cache/skill-index.json | python3 -c "
 import json, sys
+
 idx = json.load(sys.stdin)
-query = sys.argv[1].lower()
-for name, entry in idx['skills'].items():
-    kws = ' '.join(entry.get('keywords', []))
-    desc = entry.get('description', '')
-    if query in kws.lower() or query in desc.lower() or query in name.lower():
-        print(f'{entry.get(\"type\",\"skill\"):8} {name:30} {desc[:60]}')
-" "<search-term>"
+args = sys.argv[1:]
+query = None
+filters = {}
+for i, a in enumerate(args):
+    if a.startswith('--type='):     filters['type'] = a.split('=',1)[1]
+    elif a.startswith('--cat='):    filters['category'] = a.split('=',1)[1]
+    elif a.startswith('--lang='):   filters['languages'] = a.split('=',1)[1]
+    elif a.startswith('--fw='):     filters['frameworks'] = a.split('=',1)[1]
+    elif not a.startswith('--'):    query = a.lower()
+
+for name, e in idx['skills'].items():
+    # Apply filters first (exact match on structured fields)
+    if 'type' in filters and e.get('type','') != filters['type']:
+        continue
+    if 'category' in filters and e.get('category','') != filters['category']:
+        if filters['category'] not in e.get('secondary_categories', []):
+            continue
+    if 'languages' in filters and filters['languages'] not in e.get('languages', []):
+        continue
+    if 'frameworks' in filters and filters['frameworks'] not in e.get('frameworks', []):
+        continue
+    # Then keyword search across multiple fields
+    if query:
+        searchable = ' '.join([
+            name,
+            e.get('description', ''),
+            ' '.join(e.get('keywords', [])),
+            ' '.join(e.get('use_cases', [])),
+            ' '.join(e.get('intents', [])),
+            e.get('category', ''),
+        ]).lower()
+        if query not in searchable:
+            continue
+    cat = e.get('category', '?')
+    typ = e.get('type', 'skill')
+    print(f'{typ:8} {cat:16} {name:30} {e.get(\"description\",\"\")[:55]}')
+" "<search-term>" [--type=skill|agent|command|rule|mcp|lsp] [--cat=<category>] [--lang=<language>] [--fw=<framework>]
 ```
+
+**Search examples:**
+- `"websocket"` — find all elements mentioning websocket
+- `"testing" --type=skill` — find only skills related to testing
+- `"" --cat=security` — list all elements in the security category
+- `"react" --fw=react` — find React-specific elements
+- `"" --lang=python --type=skill` — find all Python skills
 
 **Phase 2 Completion Checklist** (ALL items must be checked before proceeding to Phase 3):
 
