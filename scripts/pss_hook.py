@@ -22,7 +22,7 @@ MAX_SUGGESTIONS = 4  # Maximum number of skill suggestions per message (strict l
 MIN_SCORE = 0.5  # Minimum score threshold (skip low-confidence matches)
 MAX_TRANSCRIPT_LINES = 200  # How many recent transcript lines to scan for context
 SUBPROCESS_TIMEOUT = (
-    2  # Binary timeout in seconds (must be less than hooks.json timeout of 3s)
+    2  # Binary timeout in seconds (hooks.json timeout is 5000ms = 5s; keep this < 5)
 )
 
 # Project type detection markers
@@ -47,9 +47,6 @@ PROJECT_MARKERS = {
     "mix.exs": ("elixir", ["elixir", "phoenix"]),
     "pubspec.yaml": ("flutter", ["flutter", "dart"]),
     # C/C++/C#/Objective-C
-    "*.vcxproj": ("cpp", ["c++", "cpp", "visual studio"]),
-    "*.csproj": ("csharp", ["c#", "csharp", "dotnet", ".net"]),
-    "*.sln": ("dotnet", ["c#", "csharp", "dotnet", ".net", "visual studio"]),
     "meson.build": ("cpp", ["c++", "cpp", "c", "meson"]),
     "configure.ac": ("c", ["c", "autoconf", "autotools"]),
     "conanfile.txt": ("cpp", ["c++", "cpp", "conan"]),
@@ -556,9 +553,9 @@ def augment_prompt_with_context(prompt: str, cwd: str, transcript_path: str) -> 
     if not context_keywords:
         return prompt  # No context found
 
-    # Only augment short/generic prompts (less than 20 chars or single word)
+    # Only augment short/generic prompts (80 chars or fewer)
     prompt_stripped = prompt.strip()
-    if len(prompt_stripped) > 30 or " " in prompt_stripped:
+    if len(prompt_stripped) > 80:
         return prompt  # Prompt is already specific enough
 
     # Augment prompt with context keywords
@@ -655,16 +652,24 @@ def find_binary() -> Path:
     return binary_path
 
 
+# Empty hook response — matches Rust binary's HookOutput::empty() format
+_EMPTY_HOOK_OUTPUT = {
+    "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+    }
+}
+
+
 def _exit_empty() -> None:
-    """Exit with empty JSON output — used for graceful no-op exits."""
-    print(json.dumps({}))
+    """Exit with valid empty hook output — no suggestions, no error."""
+    print(json.dumps(_EMPTY_HOOK_OUTPUT))
     sys.exit(0)
 
 
 def _exit_warning(msg: str) -> None:
-    """Exit with warning to stderr and empty JSON to stdout."""
+    """Exit with warning to stderr and valid empty hook output to stdout."""
     print(f"PSS: {msg}", file=sys.stderr)
-    print(json.dumps({}))
+    print(json.dumps(_EMPTY_HOOK_OUTPUT))
     sys.exit(0)
 
 
@@ -730,7 +735,7 @@ def main() -> None:
 
         # Call the binary with --format hook, --top to limit count,
         # --min-score to filter low quality matches.
-        # Timeout MUST be less than hooks.json timeout (3s) to avoid zombie processes.
+        # Timeout MUST be less than hooks.json timeout (5s) to avoid zombie processes.
         result = subprocess.run(
             [
                 str(binary_path),

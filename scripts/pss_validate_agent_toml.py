@@ -116,6 +116,8 @@ def validate_agent_section(data: dict[str, Any], result: ValidationResult) -> No
             result.error(f"[agent].path must be a string, got: {type(path).__name__}")
         elif not path.startswith("/"):
             result.warn(f"[agent].path should be an absolute path, got: '{path}'")
+        elif not Path(path).exists():
+            result.error(f"[agent].path does not exist on disk: '{path}'")
 
     source = agent.get("source")
     if source is not None and not isinstance(source, str):
@@ -218,10 +220,25 @@ def validate_skills_section(
                 f"[skills].{tier} has {len(tier_list)} items, max is {max_items}"
             )
 
+        # Check min items for primary (must have at least 1)
+        if tier == "primary" and len(tier_list) == 0:
+            result.error(
+                "[skills].primary must have at least 1 skill (empty primary is not allowed)"
+            )
+
         # Check for empty skill names
         for skill_name in tier_list:
             if not skill_name.strip():
                 result.error(f"[skills].{tier} contains an empty skill name")
+
+        # Check for duplicates within this tier
+        tier_seen: set[str] = set()
+        for skill_name in tier_list:
+            if skill_name in tier_seen:
+                result.error(
+                    f"[skills].{tier} contains duplicate skill '{skill_name}'"
+                )
+            tier_seen.add(skill_name)
 
         all_skill_names.extend(tier_list)
 
@@ -239,9 +256,9 @@ def validate_skills_section(
     if index_skills is not None:
         for name in all_skill_names:
             if name not in index_skills:
-                result.warn(
+                result.error(
                     f"Skill '{name}' not found in skill-index.json "
-                    f"(may be unindexed or misspelled)"
+                    f"(run /pss-reindex-skills or correct the skill name)"
                 )
 
     # Validate excluded section (optional)

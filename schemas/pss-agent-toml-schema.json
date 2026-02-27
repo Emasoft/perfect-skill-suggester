@@ -19,6 +19,7 @@
         "source": {
           "type": "string",
           "description": "How the agent was specified: 'path' for direct file path, 'plugin:<name>' for plugin notation",
+          "pattern": "^(path|plugin:[a-z0-9][a-z0-9_-]*)$",
           "examples": ["path", "plugin:my-plugin"]
         },
         "path": {
@@ -59,21 +60,25 @@
       "properties": {
         "primary": {
           "type": "array",
-          "description": "Core skills the agent needs for daily work (max 7). Score >= 60% of max.",
+          "description": "Core skills the agent needs for daily work (min 1, max 7). Score >= 60% of max.",
           "items": { "type": "string" },
-          "maxItems": 7
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true
         },
         "secondary": {
           "type": "array",
           "description": "Useful skills for common tasks (max 12). Score 30-59% of max.",
           "items": { "type": "string" },
-          "maxItems": 12
+          "maxItems": 12,
+          "uniqueItems": true
         },
         "specialized": {
           "type": "array",
           "description": "Niche skills for specific situations (max 8). Score 15-29% of max.",
           "items": { "type": "string" },
-          "maxItems": 8
+          "maxItems": 8,
+          "uniqueItems": true
         },
         "excluded": {
           "type": "object",
