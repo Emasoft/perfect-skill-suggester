@@ -221,10 +221,10 @@ args = sys.argv[1:]
 query = None
 filters = {}
 for i, a in enumerate(args):
-    if a.startswith('--type='):     filters['type'] = a.split('=',1)[1]
-    elif a.startswith('--cat='):    filters['category'] = a.split('=',1)[1]
-    elif a.startswith('--lang='):   filters['languages'] = a.split('=',1)[1]
-    elif a.startswith('--fw='):     filters['frameworks'] = a.split('=',1)[1]
+    if a.startswith('--type='):       filters['type'] = a.split('=',1)[1]
+    elif a.startswith('--category='): filters['category'] = a.split('=',1)[1]
+    elif a.startswith('--language='): filters['languages'] = a.split('=',1)[1]
+    elif a.startswith('--framework='): filters['frameworks'] = a.split('=',1)[1]
     elif not a.startswith('--'):    query = a.lower()
 
 for name, e in idx['skills'].items():
@@ -253,15 +253,15 @@ for name, e in idx['skills'].items():
     cat = e.get('category', '?')
     typ = e.get('type', 'skill')
     print(f'{typ:8} {cat:16} {name:30} {e.get(\"description\",\"\")[:55]}')
-" "<search-term>" [--type=skill|agent|command|rule|mcp|lsp] [--cat=<category>] [--lang=<language>] [--fw=<framework>]
+" "<search-term>" [--type=skill|agent|command|rule|mcp|lsp] [--category=<category>] [--language=<language>] [--framework=<framework>]
 ```
 
 **Search examples:**
 - `"websocket"` — find all elements mentioning websocket
 - `"testing" --type=skill` — find only skills related to testing
-- `"" --cat=security` — list all elements in the security category
-- `"react" --fw=react` — find React-specific elements
-- `"" --lang=python --type=skill` — find all Python skills
+- `"" --category=security` — list all elements in the security category
+- `"react" --framework=react` — find React-specific elements
+- `"" --language=python --type=skill` — find all Python skills
 
 **Phase 2 Completion Checklist** (ALL items must be checked before proceeding to Phase 3):
 
