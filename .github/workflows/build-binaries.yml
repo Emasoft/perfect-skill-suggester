@@ -162,5 +162,5 @@ jobs:
           Built from: ${{ github.sha }}
           Targets: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64,
                    windows-x86_64, wasm32"
-            git push
+            git push || echo "::warning::Push blocked by branch protection. Binaries are available as workflow artifacts."
           fi
