@@ -634,8 +634,8 @@ def detect_platform() -> str:
 
 def find_binary() -> Path:
     """Locate the PSS binary relative to this script."""
-    # This script is in: OUTPUT_SKILLS/perfect-skill-suggester/scripts/pss_hook.py
-    # Binary is in: OUTPUT_SKILLS/perfect-skill-suggester/rust/skill-suggester/bin/
+    # This script is in: perfect-skill-suggester/scripts/pss_hook.py
+    # Binary is in: perfect-skill-suggester/rust/skill-suggester/bin/
     script_dir = Path(__file__).parent.resolve()
     binary_name = detect_platform()
     binary_path = script_dir.parent / "rust" / "skill-suggester" / "bin" / binary_name

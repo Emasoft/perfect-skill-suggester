@@ -262,7 +262,7 @@ Summary:
 ### Method 1: Marketplace Installation
 ```bash
 # Add marketplace
-claude plugin marketplace add ./OUTPUT_SKILLS/emasoft-plugins-marketplace
+claude plugin marketplace add ./emasoft-plugins-marketplace
 
 # Install plugin
 claude plugin install perfect-skill-suggester@emasoft-plugins
@@ -270,7 +270,7 @@ claude plugin install perfect-skill-suggester@emasoft-plugins
 
 ### Method 2: Direct Plugin Loading
 ```bash
-claude --plugin-dir ./OUTPUT_SKILLS/perfect-skill-suggester
+claude --plugin-dir ./perfect-skill-suggester
 ```
 
 ### Method 3: GitHub (future)

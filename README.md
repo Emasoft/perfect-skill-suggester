@@ -93,7 +93,7 @@ This is a utility plugin — it provides skill suggestion hooks. No `--agent` fl
 `--plugin-dir` loads a plugin directly from a local directory without marketplace installation. Use only during plugin development.
 
 ```bash
-claude --plugin-dir ./OUTPUT_SKILLS/perfect-skill-suggester
+claude --plugin-dir ./perfect-skill-suggester
 ```
 
 ## Update
