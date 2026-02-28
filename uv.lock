@@ -180,7 +180,7 @@ wheels = [
 
 [[package]]
 name = "perfect-skill-suggester"
-version = "2.1.0"
+version = "2.2.1"
 source = { virtual = "." }
 dependencies = [
     { name = "mypy" },

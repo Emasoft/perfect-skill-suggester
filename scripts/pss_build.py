@@ -23,10 +23,49 @@ TARGETS = {
     "linux-arm64": "aarch64-unknown-linux-musl",
     "linux-x86_64": "x86_64-unknown-linux-musl",
     "windows-x86_64": "x86_64-pc-windows-gnu",
-    "windows-arm64": "aarch64-pc-windows-gnullvm",
-    "android-arm64": "aarch64-linux-android",
     "wasm32": "wasm32-wasip1",
 }
+
+# Darwin targets must use cargo directly (cross has no macOS Docker images)
+DARWIN_TARGETS = {"darwin-arm64", "darwin-x86_64"}
+
+
+def resolve_cargo() -> str:
+    """Resolve cargo path, preferring rustup over Homebrew.
+
+    Homebrew's cargo cannot cross-compile (no rustup target support).
+    When Homebrew cargo is detected, use rustup's cargo directly and
+    also set RUSTC env var so cargo invokes rustup's rustc (not Homebrew's).
+    """
+    import os
+
+    cargo_path = shutil.which("cargo")
+    if cargo_path and "/homebrew/" in cargo_path.lower():
+        # Homebrew cargo detected — use rustup's cargo + rustc directly
+        rustup_cargo = Path.home() / ".rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo"
+        rustup_rustc = Path.home() / ".rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+        if rustup_cargo.exists():
+            print("  Note: Using rustup cargo (Homebrew cargo in PATH lacks cross targets)")
+            # CRITICAL: also set RUSTC so cargo uses rustup's rustc, not Homebrew's
+            if rustup_rustc.exists():
+                os.environ["RUSTC"] = str(rustup_rustc)
+            return str(rustup_cargo)
+        # Try finding any stable toolchain
+        rustup_dir = Path.home() / ".rustup/toolchains"
+        if rustup_dir.exists():
+            for toolchain in sorted(rustup_dir.iterdir()):
+                candidate = toolchain / "bin" / "cargo"
+                candidate_rustc = toolchain / "bin" / "rustc"
+                if candidate.exists() and "stable" in toolchain.name:
+                    print(f"  Note: Using rustup cargo from {toolchain.name}")
+                    if candidate_rustc.exists():
+                        os.environ["RUSTC"] = str(candidate_rustc)
+                    return str(candidate)
+        print(
+            "Warning: Homebrew cargo detected but no rustup toolchain found.",
+            file=sys.stderr,
+        )
+    return "cargo"
 
 
 def get_script_root() -> Path:
@@ -187,8 +226,9 @@ def build_native(release: bool = True) -> bool:
     # Ensure bin directory exists
     bin_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build command
-    cmd = ["cargo", "build"]
+    # Build command (use rustup's cargo to avoid Homebrew conflicts)
+    cargo = resolve_cargo()
+    cmd = [cargo, "build"]
     if release:
         cmd.append("--release")
 
@@ -271,7 +311,9 @@ def build_wasm(release: bool = True) -> bool:
 
     bin_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = ["cargo", "build", "--target", rust_target]
+    # Use rustup's cargo for WASM builds (Homebrew cargo may lack targets)
+    cargo = resolve_cargo()
+    cmd = [cargo, "build", "--target", rust_target]
     if release:
         cmd.append("--release")
 
@@ -307,8 +349,129 @@ def build_wasm(release: bool = True) -> bool:
     return False
 
 
+def build_darwin_cross(target_key: str, release: bool = True) -> bool:
+    """Build for a darwin target using cargo directly (cross can't do macOS)."""
+    if target_key not in DARWIN_TARGETS:
+        print(f"Error: {target_key} is not a darwin target", file=sys.stderr)
+        return False
+
+    rust_target = TARGETS[target_key]
+    rust_dir = get_rust_dir()
+    bin_dir = get_bin_dir()
+    cargo = resolve_cargo()
+
+    # Ensure the target is installed via rustup
+    try:
+        check_result = subprocess.run(
+            ["rustup", "target", "list", "--installed"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if rust_target not in check_result.stdout:
+            print(f"Installing Rust target: {rust_target}")
+            subprocess.run(
+                ["rustup", "target", "add", rust_target],
+                timeout=60,
+            )
+    except FileNotFoundError:
+        print("Error: rustup not found. Darwin cross-compilation requires rustup.", file=sys.stderr)
+        return False
+
+    bin_dir.mkdir(parents=True, exist_ok=True)
+
+    cmd = [cargo, "build", "--target", rust_target]
+    if release:
+        cmd.append("--release")
+
+    print(f"Building for {target_key} ({rust_target}) via cargo...")
+    print(f"  Directory: {rust_dir}")
+    print(f"  Command: {' '.join(cmd)}")
+
+    result = subprocess.run(cmd, cwd=rust_dir, timeout=300)
+
+    if result.returncode != 0:
+        print(f"Error: Darwin cross-build failed for {target_key}.", file=sys.stderr)
+        return False
+
+    # Copy binary to bin directory
+    system, machine = target_key.split("-")
+    binary_name = get_binary_name(system, machine)
+    target_subdir = "release" if release else "debug"
+    source = rust_dir / "target" / rust_target / target_subdir / "pss"
+    dest = bin_dir / binary_name
+
+    if source.exists():
+        shutil.copy2(source, dest)
+        dest.chmod(0o755)
+        print(f"Binary installed: {dest}")
+        return True
+    print(f"Error: Built binary not found at {source}", file=sys.stderr)
+    return False
+
+
+def build_zigbuild(target_key: str, release: bool = True) -> bool:
+    """Build for a specific target using cargo-zigbuild (no Docker needed)."""
+    if target_key not in TARGETS:
+        print(f"Error: Unknown target '{target_key}'", file=sys.stderr)
+        return False
+
+    rust_target = TARGETS[target_key]
+    rust_dir = get_rust_dir()
+    bin_dir = get_bin_dir()
+    cargo = resolve_cargo()
+
+    # Ensure the target stdlib is installed via rustup
+    try:
+        check_result = subprocess.run(
+            ["rustup", "target", "list", "--installed"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if rust_target not in check_result.stdout:
+            print(f"  Installing Rust target: {rust_target}")
+            subprocess.run(["rustup", "target", "add", rust_target], timeout=60)
+    except FileNotFoundError:
+        print("Error: rustup not found. zigbuild requires rustup.", file=sys.stderr)
+        return False
+
+    zigbuild = shutil.which("cargo-zigbuild")
+    if not zigbuild:
+        print("Error: cargo-zigbuild not found. Install: cargo install cargo-zigbuild", file=sys.stderr)
+        return False
+
+    bin_dir.mkdir(parents=True, exist_ok=True)
+
+    cmd = [zigbuild, "build", "--release" if release else "", "--target", rust_target]
+    cmd = [c for c in cmd if c]  # remove empty strings
+
+    print(f"Building for {target_key} ({rust_target}) via zigbuild...")
+    result = subprocess.run(cmd, cwd=rust_dir, timeout=300)
+
+    if result.returncode != 0:
+        print(f"Error: zigbuild failed for {target_key}.", file=sys.stderr)
+        return False
+
+    # Copy binary to bin directory
+    system, machine = target_key.split("-")
+    binary_name = get_binary_name(system, machine)
+    target_subdir = "release" if release else "debug"
+    source = rust_dir / "target" / rust_target / target_subdir / "pss"
+    if "windows" in target_key:
+        source = source.with_suffix(".exe")
+    dest = bin_dir / binary_name
+
+    if source.exists():
+        shutil.copy2(source, dest)
+        dest.chmod(0o755)
+        print(f"Binary installed: {dest}")
+        return True
+    print(f"Error: Built binary not found at {source}", file=sys.stderr)
+    return False
+
+
 def build_cross(target_key: str, release: bool = True) -> bool:
-    """Build for a specific target using cross."""
+    """Build for a specific target using cross (Docker-based).
+
+    Falls back to cargo-zigbuild if cross fails.
+    """
     if target_key not in TARGETS:
         print(f"Error: Unknown target '{target_key}'", file=sys.stderr)
         print(f"Available targets: {', '.join(TARGETS.keys())}")
@@ -318,37 +481,25 @@ def build_cross(target_key: str, release: bool = True) -> bool:
     rust_dir = get_rust_dir()
     bin_dir = get_bin_dir()
 
+    # Ensure rustup's toolchain is visible to cross (Homebrew breaks it)
+    import os
+    rustup_bin = Path.home() / ".rustup/toolchains/stable-aarch64-apple-darwin/bin"
+    cargo_bin = Path.home() / ".cargo/bin"
+    env = os.environ.copy()
+    env["PATH"] = f"{rustup_bin}:{cargo_bin}:{env.get('PATH', '')}"
+
     # Build command
     cmd = ["cross", "build", "--target", rust_target]
     if release:
         cmd.append("--release")
 
     print(f"Cross-compiling for {target_key} ({rust_target})...")
-    result = subprocess.run(cmd, cwd=rust_dir, timeout=600)
+    result = subprocess.run(cmd, cwd=rust_dir, timeout=600, env=env)
 
     if result.returncode != 0:
-        print(
-            f"Error: Cross-compilation failed for {target_key} ({rust_target}).",
-            file=sys.stderr,
-        )
-        print("", file=sys.stderr)
-        print("Common causes:", file=sys.stderr)
-        print(
-            "  1. Docker not running: open -a Docker (macOS)"
-            " or sudo systemctl start docker (Linux)",
-            file=sys.stderr,
-        )
-        print(
-            "  2. First build for this target: Docker needs"
-            " to pull the cross image (may take minutes)",
-            file=sys.stderr,
-        )
-        print(
-            "  3. Network error: Docker needs internet"
-            " to pull cross-rs images from ghcr.io",
-            file=sys.stderr,
-        )
-        return False
+        # Fallback to zigbuild if cross fails (common on Apple Silicon for arm64 targets)
+        print(f"  cross failed for {target_key}, trying zigbuild fallback...", file=sys.stderr)
+        return build_zigbuild(target_key, release)
 
     # Copy binary to bin directory
     system, machine = target_key.split("-")
@@ -447,11 +598,16 @@ def main() -> int:
 
     release = not args.debug
 
-    # Handle --all (requires cross for non-WASM targets)
+    # Handle --all (darwin via cargo, linux/windows via cross, wasm via cargo)
     if args.all:
-        if not check_cross_installed():
+        system, machine = detect_platform()
+        native_target = f"{system}-{machine}"
+
+        # cross is needed for linux/windows targets
+        non_darwin_non_wasm = [t for t in TARGETS if t not in DARWIN_TARGETS and t != "wasm32"]
+        if non_darwin_non_wasm and not check_cross_installed():
             print(
-                "Error: 'cross' is required for --all (except WASM).", file=sys.stderr
+                "Error: 'cross' is required for linux/windows targets.", file=sys.stderr
             )
             return 1
 
@@ -460,13 +616,22 @@ def main() -> int:
             if target == "wasm32":
                 if not build_wasm(release):
                     success = False
+            elif target in DARWIN_TARGETS:
+                # Native target uses cargo build, cross-darwin uses cargo --target
+                if target == native_target:
+                    if not build_native(release):
+                        success = False
+                else:
+                    if not build_darwin_cross(target, release):
+                        success = False
             else:
+                # Linux/Windows targets use cross (Docker-based)
                 if not build_cross(target, release):
                     success = False
 
         return 0 if success else 1
 
-    # Handle --target (WASM uses cargo directly, others may need cross)
+    # Handle --target (WASM via cargo, darwin via cargo, linux/windows via cross)
     if args.target:
         if args.target == "wasm32":
             return 0 if build_wasm(release) else 1
@@ -476,6 +641,12 @@ def main() -> int:
 
         if args.target == native_target:
             return 0 if build_native(release) else 1
+
+        # Darwin cross-compilation uses cargo directly (no Docker needed)
+        if args.target in DARWIN_TARGETS:
+            return 0 if build_darwin_cross(args.target, release) else 1
+
+        # Linux/Windows targets require cross (Docker-based)
         if not check_cross_installed():
             print(
                 f"Error: 'cross' is required to build for"
