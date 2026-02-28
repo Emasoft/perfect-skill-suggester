@@ -379,6 +379,7 @@ See [references/external-sources.md](references/external-sources.md) for detaile
 **This is the most critical phase.** Validate that no overlaps or conflicts exist BETWEEN types (skill<->MCP, skill<->agent, agent<->agent, MCP<->MCP, rule<->rule). Check all 13 items on the coherence checklist.
 
 See [references/cross-type-coherence.md](references/cross-type-coherence.md) for detailed overlap detection rules, the coherence checklist, and resolution strategies.
+> Sections: 5.1 Cross-type overlap detection | 5.2 Coherence checklist | 5.3 Resolution strategy | 5.4 Autonomous vs Interactive mode
 
 ---
 
@@ -442,7 +443,7 @@ This command spawns the `pss-agent-profiler` agent, which follows the full Phase
 
 ## Scoring Reference
 
-See [references/example-and-scoring.md](references/example-and-scoring.md) for the scoring weight table, tier thresholds, troubleshooting guide, and a complete worked example of profiling a React frontend developer agent.
+See [references/example-and-scoring.md](references/example-and-scoring.md) — covers: Scoring Reference (weight table, tier thresholds), Troubleshooting guide, and Complete Example of profiling a React frontend developer agent.
 
 ## Instructions
 
@@ -466,7 +467,7 @@ The final output is a validated `.agent.toml` file written to `~/.claude/agents/
 
 ## Examples
 
-See [references/example-and-scoring.md](references/example-and-scoring.md) for a full `.agent.toml` output for a React frontend developer agent, showing all sections populated with reasoned selections and exclusion comments.
+See [references/example-and-scoring.md](references/example-and-scoring.md) for a Complete Example `.agent.toml` output for a React frontend developer agent. Also includes Scoring Reference details and Troubleshooting tips.
 
 ## Resources
 

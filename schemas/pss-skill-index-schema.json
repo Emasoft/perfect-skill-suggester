@@ -228,7 +228,7 @@
       "skills": {
         "github-workflow": {
           "source": "user",
-          "path": "/Users/user/.claude/skills/github-workflow/SKILL.md",
+          "path": "~/.claude/skills/github-workflow/SKILL.md",
           "type": "skill",
           "description": "GitHub workflow using gh CLI - create issues with duplicate checking and labels, create PRs with CI/CD monitoring, link issues to PRs, squash-merge to main.",
           "use_cases": [

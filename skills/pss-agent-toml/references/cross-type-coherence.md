@@ -11,7 +11,7 @@
 
 **This is the most critical phase.** The Rust binary scores candidates within each type independently. It does NOT check for overlaps or conflicts BETWEEN types. You MUST validate coherence across ALL sections before finalizing.
 
-**5.1 Cross-type overlap detection**
+## 5.1 Cross-type overlap detection
 
 Compare every element in the profile against every other element across ALL types:
 
@@ -35,7 +35,7 @@ Compare every element in the profile against every other element across ALL type
 **Rule <-> Rule conflict**: Two rules that contradict each other.
 - Example: A "always-use-mocks" rule AND a "never-use-mocks" rule. Remove the one contradicting the project's testing philosophy.
 
-**5.2 Coherence checklist**
+## 5.2 Coherence checklist
 
 Before writing the final `.agent.toml`, verify ALL of these:
 
@@ -53,7 +53,7 @@ Before writing the final `.agent.toml`, verify ALL of these:
 - [ ] All selected elements are compatible with the agent's tech stack
 - [ ] No obsolete or deprecated elements remain
 
-**5.3 Resolution strategy**
+## 5.3 Resolution strategy
 
 When an overlap or conflict is found:
 1. **Read both elements' SKILL.md/agent.md** to understand exact scope
@@ -62,7 +62,7 @@ When an overlap or conflict is found:
 4. **Document the exclusion** in `[skills.excluded]` with the reason
 5. If truly undecidable (both equally valuable, different trade-offs), **ask the user/orchestrator** — but only in this case
 
-**5.4 Autonomous vs Interactive mode**
+## 5.4 Autonomous vs Interactive mode
 
 **Autonomous (default)**: Execute the full pipeline, apply all evaluation and coherence validation, resolve conflicts using the rules above, produce the final `.agent.toml`, and report the result. Only surface truly unresolvable conflicts to the user.
 

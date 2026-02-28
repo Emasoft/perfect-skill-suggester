@@ -200,7 +200,7 @@
       "agent": {
         "name": "frontend-developer",
         "source": "plugin:multi-platform-apps",
-        "path": "/Users/me/.claude/plugins/cache/abc/multi-platform-apps/1.0/agents/frontend-developer.md"
+        "path": "~/.claude/plugins/cache/abc/multi-platform-apps/1.0/agents/frontend-developer.md"
       },
       "requirements": {
         "files": ["prd.md", "design-system.md"],

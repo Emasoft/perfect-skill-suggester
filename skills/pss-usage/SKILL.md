@@ -232,7 +232,7 @@ PSS suggests:
 3. `docker-deploy` (LOW, co_usage:python-test-writer(0.3))
    - **Action: SKIP** - Not relevant to writing tests
 
-For detailed explanation of confidence levels and evidence scoring, see section 4.0 in [pss-commands.md](references/pss-commands.md).
+For details on 4.1 Understanding confidence levels: HIGH, MEDIUM, LOW and 4.2 Understanding evidence types: intent, keyword, co_usage, see [pss-commands.md](references/pss-commands.md).
 
 ---
 
@@ -272,7 +272,7 @@ For detailed explanation of confidence levels and evidence scoring, see section 
 
    Expected: PSS suggests relevant testing skills with HIGH confidence
 
-**If any step fails**: See troubleshooting in section 5.0 of [pss-commands.md](references/pss-commands.md).
+**If any step fails**: See [pss-commands.md](references/pss-commands.md) section 5.0 Troubleshooting common PSS issues — covers 5.1 PSS commands not found or not responding, 5.2 Empty or missing skill suggestions.
 
 ### Workflow 2: Adding New Skills
 
@@ -340,26 +340,24 @@ For detailed explanation of confidence levels and evidence scoring, see section 
    - Review agent's frontmatter `available_skills` list
    - If skill missing, add it to agent's skill list
 
-For detailed troubleshooting, see section 5.2 in [pss-commands.md](references/pss-commands.md).
+For detailed troubleshooting, see [pss-commands.md](references/pss-commands.md) — 5.2 Empty or missing skill suggestions and 5.3 Index file errors or corruption.
 
 ---
 
 ## Error Handling
 
-**Problem: PSS commands not found**
-- See section 5.1 in [pss-commands.md](references/pss-commands.md)
+For all troubleshooting details, see [pss-commands.md](references/pss-commands.md) section 5.0 Troubleshooting common PSS issues:
+
+**5.1 PSS commands not found or not responding**
 - Quick fix: Check plugin enabled with `/plugin list`
 
-**Problem: No skill suggestions**
-- See section 5.2 in [pss-commands.md](references/pss-commands.md)
+**5.2 Empty or missing skill suggestions**
 - Quick fix: Run `/pss-reindex-skills`
 
-**Problem: Index file corrupted**
-- See section 5.3 in [pss-commands.md](references/pss-commands.md)
+**5.3 Index file errors or corruption**
 - Quick fix: Delete `~/.claude/cache/skill-index.json` and reindex
 
-**Problem: Reindexing fails**
-- See section 5.4 in [pss-commands.md](references/pss-commands.md)
+**5.4 Reindexing failures and recovery**
 - Quick fix: Check error message, verify skills directories exist
 
 ---
@@ -443,7 +441,7 @@ Output: "Index Status: ✓ Exists. Total Skills Indexed: 42"
 
 ### Related Documentation
 
-- **[pss-commands.md](references/pss-commands.md)** - Complete command reference with detailed explanations of `/pss-status` and `/pss-reindex-skills`
+- **[pss-commands.md](references/pss-commands.md)** - 1.0 Understanding PSS command structure and invocation, 2.0 Using /pss-status to check PSS configuration and index health, 5.0 Troubleshooting common PSS issues
 - **PSS Architecture** - See `docs/PSS-ARCHITECTURE.md` in PSS plugin directory for design principles
 - **Plugin Validation** - See `docs/PLUGIN-VALIDATION.md` for PSS validation procedures
 
@@ -480,8 +478,8 @@ Copy this checklist and track your progress:
 
 ## Summary
 
-Commands: `/pss-status` (check health), `/pss-reindex-skills` (rebuild index). Confidence levels: HIGH (activate), MEDIUM (review evidence), LOW (skip). Evidence types: intent, keyword, co_usage. See [pss-commands.md](references/pss-commands.md) for details.
+Commands: `/pss-status` (check health), `/pss-reindex-skills` (rebuild index). See [pss-commands.md](references/pss-commands.md) for 4.1 Understanding confidence levels: HIGH, MEDIUM, LOW and 4.2 Understanding evidence types: intent, keyword, co_usage.
 
 ## Notes for Skill Authors
 
-See [pss-skill-authoring-tips.md](references/pss-skill-authoring-tips.md) for making skills discoverable by PSS.
+See [pss-skill-authoring-tips.md](references/pss-skill-authoring-tips.md) — 1.0 Making your skills discoverable by PSS, 2.0 Improving suggestion quality for your skills, 3.0 Reference: Standard categories list.
