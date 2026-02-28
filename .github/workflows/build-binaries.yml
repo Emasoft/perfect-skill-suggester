@@ -25,13 +25,14 @@ jobs:
   # Native macOS builds (cannot use cross for macOS)
   build-macos:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: aarch64-apple-darwin
-            os: macos-14
+            os: macos-15
             binary: pss-darwin-arm64
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-15
             binary: pss-darwin-x86_64
     runs-on: ${{ matrix.os }}
     steps:
@@ -58,10 +59,11 @@ jobs:
           name: ${{ matrix.binary }}
           path: ${{ env.BIN_DIR }}/${{ matrix.binary }}
 
-  # Cross-compiled builds (Linux, Windows, Android)
+  # Cross-compiled builds (Linux, Windows)
   build-cross:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-musl
@@ -70,8 +72,6 @@ jobs:
             binary: pss-linux-arm64
           - target: x86_64-pc-windows-gnu
             binary: pss-windows-x86_64.exe
-          - target: aarch64-linux-android
-            binary: pss-android-arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -103,36 +103,6 @@ jobs:
           name: ${{ matrix.binary }}
           path: ${{ env.BIN_DIR }}/${{ matrix.binary }}
 
-  # Windows ARM64 build (requires special cross setup)
-  build-windows-arm64:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-pc-windows-gnullvm
-
-      - name: Install cross
-        run: cargo install cross --locked
-
-      - name: Build with cross
-        working-directory: ${{ env.RUST_SOURCE }}
-        run: cross build --release --target aarch64-pc-windows-gnullvm
-
-      - name: Copy binary to bin/
-        run: |
-          cp "${{ env.RUST_SOURCE }}/target/aarch64-pc-windows-gnullvm/release/pss.exe" \
-             "${{ env.BIN_DIR }}/pss-windows-arm64.exe"
-          chmod +x "${{ env.BIN_DIR }}/pss-windows-arm64.exe"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pss-windows-arm64.exe
-          path: ${{ env.BIN_DIR }}/pss-windows-arm64.exe
-
   # WASM build
   build-wasm:
     runs-on: ubuntu-latest
@@ -161,7 +131,7 @@ jobs:
 
   # Commit all built binaries back to the repo
   commit-binaries:
-    needs: [build-macos, build-cross, build-windows-arm64, build-wasm]
+    needs: [build-macos, build-cross, build-wasm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -191,6 +161,6 @@ jobs:
 
           Built from: ${{ github.sha }}
           Targets: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64,
-                   windows-x86_64, windows-arm64, android-arm64, wasm32"
+                   windows-x86_64, wasm32"
             git push
           fi
