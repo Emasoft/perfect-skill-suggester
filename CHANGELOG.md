@@ -2,94 +2,138 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
-## [2.1.0] - 2026-02-27
+## [2.2.2] - 2026-02-28
+
+### Bug Fixes
+
+- Add missing skill sections + sync CPV validation scripts
+- Resolve all MINOR validation issues (TOC, SKILL.md metadata, mypy)
+- Resolve remaining validation issues
+- Use <agent-name>.md naming convention consistently across docs
+- Make all PSS scripts and agent instructions cross-platform
+- Address audit findings for multi-type indexing
+- Correct bullet[0] bug in extract_intents_from_content
+- Comprehensive audit fixes across 12 files
+- Cross-platform fcntl, stale field names, wrong index paths
+- Code quality improvements across Python scripts and Rust binary
+- Resolve all clippy warnings in Rust binary
+- Critical validator bugs, schema constraints, hook output format
+- Resolve all remaining audit issues across 7 files
+- Use full flag names in index search (--category, --language, --framework)
+- Binary version 2.0.0 → 2.1.0, add reindex flags to README
+- Resolve all validation issues, replace scripts from upstream CPV
+- Resolve all MINOR validation issues, extract content to references
+- Remove stale OUTPUT_SKILLS path references from 3 files
+- Update CI build workflow for current GitHub runners
+- Gracefully handle branch protection in CI binary commit
+
+### Documentation
+
+- Standardize validator references to universal CPV scripts
+- Add marketplace installation instructions with --scope local
+- Update README with --scope user installation instructions
+- Enforce AI-mandatory principle across all plugin files
+- Update all documentation for v2.1.0 release
 
 ### Features
 
-- **Multi-type element indexing**: Index now covers 6 element types: skills, agents, commands, rules, MCP servers, LSP servers
-- **Agent TOML profiler**: New `/pss-setup-agent` command + `pss-agent-profiler` agent for AI-powered agent configuration
-- **Powerful index search**: Phase 2.2 search now supports `--type`, `--category`, `--language`, `--framework` filters
-- **Polyglot project detection**: Hook now detects all project markers instead of stopping at first match
-- **Category enum validation**: Schema enforces 16 predefined categories on index entries
+- **pss:** V1.7.0 - Transient .pss files + atomic merge queue
+- **pss:** V1.7.1 - Add end-to-end test script for runtime pipeline verification
+- **pss:** V1.8.0 - Multi-platform binaries, WASM support, improved error messages
+- **pss:** Enhanced matching pipeline with stemming, abbreviations, project context scanning
+- **perfect-skill-suggester:** Bump version to 1.9.0
+- Add .pss cleanup, /pss-setup-agent command, and --agent-profile Rust mode
+- Add .agent.toml schema, validation script, and fail-fast error handling
+- Extend PSS to multi-type indexing (skills, agents, commands, rules, MCP, LSP)
+- Add universal agent TOML profile builder skill and standalone generator
+- Add mandatory checklists to all phases + pipeline robustness fixes
+- Add unified release script and update README
 
-### Bug Fixes
+### Miscellaneous Tasks
 
-- **Validator: invented skills now fail** — `--check-index` missing skills upgraded from WARN to ERROR (critical gap)
-- **Validator: empty primary rejected** — `skills.primary` must have at least 1 skill
-- **Validator: duplicate detection** — within-tier duplicates now caught
-- **Validator: path existence** — `agent.path` verified on disk
-- **Hook output format** — `_exit_empty()` and `_exit_warning()` now output proper `hookSpecificOutput` JSON
-- **Hook fallback format** — `hook.sh` fallback updated from stale v1.0 format to current `HookOutput` shape
-- **Deterministic hashing** — `hash_prompt` replaced `DefaultHasher` with FNV-1a 64-bit for stable deduplication
-- **YAML frontmatter** — `parse_frontmatter` now uses PyYAML `safe_load` instead of hand-rolled line splitter
-- **Race condition** — `pss_cleanup.py` `unlink()` now uses `missing_ok=True`
-- **Dead code removed** — glob patterns (`*.vcxproj`, `*.csproj`, `*.sln`) that never matched in `PROJECT_MARKERS`
-- **Augment threshold** — relaxed from 30 to 80 chars so augmentation actually triggers
+- **pss:** Rebuild darwin-arm64 binary with --load-pss flag
+- Sync validation scripts from CPV
+- Sync validation scripts from CPV
+- Sync validation scripts from CPV
+- Bump version to 1.9.1
+- Bump version to 1.9.2
+- Bump version to 1.9.3
+- Remove plugin-specific pss_validate_index.py, use CPV validator
+- Bump version to 1.9.4
+- Sync validation scripts, hooks, and workflows from CPV
+- Bump version to 1.9.5
+- Update lockfiles
+- Sync CPV validation scripts and fix TOC embedding issues
+- Sync 7 updated + 1 new validation scripts from CPV upstream
+- Sync all 20 validation scripts from CPV upstream
+- Add CLAUDE.md to gitignore
 
-### Documentation
+### Refactor
 
-- **AI-mandatory principle** enforced across all plugin files (profiler, setup-agent, usage skill)
-- **Mandatory checklists** added to all 6 phases of the agent TOML creation skill
-- **Step 6a tier review** added to profiler agent with 5-item verification checklist
-- **Step 9 completion checklist** added to profiler agent
-- **`CLAUDE_PLUGIN_ROOT` validation** added to setup-agent command
-- **Binary existence check** added before Pass 2 in reindex command
-- **JSON validation gate** added to Pass 1 Haiku prompt before merge
-- **Session-unique temp files** using PID suffix to prevent race conditions
-- **Requirements summary** documented 2000-char limit
+- Unify terminology skill→element across prompts, commands, and schemas
+- Enforce AI-mandatory principle, remove standalone generator script
 
-### Schema
+### Testing
 
-- `pss-agent-toml-schema.json`: Added `minItems: 1` on primary, `uniqueItems: true` on all tiers, `agent.source` pattern
-- `pss-skill-index-schema.json`: Added enum constraint with 16 predefined categories
+- Add 5 Rust tests for multi-type functionality
 
-### Breaking Changes
+### Build
 
-- `pss_discover.py`: `--skill` flag renamed to `--name` for multi-type consistency
+- Rebuild darwin-arm64 binary with FNV-1a hash fix (v2.1.0)
+- Rebuild all platform binaries for v2.2.1
 
-## [1.2.3] - 2026-01-31
+### Bump
 
-### Critical Changes
+- Version 2.1.0 → 2.2.0
+- Version 2.2.0 → 2.2.1
 
-- **MANDATORY CLEAN SLATE**: Reindexing now ALWAYS performs full regeneration from scratch
-- **Phase 0 (Non-Negotiable)**: All previous index data MUST be backed up to /tmp and removed before discovery
-- Removed `--force` and `--skill NAME` flags - incremental updates are no longer supported
-- Added strict verification step - reindex fails if any old data remains
+### Release
 
-### Bug Fixes
+- Bump version to 2.1.0, update changelog and readme
 
-- Fixed stale version paths (plugins update, old paths remained in index)
-- Fixed orphaned entries (deleted skills persisted in index)
-- Fixed name mismatches (e.g., "Swift Concurrency" vs `swift-concurrency`)
-- Fixed missing new skills when plugins were updated
-
-### Documentation
-
-- Added prominent warning boxes about mandatory full regeneration
-- Updated PSS-ARCHITECTURE.md with non-negotiable clean slate requirement
-- Updated pss-usage SKILL.md with expected Phase 0 output
-
-## [1.1.0] - 2026-01-23
+## [1.6.1] - 2026-02-08
 
 ### Bug Fixes
 
 - Simplify plugin.json to fix uninstall issue
 - Update validator to match official Anthropic schema
+- Timeout validator bug and bump to v1.2.0
+- Correct marketplace repo name in notify workflow
+- Remove duplicate hooks entry causing plugin load error
 
 ### Documentation
 
 - Add marketplace installation notice to README
 - Update CHANGELOG.md
+- Add Update, Uninstall, and Troubleshooting sections to README
 
 ### Features
 
 - Add marketplace validator and fix strict=false compliance
 - **pss:** Bump version to 1.1.0
+- Add notify-marketplace.yml workflow
+- **reindex:** Enforce mandatory full regeneration from scratch [**BREAKING**]
+- **pss:** Context-aware skill suggestion + reduced context flooding
+- **v1.6.0:** Add Nixtla sections to pss-usage skill
+- **pss:** Bump version to 1.6.1
 
 ### Miscellaneous Tasks
 
 - Add git-cliff configuration and changelog
 - Update CHANGELOG.md with latest changes
+- Add requirements.txt and script improvements
+- Regenerate CHANGELOG.md for v1.2.0
+- Trigger notify-marketplace workflow
+- Clean up test artifacts from plugin.json
+- Gitignore all *_dev folders, untrack docs_dev
+
+### Testing
+
+- Trigger marketplace pipeline
+
+### V1.5.0
+
+- Dewey-like domain classification + dynamic tool catalog
 
 ---
 *Generated by [git-cliff](https://git-cliff.org)*
