@@ -656,10 +656,18 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true", help="Strict mode — NIT issues also block validation")
     args = parser.parse_args()
 
-    path = Path(args.path)
+    path = Path(args.path).resolve()
 
     if not path.exists():
         print(f"Error: {path} does not exist", file=sys.stderr)
+        return 1
+
+    # Verify content type — must be .md file or directory containing .md files
+    if path.is_file() and path.suffix != ".md":
+        print(f"Error: {path} is not a Markdown (.md) command file", file=sys.stderr)
+        return 1
+    if path.is_dir() and not list(path.glob("*.md")):
+        print(f"Error: No command definition files (.md) found in {path}", file=sys.stderr)
         return 1
 
     # Handle directory vs file

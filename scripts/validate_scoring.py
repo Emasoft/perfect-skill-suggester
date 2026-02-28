@@ -748,17 +748,28 @@ Rating scale (0-10 per category):
 
     args = parser.parse_args()
 
+    # Resolve to absolute path so relative_to() works correctly
+    plugin_path = args.plugin_path.resolve()
+
     # Validate plugin path exists
-    if not args.plugin_path.exists():
-        print(f"Error: Plugin path does not exist: {args.plugin_path}", file=sys.stderr)
+    if not plugin_path.exists():
+        print(f"Error: Plugin path does not exist: {plugin_path}", file=sys.stderr)
         return EXIT_CRITICAL
 
-    if not args.plugin_path.is_dir():
-        print(f"Error: Plugin path is not a directory: {args.plugin_path}", file=sys.stderr)
+    if not plugin_path.is_dir():
+        print(f"Error: Plugin path is not a directory: {plugin_path}", file=sys.stderr)
+        return EXIT_CRITICAL
+
+    # Verify this is a plugin directory
+    if not (plugin_path / ".claude-plugin").is_dir():
+        print(
+            f"Error: No Claude Code plugin found at {plugin_path}\nExpected a .claude-plugin/ directory.",
+            file=sys.stderr,
+        )
         return EXIT_CRITICAL
 
     # Compute quality score
-    report = compute_quality_score(args.plugin_path)
+    report = compute_quality_score(plugin_path)
 
     # Output results
     if args.json:

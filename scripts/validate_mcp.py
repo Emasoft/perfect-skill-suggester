@@ -545,15 +545,29 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Determine path
+    # Determine path — always resolve to absolute so relative_to() works
     if args.path:
-        path = Path(args.path)
+        path = Path(args.path).resolve()
     else:
-        path = Path.cwd()
+        path = Path.cwd().resolve()
 
     if not path.exists():
         print(f"Error: {path} does not exist", file=sys.stderr)
         return 1
+
+    # Verify content type — must be .mcp.json file or directory containing one
+    if path.is_file() and not path.name.endswith(".mcp.json"):
+        print(f"Error: {path} is not an MCP config file (expected .mcp.json)", file=sys.stderr)
+        return 1
+    if path.is_dir():
+        has_mcp = (path / ".mcp.json").exists() or (path / ".claude-plugin").is_dir()
+        if not has_mcp:
+            print(
+                f"Error: No MCP configuration found at {path}\n"
+                f"Expected .mcp.json file or a plugin directory with .claude-plugin/.",
+                file=sys.stderr,
+            )
+            return 1
 
     # Determine if it's a file or directory
     if path.is_file():

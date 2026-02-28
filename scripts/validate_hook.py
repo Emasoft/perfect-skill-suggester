@@ -939,11 +939,19 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true", help="Strict mode — NIT issues also block validation")
     args = parser.parse_args()
 
-    hook_path = Path(args.hook_path)
-    plugin_root = Path(args.plugin_root) if args.plugin_root else None
+    hook_path = Path(args.hook_path).resolve()
+    plugin_root = Path(args.plugin_root).resolve() if args.plugin_root else None
 
     if not hook_path.exists():
         print(f"Error: {hook_path} does not exist", file=sys.stderr)
+        return 1
+
+    # Verify content type — must be a JSON file (hooks.json)
+    if not hook_path.is_file():
+        print(f"Error: {hook_path} is not a file (expected hooks.json)", file=sys.stderr)
+        return 1
+    if hook_path.suffix != ".json":
+        print(f"Error: {hook_path} is not a JSON file (expected hooks.json)", file=sys.stderr)
         return 1
 
     report = validate_hooks(hook_path, plugin_root)

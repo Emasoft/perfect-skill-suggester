@@ -474,15 +474,29 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Determine path
+    # Determine path — always resolve to absolute so relative_to() works
     if args.path:
-        path = Path(args.path)
+        path = Path(args.path).resolve()
     else:
-        path = Path.cwd()
+        path = Path.cwd().resolve()
 
     if not path.exists():
         print(f"Error: {path} does not exist", file=sys.stderr)
         return 1
+
+    # Verify content type — must be LSP config file or plugin directory
+    if path.is_file() and path.suffix != ".json":
+        print(f"Error: {path} is not a JSON config file", file=sys.stderr)
+        return 1
+    if path.is_dir():
+        has_lsp = (path / ".claude-plugin").is_dir() or any(path.glob("*.lsp.json")) or (path / "lsp").is_dir()
+        if not has_lsp:
+            print(
+                f"Error: No LSP configuration found at {path}\n"
+                f"Expected a plugin directory with .claude-plugin/ or LSP config files.",
+                file=sys.stderr,
+            )
+            return 1
 
     # Determine if it's a file or directory
     if path.is_file():
