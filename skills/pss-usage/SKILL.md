@@ -1,6 +1,6 @@
 ---
 name: pss-usage
-description: "Use when interpreting element suggestions (skills, agents, commands, rules, MCP, LSP), understanding confidence levels, or troubleshooting PSS issues. Trigger with /pss-usage or /pss-status slash commands."
+description: "Use when interpreting element suggestions, understanding confidence levels, or troubleshooting PSS. Trigger with /pss-status."
 argument-hint: "skill-name or keyword to search"
 user-invocable: false
 ---
@@ -480,35 +480,8 @@ Copy this checklist and track your progress:
 
 ## Summary
 
-**Two commands, simple usage:**
-- `/pss-status` - Check PSS health
-- `/pss-reindex-skills` - Rebuild skill index
-
-**Three confidence levels:**
-- HIGH - Activate by default
-- MEDIUM - Review evidence
-- LOW - Skip unless certain
-
-**Three evidence types:**
-- intent - Semantic category match
-- keyword - Word match
-- co_usage - Related skill correlation
-
-**For complete details, see:**
-- [pss-commands.md](references/pss-commands.md) - Full command reference and troubleshooting
-
----
+Commands: `/pss-status` (check health), `/pss-reindex-skills` (rebuild index). Confidence levels: HIGH (activate), MEDIUM (review evidence), LOW (skip). Evidence types: intent, keyword, co_usage. See [pss-commands.md](references/pss-commands.md) for details.
 
 ## Notes for Skill Authors
 
-For tips on making your skills discoverable by PSS, see [pss-skill-authoring-tips.md](references/pss-skill-authoring-tips.md):
-
-- **1.0 Making your skills discoverable by PSS**
-  - 1.1 Essential frontmatter fields for PSS indexing
-  - 1.2 Choosing effective keywords that match user prompts
-  - 1.3 Selecting accurate categories from the 16 standard options
-- **2.0 Improving suggestion quality for your skills**
-  - 2.1 Writing descriptions that help PSS match intent
-  - 2.2 Including tool and action keywords
-  - 2.3 Leveraging co-usage relationships automatically
-- **3.0 Reference: Standard categories list**
+See [pss-skill-authoring-tips.md](references/pss-skill-authoring-tips.md) for making skills discoverable by PSS.
