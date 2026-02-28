@@ -39,11 +39,18 @@ Thumbs.db
 .tldr/
 .tldrignore
 
+# Environment files
+.env
+.env.*
+
 # Virtual environments
 .venv/
 
 # Testing cache
 .pytest_cache/
+
+# Node
+node_modules/
 
 # Rust
 target/

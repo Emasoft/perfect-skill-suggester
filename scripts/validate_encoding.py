@@ -24,7 +24,7 @@ import re
 import sys
 from pathlib import Path
 
-from validation_common import (
+from cpv_validation_common import (
     SKIP_DIRS,
     ValidationReport,
     print_report_summary,
@@ -586,6 +586,7 @@ Exit Codes:
     parser.add_argument("plugin_path", type=Path, help="Path to the plugin directory to validate")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show all results including INFO and PASSED")
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
+    parser.add_argument("--strict", action="store_true", help="Strict mode — NIT issues also block validation")
 
     args = parser.parse_args()
 
@@ -601,6 +602,8 @@ Exit Codes:
         print_results_by_level(report, verbose=args.verbose)
         print_report_summary(report, title=f"Encoding Validation: {args.plugin_path.name}")
 
+    if args.strict:
+        return report.exit_code_strict()
     return report.exit_code
 
 

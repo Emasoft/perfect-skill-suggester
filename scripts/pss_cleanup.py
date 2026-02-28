@@ -24,10 +24,11 @@ import argparse
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 
-def _import_discover_skills() -> object:
+def _import_discover_skills() -> "types.ModuleType":
     """Import get_all_skill_locations from the sibling pss_discover module.
 
     Adds the scripts/ directory to sys.path so pss_discover can be
@@ -56,7 +57,7 @@ def _get_skill_locations(scan_all_projects: bool) -> list[tuple[str, Path]]:
 
     # Production mode: use the real discovery function
     discover = _import_discover_skills()
-    return discover.get_all_skill_locations(scan_all_projects=scan_all_projects)  # type: ignore[union-attr]
+    return discover.get_all_skill_locations(scan_all_projects=scan_all_projects)  # type: ignore[attr-defined]
 
 
 def _get_queue_dir() -> Path:

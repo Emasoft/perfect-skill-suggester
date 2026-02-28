@@ -65,8 +65,8 @@ cargo build --release
 ```
 
 The binary will be located at:
-- Debug: `target/debug/skill-suggester`
-- Release: `target/release/skill-suggester`
+- Debug: `target/debug/pss`
+- Release: `target/release/pss`
 
 ---
 
@@ -121,11 +121,11 @@ PSS binaries follow this naming pattern: `pss-{os}-{arch}[.exe]`
 
 | Platform | Binary Name |
 |----------|-------------|
-| macOS ARM | `pss-macos-arm64` |
-| macOS Intel | `pss-macos-x64` |
-| Linux x64 | `pss-linux-x64` |
+| macOS ARM | `pss-darwin-arm64` |
+| macOS Intel | `pss-darwin-x86_64` |
+| Linux x64 | `pss-linux-x86_64` |
 | Linux ARM | `pss-linux-arm64` |
-| Windows x64 | `pss-windows-x64.exe` |
+| Windows x64 | `pss-windows-x86_64.exe` |
 
 ### Installing Binaries to Plugin
 
@@ -135,17 +135,17 @@ After building, copy binaries to the plugin's `bin/` directory:
 cd rust/skill-suggester
 
 # Create bin directory if it doesn't exist
-mkdir -p ../../bin
+mkdir -p bin
 
 # Copy and rename binaries
-cp target/aarch64-apple-darwin/release/skill-suggester ../../bin/pss-macos-arm64
-cp target/x86_64-apple-darwin/release/skill-suggester ../../bin/pss-macos-x64
-cp target/x86_64-unknown-linux-gnu/release/skill-suggester ../../bin/pss-linux-x64
-cp target/aarch64-unknown-linux-gnu/release/skill-suggester ../../bin/pss-linux-arm64
-cp target/x86_64-pc-windows-gnu/release/skill-suggester.exe ../../bin/pss-windows-x64.exe
+cp target/aarch64-apple-darwin/release/pss bin/pss-darwin-arm64
+cp target/x86_64-apple-darwin/release/pss bin/pss-darwin-x86_64
+cp target/x86_64-unknown-linux-gnu/release/pss bin/pss-linux-x86_64
+cp target/aarch64-unknown-linux-gnu/release/pss bin/pss-linux-arm64
+cp target/x86_64-pc-windows-gnu/release/pss.exe bin/pss-windows-x86_64.exe
 
 # Make binaries executable (Unix-like systems)
-chmod +x ../../bin/pss-*
+chmod +x bin/pss-*
 ```
 
 ---
@@ -210,8 +210,8 @@ cargo clippy --all-targets
 
 ```bash
 # Copy binary to bin/ with correct name
-cp target/release/skill-suggester ../../bin/pss-macos-arm64  # Adjust for your platform
-chmod +x ../../bin/pss-macos-arm64
+cp target/release/pss bin/pss-darwin-arm64  # Adjust for your platform
+chmod +x bin/pss-darwin-arm64
 ```
 
 ### 4. Test with Claude Code
@@ -275,7 +275,7 @@ cargo watch -x test
 cargo build
 
 # Run with logging
-RUST_LOG=debug ./target/debug/skill-suggester <args>
+RUST_LOG=debug ./target/debug/pss <args>
 ```
 
 ### Performance Profiling

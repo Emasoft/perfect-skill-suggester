@@ -1,6 +1,6 @@
 ---
 name: pss-agent-toml
-description: "Build .agent.toml configuration profiles for Claude Code agents. An AI agent MUST evaluate, compare, and select elements — no mechanical script can reason about conflicts, overlaps, or use cases. Search indexed elements (skills, agents, commands, rules, MCP, LSP), add from local/marketplace/GitHub/network sources, validate cross-type coherence, and produce a conflict-free agent profile."
+description: "Use when creating .agent.toml configuration profiles for Claude Code agents. Trigger with /pss-setup-agent command. AI agent evaluates, compares, and selects elements across 6 types (skills, agents, commands, rules, MCP, LSP), validates cross-type coherence, and produces conflict-free profiles."
 argument-hint: "<agent-path> [--requirements PATH...]"
 user-invocable: false
 ---
@@ -142,7 +142,7 @@ Scan the working directory for:
 
 This determines LSP server assignment.
 
-**Phase 1 Completion Checklist** (ALL items must be checked before proceeding to Phase 2):
+**Phase 1 Completion Checklist** — Copy this checklist and track your progress (ALL items must be checked before proceeding to Phase 2):
 
 - [ ] Agent `.md` file has been read in full (not just frontmatter)
 - [ ] `name` extracted (from frontmatter `name:` or filename stem)
@@ -697,3 +697,35 @@ recommended = []
 [lsp]
 recommended = ["typescript-lsp"]
 ```
+
+## Instructions
+
+1. **Phase 1 — Gather Requirements**: Read agent `.md` file, identify target domain, languages, frameworks, platforms, and constraints. Complete the Phase 1 checklist.
+2. **Phase 2 — Search & Score**: Run the Rust binary in `--agent-profile` mode to score all indexed elements. Use the multi-field index search to find additional candidates. Complete the Phase 2 checklist.
+3. **Phase 3 — AI Post-Filtering**: Apply mutual exclusivity, stack compatibility, and redundancy pruning. Remove conflicting, redundant, or off-stack elements. Complete the Phase 3 checklist.
+4. **Phase 4 — Cross-Type Coherence**: Verify skill-MCP overlap, agent-command alignment, and rule-agent compatibility. Complete the Phase 4 checklist.
+5. **Phase 5 — TOML Assembly**: Assemble the `.agent.toml` with all sections populated, tier assignments justified, and exclusion comments documented. Complete the Phase 5 checklist.
+6. **Phase 6 — Validation & Delivery**: Run `pss_validate_agent_toml.py`, fix all errors, deliver the validated file. Complete the Phase 6 checklist.
+
+## Output
+
+The final output is a validated `.agent.toml` file written to `~/.claude/agents/<agent-name>.agent.toml`. The file conforms to the JSON Schema at `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json` and passes `pss_validate_agent_toml.py` with exit code 0.
+
+## Error Handling
+
+- If the Rust binary is not found or not executable, abort with an explicit error message — do not fall back to manual scoring.
+- If the skill index (`~/.claude/cache/skill-index.json`) does not exist, instruct the user to run `/pss-reindex-skills` first.
+- If validation fails (exit code != 0), fix all errors and re-validate — do not deliver an invalid `.agent.toml`.
+- If `CLAUDE_PLUGIN_ROOT` is not set, abort immediately with instructions to set it.
+
+## Examples
+
+See the "Complete Example" section above for a full `.agent.toml` output for a React frontend developer agent, showing all sections populated with reasoned selections and exclusion comments.
+
+## Resources
+
+- **JSON Schema**: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`
+- **Validator**: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`
+- **Categories**: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-categories.json` (16 predefined categories)
+- **Skill Index**: `~/.claude/cache/skill-index.json`
+- **Rust Binary**: `${CLAUDE_PLUGIN_ROOT}/rust/skill-suggester/bin/pss-<platform>`
