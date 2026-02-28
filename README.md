@@ -1,7 +1,18 @@
 # Perfect Skill Suggester (PSS)
 
+![Version](https://img.shields.io/badge/version-2.2.1-blue)
+![Platforms](https://img.shields.io/badge/platforms-6-green)
+![Accuracy](https://img.shields.io/badge/accuracy-88%25+-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-yellow)
+![Rust](https://img.shields.io/badge/rust-native_binary-orange)
+![Claude Code](https://img.shields.io/badge/claude--code-plugin-blueviolet)
+
 > **Installation:** This plugin is distributed via the [Emasoft Plugins Marketplace](https://github.com/Emasoft/emasoft-plugins).
 > See [Installation](#installation) below for instructions.
+
+> Built for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) |
+> Orchestrated by [AI Maestro](https://github.com/Emasoft/ai-maestro) |
+> Part of the [Emasoft Plugins](https://github.com/Emasoft/emasoft-plugins) ecosystem
 
 **High-accuracy skill activation (88%+) for Claude Code** with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing. Indexes 6 element types: skills, agents, commands, rules, MCP servers, and LSP servers.
 
@@ -384,28 +395,38 @@ Pre-built binaries included for:
 ## Building from Source
 
 ```bash
-cd rust/skill-suggester
-cargo build --release
+# Build for current platform
+uv run python scripts/pss_build.py
+
+# Build all 6 platforms (cross + Docker needed for Linux/Windows)
+uv run python scripts/pss_build.py --all
+
+# Build specific target
+uv run python scripts/pss_build.py --target linux-x86_64
+
+# List all supported targets
+uv run python scripts/pss_build.py --list-targets
 ```
 
-Cross-compile for all platforms:
+Cross-compile targets use `musl` for fully static Linux binaries.
+
+## Release
+
+Full pipeline: test → lint → bump → changelog → build → commit → push → marketplace update.
 
 ```bash
-# macOS ARM64
-cargo build --release --target aarch64-apple-darwin
+# Full release
+uv run python scripts/pss_release.py --bump patch
 
-# macOS x86_64
-cargo build --release --target x86_64-apple-darwin
+# Preview (no changes)
+uv run python scripts/pss_release.py --bump minor --dry-run
 
-# Linux x86_64
-cargo build --release --target x86_64-unknown-linux-gnu
-
-# Linux ARM64
-cargo build --release --target aarch64-unknown-linux-gnu
-
-# Windows x86_64
-cargo build --release --target x86_64-pc-windows-gnu
+# Version bump only (no builds)
+uv run python scripts/pss_release.py --bump patch --skip-build
 ```
+
+Version is updated in 4 files: Cargo.toml, main.rs, plugin.json, pyproject.toml.
+Pushing triggers the marketplace notification workflow automatically.
 
 ## Performance
 

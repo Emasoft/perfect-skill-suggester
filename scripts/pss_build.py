@@ -417,7 +417,7 @@ def build_zigbuild(target_key: str, release: bool = True) -> bool:
     rust_target = TARGETS[target_key]
     rust_dir = get_rust_dir()
     bin_dir = get_bin_dir()
-    cargo = resolve_cargo()
+    resolve_cargo()  # Side effect: sets RUSTC env var for correct rustup toolchain
 
     # Ensure the target stdlib is installed via rustup
     try:
