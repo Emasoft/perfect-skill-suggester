@@ -3874,6 +3874,72 @@ fn expand_synonyms(prompt: &str) -> String {
         expanded.push_str(" postgresql mcp database sql");
     }
 
+    // W5: Codebase understanding patterns (commonly missed: explore, learn-codebase)
+    if msg.contains("codebase") || msg.contains("code base") {
+        expanded.push_str(" codebase exploration code understanding architecture");
+    }
+    if msg.contains("understand") && (msg.contains("code") || msg.contains("project") || msg.contains("architecture")) {
+        expanded.push_str(" codebase exploration onboarding architecture");
+    }
+    if msg.contains("legacy") && (msg.contains("code") || msg.contains("project") || msg.contains("system")) {
+        expanded.push_str(" codebase exploration brownfield onboarding");
+    }
+
+    // W5: PR/commit patterns (commonly missed: describe-pr, commit)
+    if (msg.contains("pr ") || msg.contains("pull request")) && (msg.contains("description") || msg.contains("write") || msg.contains("explain")) {
+        expanded.push_str(" pr documentation github pull request description");
+    }
+    if msg.contains("commit") && (msg.contains("message") || msg.contains("convention") || msg.contains("format")) {
+        expanded.push_str(" git commit convention atomic");
+    }
+    if msg.contains("release") && (msg.contains("management") || msg.contains("workflow") || msg.contains("process")) {
+        expanded.push_str(" release management version bumping changelog tagging");
+    }
+
+    // W5: Build/compilation patterns (commonly missed: fix-build, build-optimizer)
+    if msg.contains("build") && (msg.contains("fail") || msg.contains("error") || msg.contains("broken")) {
+        expanded.push_str(" build failure diagnosis fix");
+    }
+    if msg.contains("build") && (msg.contains("time") || msg.contains("slow") || msg.contains("minutes")) {
+        expanded.push_str(" build performance optimization profiling");
+    }
+    if msg.contains("cross-compil") || msg.contains("cross compil") {
+        expanded.push_str(" cross-compilation build toolchain target");
+    }
+
+    // W5: Translation/localization patterns
+    if msg.contains("translat") && (msg.contains("language") || msg.contains("string") || msg.contains("locali")) {
+        expanded.push_str(" localization internationalization i18n translation");
+    }
+
+    // W5: Research/experiment patterns
+    if msg.contains("experiment") && (msg.contains("design") || msg.contains("test") || msg.contains("hypothesis")) {
+        expanded.push_str(" experiment design hypothesis verification research methodology");
+    }
+    if msg.contains("investigat") || msg.contains("deep dive") {
+        expanded.push_str(" investigation research analysis deep");
+    }
+
+    // W5: Resource monitoring patterns
+    if msg.contains("monitor") && (msg.contains("cpu") || msg.contains("memory") || msg.contains("resource")) {
+        expanded.push_str(" resource monitoring performance profiling");
+    }
+
+    // W5: Marketplace/plugin publishing patterns
+    if msg.contains("marketplace") || msg.contains("publish") && msg.contains("plugin") {
+        expanded.push_str(" marketplace plugin publishing distribution github");
+    }
+
+    // W5: Agent profiling patterns
+    if msg.contains("agent") && (msg.contains("profile") || msg.contains("toml") || msg.contains("descriptor")) {
+        expanded.push_str(" agent profiling toml descriptor configuration");
+    }
+
+    // W5: GIF/screenshot patterns
+    if msg.contains("gif") || msg.contains("animated") && msg.contains("image") {
+        expanded.push_str(" gif animation screenshot visual");
+    }
+
     expanded
 }
 
@@ -4361,8 +4427,9 @@ fn find_matches(
             if skill_entry.domain_gates.is_empty() {
                 passing_skills.push(skill_name);
             } else if let Some(reg) = registry {
+                // W5: Use expanded prompt for consistency with main gate check
                 let (passes, _) = check_domain_gates(
-                    skill_name, &skill_entry.domain_gates, detected_domains, &original_lower, reg,
+                    skill_name, &skill_entry.domain_gates, detected_domains, &expanded_lower, reg,
                 );
                 if passes {
                     passing_skills.push(skill_name);
@@ -4471,7 +4538,19 @@ fn find_matches(
                     return false;
                 }
                 if fw_l.contains(' ') { original_lower.contains(&fw_l) }
-                else { original_words.iter().any(|w| *w == fw_l.as_str()) }
+                else {
+                    // W5: Also try hyphen-to-space form for multi-part framework names
+                    let word_match = original_words.iter().any(|w| *w == fw_l.as_str());
+                    if word_match {
+                        return true;
+                    }
+                    if fw_l.contains('-') {
+                        let space_form = fw_l.replace('-', " ");
+                        original_lower.contains(&space_form)
+                    } else {
+                        false
+                    }
+                }
             }) || entry.tools.iter().any(|t| {
                 let t_l = t.to_lowercase();
                 // Skip low-signal tool names
@@ -4481,15 +4560,36 @@ fn find_matches(
                     return false;
                 }
                 if t_l.contains(' ') { original_lower.contains(&t_l) }
-                else { original_words.iter().any(|w| *w == t_l.as_str()) }
+                else {
+                    // W5: For hyphenated tool names like "github-actions", also try
+                    // matching the space-separated form "github actions" against the
+                    // full prompt. This catches cases where the prompt says "GitHub
+                    // Actions" (two words) but the tool is indexed as "github-actions".
+                    let word_match = original_words.iter().any(|w| *w == t_l.as_str());
+                    if word_match {
+                        return true;
+                    }
+                    // Try hyphen-to-space conversion for multi-part tool names
+                    if t_l.contains('-') {
+                        let space_form = t_l.replace('-', " ");
+                        original_lower.contains(&space_form)
+                    } else {
+                        false
+                    }
+                }
             });
 
             if !has_explicit_tech_match {
+                // W5: Use expanded prompt for gate keyword matching so that
+                // synonym-expanded words can satisfy gate checks. This fixes the
+                // inconsistency where domain detection uses the expanded prompt
+                // but gate checks used the original prompt — causing gates to
+                // detect the domain but fail the keyword check.
                 let (passes, failed_gate) = check_domain_gates(
                     name,
                     &entry.domain_gates,
                     detected_domains,
-                    &original_lower,
+                    &expanded_lower,
                     reg,
                 );
                 if !passes {
@@ -4598,11 +4698,17 @@ fn find_matches(
                 debug!("Framework '{}' in skill '{}' — detected as common English usage, skipping", fw, name);
                 continue;
             }
-            // For multi-word frameworks, check substring; for single-word, check word boundary
+            // For multi-word frameworks, check substring; for single-word, check word boundary.
+            // W5: Also handle hyphenated framework names by trying space-separated form.
             let fw_matched = if fw_lower.contains(' ') {
                 original_lower.contains(&fw_lower)
+            } else if original_words.iter().any(|w| *w == fw_lower.as_str()) {
+                true
+            } else if fw_lower.contains('-') {
+                let space_form = fw_lower.replace('-', " ");
+                original_lower.contains(&space_form)
             } else {
-                original_words.iter().any(|w| *w == fw_lower.as_str())
+                false
             };
             if fw_matched {
                 score += weights.framework_match; // Framework tier (10,000-90,000)
@@ -4623,11 +4729,18 @@ fn find_matches(
                 debug!("Tool '{}' in skill '{}' — detected as common English usage, skipping", tool, name);
                 continue;
             }
-            // For multi-word tools, check substring; for single-word, check word boundary
+            // For multi-word tools, check substring; for single-word, check word boundary.
+            // W5: Also handle hyphenated tool names by trying space-separated form.
             let tool_matched = if tool_lower.contains(' ') {
                 original_lower.contains(&tool_lower)
+            } else if original_words.iter().any(|w| *w == tool_lower.as_str()) {
+                true
+            } else if tool_lower.contains('-') {
+                // Try "github-actions" → "github actions" substring match
+                let space_form = tool_lower.replace('-', " ");
+                original_lower.contains(&space_form)
             } else {
-                original_words.iter().any(|w| *w == tool_lower.as_str())
+                false
             };
             if tool_matched {
                 score += weights.tool_match; // Tool tier (1,000-9,000)
@@ -4855,16 +4968,128 @@ fn find_matches(
         // = stronger evidence = higher score. The capped_max (90000) already prevents
         // runaway scores.
 
-        // NEW: Multi-keyword coherence bonus. When 3+ non-low-signal keywords from the
+        // W5: Skill name matching. The skill name itself (e.g. "learn-codebase",
+        // "fix-build", "commit") often directly describes the skill's purpose.
+        // Split the name on hyphens/underscores and match against prompt words.
+        // Non-low-signal name words get direct matching. Low-signal name words
+        // are only counted when ALL significant name words (2+) match the prompt,
+        // since the COMBINATION of low-signal words in a name is specific even
+        // though individual words are generic (e.g. "fix" + "build" = "fix-build").
+        {
+            let name_words: Vec<String> = name
+                .split(|c: char| c == '-' || c == '_')
+                .filter(|w| w.len() >= 3)
+                .map(|w| w.to_lowercase())
+                .collect();
+            let mut name_matches = 0i32;
+            let mut name_low_signal_matches = 0i32;
+            let mut name_low_signal_total = 0i32;
+            for nw in &name_words {
+                let nw_stem = stem_word(nw);
+                let matched_in_prompt = original_words.iter().any(|pw| {
+                    let pw_stem = stem_word(pw);
+                    *pw == nw.as_str() || pw_stem == nw_stem
+                });
+                // Track low-signal and non-low-signal matches separately
+                if is_low_signal(nw.as_str()) || is_low_signal(nw_stem.as_str()) {
+                    name_low_signal_total += 1;
+                    if matched_in_prompt {
+                        name_low_signal_matches += 1;
+                    }
+                } else if matched_in_prompt {
+                    name_matches += 1;
+                }
+            }
+            // W5: Special case for names made entirely of low-signal words.
+            // If the name has 2+ low-signal words and ALL of them match the prompt,
+            // treat this as a name match. The combination is specific even though
+            // individual words are generic (e.g. "fix-build", "run-tests",
+            // "create-component", "test-runner").
+            if name_matches == 0 && name_low_signal_total >= 2
+                && name_low_signal_matches == name_low_signal_total
+            {
+                // All low-signal words matched — count as a combo name match
+                name_matches = name_low_signal_matches;
+            }
+            // Award a phrase-tier bonus for name word matches.
+            // 1 name word match = 75 points (moderate signal — name words are descriptive)
+            // 2+ name word matches = strong signal (e.g. "fix" + "build" for "fix-build")
+            if name_matches > 0 {
+                let name_bonus = if name_matches == 1 {
+                    75  // Single name word match — moderate signal
+                } else {
+                    // Multiple name words matching is very strong signal
+                    75 + (name_matches - 1) * 100
+                };
+                score += name_bonus;
+                has_non_low_signal_match = true;
+                evidence.push(format!("name_match:{}/{}", name_matches, name_words.len()));
+            }
+        }
+
+        // W5: Description word matching. The skill description often contains
+        // domain-specific words that don't appear in keywords but are relevant.
+        // Split description into significant words and check if any appear in
+        // the original prompt. Award a small bonus per match (common tier) to
+        // provide secondary signal without overwhelming the primary keyword signal.
+        if !entry.description.is_empty() {
+            let desc_lower = entry.description.to_lowercase();
+            let desc_words: Vec<&str> = desc_lower
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| w.len() >= 4)  // Only significant words (4+ chars)
+                .collect();
+            let mut desc_matches = 0i32;
+            for dw in &desc_words {
+                // Skip low-signal description words
+                if is_low_signal(dw) || is_low_signal(stem_word(dw).as_str()) {
+                    continue;
+                }
+                // Check word-boundary match in original prompt
+                let dw_stem = stem_word(dw);
+                let matched_in_prompt = original_words.iter().any(|pw| {
+                    let pw_stem = stem_word(pw);
+                    *pw == *dw || pw_stem == dw_stem
+                });
+                if matched_in_prompt {
+                    desc_matches += 1;
+                }
+            }
+            // Cap at 3 description matches to prevent long descriptions from
+            // dominating. Award 20 points per match (common tier).
+            if desc_matches > 0 {
+                let capped = desc_matches.min(3);
+                let desc_bonus = capped * 20;
+                score += desc_bonus;
+                evidence.push(format!("desc_match:{}", capped));
+            }
+        }
+
+        // Multi-keyword coherence bonus. When 3+ non-low-signal keywords from the
         // same skill match the prompt, this is strong evidence of relevance — the user
         // is talking about the exact domain this skill covers. Add a bonus that scales
         // with the number of matches to reward skills with deep keyword overlap.
-        // This helps beat the baseline by boosting genuinely relevant skills.
+        // W5: Keep linear scaling at 50 per keyword beyond 2nd (quadratic was tried
+        // but amplified false positives from skills with many generic keyword matches).
         if keyword_matches >= 3 && has_non_low_signal_match {
-            // Bonus: 50 points per keyword beyond the 2nd (so 3 kw = +50, 4 kw = +100, etc.)
             let coherence_bonus = (keyword_matches - 2) * 50;
             score += coherence_bonus;
             evidence.push(format!("coherence_bonus:{}", coherence_bonus));
+        }
+
+        // W5: Intent + keyword synergy bonus (M.7 feature interaction).
+        // When both an intent verb AND a non-low-signal keyword match for the same
+        // skill, the combined evidence is stronger than either alone. A user who
+        // says "fix the build errors" matches both intent "fix" and keyword "build
+        // error" — this is a stronger signal than matching either in isolation.
+        // Award a small synergy bonus to nudge genuinely relevant skills upward.
+        {
+            let has_intent_match = evidence.iter().any(|e| e.starts_with("intent:"));
+            let has_kw_match = keyword_matches > 0 && has_non_low_signal_match;
+            if has_intent_match && has_kw_match {
+                let synergy_bonus = 50;
+                score += synergy_bonus;
+                evidence.push(format!("intent_kw_synergy:{}", synergy_bonus));
+            }
         }
 
         // Apply tier boost from PSS file (skip in incomplete_mode - populated in Pass 2)
@@ -5038,11 +5263,36 @@ fn find_matches(
 }
 
 /// Calculate relative score (0.0 to 1.0)
+/// W5: Score normalization with absolute floor.
+/// Pure relative scoring (score/max) is problematic because a single dominant
+/// match can push all other skills below the min_score threshold (0.5).
+/// This approach uses relative scoring but ensures that skills with meaningful
+/// absolute scores (indicating genuine keyword/tool/framework matches) get a
+/// floor score that prevents them from being completely crushed by one outlier.
+///
+/// The formula: max(score/max_score, absolute_floor)
+/// where absolute_floor = min(0.5, score / ABSOLUTE_ANCHOR)
+///
+/// The ABSOLUTE_ANCHOR (2000 points = one tool match equivalent) defines what
+/// constitutes a "fully meaningful" absolute score. A skill scoring 1000 points
+/// (multiple keyword matches) gets an absolute floor of 0.5, ensuring it always
+/// passes the min_score filter even when one outlier dominates.
 fn calculate_relative_score(score: i32, max_score: i32) -> f64 {
     if max_score <= 0 {
         return 0.0;
     }
-    (score as f64) / (max_score as f64)
+    // Primary: relative score (position in the ranking)
+    let relative = (score as f64) / (max_score as f64);
+    // Absolute floor: prevents good matches from being crushed by one outlier.
+    // ABSOLUTE_ANCHOR = 1000 (keyword tier). A skill scoring 500 gets floor 0.5.
+    // This ensures skills with ~3+ keyword matches always survive the min_score
+    // filter even when one outlier dominates. 500 raw = first_match(300) +
+    // keyword(100) + original_bonus(100), approximately 2 keyword matches.
+    // The floor is capped at 0.5 to prevent low-quality matches from passing.
+    const ABSOLUTE_ANCHOR: f64 = 1000.0;
+    let absolute_floor = ((score as f64) / ABSOLUTE_ANCHOR).min(0.5);
+    // Use whichever is higher: relative position or absolute floor
+    relative.max(absolute_floor)
 }
 
 // ============================================================================
@@ -6521,10 +6771,26 @@ mod tests {
 
     #[test]
     fn test_calculate_relative_score() {
-        assert_eq!(calculate_relative_score(5, 10), 0.5);
-        assert_eq!(calculate_relative_score(10, 10), 1.0);
+        // W5: Score normalization with absolute floor.
+        // Formula: max(score/max_score, min(0.5, score/2000))
+        // Basic relative behavior preserved:
+        assert_eq!(calculate_relative_score(5, 10), 0.5);  // Relative 0.5, floor 0.0025 → 0.5
+        assert_eq!(calculate_relative_score(10, 10), 1.0);  // Relative 1.0, floor 0.005 → 1.0
         assert_eq!(calculate_relative_score(0, 10), 0.0);
         assert_eq!(calculate_relative_score(5, 0), 0.0);
+        // Absolute floor kicks in when relative is low:
+        // score=500, max=20000: relative=0.025, floor=min(0.5, 500/1000)=0.5 → max = 0.5
+        let floor_case = calculate_relative_score(500, 20000);
+        assert_eq!(floor_case, 0.5);  // Floor rescues this skill from being filtered
+        // score=2000, max=20000: relative=0.1, floor=min(0.5, 2000/1000)=0.5 → max = 0.5
+        let tool_case = calculate_relative_score(2000, 20000);
+        assert_eq!(tool_case, 0.5);  // Tool match always survives the 0.5 filter
+        // score=10000, max=20000: relative=0.5, floor=min(0.5, 10)=0.5 → max = 0.5
+        let mid_case = calculate_relative_score(10000, 20000);
+        assert_eq!(mid_case, 0.5);
+        // score=11000, max=20000: relative=0.55, floor=0.5 → max = 0.55
+        let above_case = calculate_relative_score(11000, 20000);
+        assert_eq!(above_case, 0.55);  // Relative takes over above 0.5
     }
 
     #[test]
