@@ -3325,6 +3325,37 @@ lazy_static! {
         "setup", "migrate", "convert", "delete", "modify", "explain", "show",
         "find", "search", "list", "get", "make", "start", "stop", "restart",
     ];
+
+    /// Low-signal words: common procedural verbs that appear in almost every dev
+    /// conversation as secondary instructions ("...and then test it", "run the build",
+    /// "check the output"). When these are the ONLY matching words from the user prompt,
+    /// scores are reduced to avoid false-positive skill suggestions.
+    static ref LOW_SIGNAL_WORDS: HashSet<&'static str> = {
+        let mut s = HashSet::new();
+        // Procedural verbs used as steps in any workflow
+        s.insert("test");
+        s.insert("run");
+        s.insert("check");
+        s.insert("build");
+        s.insert("fix");
+        s.insert("start");
+        s.insert("stop");
+        s.insert("show");
+        s.insert("get");
+        s.insert("make");
+        s.insert("set");
+        s.insert("add");
+        s.insert("list");
+        s.insert("find");
+        s.insert("update");
+        // Meta-terms that appear in every Claude Code conversation
+        s.insert("skill");
+        s.insert("agent");
+        s.insert("command");
+        s.insert("plugin");
+        s.insert("hook");
+        s
+    };
 }
 
 /// Decompose a complex prompt into individual sub-tasks
@@ -3528,7 +3559,9 @@ lazy_static! {
     static ref RE_SYNC: Regex = Regex::new(r"(?i)\b(sync|syncing|migration|migrate|backfill)\b").unwrap();
     static ref RE_SEMANTIC: Regex = Regex::new(r"(?i)\b(semantic|query.router|tier|embedding)\b").unwrap();
     static ref RE_VISUAL: Regex = Regex::new(r"(?i)\b(visual|screenshot|regression|baseline|ui.test)\b").unwrap();
-    static ref RE_SKILL: Regex = Regex::new(r"(?i)\b(skill|create.skill|add.skill|update.skill|retrospective)\b").unwrap();
+    // Only expand for explicit skill-creation phrases, NOT standalone "skill"
+    // "skill" alone is too common in Claude Code conversations to be a useful signal
+    static ref RE_SKILL: Regex = Regex::new(r"(?i)\b(create.skill|add.skill|update.skill|write.skill|develop.skill|retrospective)\b").unwrap();
     static ref RE_CI: Regex = Regex::new(r"(?i)\b(ci|cd|pipeline|workflow|action)\b").unwrap();
     static ref RE_DOCKER: Regex = Regex::new(r"(?i)\b(docker|container|dockerfile|compose|kubernetes|k8s)\b").unwrap();
     static ref RE_AWS: Regex = Regex::new(r"(?i)\b(aws|s3|ec2|lambda|cloudformation)\b").unwrap();
@@ -4047,20 +4080,43 @@ fn find_matches(
         // Domain gate hard pre-filter: ALL gates must pass or skill is skipped entirely.
         // This runs before scoring because failing a gate is a hard disqualification.
         if let Some(reg) = registry {
-            let (passes, failed_gate) = check_domain_gates(
-                name,
-                &entry.domain_gates,
-                detected_domains,
-                &original_lower,
-                reg,
-            );
-            if !passes {
-                debug!(
-                    "Skipping skill '{}' due to domain gate '{}' failure",
+            // If a framework or tool name from this skill explicitly appears in the
+            // prompt, bypass domain gates — the user is clearly talking about this
+            // technology, so language/platform gates should not block it.
+            // E.g. "adopt bun" should match building-with-bun even without saying "javascript".
+            // Uses word-boundary matching to avoid "com" matching "comprehensive".
+            let orig_words: Vec<&str> = original_lower.split_whitespace().collect();
+            let has_explicit_tech_match = entry.frameworks.iter().any(|fw| {
+                let fw_l = fw.to_lowercase();
+                if fw_l.contains(' ') { original_lower.contains(&fw_l) }
+                else { orig_words.iter().any(|w| *w == fw_l.as_str()) }
+            }) || entry.tools.iter().any(|t| {
+                let t_l = t.to_lowercase();
+                if t_l.contains(' ') { original_lower.contains(&t_l) }
+                else { orig_words.iter().any(|w| *w == t_l.as_str()) }
+            });
+
+            if !has_explicit_tech_match {
+                let (passes, failed_gate) = check_domain_gates(
                     name,
-                    failed_gate.unwrap_or_default()
+                    &entry.domain_gates,
+                    detected_domains,
+                    &original_lower,
+                    reg,
                 );
-                continue;
+                if !passes {
+                    debug!(
+                        "Skipping skill '{}' due to domain gate '{}' failure",
+                        name,
+                        failed_gate.unwrap_or_default()
+                    );
+                    continue;
+                }
+            } else {
+                debug!(
+                    "Skill '{}': framework/tool name found in prompt, bypassing domain gates",
+                    name
+                );
             }
         }
 
@@ -4103,10 +4159,17 @@ fn find_matches(
             }
         }
 
-        // Intent (verb) matching
+        // Intent (verb) matching — low-signal intents get reduced weight
         for intent in &entry.intents {
             if original_lower.contains(intent) || expanded_lower.contains(intent) {
-                score += weights.intent;
+                // Low-signal intents ("test", "run", "check", etc.) get 1/4 weight
+                // because they appear as procedural steps in almost every prompt
+                let intent_score = if LOW_SIGNAL_WORDS.contains(intent.as_str()) {
+                    weights.intent / 4
+                } else {
+                    weights.intent
+                };
+                score += intent_score;
                 evidence.push(format!("intent:{}", intent));
             }
         }
@@ -4121,19 +4184,60 @@ fn find_matches(
             }
         }
 
+        // Framework/tool/protocol name matching — 10x keyword weight because specific
+        // names are rarely mentioned unless they are the focus of the discussion.
+        // These names (e.g. "bun", "react", "ffmpeg", "graphql") are strong signals.
+        // Uses word-boundary matching to avoid "com" matching "comprehensive".
+        let mut has_framework_name_match = false;
+        let original_words: Vec<&str> = original_lower.split_whitespace().collect();
+        for fw in &entry.frameworks {
+            let fw_lower = fw.to_lowercase();
+            // For multi-word frameworks, check substring; for single-word, check word boundary
+            let fw_matched = if fw_lower.contains(' ') {
+                original_lower.contains(&fw_lower)
+            } else {
+                original_words.iter().any(|w| *w == fw_lower.as_str())
+            };
+            if fw_matched {
+                score += 20; // 10x keyword weight — framework names are always topical
+                evidence.push(format!("framework:{}", fw));
+                has_framework_name_match = true;
+            }
+        }
+        for tool in &entry.tools {
+            let tool_lower = tool.to_lowercase();
+            let tool_matched = if tool_lower.contains(' ') {
+                original_lower.contains(&tool_lower)
+            } else {
+                original_words.iter().any(|w| *w == tool_lower.as_str())
+            };
+            if tool_matched {
+                score += 20; // 10x keyword weight — tool names are always topical
+                evidence.push(format!("tool:{}", tool));
+                has_framework_name_match = true;
+            }
+        }
+
         // Keyword matching with first-match bonus (from LimorAI)
         // Also includes fuzzy matching for typo tolerance
         // Fixed: Now handles multi-word keyword phrases properly
+        // Low-signal word detection: tracks if match came only from generic words
         let prompt_words: Vec<&str> = expanded_lower.split_whitespace().collect();
 
         for keyword in &entry.keywords {
             let kw_lower = keyword.to_lowercase();
             let mut matched = false;
             let mut is_fuzzy = false;
+            // Track if the match was driven only by low-signal words (e.g. "test")
+            let mut low_signal_match = false;
 
             // Phase 1: Exact substring match (keyword phrase in prompt)
             if expanded_lower.contains(&kw_lower) {
                 matched = true;
+                // Only flag as low-signal if the ENTIRE keyword is a single low-signal word.
+                // Multi-word phrases like "unit test coverage" are specific enough to be genuine.
+                let kw_words: Vec<&str> = kw_lower.split_whitespace().collect();
+                low_signal_match = kw_words.len() == 1 && LOW_SIGNAL_WORDS.contains(kw_lower.trim());
             }
 
             // Phase 2: Reverse word match (prompt words in keyword phrase)
@@ -4143,6 +4247,7 @@ fn find_matches(
                 let keyword_words: Vec<&str> = kw_lower.split_whitespace().collect();
 
                 // Check if any significant prompt word appears in the keyword phrase
+                let mut matched_prompt_word: Option<&str> = None;
                 for prompt_word in &prompt_words {
                     // Skip very short words (articles, prepositions)
                     if prompt_word.len() < 3 {
@@ -4152,11 +4257,23 @@ fn find_matches(
                     for kw_word in &keyword_words {
                         if *prompt_word == *kw_word {
                             matched = true;
+                            matched_prompt_word = Some(prompt_word);
                             break;
                         }
                     }
                     if matched {
                         break;
+                    }
+                }
+                if matched {
+                    // Only flag as low-signal if the keyword is a single word
+                    // AND the matching prompt word is low-signal.
+                    // Multi-word keywords matched by a low-signal word ("test" matching
+                    // "unit test coverage") are still specific enough to be genuine.
+                    if keyword_words.len() == 1 {
+                        if let Some(pw) = matched_prompt_word {
+                            low_signal_match = LOW_SIGNAL_WORDS.contains(pw);
+                        }
                     }
                 }
             }
@@ -4177,12 +4294,16 @@ fn find_matches(
                     // Normalized form match (separator variants)
                     if pw_norm == kw_norm {
                         matched = true;
+                        // Check if stemmed form is a low-signal word
+                        low_signal_match = LOW_SIGNAL_WORDS.contains(pw_norm.as_str());
                         break;
                     }
                     // Stemmed form match (grammatical variants)
                     let pw_stem = stem_word(&pw_norm);
                     if pw_stem == kw_stem && pw_stem.len() >= 3 {
                         matched = true;
+                        // "testing" stems to "test" which is low-signal
+                        low_signal_match = LOW_SIGNAL_WORDS.contains(pw_stem.as_str());
                         break;
                     }
                     // Abbreviation match (config ↔ configuration, etc.)
@@ -4204,6 +4325,8 @@ fn find_matches(
                         if is_fuzzy_match(word, &kw_lower) {
                             matched = true;
                             is_fuzzy = true;
+                            // Fuzzy match of a low-signal word (e.g. "tset" → "test")
+                            low_signal_match = LOW_SIGNAL_WORDS.contains(stem_word(word).as_str());
                             break;
                         }
                     }
@@ -4217,6 +4340,7 @@ fn find_matches(
                             if is_fuzzy_match(prompt_word, kw_word) {
                                 matched = true;
                                 is_fuzzy = true;
+                                low_signal_match = LOW_SIGNAL_WORDS.contains(stem_word(prompt_word).as_str());
                                 break;
                             }
                         }
@@ -4228,18 +4352,24 @@ fn find_matches(
             }
 
             if matched {
+                // Low-signal matches (e.g. "test" matching "unit test coverage")
+                // get drastically reduced scores to prevent false positives.
+                // "test" alone should NOT trigger testing skills at HIGH confidence.
+                let ls_divisor = if low_signal_match { 4 } else { 1 };
+
                 if keyword_matches == 0 {
-                    // First keyword gets big bonus
-                    score += weights.first_match;
+                    // First keyword gets big bonus (reduced for low-signal)
+                    score += weights.first_match / ls_divisor;
                 } else {
                     // Fuzzy matches get slightly less score than exact matches
-                    score += if is_fuzzy { weights.keyword - 1 } else { weights.keyword };
+                    let kw_score = if is_fuzzy { weights.keyword - 1 } else { weights.keyword };
+                    score += kw_score / ls_divisor;
                 }
                 keyword_matches += 1;
 
                 // Original prompt bonus (not just expanded synonym match)
                 if original_lower.contains(&kw_lower) {
-                    score += weights.original_bonus;
+                    score += weights.original_bonus / ls_divisor;
                     evidence.push(format!("keyword*:{}", keyword)); // * = original
                 } else if is_fuzzy {
                     evidence.push(format!("keyword~:{}", keyword)); // ~ = fuzzy match
