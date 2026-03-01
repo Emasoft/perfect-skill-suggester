@@ -101,10 +101,6 @@ const CACHE_DIR: &str = "cache";
 /// Set higher than --top default (10) to allow co-usage boosting to surface related skills
 const MAX_SUGGESTIONS: usize = 20;
 
-/// PSS file extension for per-skill matcher files
-#[allow(dead_code)]  // Used for documentation and future file detection
-const PSS_EXTENSION: &str = ".pss";
-
 /// Log file name for activation logging
 const ACTIVATION_LOG_FILE: &str = "pss-activations.jsonl";
 
@@ -3013,9 +3009,17 @@ fn stem_word_inner(word: &str) -> String {
     }
 
     // -ling → -le (e.g. "bundling" → "bundle")
+    // Handles words that form their gerund by replacing a final 'e' with "ing":
+    //   "bundle" → "bundling", "handle" → "handling", "settle" → "settling"
+    // Skip if the stem ends with 'l': "control" + "ling" → "controlling", where the 'l'
+    // in "ling" is NOT from a dropped 'e'. Those words are handled by the doubled-consonant
+    // rule below (bytes[len-4] == bytes[len-5] detects the "ll" in "controlling").
     if len > 5 && w.ends_with("ling") {
         let stem = &w[..len - 4];
-        if stem.len() >= 3 {
+        // Only apply when stem does NOT end with 'l' — prevents creating spurious "ll"
+        // e.g. "control" ends with 'l', so "controlle" → "controll" (wrong).
+        // But "bund" does not end with 'l', so "bundle" → "bundl" (correct).
+        if stem.len() >= 3 && !stem.ends_with('l') {
             return format!("{}le", stem);
         }
     }
@@ -3047,10 +3051,21 @@ fn stem_word_inner(word: &str) -> String {
         }
     }
 
-    // -ation → strip to just remove "ation" (not add "ate", which causes over-stemming)
+    // -ate (verbs that pair with -ation nouns)
+    // "validate" → "valid", "generate" → "gener", "migrate" → "migr"
+    // Must come BEFORE the -ation rule so both verb and noun produce the same stem.
+    // "validate" → "valid" (matches "validation" → "valid")
+    if len > 5 && w.ends_with("ate") {
+        let stem = &w[..len - 3];
+        if stem.len() >= 3 {
+            return stem.to_string();
+        }
+    }
+
+    // -ation → strip "ation" to produce a consistent base stem.
     // "validation"→"valid", "configuration"→"configur", "generation"→"gener"
-    // These stems are imperfect but consistent: the same stem is produced from
-    // "validate"→(strip -ate)→"valid", so they still match.
+    // The -ate rule above ensures verbs produce the same stem:
+    // "validate"→"valid", "generate"→"gener", "migrate"→"migr".
     if len > 6 && w.ends_with("ation") {
         let stem = &w[..len - 5];
         if stem.len() >= 3 {
@@ -3265,12 +3280,19 @@ const ABBREVIATIONS: &[(&str, &str)] = &[
 
 /// Check if two normalized words match via abbreviation expansion.
 /// Returns true if one is a known abbreviation of the other.
+/// Uses ABBREV_TO_FULL and FULL_TO_ABBREV HashMaps for O(1) lookup (C.4).
 fn is_abbreviation_match(a: &str, b: &str) -> bool {
-    for &(short, long) in ABBREVIATIONS {
-        // Check both directions: a=short,b=long or a=long,b=short
-        if (a == short && b == long) || (a == long && b == short) {
-            return true;
-        }
+    if let Some(&full) = ABBREV_TO_FULL.get(a) {
+        if full == b { return true; }
+    }
+    if let Some(&full) = ABBREV_TO_FULL.get(b) {
+        if full == a { return true; }
+    }
+    if let Some(&short) = FULL_TO_ABBREV.get(a) {
+        if short == b { return true; }
+    }
+    if let Some(&short) = FULL_TO_ABBREV.get(b) {
+        if short == a { return true; }
     }
     false
 }
@@ -3369,6 +3391,14 @@ lazy_static! {
         // Meta-terms — everything in a skill-suggester is skill/agent/plugin related
         s.insert("skill"); s.insert("agent"); s.insert("command");
         s.insert("plugin"); s.insert("hook");
+        // E.6: Additional low-signal terms — generic verbs/nouns that match too broadly
+        s.insert("error"); s.insert("debug"); s.insert("deploy");
+        s.insert("install"); s.insert("configure"); s.insert("config");
+        s.insert("setup"); s.insert("remove"); s.insert("delete");
+        s.insert("generate"); s.insert("log"); s.insert("data");
+        s.insert("server"); s.insert("service"); s.insert("app");
+        s.insert("read"); s.insert("change"); s.insert("modify");
+        s.insert("edit"); s.insert("import");
         s
     };
 }
@@ -3433,9 +3463,9 @@ fn decompose_tasks(prompt: &str) -> Vec<String> {
     }
 
     // Detect numbered lists: "1. X 2. Y 3. Z"
-    let numbered_re = Regex::new(r"(?m)^\s*\d+[\.\)]\s*").unwrap();
-    if numbered_re.is_match(prompt_trimmed) {
-        let parts: Vec<String> = numbered_re
+    // Uses lazy_static NUMBERED_LIST_RE to avoid recompiling on every call (C.3)
+    if NUMBERED_LIST_RE.is_match(prompt_trimmed) {
+        let parts: Vec<String> = NUMBERED_LIST_RE
             .split(prompt_trimmed)
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty() && s.len() > 5)
@@ -3448,9 +3478,9 @@ fn decompose_tasks(prompt: &str) -> Vec<String> {
     }
 
     // Detect bullet lists: "- X - Y" or "* X * Y"
-    let bullet_re = Regex::new(r"(?m)^\s*[-*•]\s+").unwrap();
-    if bullet_re.is_match(prompt_trimmed) {
-        let parts: Vec<String> = bullet_re
+    // Uses lazy_static BULLET_LIST_RE to avoid recompiling on every call (C.3)
+    if BULLET_LIST_RE.is_match(prompt_trimmed) {
+        let parts: Vec<String> = BULLET_LIST_RE
             .split(prompt_trimmed)
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty() && s.len() > 5)
@@ -3491,8 +3521,8 @@ fn aggregate_subtask_matches(
                     }
                 }
 
-                // Boost score slightly for matching multiple sub-tasks
-                existing.score += 2; // Multi-task relevance bonus
+                // Boost score for matching multiple sub-tasks — E.4: scaled to 4-tier system
+                existing.score += 50; // Multi-task relevance bonus (MEDIUM=100)
             } else {
                 // New skill - add to aggregated
                 aggregated.insert(name, matched_skill);
@@ -3548,7 +3578,7 @@ lazy_static! {
     static ref RE_TEST: Regex = Regex::new(r"(?i)\b(test|testing|tests|spec)\b").unwrap();
     static ref RE_GIT: Regex = Regex::new(r"(?i)\b(git|github|repo|repository)\b").unwrap();
     static ref RE_TROUBLE: Regex = Regex::new(r"(?i)(troubleshoot|debug|error|problem|fail|bug)").unwrap();
-    static ref RE_CONTEXT: Regex = Regex::new(r"(?i)(context|memory|optimi)").unwrap();
+    static ref RE_CONTEXT: Regex = Regex::new(r"(?i)\b(context.window|context.length|token.limit|token.optimization)\b").unwrap();
     static ref RE_RAG: Regex = Regex::new(r"(?i)\b(rag|retrieval|vector|embeddings?)\b").unwrap();
     static ref RE_PROMPT: Regex = Regex::new(r"(?i)(prompt.engineer|system.prompt|llm.prompt)").unwrap();
     static ref RE_API: Regex = Regex::new(r"(?i)(api.design|rest.api|graphql|openapi)").unwrap();
@@ -3556,17 +3586,12 @@ lazy_static! {
     static ref RE_TRACE: Regex = Regex::new(r"(?i)(tracing|distributed.trace|opentelemetry|jaeger)").unwrap();
     static ref RE_GRAFANA: Regex = Regex::new(r"(?i)(grafana|prometheus|metrics|dashboard.monitor)").unwrap();
     static ref RE_SQL_OPT: Regex = Regex::new(r"(?i)(sql.optimi|query.optimi|index.optimi|explain.analyze)").unwrap();
-    static ref RE_FEEDBACK: Regex = Regex::new(r"(?i)\b(feedback|review|rating|thumbs)\b").unwrap();
-    static ref RE_AI: Regex = Regex::new(r"(?i)\b(ai|llm|gemini|vertex|model)\b").unwrap();
-    static ref RE_VALIDATE: Regex = Regex::new(r"(?i)\b(validate|validation|verify|check|confirm)\b").unwrap();
+    static ref RE_FEEDBACK: Regex = Regex::new(r"(?i)\b(feedback|rating|thumbs)\b").unwrap();
+    static ref RE_AI: Regex = Regex::new(r"(?i)\b(ai|llm|gemini|vertex)\b").unwrap();
+    static ref RE_VALIDATE: Regex = Regex::new(r"(?i)\b(validate|validation|verify|confirm)\b").unwrap();
     static ref RE_MCP: Regex = Regex::new(r"(?i)\b(mcp|tool.server)\b").unwrap();
-    static ref RE_SACRED: Regex = Regex::new(r"(?i)\b(sacred|golden.?rule|commandment|compliance)\b").unwrap();
-    static ref RE_HEBREW: Regex = Regex::new(r"(?i)\b(hebrew|עברית|rtl|israeli)\b").unwrap();
-    static ref RE_BEECOM: Regex = Regex::new(r"(?i)\b(beecom|pos|orders?|products?|restaurant)\b").unwrap();
-    static ref RE_SHIFT: Regex = Regex::new(r"(?i)\b(shift|schedule|labor|employee.hours)\b").unwrap();
-    static ref RE_REVENUE: Regex = Regex::new(r"(?i)\b(revenue|sales|income)\b").unwrap();
-    static ref RE_SESSION: Regex = Regex::new(r"(?i)\b(session|workflow|start.session|end.session|checkpoint)\b").unwrap();
-    static ref RE_PERPLEXITY: Regex = Regex::new(r"(?i)\b(perplexity|research|search.online|web.search)\b").unwrap();
+    static ref RE_SESSION: Regex = Regex::new(r"(?i)\b(session|start.session|end.session|checkpoint)\b").unwrap();
+    static ref RE_PERPLEXITY: Regex = Regex::new(r"(?i)\b(perplexity|search.online|web.search)\b").unwrap();
     static ref RE_BLUEPRINT: Regex = Regex::new(r"(?i)\b(blueprint|architecture|feature.context|how.does.*work)\b").unwrap();
     static ref RE_PARITY: Regex = Regex::new(r"(?i)\b(parity|environment.match|localhost.vs|staging.vs)\b").unwrap();
     static ref RE_CACHE: Regex = Regex::new(r"(?i)\b(cache|caching|cached|ttl|invalidate)\b").unwrap();
@@ -3577,13 +3602,31 @@ lazy_static! {
     // Only expand for explicit skill-creation phrases, NOT standalone "skill"
     // "skill" alone is too common in Claude Code conversations to be a useful signal
     static ref RE_SKILL: Regex = Regex::new(r"(?i)\b(create.skill|add.skill|update.skill|write.skill|develop.skill|retrospective)\b").unwrap();
-    static ref RE_CI: Regex = Regex::new(r"(?i)\b(ci|cd|pipeline|workflow|action)\b").unwrap();
+    static ref RE_CI: Regex = Regex::new(r"(?i)\b(ci|cd|ci.?cd|pipeline|github.action)\b").unwrap();
     static ref RE_DOCKER: Regex = Regex::new(r"(?i)\b(docker|container|dockerfile|compose|kubernetes|k8s)\b").unwrap();
     static ref RE_AWS: Regex = Regex::new(r"(?i)\b(aws|s3|ec2|lambda|cloudformation)\b").unwrap();
     static ref RE_GCP: Regex = Regex::new(r"(?i)\b(gcp|gcloud|cloud.run|bigquery|pubsub)\b").unwrap();
     static ref RE_AZURE: Regex = Regex::new(r"(?i)\b(azure|blob|functions|cosmos)\b").unwrap();
     static ref RE_SECURITY: Regex = Regex::new(r"(?i)\b(security|auth|oauth|jwt|encryption)\b").unwrap();
     static ref RE_PERF: Regex = Regex::new(r"(?i)\b(performance|slow|latency|optimize|profil)\b").unwrap();
+    // C.3: Moved from decompose_tasks() to avoid recompilation on every call
+    static ref NUMBERED_LIST_RE: Regex = Regex::new(r"(?m)^\s*\d+[\.\)]\s*").unwrap();
+    static ref BULLET_LIST_RE: Regex = Regex::new(r"(?m)^\s*[-*•]\s+").unwrap();
+    // C.4: HashMaps for O(1) abbreviation lookup instead of O(n) linear scan
+    static ref ABBREV_TO_FULL: std::collections::HashMap<&'static str, &'static str> = {
+        let mut m = std::collections::HashMap::new();
+        for &(short, long) in ABBREVIATIONS.iter() {
+            m.insert(short, long);
+        }
+        m
+    };
+    static ref FULL_TO_ABBREV: std::collections::HashMap<&'static str, &'static str> = {
+        let mut m = std::collections::HashMap::new();
+        for &(short, long) in ABBREVIATIONS.iter() {
+            m.insert(long, short);
+        }
+        m
+    };
 }
 
 /// Expand synonyms in the prompt to improve matching (from LimorAI)
@@ -3598,7 +3641,7 @@ fn expand_synonyms(prompt: &str) -> String {
     if msg.contains("pull") && msg.contains("request") {
         expanded.push_str(" github pr");
     }
-    if msg.contains("issue") {
+    if msg.contains("github issue") || (msg.contains("issue") && msg.contains("github")) {
         expanded.push_str(" github");
     }
     if msg.contains("fork") {
@@ -3618,7 +3661,7 @@ fn expand_synonyms(prompt: &str) -> String {
     if msg.contains("404") {
         expanded.push_str(" routing endpoint notfound");
     }
-    if msg.contains("500") {
+    if msg.contains("500") && (msg.contains("error") || msg.contains("status") || msg.contains("http")) {
         expanded.push_str(" server error crash internal");
     }
 
@@ -3642,9 +3685,6 @@ fn expand_synonyms(prompt: &str) -> String {
     }
     if msg.contains("missing") && msg.contains("data") {
         expanded.push_str(" gap sync parity api-first");
-    }
-    if msg.contains("missing") {
-        expanded.push_str(" gap detection");
     }
 
     // Deployment
@@ -3755,22 +3795,6 @@ fn expand_synonyms(prompt: &str) -> String {
     if RE_MCP.is_match(&msg) {
         expanded.push_str(" mcp model-context-protocol tools");
     }
-    if RE_SACRED.is_match(&msg) {
-        expanded.push_str(" sacred commandments rules");
-    }
-    if RE_HEBREW.is_match(&msg) {
-        expanded.push_str(" hebrew preservation encoding i18n");
-    }
-    if RE_BEECOM.is_match(&msg) {
-        expanded.push_str(" beecom pos ecommerce");
-    }
-    if RE_SHIFT.is_match(&msg) {
-        expanded.push_str(" shift labor status scheduling");
-    }
-    if RE_REVENUE.is_match(&msg) {
-        expanded.push_str(" revenue calculation analytics");
-    }
-
     // Phase 3 patterns
     if RE_SESSION.is_match(&msg) {
         expanded.push_str(" session workflow start protocol");
@@ -4077,6 +4101,14 @@ fn find_matches(
     // keywords. By the time we reach this loop, at least one keyword matched or
     // some skills are ungated. Per-skill gate checks below handle individual filtering.
 
+    // C.1: Hoist constant per-prompt allocations outside the per-skill loop.
+    // These vectors are the same for every skill — computing them once avoids
+    // O(skills) redundant allocations.
+    let original_words: Vec<&str> = original_lower.split_whitespace().collect();
+    let prompt_words: Vec<&str> = expanded_lower.split_whitespace().collect();
+    // E.2: Pre-compute cwd path components for exact directory matching
+    let cwd_components: Vec<&str> = cwd.split('/').collect();
+
     for (name, entry) in &index.skills {
         let mut score: i32 = 0;
         let mut evidence: Vec<String> = Vec::new();
@@ -4104,7 +4136,7 @@ fn find_matches(
             // technology, so language/platform gates should not block it.
             // E.g. "adopt bun" should match building-with-bun even without saying "javascript".
             // Uses word-boundary matching to avoid "com" matching "comprehensive".
-            let orig_words: Vec<&str> = original_lower.split_whitespace().collect();
+            // C.1: Uses pre-computed original_words hoisted before the loop.
             // Only bypass domain gates for non-low-signal tech names
             let has_explicit_tech_match = entry.frameworks.iter().any(|fw| {
                 let fw_l = fw.to_lowercase();
@@ -4115,7 +4147,7 @@ fn find_matches(
                     return false;
                 }
                 if fw_l.contains(' ') { original_lower.contains(&fw_l) }
-                else { orig_words.iter().any(|w| *w == fw_l.as_str()) }
+                else { original_words.iter().any(|w| *w == fw_l.as_str()) }
             }) || entry.tools.iter().any(|t| {
                 let t_l = t.to_lowercase();
                 // Skip low-signal tool names
@@ -4125,7 +4157,7 @@ fn find_matches(
                     return false;
                 }
                 if t_l.contains(' ') { original_lower.contains(&t_l) }
-                else { orig_words.iter().any(|w| *w == t_l.as_str()) }
+                else { original_words.iter().any(|w| *w == t_l.as_str()) }
             });
 
             if !has_explicit_tech_match {
@@ -4175,18 +4207,18 @@ fn find_matches(
             }
         }
 
-        // Directory context matching
+        // Directory context matching — E.2: exact path-component match
         for dir in &entry.directories {
-            if cwd.contains(dir) {
+            if cwd_components.iter().any(|c| *c == dir.as_str()) {
                 score += weights.directory;
                 has_non_low_signal_match = true;
                 evidence.push(format!("dir:{}", dir));
             }
         }
 
-        // Path pattern matching
+        // Path pattern matching — E.3: lowercase path_patterns for case-insensitive match
         for path_pattern in &entry.path_patterns {
-            if original_lower.contains(path_pattern) {
+            if original_lower.contains(&path_pattern.to_lowercase()) {
                 score += weights.path;
                 has_non_low_signal_match = true;
                 evidence.push(format!("path:{}", path_pattern));
@@ -4224,7 +4256,7 @@ fn find_matches(
         // names are rarely mentioned unless they are the focus of the discussion.
         // These names (e.g. "bun", "react", "ffmpeg", "graphql") are strong signals.
         // Uses word-boundary matching to avoid "com" matching "comprehensive".
-        let original_words: Vec<&str> = original_lower.split_whitespace().collect();
+        // C.1: original_words is pre-computed before the loop — no allocation here.
         for fw in &entry.frameworks {
             let fw_lower = fw.to_lowercase();
             // Skip framework names that are low-signal words (shouldn't happen often,
@@ -4271,8 +4303,7 @@ fn find_matches(
         // Also includes fuzzy matching for typo tolerance
         // Fixed: Now handles multi-word keyword phrases properly
         // Low-signal word detection: tracks if match came only from generic words
-        let prompt_words: Vec<&str> = expanded_lower.split_whitespace().collect();
-
+        // C.1: prompt_words is pre-computed before the loop — no allocation here.
         for keyword in &entry.keywords {
             let kw_lower = keyword.to_lowercase();
             let mut matched = false;
@@ -4411,7 +4442,11 @@ fn find_matches(
                 // "test" alone should NOT trigger testing skills at HIGH confidence.
                 // Low-signal matches drop from phrase tier to common tier
                 let ls_divisor = if low_signal_match { LOW_SIGNAL_DIVISOR } else { 1 };
-                if !low_signal_match {
+                // Only set has_non_low_signal_match if the match was found in the
+                // ORIGINAL prompt, not just in the synonym-expanded text. A keyword
+                // that matched only because of synonym expansion (e.g. "check" →
+                // "validation" via RE_VALIDATE) should NOT bypass the low-signal cap.
+                if !low_signal_match && original_lower.contains(&kw_lower) {
                     has_non_low_signal_match = true;
                 }
 
@@ -4531,6 +4566,8 @@ fn find_matches(
                 let max_booster_score = boosters.iter().map(|(_, s)| *s).max().unwrap_or(0);
                 let co_boost = std::cmp::max(8, (max_booster_score * 50) / 100);
                 m.score += co_boost;
+                // Re-apply cap so co-usage boost cannot push score above capped_max
+                m.score = m.score.min(weights.capped_max);
                 for (booster, _) in boosters {
                     m.evidence.push(format!("co_usage:{}", booster));
                 }
@@ -4562,6 +4599,19 @@ fn find_matches(
                     evidence,
                 });
             }
+        }
+
+        // Recalculate confidence after co-usage boosting, because both existing matches
+        // (boosted above their original tier) and newly injected matches may have stale
+        // confidence values assigned before this block ran.
+        for m in &mut matches {
+            m.confidence = if m.score >= thresholds.high {
+                Confidence::High
+            } else if m.score >= thresholds.medium {
+                Confidence::Medium
+            } else {
+                Confidence::Low
+            };
         }
     }
 
@@ -4733,31 +4783,50 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
 
     // If skill exists in index, merge PSS data
     if let Some(entry) = index.skills.get_mut(skill_name) {
+        // C.5: Use HashSet<String> for O(1) membership check instead of O(n) Vec::contains.
+        // We clone into an owned HashSet so that the immutable borrow of entry.keywords ends
+        // before the mutable push below — required by Rust's borrow checker.
         // Merge keywords (add any not already present)
-        for kw in &pss.matchers.keywords {
-            if !entry.keywords.contains(kw) {
-                entry.keywords.push(kw.clone());
+        {
+            let existing_keywords: std::collections::HashSet<String> =
+                entry.keywords.iter().cloned().collect();
+            for kw in &pss.matchers.keywords {
+                if !existing_keywords.contains(kw.as_str()) {
+                    entry.keywords.push(kw.clone());
+                }
             }
         }
 
         // Merge intents
-        for intent in &pss.matchers.intents {
-            if !entry.intents.contains(intent) {
-                entry.intents.push(intent.clone());
+        {
+            let existing_intents: std::collections::HashSet<String> =
+                entry.intents.iter().cloned().collect();
+            for intent in &pss.matchers.intents {
+                if !existing_intents.contains(intent.as_str()) {
+                    entry.intents.push(intent.clone());
+                }
             }
         }
 
         // Merge patterns
-        for pattern in &pss.matchers.patterns {
-            if !entry.patterns.contains(pattern) {
-                entry.patterns.push(pattern.clone());
+        {
+            let existing_patterns: std::collections::HashSet<String> =
+                entry.patterns.iter().cloned().collect();
+            for pattern in &pss.matchers.patterns {
+                if !existing_patterns.contains(pattern.as_str()) {
+                    entry.patterns.push(pattern.clone());
+                }
             }
         }
 
         // Merge directories
-        for dir in &pss.matchers.directories {
-            if !entry.directories.contains(dir) {
-                entry.directories.push(dir.clone());
+        {
+            let existing_dirs: std::collections::HashSet<String> =
+                entry.directories.iter().cloned().collect();
+            for dir in &pss.matchers.directories {
+                if !existing_dirs.contains(dir.as_str()) {
+                    entry.directories.push(dir.clone());
+                }
             }
         }
 
@@ -5866,11 +5935,11 @@ fn is_skip_prompt(prompt: &str) -> bool {
     // Skip simple words
     let simple_words = [
         "continue", "yes", "no", "ok", "okay", "thanks", "sure", "done", "stop", "got it",
-        "y", "n", "yep", "nope", "thank you", "thx", "ty", "next", "go", "proceed",
+        "y", "n", "yep", "nope", "thank you", "thx", "ty", "next", "proceed",
     ];
 
-    let trimmed = prompt.trim().to_lowercase();
-    simple_words.contains(&trimmed.as_str())
+    let trimmed = prompt.trim();
+    simple_words.contains(&trimmed)
 }
 
 // ============================================================================
@@ -6435,8 +6504,8 @@ mod tests {
         let docker = aggregated.iter().find(|m| m.name == "docker-expert");
         assert!(docker.is_some());
         let docker = docker.unwrap();
-        // Score should be max(15, 12) + 2 (multi-task bonus) = 17
-        assert_eq!(docker.score, 17);
+        // Score should be max(15, 12) + 50 (multi-task bonus) = 65
+        assert_eq!(docker.score, 65);
         // Evidence should be merged
         assert!(docker.evidence.len() >= 2);
     }
@@ -7703,6 +7772,19 @@ mediapipe>=0.10
     }
 
     #[test]
+    fn test_stemmer_verb_noun_consistency() {
+        // B.1: -ate verbs must produce the same stem as their -ation noun counterparts.
+        // The -ate rule (added before -ation) ensures symmetric stemming.
+        assert_eq!(stem_word("validate"), stem_word("validation"));
+        assert_eq!(stem_word("generate"), stem_word("generation"));
+        assert_eq!(stem_word("migrate"), stem_word("migration"));
+        assert_eq!(stem_word("integrate"), stem_word("integration"));
+        assert_eq!(stem_word("configure"), stem_word("configuration"));
+        // B.2: -ling verb forms must produce the same stem as the base verb.
+        assert_eq!(stem_word("control"), stem_word("controlling"));
+    }
+
+    #[test]
     fn test_normalized_stemmed_matching_in_phase_2_5() {
         // Verify that Phase 2.5 allows matching across separator variants
         // and morphological forms by testing find_matches with crafted skills.
@@ -7774,8 +7856,10 @@ mediapipe>=0.10
         assert_eq!(stem_word("configuring"), "configur");
         assert_eq!(stem_word("configuration"), "configur");
 
-        // "generate", "generated", "generating", "generation" all stem consistently.
-        assert_eq!(stem_word("generate"), "generat");
+        // "generate", "generated", "generating", "generation":
+        // After B.1 fix, "generate" uses the -ate rule → "gener", matching "generation" → "gener".
+        // "generated" and "generating" still stem via -ed/-ting → "generat" (acceptable variation).
+        assert_eq!(stem_word("generate"), "gener"); // -ate rule: w[..5]="gener"
         assert_eq!(stem_word("generated"), "generat"); // -ed→"generat"→no trailing e
         assert_eq!(stem_word("generating"), "generat"); // -ting→"generate"→strip e→"generat"
         assert_eq!(stem_word("generation"), "gener"); // -ation→"gener"
@@ -8137,6 +8221,230 @@ mediapipe>=0.10
             "agent (pos {}) should come before command (pos {})",
             agent_pos.unwrap(),
             command_pos.unwrap()
+        );
+    }
+
+    // ========================================================================
+    // Co-usage Bug Fix Tests (D.1 and D.2)
+    // ========================================================================
+
+    /// Helper: create a SkillEntry with the given frameworks and usually_with list.
+    fn make_entry(
+        path: &str,
+        skill_type: &str,
+        keywords: Vec<String>,
+        frameworks: Vec<String>,
+        usually_with: Vec<String>,
+    ) -> SkillEntry {
+        SkillEntry {
+            source: "test".to_string(),
+            path: path.to_string(),
+            skill_type: skill_type.to_string(),
+            keywords,
+            intents: vec![],
+            patterns: vec![],
+            directories: vec![],
+            path_patterns: vec![],
+            description: "test entry".to_string(),
+            negative_keywords: vec![],
+            tier: String::new(),
+            boost: 0,
+            category: String::new(),
+            platforms: vec![],
+            frameworks,
+            languages: vec![],
+            domains: vec![],
+            tools: vec![],
+            file_types: vec![],
+            domain_gates: HashMap::new(),
+            usually_with,
+            precedes: vec![],
+            follows: vec![],
+            alternatives: vec![],
+            server_type: String::new(),
+            server_command: String::new(),
+            server_args: vec![],
+            language_ids: vec![],
+        }
+    }
+
+    #[test]
+    fn test_co_usage_score_capped() {
+        // Verify that a co-usage boost cannot push a skill's score above capped_max.
+        //
+        // Setup:
+        //   - skill-a: has 5 framework keywords all present in the prompt → raw score
+        //     5 × 20,000 = 100,000, capped to 90,000 (capped_max). Its usually_with
+        //     lists skill-b.
+        //   - skill-b: has 1 framework keyword in the prompt → initial score 20,000.
+        //     Co-usage boost = max(8, 90,000 × 50 / 100) = 45,000.
+        //     Without fix: 20,000 + 45,000 = 65,000 (still under 90,000 in this case).
+        //
+        // To exercise the cap violation we need skill-b's initial score to be close
+        // enough to capped_max that adding the boost exceeds it.  Give skill-b 5
+        // framework keywords in the prompt (raw 100,000 → capped 90,000). After the
+        // per-skill cap skill-b's score is 90,000.  Then the co-usage boost adds
+        // at least max(8, ...) = 45,000 more, which would produce 135,000 without
+        // the fix.  With the fix it must stay at exactly 90,000.
+        let weights = MatchWeights::default();
+        let capped_max = weights.capped_max;
+
+        // Unique framework names that are not LOW_SIGNAL_WORDS
+        let shared_frameworks = vec![
+            "reactjs".to_string(),
+            "vuejs".to_string(),
+            "angularjs".to_string(),
+            "sveltejs".to_string(),
+            "nextjs".to_string(),
+        ];
+
+        let mut skills = HashMap::new();
+
+        // skill-a: booster — also has 5 unique frameworks so it scores high
+        skills.insert(
+            "skill-a".to_string(),
+            make_entry(
+                "/path/skill-a",
+                "skill",
+                vec![],
+                shared_frameworks.clone(),
+                vec!["skill-b".to_string()],
+            ),
+        );
+
+        // skill-b: recipient — same 5 frameworks so it reaches capped_max
+        skills.insert(
+            "skill-b".to_string(),
+            make_entry(
+                "/path/skill-b",
+                "skill",
+                vec![],
+                shared_frameworks.clone(),
+                vec![],
+            ),
+        );
+
+        let index = SkillIndex {
+            version: "3.0".to_string(),
+            generated: "2026-01-18T00:00:00Z".to_string(),
+            method: "test".to_string(),
+            skills_count: 2,
+            skills,
+        };
+
+        // Prompt contains all 5 framework names so both skills get raw 100,000 → capped to 90,000
+        let prompt = "using reactjs vuejs angularjs sveltejs nextjs build the frontend";
+        let expanded = expand_synonyms(prompt);
+        let matches = find_matches(
+            prompt,
+            &expanded,
+            &index,
+            "",
+            &ProjectContext::default(),
+            false,
+            &HashMap::new(),
+            None,
+        );
+
+        let skill_b = matches.iter().find(|m| m.name == "skill-b");
+        assert!(skill_b.is_some(), "skill-b should be in results (co-usage injected or matched)");
+        let skill_b = skill_b.unwrap();
+
+        // The co-usage boost must NOT push skill-b above capped_max
+        assert!(
+            skill_b.score <= capped_max,
+            "skill-b score {} must not exceed capped_max {}",
+            skill_b.score,
+            capped_max
+        );
+    }
+
+    #[test]
+    fn test_co_usage_confidence_recalculated() {
+        // Verify that confidence is recalculated after co-usage boosting.
+        //
+        // Setup:
+        //   - skill-a: one unique tool keyword in the prompt → scores at tool tier
+        //     (tool_match = 2,000) which is >= thresholds.high (1,000) → HIGH.
+        //     Its usually_with lists skill-b.
+        //   - skill-b: one keyword match → scores in MEDIUM range (100-999).
+        //     Co-usage boost = max(8, 2,000 × 50 / 100) = max(8, 1,000) = 1,000.
+        //     After boost: skill-b.score = original + 1,000 >= 1,000 = thresholds.high.
+        //     Without fix: confidence stays MEDIUM (stale).
+        //     With fix: confidence is recalculated to HIGH.
+        let mut skills = HashMap::new();
+
+        // skill-a: a tool match gives it score 2,000 (HIGH). It lists skill-b in usually_with.
+        skills.insert(
+            "skill-a".to_string(),
+            make_entry(
+                "/path/skill-a",
+                "skill",
+                vec![],
+                vec![],
+                vec!["skill-b".to_string()],
+            ),
+        );
+        // Override: give skill-a a tool list entry
+        if let Some(entry) = skills.get_mut("skill-a") {
+            entry.tools = vec!["webpack".to_string()];
+        }
+
+        // skill-b: one keyword match in MEDIUM range (first_match = 300 → score 300)
+        skills.insert(
+            "skill-b".to_string(),
+            make_entry(
+                "/path/skill-b",
+                "skill",
+                vec!["bundling".to_string()],
+                vec![],
+                vec![],
+            ),
+        );
+
+        let index = SkillIndex {
+            version: "3.0".to_string(),
+            generated: "2026-01-18T00:00:00Z".to_string(),
+            method: "test".to_string(),
+            skills_count: 2,
+            skills,
+        };
+
+        // Prompt: triggers skill-a via "webpack" (tool tier, score 2,000 → HIGH booster)
+        // and skill-b via "bundling" (keyword, score in MEDIUM range)
+        let prompt = "help me with webpack bundling";
+        let expanded = expand_synonyms(prompt);
+        let matches = find_matches(
+            prompt,
+            &expanded,
+            &index,
+            "",
+            &ProjectContext::default(),
+            false,
+            &HashMap::new(),
+            None,
+        );
+
+        let skill_a = matches.iter().find(|m| m.name == "skill-a");
+        assert!(skill_a.is_some(), "skill-a should be in results");
+        // Verify skill-a is HIGH so it qualifies as a booster
+        assert_eq!(
+            skill_a.unwrap().confidence,
+            Confidence::High,
+            "skill-a must be HIGH to act as a co-usage booster"
+        );
+
+        let skill_b = matches.iter().find(|m| m.name == "skill-b");
+        assert!(skill_b.is_some(), "skill-b should be in results");
+        let skill_b = skill_b.unwrap();
+
+        // skill-b boosted score = original (MEDIUM) + 1,000 (50% of 2,000) >= 1,000 → HIGH
+        // Confidence must be recalculated to HIGH after co-usage boost
+        assert_eq!(
+            skill_b.confidence,
+            Confidence::High,
+            "skill-b confidence should be recalculated to HIGH after co-usage boost lifted it above thresholds.high (score={})",
+            skill_b.score
         );
     }
 }
