@@ -1,6 +1,6 @@
 [package]
 name = "perfect-skill-suggester"
-version = "2.2.4"
+version = "2.2.5"
 edition = "2021"
 authors = ["Emasoft <713559+Emasoft@users.noreply.github.com>"]
 description = "High-accuracy skill suggester for Claude Code with weighted scoring, synonym expansion, and confidence routing"

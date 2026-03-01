@@ -37,7 +37,7 @@ use tracing::{debug, error, info, warn};
 /// Perfect Skill Suggester (PSS) - High-accuracy skill activation for Claude Code
 #[derive(Parser, Debug)]
 #[command(name = "pss")]
-#[command(version = "2.2.4")]
+#[command(version = "2.2.5")]
 #[command(about = "High-accuracy skill suggester for Claude Code")]
 struct Cli {
     /// Run in incomplete mode for Pass 2 co-usage analysis.
