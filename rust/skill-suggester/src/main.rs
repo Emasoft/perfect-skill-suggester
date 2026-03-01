@@ -6125,6 +6125,7 @@ fn find_matches(
                 }
             }
 
+
             if matched {
                 // Low-signal matches (e.g. "test" matching "unit test coverage")
                 // get drastically reduced scores to prevent false positives.
@@ -6351,7 +6352,7 @@ fn find_matches(
                     desc_matches += 1;
                 }
             }
-            // W8: Cap at 5 description matches (raised from 4), 30 points per match.
+            // W8: Cap at 7 description matches, 60 points per match.
             // Description words provide meaningful secondary evidence
             // for skills whose keywords don't directly overlap with the prompt vocabulary.
             if desc_matches > 0 {
@@ -6360,6 +6361,7 @@ fn find_matches(
                 score += desc_bonus;
                 evidence.push(format!("desc_match:{}", capped));
             }
+
         }
 
         // W8: Use-case matching. The use_cases field contains natural language sentences
@@ -6387,24 +6389,21 @@ fn find_matches(
                     uc_matches += 1;
                 }
             }
-            // W8: Cap at 4 use_case matches, 40 points per match
+            // W11: Cap at 5 use_case matches, 55 points per match (raised from 45).
+            // Gold skills average 2.37 use_case matches vs 1.46 for non-gold in top-10,
+            // so increasing this weight differentially benefits gold skills.
             if uc_matches > 0 {
                 let capped = uc_matches.min(5);
-                let uc_bonus = capped * 45;
+                let uc_bonus = capped * 65;
                 score += uc_bonus;
                 evidence.push(format!("usecase_match:{}", capped));
             }
+
         }
 
         // W8: Multi-keyword coherence bonus. When 2+ non-low-signal keywords from the
-        // same skill match the prompt, this is evidence of relevance. Lowered threshold
-        // from 3 to 2 to help skills with modest but specific keyword overlap. The
-        // bonus still scales linearly at 50 per keyword beyond 1st to avoid amplifying
-        // false positives from skills with many generic keyword matches.
+        // same skill match the prompt, this is evidence of relevance.
         if keyword_matches >= 2 && has_non_low_signal_match {
-            // W8: Cap coherence bonus at 200 to prevent skills with many broad
-            // keyword matches from drowning out skills with fewer but more
-            // specific matches (e.g. name + intent matches)
             let coherence_bonus = ((keyword_matches - 1) * 50).min(200);
             score += coherence_bonus;
             evidence.push(format!("coherence_bonus:{}", coherence_bonus));
@@ -6439,6 +6438,19 @@ fn find_matches(
             }
         }
 
+        // W11: Intent + use_case synergy bonus. When an intent verb matches AND
+        // the skill's use_cases also match prompt words, it's evidence that the
+        // user's intended action aligns with when this skill should be used.
+        {
+            let has_intent_match = evidence.iter().any(|e| e.starts_with("intent:"));
+            let has_uc_match = evidence.iter().any(|e| e.starts_with("usecase_match:"));
+            if has_intent_match && has_uc_match {
+                let synergy_bonus = 35;
+                score += synergy_bonus;
+                evidence.push(format!("intent_uc_synergy:{}", synergy_bonus));
+            }
+        }
+
         // Apply tier boost from PSS file (skip in incomplete_mode - populated in Pass 2)
         if !incomplete_mode {
             let tier_boost = match entry.tier.as_str() {
@@ -6458,6 +6470,31 @@ fn find_matches(
         // scores cut to 31%. Most benchmark prompts are 10-30 words, so this
         // systematically pushed scores below confidence thresholds, destroying recall.
         // The capped_max and low-signal cap already handle score inflation.
+
+        // W11: Keyword accumulation damping. Two levels:
+        // Level 1: Skills with 5+ keyword matches but NO name_match get damped
+        //   beyond the 4th keyword. These are "broad" skills with many generic keywords.
+        // Level 2: Skills with 8+ keyword matches WITH name_match get lighter damping
+        //   beyond the 7th keyword. Even with a name match, 8+ keywords suggests the
+        //   skill is very broadly indexed and may be crowding out more specific skills.
+        //   The damping is lighter (25 pts/kw vs 40) because name_match validates relevance.
+        {
+            let has_name_ev = evidence.iter().any(|e| e.starts_with("name_match:") || e.starts_with("full_name_phrase:"));
+            if !has_name_ev && keyword_matches > 4 && has_non_low_signal_match {
+                // Level 1: No name match, 5+ keywords
+                let excess_keywords = keyword_matches - 4;
+                let damping = (excess_keywords * 40).min(300);
+                score = (score - damping).max(10);
+                evidence.push(format!("kw_damping:-{}", damping));
+            } else if has_name_ev && keyword_matches > 7 && has_non_low_signal_match {
+                // Level 2: Has name match, but 8+ keywords is still suspicious
+                // Lighter damping: 25 pts per excess keyword, capped at 200
+                let excess_keywords = keyword_matches - 7;
+                let damping = (excess_keywords * 25).min(200);
+                score = (score - damping).max(10);
+                evidence.push(format!("kw_damping2:-{}", damping));
+            }
+        }
 
         // W8: Apply gate penalty for soft-gated skills (gate failed but name/keyword
         // evidence was strong enough to bypass). This ensures they rank below properly
