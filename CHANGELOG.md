@@ -2,6 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.2.3] - 2026-03-01
+
+### Bug Fixes
+
+- Low-signal word scoring + 10x framework/tool name boost
+- Phrase-focused scoring — penalize single common words, reward specific phrases
+
+### Miscellaneous Tasks
+
+- Snapshot before low-signal word scoring fix
+
+### Rebuild
+
+- Update pss-darwin-arm64 binary for v2.2.2
+
 ## [2.2.2] - 2026-02-28
 
 ### Bug Fixes
@@ -86,6 +101,7 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 - Version 2.1.0 → 2.2.0
 - Version 2.2.0 → 2.2.1
+- Version 2.2.1 → 2.2.2
 
 ### Release
 
