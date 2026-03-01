@@ -118,57 +118,79 @@ const MAX_LOG_PROMPT_LENGTH: usize = 100;
 const MAX_LOG_ENTRIES: usize = 10000;
 
 // ============================================================================
-// Scoring Weights (from reliable skill activator)
+// Scoring Weights — 4-tier logarithmic scale
 // ============================================================================
+// Each tier is 10x the previous:
+//   Common terms (test, build, run):       10 - 90 points
+//   Phrases ("trace this function"):      100 - 900 points
+//   Tools (bun, docker, ffmpeg):        1,000 - 9,000 points
+//   Frameworks (react, flutter, fastapi): 10,000 - 90,000 points
+// Domains and languages are FILTERS (domain gates), not scoring factors.
 
-/// Scoring weights for different match types
+/// Scoring weights for different match types.
+/// Base values are in the PHRASE tier (100-900).
+/// Low-signal words get divided by LOW_SIGNAL_DIVISOR (10) to drop to common tier.
 struct MatchWeights {
-    /// Skill in matching directory
+    /// Skill in matching directory (between phrase and tool tiers)
     directory: i32,
-    /// Prompt mentions file path pattern
+    /// Prompt mentions file path pattern (between phrase and tool tiers)
     path: i32,
-    /// Action verb matches skill intent
+    /// Action verb matches skill intent (phrase tier)
     intent: i32,
-    /// Regex pattern matches
+    /// Regex pattern matches (phrase tier)
     pattern: i32,
-    /// Simple keyword match
+    /// Keyword match (phrase tier for specific phrases)
     keyword: i32,
-    /// First keyword bonus (from LimorAI)
+    /// First keyword bonus (phrase tier)
     first_match: i32,
-    /// Keyword in original prompt (not just expanded)
+    /// Keyword in original prompt, not just expanded synonym (phrase tier)
     original_bonus: i32,
-    /// Maximum capped score to prevent keyword inflation
+    /// Tool name exact match (tool tier)
+    tool_match: i32,
+    /// Framework name exact match (framework tier)
+    framework_match: i32,
+    /// Maximum capped score (framework tier max)
     capped_max: i32,
 }
+
+/// Divisor for low-signal words — drops phrase-tier weights to common tier.
+/// 100 / 10 = 10 (common), 300 / 10 = 30 (common), etc.
+const LOW_SIGNAL_DIVISOR: i32 = 10;
+
+/// Maximum score for all-low-signal matches — prevents common words
+/// from ever reaching MEDIUM confidence regardless of how many match.
+const ALL_LOW_SIGNAL_CAP: i32 = 90;
 
 impl Default for MatchWeights {
     fn default() -> Self {
         Self {
-            directory: 5,
-            path: 4,
-            intent: 4,
-            pattern: 3,
-            keyword: 2,
-            first_match: 10,
-            original_bonus: 3,
-            capped_max: 30,
+            directory: 500,       // Between phrase and tool tiers
+            path: 500,            // Between phrase and tool tiers
+            intent: 150,          // Phrase tier (low-signal: 150/10 = 15)
+            pattern: 200,         // Phrase tier (patterns are always specific)
+            keyword: 100,         // Phrase tier (low-signal: 100/10 = 10)
+            first_match: 300,     // Phrase tier (low-signal: 300/10 = 30)
+            original_bonus: 100,  // Phrase tier (low-signal: 100/10 = 10)
+            tool_match: 2000,     // Tool tier
+            framework_match: 20000, // Framework tier
+            capped_max: 90000,    // Framework tier max
         }
     }
 }
 
-/// Confidence thresholds (from reliable)
+/// Confidence thresholds
 struct ConfidenceThresholds {
-    /// Score >= this is HIGH confidence
+    /// Score >= this is HIGH confidence (tool tier — one tool match or many phrases)
     high: i32,
-    /// Score >= this (but < high) is MEDIUM confidence
+    /// Score >= this (but < high) is MEDIUM confidence (phrase tier — one phrase match)
     medium: i32,
 }
 
 impl Default for ConfidenceThresholds {
     fn default() -> Self {
         Self {
-            high: 12,
-            medium: 6,
+            high: 1000,
+            medium: 100,
         }
     }
 }
@@ -4174,11 +4196,10 @@ fn find_matches(
         // Intent (verb) matching — low-signal intents get reduced weight
         for intent in &entry.intents {
             if original_lower.contains(intent) || expanded_lower.contains(intent) {
-                // Low-signal intents ("test", "run", "check", etc.) get 1/4 weight
-                // because they appear as procedural steps in almost every prompt
+                // Low-signal intents ("test", "run", "check", etc.) drop to common tier
                 let is_low_signal_intent = LOW_SIGNAL_WORDS.contains(intent.as_str());
                 let intent_score = if is_low_signal_intent {
-                    weights.intent / 4
+                    weights.intent / LOW_SIGNAL_DIVISOR
                 } else {
                     has_non_low_signal_match = true;
                     weights.intent
@@ -4220,7 +4241,7 @@ fn find_matches(
                 original_words.iter().any(|w| *w == fw_lower.as_str())
             };
             if fw_matched {
-                score += 20; // 10x keyword weight — framework names are always topical
+                score += weights.framework_match; // Framework tier (10,000-90,000)
                 has_non_low_signal_match = true;
                 evidence.push(format!("framework:{}", fw));
             }
@@ -4240,7 +4261,7 @@ fn find_matches(
                 original_words.iter().any(|w| *w == tool_lower.as_str())
             };
             if tool_matched {
-                score += 20; // 10x keyword weight — tool names are always topical
+                score += weights.tool_match; // Tool tier (1,000-9,000)
                 has_non_low_signal_match = true;
                 evidence.push(format!("tool:{}", tool));
             }
@@ -4388,7 +4409,8 @@ fn find_matches(
                 // Low-signal matches (e.g. "test" matching "unit test coverage")
                 // get drastically reduced scores to prevent false positives.
                 // "test" alone should NOT trigger testing skills at HIGH confidence.
-                let ls_divisor = if low_signal_match { 4 } else { 1 };
+                // Low-signal matches drop from phrase tier to common tier
+                let ls_divisor = if low_signal_match { LOW_SIGNAL_DIVISOR } else { 1 };
                 if !low_signal_match {
                     has_non_low_signal_match = true;
                 }
@@ -4398,7 +4420,11 @@ fn find_matches(
                     score += weights.first_match / ls_divisor;
                 } else {
                     // Fuzzy matches get slightly less score than exact matches
-                    let kw_score = if is_fuzzy { weights.keyword - 1 } else { weights.keyword };
+                    let kw_score = if is_fuzzy {
+                        (weights.keyword * 8) / 10  // 80% for fuzzy
+                    } else {
+                        weights.keyword
+                    };
                     score += kw_score / ls_divisor;
                 }
                 keyword_matches += 1;
@@ -4418,28 +4444,26 @@ fn find_matches(
         // Apply tier boost from PSS file (skip in incomplete_mode - populated in Pass 2)
         if !incomplete_mode {
             let tier_boost = match entry.tier.as_str() {
-                "primary" => 5,    // Primary elements get boost
-                "secondary" => 0,  // Default, no change
-                "specialized" => -2,   // Specialized elements slightly deprioritized
+                "primary" => 50,     // Primary elements get phrase-tier boost
+                "secondary" => 0,    // Default, no change
+                "specialized" => -20, // Specialized elements slightly deprioritized
                 _ => 0,
             };
             score += tier_boost;
 
-            // Apply explicit boost from PSS file (-10 to +10)
-            score += entry.boost.clamp(-10, 10);
+            // Apply explicit boost from PSS file (scaled to phrase tier)
+            score += (entry.boost.clamp(-10, 10)) * 10;
         }
 
         // Cap score to prevent keyword stuffing
         score = score.min(weights.capped_max);
 
         // All-low-signal cap: if EVERY match came from generic words (test, skill,
-        // code, etc.) and no specific term drove the match, cap score just below
-        // HIGH threshold. Prevents "test my code" from triggering testing skills at
-        // HIGH confidence when the user didn't actually ask about testing.
-        // Exceptions: directory match and framework/tool matches already set
-        // has_non_low_signal_match = true, so they're not affected by this cap.
-        if !has_non_low_signal_match && score >= thresholds.high {
-            score = thresholds.high - 1; // Cap to top of MEDIUM
+        // code, etc.), cap at common tier maximum (90). No amount of common word
+        // matches should reach MEDIUM confidence — only phrases, tools, or frameworks
+        // should produce meaningful suggestions.
+        if !has_non_low_signal_match && score > ALL_LOW_SIGNAL_CAP {
+            score = ALL_LOW_SIGNAL_CAP;
         }
 
         // Determine confidence level (from reliable)
@@ -4451,8 +4475,8 @@ fn find_matches(
             Confidence::Low
         };
 
-        // Only include if score is meaningful
-        if score >= 3 {
+        // Only include if score is meaningful (at least one common-tier match)
+        if score >= 10 {
             matches.push(MatchedSkill {
                 name: name.clone(),
                 path: entry.path.clone(),
@@ -4469,7 +4493,7 @@ fn find_matches(
     // If a high-scoring skill lists another skill in usually_with, boost that skill
     if !incomplete_mode {
         // Collect names of high-scoring skills
-        let high_score_threshold = 8;
+        let high_score_threshold = 1000;
         let high_scoring: Vec<String> = matches
             .iter()
             .filter(|m| m.score >= high_score_threshold)
