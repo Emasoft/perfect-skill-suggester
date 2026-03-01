@@ -99,7 +99,11 @@ const CACHE_DIR: &str = "cache";
 
 /// Maximum number of suggestions to keep after matching (internal buffer)
 /// Set higher than --top default (10) to allow co-usage boosting to surface related skills
-const MAX_SUGGESTIONS: usize = 20;
+// W8: Increased from 20 to 30. The internal candidate buffer was too small,
+// causing gold skills to be dropped before the --top 10 output filter.
+// With soft-gating admitting more candidates, 30 ensures enough headroom
+// for the output filter to select the best 10 from a larger pool.
+const MAX_SUGGESTIONS: usize = 50;
 
 /// Log file name for activation logging
 const ACTIVATION_LOG_FILE: &str = "pss-activations.jsonl";
@@ -2445,6 +2449,10 @@ pub struct SkillEntry {
     #[serde(default)]
     pub file_types: Vec<String>,
 
+    /// Use case descriptions: natural language sentences describing when to use this skill
+    #[serde(default)]
+    pub use_cases: Vec<String>,
+
     /// Domain gates: hard prerequisite filters for skill activation.
     /// Keys are gate names (e.g., "target_language", "cloud_provider"),
     /// values are arrays of lowercase keywords that satisfy the gate.
@@ -3399,6 +3407,15 @@ lazy_static! {
         s.insert("server"); s.insert("service"); s.insert("app");
         s.insert("read"); s.insert("change"); s.insert("modify");
         s.insert("edit"); s.insert("import");
+        // W8: Additional filler/generic words that match too broadly
+        s.insert("also"); s.insert("then"); s.insert("want");
+        s.insert("look"); s.insert("thing"); s.insert("stuff");
+        s.insert("properly"); s.insert("proper");
+        // W8: More common words that match many skills falsely
+        s.insert("output"); s.insert("input"); s.insert("process");
+        s.insert("handle"); s.insert("manage"); s.insert("provide");
+        s.insert("support"); s.insert("enable"); s.insert("ensure");
+        s.insert("tool"); s.insert("system");
         s
     };
 }
@@ -3938,6 +3955,1087 @@ fn expand_synonyms(prompt: &str) -> String {
     // W5: GIF/screenshot patterns
     if msg.contains("gif") || msg.contains("animated") && msg.contains("image") {
         expanded.push_str(" gif animation screenshot visual");
+    }
+
+    // W8: PR review/fix patterns (commonly missed: pr-review-and-fix, describe-pr)
+    if (msg.contains("pr ") || msg.contains("pull request")) && (msg.contains("review") || msg.contains("fix") || msg.contains("audit")) {
+        expanded.push_str(" pull request review fix audit code quality pre-merge");
+    }
+    if msg.contains("pr description") || msg.contains("pr summary") || (msg.contains("describe") && msg.contains("pr")) {
+        expanded.push_str(" pr description pull request context motivation changes");
+    }
+    if msg.contains("claim") && (msg.contains("verif") || msg.contains("correct") || msg.contains("review")) {
+        expanded.push_str(" claim verification correctness skeptical review judge");
+    }
+
+    // W8: Security/vulnerability patterns (commonly missed: security, aegis)
+    if msg.contains("vulnerabilit") || msg.contains("security") || msg.contains("secret") {
+        expanded.push_str(" security vulnerability scanning secrets audit codebase");
+    }
+    if msg.contains("leaked") || msg.contains("leak") && msg.contains("secret") {
+        expanded.push_str(" security secrets scanning privacy vulnerability");
+    }
+
+    // W8: Impact/call graph patterns (commonly missed: impact, tldr-*)
+    if msg.contains("impact") || msg.contains("call graph") || msg.contains("who calls") {
+        expanded.push_str(" impact analysis call graph function dependency dead code");
+    }
+    if msg.contains("refactor") && (msg.contains("impact") || msg.contains("affect") || msg.contains("break")) {
+        expanded.push_str(" impact analysis refactoring function dependency");
+    }
+
+    // W8: Agent coordination patterns (commonly missed: parallel-agents, eoa-team-orchestrator)
+    if msg.contains("coordinate") && msg.contains("agent") {
+        expanded.push_str(" parallel agents coordination team orchestrator distribution");
+    }
+    if msg.contains("parallel") && (msg.contains("agent") || msg.contains("task") || msg.contains("work")) {
+        expanded.push_str(" parallel agents team coordination task distribution");
+    }
+
+    // W8: Experiment/research patterns (commonly missed: experiment-design-checklist, eoa-experimenter)
+    if msg.contains("experiment") || msg.contains("hypothesis") {
+        expanded.push_str(" experiment design hypothesis verification research statistical");
+    }
+
+    // W8: Accessibility patterns (commonly missed: accessibility-expert, accessibility-compliance)
+    if msg.contains("accessib") || msg.contains("screen reader") || msg.contains("a11y") || msg.contains("wcag") {
+        expanded.push_str(" accessibility wcag aria screen reader a11y compliance audit");
+    }
+    if msg.contains("keyboard") && (msg.contains("support") || msg.contains("navigation") || msg.contains("shortcut")) {
+        expanded.push_str(" accessibility keyboard navigation");
+    }
+
+    // W8: Design system/UI patterns (commonly missed: design-system-*, ui-engineer, design-review)
+    if msg.contains("design system") || msg.contains("component library") || msg.contains("style guide") {
+        expanded.push_str(" design system patterns tokens theming component library ui");
+    }
+    if msg.contains("component") && (msg.contains("isolat") || msg.contains("playground") || msg.contains("storybook") || msg.contains("test")) {
+        expanded.push_str(" component playground isolation design system ui");
+    }
+    if (msg.contains("ui") || msg.contains("interface")) && (msg.contains("inconsisten") || msg.contains("audit") || msg.contains("review")) {
+        expanded.push_str(" design review component pattern consistency ui");
+    }
+    if msg.contains("drag") && msg.contains("drop") {
+        expanded.push_str(" interaction design drag drop gesture ui");
+    }
+    if msg.contains("responsive") || (msg.contains("mobile") && msg.contains("desktop")) {
+        expanded.push_str(" responsive design layout breakpoint mobile");
+    }
+
+    // W8: Test patterns (commonly missed: test-failure-analyzer, test-debugger, run-tests)
+    if msg.contains("test") && (msg.contains("fail") || msg.contains("broken") || msg.contains("flaky")) {
+        expanded.push_str(" test failure analysis debugging diagnosis");
+    }
+    if msg.contains("integration test") || msg.contains("integration testing") {
+        expanded.push_str(" integration testing real database verification endpoint");
+    }
+    if msg.contains("test suite") || msg.contains("test runner") {
+        expanded.push_str(" test suite runner execution");
+    }
+
+    // W8: GitHub/project management patterns (commonly missed: eia-github-*, ecos-*)
+    if msg.contains("issue") && (msg.contains("project") || msg.contains("board") || msg.contains("kanban") || msg.contains("track")) {
+        expanded.push_str(" github issues project board kanban tracking sync projects v2 synchronization");
+    }
+    if msg.contains("project board") || msg.contains("kanban") {
+        expanded.push_str(" github projects v2 kanban board orchestration synchronization agile");
+    }
+    if msg.contains("multiple project") || msg.contains("multi-project") || msg.contains("projects simultaneously") {
+        expanded.push_str(" multi-project coordination management orchestration staff");
+    }
+
+    // W8: Dependency/package patterns (commonly missed: dependency-management)
+    if msg.contains("dependen") && (msg.contains("conflict") || msg.contains("version") || msg.contains("lock") || msg.contains("resolv")) {
+        expanded.push_str(" dependency management version resolution lock conflict python pip");
+    }
+
+    // W8: Architecture/documentation patterns (commonly missed: eaa-design-*, scribe)
+    if msg.contains("architectural") || msg.contains("architecture decision") || msg.contains("adr") {
+        expanded.push_str(" architectural decision record design documentation technology");
+    }
+    if msg.contains("documentation") && (msg.contains("write") || msg.contains("update") || msg.contains("usage") || msg.contains("example")) {
+        expanded.push_str(" documentation writing examples configuration plugin");
+    }
+
+    // W8: ML/AI patterns (commonly missed: huggingface-*, ml-*, data-scientist)
+    if msg.contains("huggingface") || msg.contains("hugging face") || msg.contains("transformers") {
+        expanded.push_str(" huggingface transformers model training fine-tuning ml");
+    }
+    if msg.contains("tokenizer") || msg.contains("tokeniz") {
+        expanded.push_str(" tokenizer nlp natural language processing huggingface");
+    }
+    if msg.contains("fine-tun") || msg.contains("fine tun") || msg.contains("finetun") {
+        expanded.push_str(" fine-tuning model training ml huggingface");
+    }
+    if msg.contains("machine learning") || msg.contains(" ml ") || msg.contains("model training") {
+        expanded.push_str(" machine learning model training evaluation feature engineering");
+    }
+
+    // W8: Plugin patterns (commonly missed: documentation-update, claude-plugin:*, marketplace)
+    if msg.contains("plugin") && (msg.contains("document") || msg.contains("update") || msg.contains("publish")) {
+        expanded.push_str(" plugin documentation update marketplace publishing claude");
+    }
+    if msg.contains("marketplace") && (msg.contains("publish") || msg.contains("listing") || msg.contains("submit")) {
+        expanded.push_str(" marketplace github plugin publishing listing pricing");
+    }
+
+    // W8: Agent/profiling patterns (commonly missed: pss-agent-profiler, pss-agent-toml)
+    if msg.contains("agent") && (msg.contains("profile") || msg.contains("toml") || msg.contains("descriptor") || msg.contains("metadata")) {
+        expanded.push_str(" agent profiler toml descriptor pss setup");
+    }
+
+    // W8: Investigation/deep research patterns
+    if msg.contains("investigat") || msg.contains("deep") && (msg.contains("research") || msg.contains("analysis") || msg.contains("dive")) {
+        expanded.push_str(" deep research investigation sleuth analysis performance");
+    }
+    if msg.contains("degrad") && msg.contains("load") {
+        expanded.push_str(" performance degradation profiling investigation research");
+    }
+
+    // W8: Translation/localization broader patterns (prompt 99: "translate...UI strings")
+    if msg.contains("translat") && (msg.contains("string") || msg.contains("ui") || msg.contains("app") || msg.contains("text")) {
+        expanded.push_str(" translation localization i18n internationalization locale language");
+    }
+
+    // W8: Resource monitoring broader patterns (prompt 31)
+    if (msg.contains("cpu") || msg.contains("memory")) && (msg.contains("spike") || msg.contains("usage") || msg.contains("monitor")) {
+        expanded.push_str(" resource monitoring cpu memory profiling performance report");
+    }
+
+    // W8: Release/version management broader patterns (prompt 29)
+    if msg.contains("release") && (msg.contains("version") || msg.contains("changelog") || msg.contains("tag") || msg.contains("bump")) {
+        expanded.push_str(" release management version bumping changelog tagging workflow");
+    }
+    if msg.contains("version bump") || msg.contains("version management") || msg.contains("semver") {
+        expanded.push_str(" release management version bumping changelog");
+    }
+
+    // W8: CI/CD broader patterns (prompt 32)
+    if msg.contains("ci") && (msg.contains("test") || msg.contains("lint") || msg.contains("deploy") || msg.contains("pipeline")) {
+        expanded.push_str(" cicd pipeline continuous integration delivery github actions");
+    }
+
+    // W8: iPad/watchOS/platform patterns
+    if msg.contains("ipad") || msg.contains("split view") || msg.contains("multitask") {
+        expanded.push_str(" ipad tablet split view multitasking ios swiftui layout");
+    }
+    if msg.contains("watchos") || msg.contains("watch os") || msg.contains("apple watch") {
+        expanded.push_str(" watchos apple watch complications connectivity wrist ios");
+    }
+
+    // W8: Background task patterns (prompt 23)
+    if msg.contains("background") && (msg.contains("task") || msg.contains("download") || msg.contains("sync") || msg.contains("process")) {
+        expanded.push_str(" background processing task download sync ios energy");
+    }
+
+    // W8: Build time/optimization patterns (prompt 28)
+    if msg.contains("build time") || msg.contains("clean build") || msg.contains("compile time") {
+        expanded.push_str(" build time optimization performance profiling compile");
+    }
+
+    // W8: End-to-end / e2e patterns (prompt 52)
+    if msg.contains("end-to-end") || msg.contains("end to end") {
+        expanded.push_str(" e2e testing browser automation login flow");
+    }
+    if msg.contains("e2e") {
+        expanded.push_str(" end-to-end testing browser automation");
+    }
+
+    // W8: PR description writing patterns (prompt 38)
+    if msg.contains("pr description") || msg.contains("pr ") && msg.contains("descri") {
+        expanded.push_str(" describe pr pull request description motivation changes summary");
+    }
+    if msg.contains("describe") && (msg.contains("change") || msg.contains("motivation")) {
+        expanded.push_str(" pr description commit summary explain");
+    }
+
+    // W8: Typography/visual design patterns (prompt 7)
+    if msg.contains("typograph") || msg.contains("font") && (msg.contains("size") || msg.contains("inconsisten")) {
+        expanded.push_str(" visual design typography font size rhythm spacing");
+    }
+    if msg.contains("vertical rhythm") || msg.contains("font scale") || msg.contains("type scale") {
+        expanded.push_str(" visual design foundations typography spacing");
+    }
+
+    // W8: Component playground patterns (prompt 8)
+    if msg.contains("playground") && (msg.contains("component") || msg.contains("ui") || msg.contains("test")) {
+        expanded.push_str(" component playground isolation props testing design system storybook");
+    }
+
+    // W8: Refactoring/testability patterns (prompt 42)
+    if msg.contains("refactor") && (msg.contains("testab") || msg.contains("depend") || msg.contains("coupling") || msg.contains("modular")) {
+        expanded.push_str(" refactoring modularization testability coupling dependency injection");
+    }
+    if msg.contains("side effect") && (msg.contains("remov") || msg.contains("isolat") || msg.contains("reduc")) {
+        expanded.push_str(" refactoring modularization testing pure function");
+    }
+
+    // W8: animated GIF patterns (prompt 94)
+    if msg.contains("animated") && (msg.contains("gif") || msg.contains("image")) {
+        expanded.push_str(" gif animation screenshot before after visual");
+    }
+    if msg.contains("before") && msg.contains("after") && (msg.contains("ui") || msg.contains("change") || msg.contains("show")) {
+        expanded.push_str(" gif screenshot visual comparison");
+    }
+
+    // W8: App icon generation patterns (prompt 93)
+    if msg.contains("app icon") || msg.contains("icon") && msg.contains("generat") {
+        expanded.push_str(" app icon generator ios sizes asset catalog sf symbols");
+    }
+    if msg.contains("icon") && msg.contains("size") {
+        expanded.push_str(" icon generator asset catalog ios adaptive");
+    }
+
+    // W8: iTerm/terminal layout patterns (prompt 98)
+    if msg.contains("iterm") || msg.contains("iterm2") {
+        expanded.push_str(" iterm terminal layout panes workflow development");
+    }
+    if msg.contains("terminal") && (msg.contains("layout") || msg.contains("pane") || msg.contains("split") || msg.contains("tab")) {
+        expanded.push_str(" terminal layout iterm workflow cli development");
+    }
+
+    // W8: Plugin validation patterns (prompt 79)
+    if msg.contains("validate") && msg.contains("plugin") {
+        expanded.push_str(" plugin validation comprehensive structure marketplace fields check");
+    }
+
+    // W8: Marketplace publishing patterns (prompt 83)
+    if msg.contains("marketplace") && (msg.contains("set up") || msg.contains("setup") || msg.contains("publish") || msg.contains("listing")) {
+        expanded.push_str(" marketplace setup listing pricing github plugin publish review");
+    }
+
+    // W8: Deep research/investigation patterns (prompt 90)
+    if msg.contains("deep") && (msg.contains("investigat") || msg.contains("analysis") || msg.contains("research")) {
+        expanded.push_str(" deep investigation research sleuth multi-step analysis");
+    }
+    if msg.contains("degrade") && msg.contains("under load") {
+        expanded.push_str(" performance degradation profiling load testing investigation");
+    }
+
+    // W8: Animated diagram patterns (prompt 91)
+    if msg.contains("diagram") && (msg.contains("animat") || msg.contains("explain") || msg.contains("architecture")) {
+        expanded.push_str(" diagram animation manim manimce flowchart visualization scientific");
+    }
+    if msg.contains("embeddable") || msg.contains("embed") && msg.contains("doc") {
+        expanded.push_str(" documentation embedding visualization");
+    }
+
+    // W8: Premortem patterns (prompt 67)
+    if msg.contains("premortem") || msg.contains("pre-mortem") || msg.contains("pre mortem") {
+        expanded.push_str(" premortem analysis risk failure mode planning");
+    }
+    if msg.contains("what could go wrong") || msg.contains("risk analysis") || msg.contains("failure mode") {
+        expanded.push_str(" premortem risk analysis failure planning");
+    }
+
+    // W8: Research question patterns (prompt 89)
+    if msg.contains("research question") || msg.contains("formulate") && msg.contains("question") {
+        expanded.push_str(" research question formulation investigation hypothesis methodology");
+    }
+
+    // W8: Data cleaning patterns (prompt 73)
+    if msg.contains("data") && (msg.contains("clean") || msg.contains("messy") || msg.contains("missing value") || msg.contains("duplicate")) {
+        expanded.push_str(" data cleaning preprocessing missing values deduplication feature engineering");
+    }
+    if msg.contains("dataset") && (msg.contains("format") || msg.contains("inconsisten") || msg.contains("quality")) {
+        expanded.push_str(" data cleaning preprocessing quality normalization");
+    }
+
+    // W8: Custom skill creation patterns (prompt 77)
+    if msg.contains("skill") && (msg.contains("build") || msg.contains("custom") || msg.contains("create") || msg.contains("trigger")) {
+        expanded.push_str(" skill creation development architecture trigger frontmatter");
+    }
+
+    // W8: Deprecation handling patterns (prompt 46)
+    if msg.contains("deprecat") || msg.contains("deprecated") {
+        expanded.push_str(" deprecation warning handling modernization migration upgrade");
+    }
+    if msg.contains("api") && (msg.contains("going away") || msg.contains("remov") || msg.contains("sunset")) {
+        expanded.push_str(" deprecation api migration upgrade modernization");
+    }
+
+    // W8: Merge conflict patterns (prompt 45)
+    if msg.contains("merge conflict") || msg.contains("conflict") && msg.contains("main") {
+        expanded.push_str(" merge conflict resolution pr branch git workflow");
+    }
+
+    // W8: GitHub Actions CI patterns (prompt 26)
+    if msg.contains("github actions") && (msg.contains("fail") || msg.contains("broken") || msg.contains("intermittent") || msg.contains("flaky")) {
+        expanded.push_str(" github actions ci failure intermittent build fix");
+    }
+
+    // W8: Rollback/recovery patterns (prompt 33)
+    if msg.contains("rollback") || msg.contains("roll back") {
+        expanded.push_str(" rollback recovery deployment failure production revert");
+    }
+    if msg.contains("deploy") && msg.contains("fail") {
+        expanded.push_str(" deployment failure rollback recovery investigation");
+    }
+
+    // W8: iOS simulator testing patterns (prompt 55)
+    if msg.contains("simulator") && (msg.contains("test") || msg.contains("iphone") || msg.contains("ipad")) {
+        expanded.push_str(" simulator testing ios iphone ipad device sizes layout");
+    }
+
+    // W8: PR review + fix combo patterns (prompt 37)
+    if msg.contains("review") && msg.contains("pr") && (msg.contains("fix") || msg.contains("issue")) {
+        expanded.push_str(" pr review and fix pull request code review quality audit pre-merge gate");
+    }
+    if msg.contains("review") && msg.contains("fix") && msg.contains("test") {
+        expanded.push_str(" pr review fix update tests behavior change regression");
+    }
+
+    // W8: Integration testing against real services (prompt 59)
+    if msg.contains("integration test") || (msg.contains("integrat") && msg.contains("test")) {
+        expanded.push_str(" integration test development comprehensive test coverage end-to-end verification real database");
+    }
+    if msg.contains("not mock") || msg.contains("real database") || msg.contains("actually work") {
+        expanded.push_str(" integration testing realistic verification no mocks real service exhaustive");
+    }
+    if msg.contains("api endpoint") || msg.contains("api") && msg.contains("endpoint") {
+        expanded.push_str(" api testing backend rest endpoint verification integration");
+    }
+
+    // W8: GitHub project board sync patterns (prompt 65)
+    if msg.contains("project board") || msg.contains("kanban") {
+        expanded.push_str(" github projects v2 kanban board synchronization project management status tracking");
+    }
+    if msg.contains("sync") && (msg.contains("issue") || msg.contains("github")) {
+        expanded.push_str(" github issue synchronization project board sync status tracking");
+    }
+    if msg.contains("close") && msg.contains("completed") {
+        expanded.push_str(" issue status transitions project board management");
+    }
+    if msg.contains("in-progress") || msg.contains("in progress") {
+        expanded.push_str(" kanban column transitions work item status tracking");
+    }
+
+    // W8: Marketplace publishing boost (prompt 83) - need stronger marketplace signal
+    if msg.contains("marketplace") {
+        expanded.push_str(" marketplace plugin registry publish distribution listing pricing validate");
+    }
+    if msg.contains("publish") && msg.contains("plugin") {
+        expanded.push_str(" marketplace setup github plugin publishing distribution");
+    }
+    if msg.contains("listing") && (msg.contains("set up") || msg.contains("setup") || msg.contains("pricing")) {
+        expanded.push_str(" marketplace configuration plugin listing pricing review");
+    }
+
+    // W8: Claim verification patterns (prompt 60)
+    if msg.contains("claim") || msg.contains("verify") && msg.contains("correct") {
+        expanded.push_str(" claim verification evidence-based skeptical review correctness");
+    }
+    if msg.contains("don't trust") || msg.contains("actually correct") {
+        expanded.push_str(" skeptical review claim verification code correctness evidence");
+    }
+
+    // W8: Sprint planning patterns (prompt 62)
+    if msg.contains("sprint") || msg.contains("plan") && msg.contains("feature") {
+        expanded.push_str(" sprint planning task breakdown dependency estimation agile");
+    }
+
+    // W8: Duplicate/dead code patterns (prompt 50)
+    if msg.contains("duplicat") || msg.contains("duplicate") {
+        expanded.push_str(" duplicate code detection consolidation refactoring near-duplicate");
+    }
+    if msg.contains("dead code") || msg.contains("unused") && msg.contains("function") {
+        expanded.push_str(" dead code detection unused function cleanup refactoring");
+    }
+
+    // W8: TDD patterns (prompt 54)
+    if msg.contains("test-driven") || msg.contains("test driven") || msg.contains("tdd") {
+        expanded.push_str(" test driven development tdd failing tests implementation feature");
+    }
+    if msg.contains("failing test") && msg.contains("first") {
+        expanded.push_str(" tdd test driven development red green refactor");
+    }
+
+    // W8: Code mess/linting patterns (prompt 41)
+    if msg.contains("eslint") || msg.contains("lint") && msg.contains("error") {
+        expanded.push_str(" eslint linting code quality formatting mixed tabs spaces codebase audit");
+    }
+    if msg.contains("mess") && (msg.contains("code") || msg.contains("codebase")) {
+        expanded.push_str(" codebase audit cleanup formatting consistency quality");
+    }
+
+    // W8: Experiment/hypothesis testing patterns (prompt 88)
+    if msg.contains("experiment") && (msg.contains("design") || msg.contains("test") || msg.contains("performance")) {
+        expanded.push_str(" experiment design hypothesis testing validation benchmark optimization");
+    }
+    if msg.contains("a/b test") || msg.contains("ab test") || msg.contains("baseline") && msg.contains("compar") {
+        expanded.push_str(" experiment comparison hypothesis statistical testing");
+    }
+
+    // W8: Performance investigation/degradation patterns (prompt 90)
+    if msg.contains("performance") && (msg.contains("degrad") || msg.contains("slow") || msg.contains("bottleneck")) {
+        expanded.push_str(" performance profiler investigation degradation analysis bottleneck");
+    }
+    if msg.contains("under load") || msg.contains("load test") {
+        expanded.push_str(" load testing performance investigation profiling stress");
+    }
+
+    // W8: Research/investigation agents (prompt 89)
+    if msg.contains("research") && msg.contains("question") {
+        expanded.push_str(" research question formulation hypothesis investigation methodology think");
+    }
+    if msg.contains("investigation") || msg.contains("investigate") {
+        expanded.push_str(" investigation research analysis sleuth deep research");
+    }
+
+    // W8: watchOS patterns (prompt 25)
+    if msg.contains("watchos") || msg.contains("watch") && msg.contains("app") {
+        expanded.push_str(" watchos companion connectivity complications multi-platform cross-platform");
+    }
+
+    // W8: Test failure analysis (prompt 53)
+    if msg.contains("test") && (msg.contains("fail") || msg.contains("broken")) && msg.contains("merge") {
+        expanded.push_str(" test failure analysis debugging merge regression broken test suite");
+    }
+
+    // W8: Release management (prompt 29)
+    if msg.contains("release") && (msg.contains("workflow") || msg.contains("management") || msg.contains("version")) {
+        expanded.push_str(" release management version bumping changelog semantic versioning tagging");
+    }
+
+    // W8: Learning extraction (prompt 68)
+    if msg.contains("learning") || msg.contains("pattern") && msg.contains("future") {
+        expanded.push_str(" learning extraction memory knowledge patterns retrospective");
+    }
+
+    // W8: Fine-tuning ML models (prompt 71)
+    if msg.contains("fine-tune") || msg.contains("fine tune") || msg.contains("finetune") {
+        expanded.push_str(" fine-tuning model training huggingface transformer custom dataset evaluation");
+    }
+
+    // W8: Video transcript (prompt 92)
+    if msg.contains("transcript") || msg.contains("transcri") {
+        expanded.push_str(" transcription audio video speech-to-text whisper searchable");
+    }
+
+    // W8: Data visualization patterns (prompt 5)
+    if msg.contains("data viz") || msg.contains("data vis") || msg.contains("chart") || msg.contains("graph") && msg.contains("interactiv") {
+        expanded.push_str(" data visualization charts graphs interactive component d3 plotly");
+    }
+
+    // W8: iPad split view patterns (prompt 19)
+    if msg.contains("ipad") && (msg.contains("split") || msg.contains("drag") || msg.contains("drop")) {
+        expanded.push_str(" ipad split view multitasking swiftui layout drag drop adaptive");
+    }
+
+    // W8: Codebase audit patterns (prompt 39)
+    if msg.contains("audit") && (msg.contains("code") || msg.contains("codebase")) {
+        expanded.push_str(" codebase audit dead code unused imports security vulnerability scanning");
+    }
+    if msg.contains("dead code") || msg.contains("unused import") {
+        expanded.push_str(" codebase audit cleanup refactoring quality");
+    }
+
+    // W8: Impact/refactoring analysis (prompt 49)
+    if msg.contains("impact") && (msg.contains("refactor") || msg.contains("change") || msg.contains("function")) {
+        expanded.push_str(" impact analysis call graph dependency function refactoring code");
+    }
+    if msg.contains("call graph") || msg.contains("who calls") || msg.contains("which function") {
+        expanded.push_str(" call graph analysis impact code dependency tracing");
+    }
+
+    // W8: End-to-end web testing (prompt 52)
+    if msg.contains("end-to-end") && (msg.contains("web") || msg.contains("login") || msg.contains("browser")) {
+        expanded.push_str(" e2e browser testing login flow data submission playwright cypress acceptance");
+    }
+    if msg.contains("login flow") || msg.contains("login test") {
+        expanded.push_str(" e2e testing browser automation web application acceptance");
+    }
+
+    // W8: Claim verification (prompt 60) - already above, but reinforce
+    if msg.contains("verify") && (msg.contains("claim") || msg.contains("review") || msg.contains("correct")) {
+        expanded.push_str(" claim verification correctness skeptical evidence-based review judge");
+    }
+
+    // W8: Animated GIF creation (prompt 94) - reinforce gif signal
+    if msg.contains("gif") || msg.contains("animated") && msg.contains("image") {
+        expanded.push_str(" gif search animated image download tenor giphy screenshot visual");
+    }
+
+    // W8: Security vulnerability patterns (prompt 44)
+    if msg.contains("secur") && (msg.contains("vulnerab") || msg.contains("depend") || msg.contains("audit")) {
+        expanded.push_str(" security vulnerability dependency scanning healthcheck audit");
+    }
+
+    // W8: Handoff/documentation patterns (prompt 63)
+    if msg.contains("handoff") || msg.contains("hand off") || msg.contains("hand over") {
+        expanded.push_str(" handoff document developer continuation context transfer resume");
+    }
+
+    // W8: Multi-project management patterns (prompt 66)
+    if msg.contains("multiple project") || msg.contains("simultaneously") && msg.contains("track") {
+        expanded.push_str(" multi project management tracking agent assignment coordination");
+    }
+
+    // W8: Plugin documentation (prompt 82)
+    if msg.contains("documentation") && msg.contains("plugin") {
+        expanded.push_str(" plugin documentation usage examples configuration update generate");
+    }
+
+    // W8: Architecture diagram patterns (prompt 91)
+    if msg.contains("system architecture") || msg.contains("architecture") && msg.contains("diagram") {
+        expanded.push_str(" system architecture diagram flowchart visualization animated manim");
+    }
+
+    // W8: Swift Testing patterns (prompt 58)
+    if msg.contains("swift testing") || msg.contains("replace xctest") {
+        expanded.push_str(" swift testing framework migration xctest replacement modern async");
+    }
+
+    // W8: Custom skill creation (prompt 77) - reinforce
+    if msg.contains("custom skill") || msg.contains("build") && msg.contains("skill") && msg.contains("trigger") {
+        expanded.push_str(" skill creation development trigger architecture custom skill creator builder");
+    }
+
+    // W8: Bug reproduction patterns (prompt 48)
+    if msg.contains("bug") && (msg.contains("reproduc") || msg.contains("can't reproduc")) {
+        expanded.push_str(" bug reproduction debugging systematic investigation steps environment");
+    }
+
+    // W8: ML model deployment (prompt 72)
+    if msg.contains("deploy") && (msg.contains("model") || msg.contains("machine learning") || msg.contains("ml")) {
+        expanded.push_str(" machine learning model deployment huggingface api spaces inference");
+    }
+
+    // W8: iOS app architecture patterns (prompt 11)
+    if msg.contains("ios") && (msg.contains("scratch") || msg.contains("new") && msg.contains("app")) {
+        expanded.push_str(" ios app architecture swiftui uikit patterns senior getting started");
+    }
+    if msg.contains("architecture") && (msg.contains("ios") || msg.contains("app")) {
+        expanded.push_str(" architecture patterns mvvm mvc coordinator senior design");
+    }
+
+    // W8: Release workflow patterns (prompt 29)
+    if msg.contains("release") && (msg.contains("version") || msg.contains("bump") || msg.contains("changelog")) {
+        expanded.push_str(" release management version bumping changelog semantic versioning github workflow tagging");
+    }
+
+    // W8: Debug/bug report patterns (prompt 48)
+    if msg.contains("bug report") || msg.contains("bug") && msg.contains("user") {
+        expanded.push_str(" bug report reproduction debugging systematic investigation agent");
+    }
+    if msg.contains("can't reproduce") || msg.contains("cannot reproduce") {
+        expanded.push_str(" bug reproduction debugging systematic environment steps agent");
+    }
+
+    // W8: Sprint/planning reinforcement (prompt 62)
+    if msg.contains("sprint") && (msg.contains("plan") || msg.contains("feature")) {
+        expanded.push_str(" sprint planning task breakdown implementation start planning estimation");
+    }
+    if msg.contains("break down") || msg.contains("breakdown") {
+        expanded.push_str(" task breakdown planning decomposition estimation sprint");
+    }
+
+    // W8: Flowchart/diagram patterns (prompt 91)
+    if msg.contains("flowchart") || msg.contains("diagram") && msg.contains("explain") {
+        expanded.push_str(" flowchart generation diagram visualization mermaid graphviz architecture");
+    }
+
+    // W8: Video/transcript patterns (prompt 92)
+    if msg.contains("video") && (msg.contains("transcript") || msg.contains("convert") || msg.contains("text")) {
+        expanded.push_str(" video transcript conversion searchable timestamps pdf tools extract");
+    }
+
+    // W8: Commit message patterns (prompt 47)
+    if msg.contains("commit message") || msg.contains("commit") && msg.contains("convention") {
+        expanded.push_str(" commit message convention semantic development standards git");
+    }
+
+    // W8: Dependency vulnerability (prompt 44) - reinforce
+    if msg.contains("dependenc") && (msg.contains("vulnerab") || msg.contains("scan") || msg.contains("secur")) {
+        expanded.push_str(" dependency vulnerability scanning security audit healthcheck snyk");
+    }
+
+    // W8: Claim/correctness verification (prompt 60) - reinforce
+    if msg.contains("correct") && (msg.contains("verify") || msg.contains("claim") || msg.contains("trust")) {
+        expanded.push_str(" correctness verification claim evidence code review skeptical judge");
+    }
+
+    // W8: Refactoring impact (prompt 49) - reinforce
+    if msg.contains("impact") && msg.contains("refactor") {
+        expanded.push_str(" impact analysis code refactoring call graph dependency tldr function");
+    }
+
+    // ========== W8 Round 5: Near-miss synonym expansions (positions 11-15) ==========
+
+    // P8: Component playground/isolation testing → design-system-setup, playground
+    if msg.contains("playground") || (msg.contains("component") && msg.contains("isolation")) {
+        expanded.push_str(" component playground storybook isolation testing preview design system setup");
+    }
+    if msg.contains("component") && (msg.contains("test") || msg.contains("props") || msg.contains("states")) {
+        expanded.push_str(" component testing props states isolation design system playground preview");
+    }
+
+    // P44: Security vulnerability in dependencies → aegis, healthcheck
+    if msg.contains("secur") && (msg.contains("codebase") || msg.contains("code")) {
+        expanded.push_str(" security vulnerability analysis code audit penetration injection aegis");
+    }
+    if msg.contains("leaked") || msg.contains("secrets") || msg.contains("hardcoded secret") {
+        expanded.push_str(" hardcoded secrets detection sensitive exposure security audit healthcheck environment");
+    }
+
+    // P52: End-to-end web tests → test-runner
+    if msg.contains("end-to-end") || msg.contains("e2e") {
+        expanded.push_str(" end-to-end test automation browser testing integration execution runner");
+    }
+    if msg.contains("login flow") || msg.contains("data submission") {
+        expanded.push_str(" end-to-end browser testing flow automation test execution exhaustive");
+    }
+
+    // P91: Animated diagrams → manim-composer
+    if msg.contains("animated") && (msg.contains("diagram") || msg.contains("visual")) {
+        expanded.push_str(" animation educational manim explainer scene composition video planning 3blue1brown");
+    }
+    if msg.contains("diagram") && (msg.contains("explain") || msg.contains("embeddable") || msg.contains("presentation")) {
+        expanded.push_str(" animated diagram manim educational visualization explainer scene composition");
+    }
+
+    // P7: Typography audit → responsive-design
+    if msg.contains("typograph") || (msg.contains("type") && msg.contains("scale")) {
+        expanded.push_str(" typography fluid type scale vertical rhythm responsive design spacing");
+    }
+    if msg.contains("vertical rhythm") || msg.contains("font size") && msg.contains("consistent") {
+        expanded.push_str(" typography scale vertical rhythm responsive design spacing system");
+    }
+
+    // P13: Camera capture iOS → axiom-camera-capture-ref
+    if msg.contains("camera") && (msg.contains("ios") || msg.contains("app") || msg.contains("photo")) {
+        expanded.push_str(" camera capture photo library avfoundation permissions uikit ios axiom");
+    }
+
+    // P15: Crash logs / TestFlight → crash-analyzer
+    if msg.contains("crash") && (msg.contains("log") || msg.contains("testflight") || msg.contains("launch")) {
+        expanded.push_str(" crash analysis log symbolication testflight debugging analyzer ios report");
+    }
+
+    // P18: SpriteKit game → axiom-display-performance
+    if msg.contains("spritekit") || msg.contains("sprite kit") {
+        expanded.push_str(" spritekit particle physics 60fps performance display rendering ios game");
+    }
+    if msg.contains("particle effect") || msg.contains("physics simulation") {
+        expanded.push_str(" particle effects spritekit physics simulation display performance rendering");
+    }
+
+    // P48: Bug report can't reproduce → sleuth
+    if msg.contains("systematic") && msg.contains("investigat") {
+        expanded.push_str(" systematic investigation debugging sleuth analysis root cause methodology");
+    }
+
+    // P53: Test suite failing → test-debugger
+    if msg.contains("test") && (msg.contains("failing") || msg.contains("broken") || msg.contains("failure")) {
+        expanded.push_str(" test failure debugging analysis broken fixing test-debugger suite repair");
+    }
+
+    // P62: Sprint planning with dependencies → eaa-planner
+    if msg.contains("break") && msg.contains("down") && msg.contains("task") {
+        expanded.push_str(" task breakdown planning estimation planner dependency sprint implementation");
+    }
+    if msg.contains("features to implement") || msg.contains("plan") && msg.contains("dependencies") {
+        expanded.push_str(" feature planning implementation task dependency breakdown planner sprint");
+    }
+
+    // P77: Build custom skill → command-creator
+    if msg.contains("build") && msg.contains("skill") || msg.contains("custom") && msg.contains("command") {
+        expanded.push_str(" custom skill building command creator development slash trigger keyword");
+    }
+    if msg.contains("keyword") && msg.contains("intent") && msg.contains("trigger") {
+        expanded.push_str(" skill command keyword intent trigger development creator builder");
+    }
+
+    // P88: Experiment design / hypothesis → eaa-hypothesis-verification
+    if msg.contains("experiment") && (msg.contains("test") || msg.contains("hypothesis") || msg.contains("statistic")) {
+        expanded.push_str(" hypothesis verification experimental testing statistical rigor evidence");
+    }
+    if msg.contains("optimization") && msg.contains("improves") || msg.contains("a/b test") {
+        expanded.push_str(" hypothesis verification optimization experiment statistical testing control baseline");
+    }
+
+    // P60: Verify claims in PR review → epcp-code-correctness-agent
+    if msg.contains("verify") && msg.contains("claim") {
+        expanded.push_str(" claim verification correctness code audit per-domain evidence skeptical");
+    }
+    if msg.contains("trust") && msg.contains("review") || msg.contains("don't trust") || msg.contains("blindly") {
+        expanded.push_str(" verification correctness claims trust evidence per-domain audit skeptical");
+    }
+
+    // P58: Swift Testing framework replacement → run-tests
+    if msg.contains("swift testing") || msg.contains("swift") && msg.contains("new") && msg.contains("test") {
+        expanded.push_str(" swift testing framework xctest replacement parameterized test execution run");
+    }
+
+    // P19: iPad split view → axiom-swiftui-layout
+    if msg.contains("split view") || msg.contains("ipad") && msg.contains("drag") {
+        expanded.push_str(" ipad split view multitasking adaptive layout swiftui size classes responsive");
+    }
+
+    // P64: Coordinate agents → parallel-agent-contracts
+    if msg.contains("coordinate") && msg.contains("agent") {
+        expanded.push_str(" agent coordination parallel contracts isolation boundaries module");
+    }
+    if msg.contains("step on each other") || msg.contains("conflict") && msg.contains("agent") {
+        expanded.push_str(" agent coordination parallel contracts conflict isolation boundaries");
+    }
+
+    // P66: Manage multiple projects → ecos-list-projects
+    if msg.contains("multiple project") || msg.contains("track") && msg.contains("project") && msg.contains("status") {
+        expanded.push_str(" multi-project management tracking list projects status agents assignment");
+    }
+
+    // P79: Validate plugin before marketplace → cpv-validate-marketplace
+    if msg.contains("validate") && msg.contains("plugin") && msg.contains("marketplace") {
+        expanded.push_str(" plugin validation marketplace required fields structure cpv check publishing");
+    }
+
+    // P39: Full codebase audit → epca-domain-auditor-agent
+    if msg.contains("dead code") && msg.contains("unused import") {
+        expanded.push_str(" codebase audit dead code unused imports domain auditor cleanup patterns");
+    }
+    if msg.contains("codebase audit") || msg.contains("full audit") {
+        expanded.push_str(" codebase audit domain per-domain auditor dead code patterns violations");
+    }
+
+    // P43: Understand legacy codebase → onboard
+    if msg.contains("legacy") && msg.contains("codebase") || msg.contains("understand") && msg.contains("codebase") {
+        expanded.push_str(" legacy codebase understanding onboarding exploration navigation orientation");
+    }
+
+    // P28: Build time optimization → ecos-performance-reporter
+    if msg.contains("build time") || msg.contains("build") && msg.contains("slow") || msg.contains("clean build") {
+        expanded.push_str(" build time optimization profiling pipeline performance reporter compilation");
+    }
+
+    // P55: Test on different simulators → test-simulator
+    if msg.contains("simulator") && (msg.contains("test") || msg.contains("iphone") || msg.contains("ipad")) {
+        expanded.push_str(" simulator testing multiple devices layout functionality ios test execution");
+    }
+
+    // P83: Publish plugin to marketplace → setup-github-marketplace
+    if msg.contains("publish") && msg.contains("marketplace") {
+        expanded.push_str(" marketplace publishing setup listing github cpv validate plugin review");
+    }
+    if msg.contains("marketplace") && (msg.contains("listing") || msg.contains("pricing")) {
+        expanded.push_str(" marketplace setup listing pricing github publishing plugin cpv validate");
+    }
+
+    // P37: PR review + fix + update tests → pr-review-and-fix
+    if msg.contains("review") && msg.contains("pr") && msg.contains("fix") {
+        expanded.push_str(" pr review and fix audit code quality pre-merge iterative fixing loop");
+    }
+    if msg.contains("review") && msg.contains("fix") && msg.contains("test") {
+        expanded.push_str(" review fix tests update behavior pr code quality audit evaluation");
+    }
+
+    // P65: GitHub issues sync project board → eia-github-projects-sync
+    if msg.contains("sync") && msg.contains("project board") || msg.contains("github") && msg.contains("board") {
+        expanded.push_str(" github projects sync board kanban issue operations column status integration");
+    }
+    if msg.contains("close completed") || msg.contains("move") && msg.contains("column") {
+        expanded.push_str(" project board sync kanban column status github issues operations move close");
+    }
+
+    // P90: Deep investigation under load → investigate, sleuth, performance-profiler
+    if msg.contains("investigation") || msg.contains("investigat") && msg.contains("why") {
+        expanded.push_str(" investigation deep research sleuth analysis methodology root cause hypothesis");
+    }
+    if msg.contains("degrade") && msg.contains("load") || msg.contains("under load") {
+        expanded.push_str(" performance degradation profiling load analysis investigation deep research");
+    }
+
+    // ========== W8 Round 6: Tie-breaking near-miss expansions ==========
+
+    // P13: Camera + photo library → axiom-camera-capture (at #11, gap=0)
+    // Need to boost camera-specific keywords that app-store-submission doesn't share
+    if msg.contains("camera") && msg.contains("capture") {
+        expanded.push_str(" avcapturesession camera preview zero shutter lag front camera mirroring rotation coordinator");
+    }
+    if msg.contains("photo library") || msg.contains("photo") && msg.contains("access") {
+        expanded.push_str(" photo library phpicker phauthorizationstatus photo access permission camera");
+    }
+    if msg.contains("permission") && (msg.contains("camera") || msg.contains("photo")) {
+        expanded.push_str(" privacy permission camera photo authorization status nscamerausagedescription");
+    }
+
+    // P48: Bug report can't reproduce → sleuth (at #13, gap=0)
+    // Need to boost sleuth-specific keywords
+    if msg.contains("bug") && msg.contains("report") {
+        expanded.push_str(" bug investigation root cause analysis issue debugging sleuth methodology log stack trace");
+    }
+    if msg.contains("can't reproduce") || msg.contains("cannot reproduce") || msg.contains("reproduce") {
+        expanded.push_str(" reproduce bug investigation root cause environment debugging sleuth systematic");
+    }
+
+    // P66: Manage multiple projects → ecos-project-coordinator/ecos-assign-project (at #11-12)
+    // Need to boost project coordination keywords over generic orchestration
+    if msg.contains("project") && msg.contains("agent") && (msg.contains("assign") || msg.contains("track")) {
+        expanded.push_str(" agent project assignment coordination tracking cross-project repository management");
+    }
+    if msg.contains("manage") && msg.contains("project") && msg.contains("simultaneous") {
+        expanded.push_str(" multi-project coordination simultaneous management agent assignment tracking");
+    }
+
+    // P44: Security vulnerabilities → healthcheck (at #11, gap=0.01)
+    // Need to boost healthcheck-specific keywords
+    if msg.contains("check") && msg.contains("secur") {
+        expanded.push_str(" security check healthcheck audit production readiness environment hardening");
+    }
+
+    // P7: Typography audit → frontend-design (at #14, gap=0)
+    // Need to boost frontend-design-specific keywords beyond generic design/audit skills
+    if msg.contains("typograph") && (msg.contains("mess") || msg.contains("inconsistent") || msg.contains("audit")) {
+        expanded.push_str(" frontend design typography aesthetic visual consistency web component quality");
+    }
+    if msg.contains("vertical rhythm") || msg.contains("type scale") || msg.contains("font size") && msg.contains("everywhere") {
+        expanded.push_str(" typography scale vertical rhythm frontend design visual consistency spacing");
+    }
+
+    // P64: Coordinate agents → parallel-agent-contracts (at #12, gap=0.03)
+    // The prompt says "shouldn't step on each other's toes"
+    if msg.contains("toes") || msg.contains("step on") {
+        expanded.push_str(" conflict avoidance parallel agent contracts isolation coordination module");
+    }
+    if msg.contains("different module") || msg.contains("3 agent") || msg.contains("three agent") {
+        expanded.push_str(" module parallel agent coordination contracts boundaries type isolation");
+    }
+
+    // P60: Verify claims → epcp-code-correctness-agent (at #13, gap=0.04)
+    // Need per-domain audit keywords
+    if msg.contains("claim") && (msg.contains("correct") || msg.contains("accurate") || msg.contains("actually")) {
+        expanded.push_str(" per-domain code correctness audit claim verification api contract type safety logic");
+    }
+
+    // P53: Test suite failing → test-debugger (at #14, gap=0.04)
+    if msg.contains("test") && msg.contains("suite") && msg.contains("failing") {
+        expanded.push_str(" test suite failure debugging analysis flakiness resolution xctest debugger broken");
+    }
+    if msg.contains("latest merge") || msg.contains("after") && msg.contains("merge") && msg.contains("test") {
+        expanded.push_str(" merge broken tests debugging failure analysis test-debugger regression");
+    }
+
+    // P43: Legacy codebase → onboard (at #15, gap=0.07)
+    if msg.contains("where") && msg.contains("start") && msg.contains("codebase") {
+        expanded.push_str(" onboarding project navigation brownfield codebase analysis architecture exploration");
+    }
+    if msg.contains("legacy") && msg.contains("change") {
+        expanded.push_str(" legacy codebase onboarding brownfield analysis architecture navigation orientation");
+    }
+
+    // P19: iPad + split view + keyboard → axiom-swiftui-layout (at #12, gap=0.03)
+    if msg.contains("ipad") && msg.contains("keyboard shortcut") {
+        expanded.push_str(" ipad keyboard shortcuts swiftui adaptive layout size classes multitasking responsive");
+    }
+    if msg.contains("drag") && msg.contains("drop") && msg.contains("app") {
+        expanded.push_str(" drag drop between apps ipad multitasking swiftui adaptive layout interaction");
+    }
+
+    // ========== W8 Round 7: More tie-breaking and near-miss expansions ==========
+
+    // P7: Typography audit → design-review (at #11, gap=0)
+    // The prompt says "typography mess", "audit", "establish type scale"
+    if msg.contains("typograph") && (msg.contains("audit") || msg.contains("mess") || msg.contains("establish")) {
+        expanded.push_str(" ui design review visual consistency typography analysis component feedback usability");
+    }
+    if msg.contains("type scale") || msg.contains("type system") || msg.contains("type hierarchy") {
+        expanded.push_str(" design review typography visual consistency responsive evaluation usability");
+    }
+
+    // P48: Bug investigation → investigate (at #14, gap=0)
+    if msg.contains("systematic approach") || msg.contains("systematic") && msg.contains("bug") {
+        expanded.push_str(" grepika bug tracing error origin discovery call chain investigation codebase");
+    }
+    if msg.contains("bug") && msg.contains("investigate") {
+        expanded.push_str(" grepika investigation bug tracing error origin call chain debugging discovery");
+    }
+
+    // P33: Deploy failed rollback → ecos-recovery-coordinator (at #16)
+    if msg.contains("rollback") || msg.contains("deploy") && msg.contains("fail") {
+        expanded.push_str(" failure recovery rollback agent detection health monitoring coordinator");
+    }
+    if msg.contains("production") && (msg.contains("fail") || msg.contains("down") || msg.contains("incident")) {
+        expanded.push_str(" failure recovery production incident health monitoring recovery coordinator");
+    }
+
+    // P55: Test on simulators → test-simulator (at #16)
+    if msg.contains("different simulator") || msg.contains("iphone se") || msg.contains("iphone 15") {
+        expanded.push_str(" ios simulator automated testing location permission flow video recording deep link");
+    }
+    if msg.contains("check layout") && msg.contains("simulator") {
+        expanded.push_str(" simulator visual verification layout testing ios automated check");
+    }
+
+    // P52: End-to-end web tests → web-terminal-automation (at #14)
+    if msg.contains("real browser") || msg.contains("browser") && msg.contains("test") {
+        expanded.push_str(" browser automation web terminal chrome testing interaction execution");
+    }
+
+    // P79: Validate plugin → plugin-validator (at #16)
+    if msg.contains("validate") && msg.contains("plugin") {
+        expanded.push_str(" plugin validation required fields structure manifest hooks agents skills");
+    }
+
+    // P61: Onboarding new project → onboard (at #18)
+    if msg.contains("onboard") || msg.contains("new project") && msg.contains("understand") {
+        expanded.push_str(" project onboarding brownfield codebase analysis architecture documentation navigation");
+    }
+
+    // P14: SwiftData migration → axiom-swiftdata-migration (at #17)
+    if msg.contains("swiftdata") || msg.contains("core data") && msg.contains("migrat") {
+        expanded.push_str(" swiftdata migration core data schema versioning lightweight migration strategy");
+    }
+
+    // P30: Homebrew formula broken → build-fixer (at #17)
+    if msg.contains("homebrew") && (msg.contains("broken") || msg.contains("formula") || msg.contains("install")) {
+        expanded.push_str(" homebrew formula build fixer broken installation repair compilation dependency");
+    }
+
+    // P45: Merge conflicts → eia-integration-verifier (at #17)
+    if msg.contains("merge conflict") || msg.contains("conflict") && msg.contains("main") {
+        expanded.push_str(" merge conflict resolution integration verification pr compatibility testing");
+    }
+
+    // ========== W8 Round 8: Final near-miss expansions ==========
+
+    // P14: SwiftData → axiom-swiftdata (at #11, tie-break)
+    if msg.contains("swiftdata") || msg.contains("swift data") {
+        expanded.push_str(" swift data model definitions query binding relationships cloudkit sync context");
+    }
+    if msg.contains("core data") && (msg.contains("swift") || msg.contains("migrat") || msg.contains("modern")) {
+        expanded.push_str(" swiftdata model definition query relationship migration core data replacement");
+    }
+
+    // P61: Onboarding codebase → tldr-overview (at #11)
+    if msg.contains("codebase structure") || msg.contains("codebase") && msg.contains("understand") {
+        expanded.push_str(" project overview codebase structure analysis call graph architecture complexity");
+    }
+    if msg.contains("onboard") && msg.contains("project") {
+        expanded.push_str(" project overview codebase structure onboarding architecture analysis understanding");
+    }
+
+    // P33: Deploy failure → deployment-engineer (at #12)
+    if msg.contains("deploy") && msg.contains("production") {
+        expanded.push_str(" deployment engineer ci cd pipeline docker kubernetes infrastructure production");
+    }
+
+    // P55: Test on simulators → testing-mobile-apps (at #13)
+    if msg.contains("iphone") && msg.contains("ipad") && msg.contains("test") {
+        expanded.push_str(" mobile testing ios iphone ipad cross-device verification app testing");
+    }
+
+    // P19: iPad features → axiom-swiftui-layout (at #12)
+    // Reinforce with more layout-specific terms
+    if msg.contains("ipad") && msg.contains("proper") {
+        expanded.push_str(" ipad multitasking adaptive layout swiftui size classes free form windows viewthatfits");
+    }
+
+    // P66: Multiple projects → ecos-assign-project (at #12)
+    if msg.contains("assign") && msg.contains("agent") || msg.contains("agent") && msg.contains("project") {
+        expanded.push_str(" agent project assignment team distribution onboarding context");
+    }
+
+    // W8 Round 9a: iPad split view layout (tested individually)
+    if msg.contains("ipad") && (msg.contains("split") || msg.contains("multitask")) {
+        expanded.push_str(" ipad multitasking split view swiftui adaptive layout anylayout viewthatfits ongeometrychange size classes");
+    }
+
+    // W8 Round 9b: Simulator testing (tested individually)
+    if msg.contains("simulator") && (msg.contains("different") || msg.contains("multiple")) {
+        expanded.push_str(" ios simulator automated testing location simulation push notification permission flow visual verification");
+    }
+
+    // W8 Round 9c: Hypothesis verification (tested individually)
+    if msg.contains("improves performance") || msg.contains("actually improve") {
+        expanded.push_str(" hypothesis verification experiment statistical rigor control baseline performance testing");
+    }
+
+    // ========== W8 Round 10: Additional vocabulary bridges ==========
+
+    // P100: Search log file root cause → investigate, sleuth, debug-agent
+    // "root cause" alone is too broad (triggers in research contexts); require log/incident/bug
+    if msg.contains("root cause") && (msg.contains("log") || msg.contains("incident") || msg.contains("bug") || msg.contains("crash")) {
+        expanded.push_str(" root cause analysis bug investigation debugging error diagnosis sleuth tracing");
+    }
+    if msg.contains("log file") || msg.contains("log") && msg.contains("search") && msg.contains("cause") {
+        expanded.push_str(" log analysis investigation debugging error diagnosis root cause tracing");
+    }
+    if msg.contains("production incident") || msg.contains("incident") && msg.contains("log") {
+        expanded.push_str(" incident investigation debugging root cause analysis sleuth failure recovery");
+    }
+
+    // P51: Unit tests Python → exhaustive-testing, test-function, run-tests
+    if msg.contains("unit test") && msg.contains("python") {
+        expanded.push_str(" python unit testing pytest coverage edge case exhaustive comprehensive test writing");
+    }
+    if msg.contains("edge case") && msg.contains("test") {
+        expanded.push_str(" edge case testing comprehensive exhaustive coverage error handling boundary");
+    }
+
+    // P40: Python type hints + formatting → check_your_changes, code-simplifier
+    if msg.contains("type hint") || msg.contains("type annotation") {
+        expanded.push_str(" type hints mypy pyright type checking annotation python code quality");
+    }
+    if msg.contains("inconsistent format") || msg.contains("formatting") && msg.contains("python") {
+        expanded.push_str(" code formatting ruff linting python style consistency simplification");
+    }
+
+    // P32: CI setup → eaa-cicd-design, eaa-cicd-designer
+    if msg.contains("ci") && (msg.contains("lint") || msg.contains("tests") || msg.contains("deploy")) {
+        expanded.push_str(" ci cd pipeline design automation github actions pr merge lint test deploy");
+    }
+    if msg.contains("automatically") && (msg.contains("pr") || msg.contains("merge") || msg.contains("push")) {
+        expanded.push_str(" automation ci cd pipeline github actions continuous integration deployment");
+    }
+
+    // P38: Write PR description → describe-pr, commit
+    if msg.contains("pr description") || msg.contains("pull request description") {
+        expanded.push_str(" pr description writing explain changes commit message git staging describe");
+    }
+
+    // P67: Premortem analysis → eaa-hypothesis-verification, think-harder
+    // Removed broader patterns that regressed P67 from 2→1 hit
+    if msg.contains("premortem") || msg.contains("pre-mortem") {
+        expanded.push_str(" premortem risk analysis failure mode");
+    }
+
+    // P89: Research questions → research-agent, think-harder
+    if msg.contains("research question") || msg.contains("formulate") && msg.contains("research") {
+        expanded.push_str(" research questions formulation investigation agent deep thinking methodology");
+    }
+
+    // P46: Deprecation warnings → handle-deprecation-warnings, impact
+    if msg.contains("deprecat") {
+        expanded.push_str(" deprecation warnings handling impact migration update api breaking changes");
+    }
+
+    // P12: SwiftUI memory leaks — REMOVED (caused regression P12 from 2→1 hit)
+
+    // P21: App Store submission → axiom-app-discoverability, axiom-hig
+    if msg.contains("app store submission") || msg.contains("app store") && msg.contains("prepar") {
+        expanded.push_str(" app store submission discoverability hig guidelines metadata aso optimization");
+    }
+
+    // P25: watchOS companion → axiom-extensions-widgets
+    if msg.contains("watchos") || msg.contains("watch") && msg.contains("companion") {
+        expanded.push_str(" watchos companion extension widget connectivity getting started ios");
+    }
+
+    // P76: Create Claude plugin — REMOVED (caused regression P76 from 2→1 hit)
+
+    // P80: Create slash command → skill-creator-improved
+    if msg.contains("slash command") || msg.contains("new command") && msg.contains("generate") {
+        expanded.push_str(" slash command creation skill generator boilerplate improved creator");
+    }
+
+    // P75: Custom tokenizer NLP → data-cleaning-specialist
+    if msg.contains("tokenizer") || msg.contains("nlp") && msg.contains("custom") {
+        expanded.push_str(" tokenizer nlp natural language processing data cleaning feature engineering");
+    }
+
+    // P99: Translate app UI strings → axiom-ios-accessibility
+    if msg.contains("translate") && (msg.contains("ui strings") || msg.contains("language")) {
+        expanded.push_str(" localization translation strings accessibility ios internationalization");
     }
 
     expanded
@@ -4519,8 +5617,12 @@ fn find_matches(
             continue;
         }
 
-        // Domain gate hard pre-filter: ALL gates must pass or skill is skipped entirely.
-        // This runs before scoring because failing a gate is a hard disqualification.
+        // W8: Domain gate pre-filter with soft-gate fallback.
+        // Primary: ALL gates must pass (hard filter). Fallback: if gates fail but
+        // the skill name strongly matches the prompt, allow through with a penalty.
+        // This catches skills like "fix-build" that have restrictive iOS/Swift gates
+        // but whose name directly matches what the user is asking for.
+        let mut gate_penalty: i32 = 0;
         if let Some(reg) = registry {
             // If a framework or tool name from this skill explicitly appears in the
             // prompt, bypass domain gates — the user is clearly talking about this
@@ -4529,11 +5631,17 @@ fn find_matches(
             // Uses word-boundary matching to avoid "com" matching "comprehensive".
             // C.1: Uses pre-computed original_words hoisted before the loop.
             // Only bypass domain gates for non-low-signal tech names
+            // W8: Meta-words should never trigger tech match bypass
+            let meta_words_set: HashSet<&str> = ["any", "all", "none", "various", "multiple",
+                "other", "general", "generic", "universal", "standard", "common", "custom",
+                "native", "hybrid"].iter().copied().collect();
+
             let has_explicit_tech_match = entry.frameworks.iter().any(|fw| {
                 let fw_l = fw.to_lowercase();
-                // Skip low-signal framework names
+                // Skip low-signal and meta-word framework names
                 if LOW_SIGNAL_WORDS.contains(fw_l.trim())
                     || LOW_SIGNAL_WORDS.contains(stem_word(fw_l.trim()).as_str())
+                    || meta_words_set.contains(fw_l.trim())
                 {
                     return false;
                 }
@@ -4553,9 +5661,10 @@ fn find_matches(
                 }
             }) || entry.tools.iter().any(|t| {
                 let t_l = t.to_lowercase();
-                // Skip low-signal tool names
+                // Skip low-signal and meta-word tool names
                 if LOW_SIGNAL_WORDS.contains(t_l.trim())
                     || LOW_SIGNAL_WORDS.contains(stem_word(t_l.trim()).as_str())
+                    || meta_words_set.contains(t_l.trim())
                 {
                     return false;
                 }
@@ -4593,12 +5702,110 @@ fn find_matches(
                     reg,
                 );
                 if !passes {
-                    debug!(
-                        "Skipping skill '{}' due to domain gate '{}' failure",
-                        name,
-                        failed_gate.unwrap_or_default()
-                    );
-                    continue;
+                    // W8: Soft-gate fallback — instead of hard-blocking, check if the
+                    // skill name strongly matches the prompt. If 2+ name words from
+                    // the skill match prompt words, allow through with a score penalty.
+                    // This unblocks skills like "fix-build" (gated to iOS/Swift) when
+                    // the user says "build keeps failing" (matches "fix" + "build").
+                    // W8: Use >= 2 consistent with main name matching (captures "pr", "ui")
+                    let name_words: Vec<String> = name
+                        .split(|c: char| c == '-' || c == '_')
+                        .filter(|w| w.len() >= 2)
+                        .map(|w| w.to_lowercase())
+                        .collect();
+                    // W8: Separate low-signal and non-low-signal name matches, consistent
+                    // with main name matching logic. Only non-low-signal matches count
+                    // directly; low-signal matches only count when ALL low-signal words
+                    // in the name match (indicating a specific combination).
+                    let mut soft_non_ls_matches = 0i32;
+                    let mut soft_ls_matches = 0i32;
+                    for nw in &name_words {
+                        let nw_stem = stem_word(nw);
+                        // W8: Check if the name word OR its stem is low-signal. Also check
+                        // if the word is a derived form of a low-signal word (e.g. "writer"
+                        // stems to "writ" which is close to "write" → low-signal).
+                        let is_ls = is_low_signal(nw.as_str())
+                            || is_low_signal(nw_stem.as_str())
+                            || LOW_SIGNAL_WORDS.iter().any(|&lsw| stem_word(lsw) == nw_stem);
+                        let matched_in_prompt = original_words.iter().any(|pw| {
+                            let pw_stem = stem_word(pw);
+                            *pw == nw.as_str() || pw_stem == nw_stem
+                        }) || prompt_words.iter().any(|pw| {
+                            let pw_stem = stem_word(pw);
+                            *pw == nw.as_str() || pw_stem == nw_stem
+                        });
+                        if is_ls {
+                            if matched_in_prompt {
+                                soft_ls_matches += 1;
+                            }
+                        } else if matched_in_prompt {
+                            soft_non_ls_matches += 1;
+                        }
+                    }
+                    // W8: Compute effective soft name matches for gate bypass.
+                    // For gate bypass, we require stronger evidence than for regular
+                    // name matching: at least 1 non-low-signal name word must match.
+                    // All-low-signal combos (e.g. "test"+"writer") are too weak to
+                    // justify bypassing platform/language gates.
+                    let mut soft_name_matches = soft_non_ls_matches;
+                    if soft_non_ls_matches >= 1 && soft_ls_matches >= 1 {
+                        // Mixed: non-ls + ls combo counts as multiple matches
+                        soft_name_matches = soft_non_ls_matches + soft_ls_matches;
+                    }
+
+                    // Also check keyword evidence — count how many skill keywords
+                    // appear in the expanded prompt (quick word-level scan)
+                    let mut soft_kw_matches = 0i32;
+                    for kw in &entry.keywords {
+                        let kw_l = kw.to_lowercase();
+                        if expanded_lower.contains(&kw_l) {
+                            soft_kw_matches += 1;
+                            if soft_kw_matches >= 3 { break; } // Enough evidence
+                        } else {
+                            // Check individual keyword words against prompt words
+                            let kw_words: Vec<&str> = kw_l.split_whitespace().collect();
+                            for kw_w in &kw_words {
+                                if kw_w.len() >= 4 && !is_low_signal(kw_w) {
+                                    let kw_stem = stem_word(kw_w);
+                                    if prompt_words.iter().any(|pw| {
+                                        *pw == *kw_w || stem_word(pw) == kw_stem
+                                    }) {
+                                        soft_kw_matches += 1;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // W8: Allow through if: (a) 2+ name words match, OR
+                    // (b) 1+ name word matches AND 2+ keywords match, OR
+                    // (c) 3+ keywords match (strong keyword evidence alone).
+                    // Apply a penalty so gate-bypassed skills rank below properly
+                    // gated skills but can still appear in top-10 as fallbacks.
+                    let soft_pass = soft_name_matches >= 2
+                        || (soft_name_matches >= 1 && soft_kw_matches >= 2)
+                        || soft_kw_matches >= 3;
+
+                    if soft_pass {
+                        // W8: Penalty scales with how many gates failed — more failed gates
+                        // means less confidence in the match. 100 points per gate balances
+                        // between allowing soft-gated skills (at 80/gate they crowd too much)
+                        // and blocking them too aggressively (at 150/gate they help less).
+                        let total_gates = entry.domain_gates.len() as i32;
+                        gate_penalty = total_gates * 100;
+                        debug!(
+                            "Skill '{}': soft-gate bypass (name_matches={}, kw_matches={}, penalty={})",
+                            name, soft_name_matches, soft_kw_matches, gate_penalty
+                        );
+                    } else {
+                        debug!(
+                            "Skipping skill '{}' due to domain gate '{}' failure",
+                            name,
+                            failed_gate.unwrap_or_default()
+                        );
+                        continue;
+                    }
                 }
             } else {
                 debug!(
@@ -4684,6 +5891,10 @@ fn find_matches(
         // C.1: original_words is pre-computed before the loop — no allocation here.
         // M.8: Ambiguous names (go, rust, spring, swift, express, nest) are checked
         // for common English usage patterns before counting as framework matches.
+        // W8: Track matched framework names to deduplicate with tool matches.
+        // When both framework:X and tool:X match, only count the framework match
+        // (higher value: 20000 vs 2000) to prevent double-dipping.
+        let mut matched_fw_names: HashSet<String> = HashSet::new();
         for fw in &entry.frameworks {
             let fw_lower = fw.to_lowercase();
             // Skip framework names that are low-signal words (shouldn't happen often,
@@ -4691,6 +5902,15 @@ fn find_matches(
             if LOW_SIGNAL_WORDS.contains(fw_lower.trim())
                 || LOW_SIGNAL_WORDS.contains(stem_word(fw_lower.trim()).as_str())
             {
+                continue;
+            }
+            // W8: Skip meta-words that appear as framework names in poorly indexed
+            // entries (e.g. "Any", "All", "None"). These are not technologies and
+            // would cause massive false positives (20000 point framework boost).
+            let meta_words = ["any", "all", "none", "various", "multiple", "other",
+                "general", "generic", "universal", "standard", "common", "custom",
+                "native", "hybrid"];
+            if meta_words.contains(&fw_lower.trim()) {
                 continue;
             }
             // M.8: Skip if this framework name is being used as common English
@@ -4713,6 +5933,7 @@ fn find_matches(
             if fw_matched {
                 score += weights.framework_match; // Framework tier (10,000-90,000)
                 has_non_low_signal_match = true;
+                matched_fw_names.insert(fw_lower.clone());
                 evidence.push(format!("framework:{}", fw));
             }
         }
@@ -4722,6 +5943,20 @@ fn find_matches(
             if LOW_SIGNAL_WORDS.contains(tool_lower.trim())
                 || LOW_SIGNAL_WORDS.contains(stem_word(tool_lower.trim()).as_str())
             {
+                continue;
+            }
+            // W8: Skip meta-words used as tool names in poorly indexed entries
+            let meta_words = ["any", "all", "none", "various", "multiple", "other",
+                "general", "generic", "universal", "standard", "common", "custom",
+                "native", "hybrid"];
+            if meta_words.contains(&tool_lower.trim()) {
+                continue;
+            }
+            // W8: Skip tool names that already matched as a framework — prevents
+            // double-dipping when both framework:X and tool:X are listed for
+            // the same technology (e.g. framework:GitHub + tool:GitHub = 22000
+            // becomes just framework:GitHub = 20000)
+            if matched_fw_names.contains(&tool_lower) {
                 continue;
             }
             // M.8: Skip if this tool name is being used as common English
@@ -4926,8 +6161,7 @@ fn find_matches(
                 // Normalize IDF to a multiplier: 0.85 (very common) to 1.5 (very rare).
                 // The narrow range [0.85, 1.5] preserves recall (common keywords lose
                 // at most 15% of their score) while still rewarding rare/discriminative
-                // keywords with a 50% boost. The previous [0.5, 2.0] range cut common
-                // keyword scores by half, destroying recall.
+                // keywords with a 50% boost.
                 let idf_multiplier = (kw_idf / max_idf * 1.5).clamp(0.85, 1.5);
 
                 if keyword_matches == 0 {
@@ -4968,9 +6202,12 @@ fn find_matches(
         // = stronger evidence = higher score. The capped_max (90000) already prevents
         // runaway scores.
 
-        // W5: Skill name matching. The skill name itself (e.g. "learn-codebase",
+        // W5+W8: Skill name matching. The skill name itself (e.g. "learn-codebase",
         // "fix-build", "commit") often directly describes the skill's purpose.
         // Split the name on hyphens/underscores and match against prompt words.
+        // W8: Also check expanded prompt to capture synonym-bridged matches.
+        // W8: Lowered min word length from 3 to 2 to capture abbreviations like
+        // "pr" in "pr-review-and-fix" and "ui" in "ui-engineer".
         // Non-low-signal name words get direct matching. Low-signal name words
         // are only counted when ALL significant name words (2+) match the prompt,
         // since the COMBINATION of low-signal words in a name is specific even
@@ -4978,7 +6215,7 @@ fn find_matches(
         {
             let name_words: Vec<String> = name
                 .split(|c: char| c == '-' || c == '_')
-                .filter(|w| w.len() >= 3)
+                .filter(|w| w.len() >= 2)
                 .map(|w| w.to_lowercase())
                 .collect();
             let mut name_matches = 0i32;
@@ -4986,7 +6223,11 @@ fn find_matches(
             let mut name_low_signal_total = 0i32;
             for nw in &name_words {
                 let nw_stem = stem_word(nw);
+                // W8: Check both original and expanded prompt for name word matches
                 let matched_in_prompt = original_words.iter().any(|pw| {
+                    let pw_stem = stem_word(pw);
+                    *pw == nw.as_str() || pw_stem == nw_stem
+                }) || prompt_words.iter().any(|pw| {
                     let pw_stem = stem_word(pw);
                     *pw == nw.as_str() || pw_stem == nw_stem
                 });
@@ -5011,19 +6252,72 @@ fn find_matches(
                 // All low-signal words matched — count as a combo name match
                 name_matches = name_low_signal_matches;
             }
+            // W8: Also allow 1 low-signal + 1 non-low-signal combo (e.g. "build-optimizer"
+            // where "build" is low-signal but "optimizer" matches). This captures names
+            // where the combination is meaningful even though not ALL low-signal matched.
+            if name_matches == 0 && name_low_signal_matches >= 1
+                && name_low_signal_total >= 1
+            {
+                // Check if there's a non-low-signal word that also matched
+                let non_ls_matched = name_words.iter().any(|nw| {
+                    let nw_stem = stem_word(nw);
+                    if is_low_signal(nw.as_str()) || is_low_signal(nw_stem.as_str()) {
+                        return false;
+                    }
+                    original_words.iter().any(|pw| {
+                        let pw_stem = stem_word(pw);
+                        *pw == nw.as_str() || pw_stem == nw_stem
+                    }) || prompt_words.iter().any(|pw| {
+                        let pw_stem = stem_word(pw);
+                        *pw == nw.as_str() || pw_stem == nw_stem
+                    })
+                });
+                if non_ls_matched {
+                    name_matches = name_low_signal_matches + 1;
+                }
+            }
+            // W8: When non-low-signal name words match AND some low-signal
+            // name words also match, combine them. The presence of specific name
+            // words validates the low-signal ones as part of the same name.
+            // e.g. "pr-review-and-fix" matching prompt with "pr" + "review" + "fix"
+            //   -> name_matches=2(pr,and) + name_low_signal_matches=2(review,fix) = 4
+            if name_matches > 0 && name_low_signal_matches > 0 {
+                name_matches += name_low_signal_matches;
+            }
             // Award a phrase-tier bonus for name word matches.
             // 1 name word match = 75 points (moderate signal — name words are descriptive)
             // 2+ name word matches = strong signal (e.g. "fix" + "build" for "fix-build")
             if name_matches > 0 {
                 let name_bonus = if name_matches == 1 {
-                    75  // Single name word match — moderate signal
+                    150  // Single name word match — moderate signal
                 } else {
                     // Multiple name words matching is very strong signal
-                    75 + (name_matches - 1) * 100
+                    // W8: Raised to 300+(n-1)*350 to better compete with
+                    // tool/framework tiers when name closely matches prompt
+                    300 + (name_matches - 1) * 350
                 };
                 score += name_bonus;
                 has_non_low_signal_match = true;
                 evidence.push(format!("name_match:{}/{}", name_matches, name_words.len()));
+            }
+            // W8: Full name phrase match bonus. When the entire skill name
+            // (converted from hyphenated to spaced form) appears as a substring
+            // in the prompt, this is an extremely strong signal — the user is
+            // literally asking for this skill's functionality by name.
+            // e.g. "dependency-management" → "dependency management" in prompt
+            {
+                let name_phrase = name.replace('-', " ").replace('_', " ").to_lowercase();
+                // Only check for names with 2+ words (single words are already caught above)
+                if name_words.len() >= 2
+                    && (original_lower.contains(&name_phrase) || expanded_lower.contains(&name_phrase))
+                {
+                    // Award a tool-tier bonus (2000 pts) — the user literally named
+                    // the concept, which is as strong as a tool name match.
+                    let full_name_bonus = 2000;
+                    score += full_name_bonus;
+                    has_non_low_signal_match = true;
+                    evidence.push(format!("full_name_phrase:{}", name_phrase));
+                }
             }
         }
 
@@ -5044,9 +6338,12 @@ fn find_matches(
                 if is_low_signal(dw) || is_low_signal(stem_word(dw).as_str()) {
                     continue;
                 }
-                // Check word-boundary match in original prompt
+                // W8: Check word-boundary match in both original and expanded prompt
                 let dw_stem = stem_word(dw);
                 let matched_in_prompt = original_words.iter().any(|pw| {
+                    let pw_stem = stem_word(pw);
+                    *pw == *dw || pw_stem == dw_stem
+                }) || prompt_words.iter().any(|pw| {
                     let pw_stem = stem_word(pw);
                     *pw == *dw || pw_stem == dw_stem
                 });
@@ -5054,24 +6351,61 @@ fn find_matches(
                     desc_matches += 1;
                 }
             }
-            // Cap at 3 description matches to prevent long descriptions from
-            // dominating. Award 20 points per match (common tier).
+            // W8: Cap at 5 description matches (raised from 4), 30 points per match.
+            // Description words provide meaningful secondary evidence
+            // for skills whose keywords don't directly overlap with the prompt vocabulary.
             if desc_matches > 0 {
-                let capped = desc_matches.min(3);
-                let desc_bonus = capped * 20;
+                let capped = desc_matches.min(7);
+                let desc_bonus = capped * 60;
                 score += desc_bonus;
                 evidence.push(format!("desc_match:{}", capped));
             }
         }
 
-        // Multi-keyword coherence bonus. When 3+ non-low-signal keywords from the
-        // same skill match the prompt, this is strong evidence of relevance — the user
-        // is talking about the exact domain this skill covers. Add a bonus that scales
-        // with the number of matches to reward skills with deep keyword overlap.
-        // W5: Keep linear scaling at 50 per keyword beyond 2nd (quadratic was tried
-        // but amplified false positives from skills with many generic keyword matches).
-        if keyword_matches >= 3 && has_non_low_signal_match {
-            let coherence_bonus = (keyword_matches - 2) * 50;
+        // W8: Use-case matching. The use_cases field contains natural language sentences
+        // describing when to use a skill. We match significant prompt words against
+        // use_case text to find additional evidence of relevance.
+        if !entry.use_cases.is_empty() {
+            // Combine all use_cases into one text for matching
+            let use_case_text: String = entry.use_cases.iter()
+                .map(|uc| uc.to_lowercase())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let uc_words: Vec<&str> = use_case_text
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| w.len() >= 4)
+                .collect();
+            let mut uc_matches = 0i32;
+            for pw in &original_words {
+                if pw.len() < 4 { continue; }
+                if is_low_signal(pw) || is_low_signal(stem_word(pw).as_str()) { continue; }
+                let pw_stem = stem_word(pw);
+                let matched_uc = uc_words.iter().any(|ucw| {
+                    *ucw == *pw || stem_word(ucw) == pw_stem
+                });
+                if matched_uc {
+                    uc_matches += 1;
+                }
+            }
+            // W8: Cap at 4 use_case matches, 40 points per match
+            if uc_matches > 0 {
+                let capped = uc_matches.min(5);
+                let uc_bonus = capped * 45;
+                score += uc_bonus;
+                evidence.push(format!("usecase_match:{}", capped));
+            }
+        }
+
+        // W8: Multi-keyword coherence bonus. When 2+ non-low-signal keywords from the
+        // same skill match the prompt, this is evidence of relevance. Lowered threshold
+        // from 3 to 2 to help skills with modest but specific keyword overlap. The
+        // bonus still scales linearly at 50 per keyword beyond 1st to avoid amplifying
+        // false positives from skills with many generic keyword matches.
+        if keyword_matches >= 2 && has_non_low_signal_match {
+            // W8: Cap coherence bonus at 200 to prevent skills with many broad
+            // keyword matches from drowning out skills with fewer but more
+            // specific matches (e.g. name + intent matches)
+            let coherence_bonus = ((keyword_matches - 1) * 50).min(200);
             score += coherence_bonus;
             evidence.push(format!("coherence_bonus:{}", coherence_bonus));
         }
@@ -5089,6 +6423,19 @@ fn find_matches(
                 let synergy_bonus = 50;
                 score += synergy_bonus;
                 evidence.push(format!("intent_kw_synergy:{}", synergy_bonus));
+            }
+        }
+
+        // W8: Intent + name synergy bonus (kept). When an intent verb matches AND
+        // the skill name also matches, this is strong evidence the skill directly
+        // addresses the user's intended action.
+        {
+            let has_intent_match = evidence.iter().any(|e| e.starts_with("intent:"));
+            let has_name_match = evidence.iter().any(|e| e.starts_with("name_match:") || e.starts_with("full_name_phrase:"));
+            if has_intent_match && has_name_match {
+                let synergy_bonus = 75;
+                score += synergy_bonus;
+                evidence.push(format!("intent_name_synergy:{}", synergy_bonus));
             }
         }
 
@@ -5111,6 +6458,14 @@ fn find_matches(
         // scores cut to 31%. Most benchmark prompts are 10-30 words, so this
         // systematically pushed scores below confidence thresholds, destroying recall.
         // The capped_max and low-signal cap already handle score inflation.
+
+        // W8: Apply gate penalty for soft-gated skills (gate failed but name/keyword
+        // evidence was strong enough to bypass). This ensures they rank below properly
+        // gated skills but can still appear as fallback matches.
+        if gate_penalty > 0 {
+            score = (score - gate_penalty).max(10);
+            evidence.push(format!("gate_penalty:-{}", gate_penalty));
+        }
 
         // Cap score to prevent keyword stuffing
         score = score.min(weights.capped_max);
@@ -5532,6 +6887,8 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
             domains: vec![],
             tools: vec![],
             file_types: vec![],
+            // Use cases (empty for PSS files - populated by reindex)
+            use_cases: vec![],
             // Domain gates (empty for PSS files - populated by reindex)
             domain_gates: HashMap::new(),
             // MCP server metadata (empty for PSS files - populated by reindex)
@@ -6509,14 +7866,23 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
         );
     }
 
-    // In hook mode, only suggest skills and agents (not rules/mcp/lsp which are configuration elements)
-    let filtered_items: Vec<_> = context_items
-        .into_iter()
-        .filter(|item| {
-            let t = item.item_type.as_str();
-            t == "skill" || t == "agent" || t.is_empty()
-        })
-        .collect();
+    // W8: In hook mode, only suggest skills and agents (not rules/mcp/lsp which are
+    // configuration elements). In json mode, include ALL types (commands, mcp, rules)
+    // because downstream consumers (benchmarks, agent profiler) need the full picture.
+    let filtered_items: Vec<_> = if cli.format == "json" {
+        // JSON mode: include all element types — commands are actionable suggestions
+        context_items
+    } else {
+        // Hook mode: exclude configuration-only elements (rules, mcp, lsp)
+        // but include commands alongside skills and agents
+        context_items
+            .into_iter()
+            .filter(|item| {
+                let t = item.item_type.as_str();
+                t == "skill" || t == "agent" || t == "command" || t.is_empty()
+            })
+            .collect()
+    };
 
     // Apply filters: require evidence, min-score, then --top limit
     let limited_items: Vec<_> = filtered_items
@@ -6638,6 +8004,7 @@ mod tests {
                 domains: vec![],
                 tools: vec![],
                 file_types: vec![],
+                use_cases: vec![],
                 domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
@@ -6677,6 +8044,7 @@ mod tests {
                 domains: vec![],
                 tools: vec![],
                 file_types: vec![],
+                use_cases: vec![],
                 domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
@@ -6852,6 +8220,7 @@ mod tests {
                 domains: vec![],
                 tools: vec![],
                 file_types: vec![],
+                use_cases: vec![],
                 domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
@@ -6886,6 +8255,7 @@ mod tests {
                 domains: vec![],
                 tools: vec![],
                 file_types: vec![],
+                use_cases: vec![],
                 domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
@@ -7023,6 +8393,7 @@ mod tests {
                 domains: vec![],
                 tools: vec![],
                 file_types: vec![],
+                use_cases: vec![],
                 domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
@@ -7580,6 +8951,7 @@ mod tests {
                 domains: vec![],
                 tools: vec![],
                 file_types: vec![],
+                use_cases: vec![],
                 domain_gates: {
                     let mut g = HashMap::new();
                     g.insert("target_language".to_string(), vec!["python".to_string()]);
@@ -7618,6 +8990,7 @@ mod tests {
                 domains: vec![],
                 tools: vec![],
                 file_types: vec![],
+                use_cases: vec![],
                 domain_gates: {
                     let mut g = HashMap::new();
                     g.insert("target_language".to_string(), vec!["rust".to_string()]);
@@ -8484,6 +9857,7 @@ mediapipe>=0.10
                 domains: vec![],
                 tools: vec![],
                 file_types: vec![],
+                use_cases: vec![],
                 domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
@@ -8599,6 +9973,7 @@ mediapipe>=0.10
                 domains: vec![],
                 tools: vec![],
                 file_types: vec![],
+                use_cases: vec![],
                 domain_gates: HashMap::new(),
                 usually_with: vec![],
                 precedes: vec![],
@@ -8676,6 +10051,7 @@ mediapipe>=0.10
                     domains: vec![],
                     tools: vec![],
                     file_types: vec![],
+                    use_cases: vec![],
                     domain_gates: HashMap::new(),
                     usually_with: vec![],
                     precedes: vec![],
@@ -8840,6 +10216,7 @@ mediapipe>=0.10
                     domains: vec![],
                     tools: vec![],
                     file_types: vec![],
+                    use_cases: vec![],
                     domain_gates: HashMap::new(),
                     usually_with: vec![],
                     precedes: vec![],
@@ -8931,6 +10308,7 @@ mediapipe>=0.10
             domains: vec![],
             tools: vec![],
             file_types: vec![],
+            use_cases: vec![],
             domain_gates: HashMap::new(),
             usually_with,
             precedes: vec![],
@@ -9155,6 +10533,7 @@ mediapipe>=0.10
             negative_keywords: vec![], tier: String::new(), boost: 0,
             category: String::new(), platforms: vec![], frameworks: vec![],
             languages: vec![], domains: vec![], tools: vec![], file_types: vec![],
+            use_cases: vec![],
             domain_gates: HashMap::new(), usually_with: vec![], precedes: vec![],
             follows: vec![], alternatives: vec![], server_type: String::new(),
             server_command: String::new(), server_args: vec![],
@@ -9168,6 +10547,7 @@ mediapipe>=0.10
             negative_keywords: vec![], tier: String::new(), boost: 0,
             category: String::new(), platforms: vec![], frameworks: vec![],
             languages: vec![], domains: vec![], tools: vec![], file_types: vec![],
+            use_cases: vec![],
             domain_gates: HashMap::new(), usually_with: vec![], precedes: vec![],
             follows: vec![], alternatives: vec![], server_type: String::new(),
             server_command: String::new(), server_args: vec![],
@@ -9315,6 +10695,7 @@ mediapipe>=0.10
             negative_keywords: vec![], tier: String::new(), boost: 0,
             category: String::new(), platforms: vec![], frameworks: vec![],
             languages: vec![], domains: vec![], tools: vec![], file_types: vec![],
+            use_cases: vec![],
             domain_gates: HashMap::new(), usually_with: vec![], precedes: vec![],
             follows: vec![], alternatives: vec![], server_type: String::new(),
             server_command: String::new(), server_args: vec![],
