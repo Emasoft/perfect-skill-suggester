@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.2.4] - 2026-03-01
+
+### Features
+
+- 4-tier logarithmic scoring system
+
+### Miscellaneous Tasks
+
+- Sync uv.lock to match pyproject.toml v2.2.3
+
 ## [2.2.3] - 2026-03-01
 
 ### Bug Fixes
@@ -12,6 +22,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Snapshot before low-signal word scoring fix
+
+### Bump
+
+- Version 2.2.2 → 2.2.3
 
 ### Rebuild
 
