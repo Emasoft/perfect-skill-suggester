@@ -143,15 +143,60 @@ Rules are enforcement policies that constrain agent behavior. They prevent error
 - **domain_gates**: If rule is language/framework-specific, add gates
 - **tier**: "primary" for rules that apply every session, "secondary" for domain-specific, "specialized" for narrow
 
-### MCP SERVERS (JSON config entries)
+### MCP SERVERS (JSON config entries or descriptor files)
 
-MCP servers are discovered from JSON config files, not markdown.
+MCP servers may come as JSON config entries OR as aggregated descriptor markdown files.
+You MUST deeply inspect each MCP to understand what it actually does — its tools, scope, and capabilities.
 
-**How to extract data:**
-- **description**: From README.md in server directory, or generate from name
-- **keywords**: From server name, command, args, README content. Include: server name parts, tool name, transport type. 8-15 keywords.
-- **category**: Infer from name/purpose (e.g., "chrome-devtools" → "debugging", "slack" → "communication")
-- **intents**: From tool capabilities if discoverable
+**Source files to read (in order of priority):**
+1. **Descriptor file** (if provided as a `.md` path): Contains aggregated config + README + tool definitions
+2. **README.md**: In the MCP server's directory or parent plugin directory — the richest source of description
+3. **mcpServers JSON config**: The `command`, `args`, and `env` fields reveal the transport and package name
+4. **Source code**: Search for TypeScript/Python files in the server directory that define tools:
+   - Look for patterns: `tool(`, `name:`, `description:`, `inputSchema`, `server.tool`, `@tool`, `def tool_`
+   - These files contain the actual tool/function names, their descriptions, and input/output schemas
+
+**How to extract data — DEEP INSPECTION REQUIRED:**
+
+- **description**: Read the README.md FIRST. Use the project description paragraph (usually after the title).
+  If no README exists, infer from the package name in the command/args (e.g., `npx -y @playwright/mcp@latest` → "Playwright browser automation MCP server for testing and scraping").
+  NEVER just repeat the MCP name as the description.
+
+- **tools**: List ALL discoverable tool/function names the MCP server exposes. Look in:
+  - README.md sections titled "Tools", "Commands", "Functions", "API", "Features"
+  - Source code: grep for `name:` or `tool(` or `server.tool(` or `@tool` decorators
+  - This is the MOST IMPORTANT field for MCP servers — it tells the scorer what the MCP can DO.
+  - Example: `["navigate", "click", "screenshot", "evaluate_script", "list_pages"]`
+
+- **use_cases**: Derive from the tools list and README. What user tasks does this MCP enable?
+  Example for a browser MCP: `["Automate web browser interactions", "Take screenshots of web pages", "Run JavaScript in browser context", "Scrape web content"]`
+
+- **keywords**: Build from ALL sources — server name, tool names, README content, package name.
+  Include: the MCP name, each tool name, the domain it covers, the transport type, related technologies.
+  MUST include multi-word phrases that users would naturally type. 10-20 keywords.
+  Example for chrome-devtools: `["chrome devtools", "browser automation", "take screenshot", "evaluate javascript", "inspect network requests", "chrome debugging protocol", "cdp", "web scraping", "page navigation", "dom inspection"]`
+
+- **category**: Infer from the MCP's primary purpose and tools:
+  - Browser/web tools → "web-frontend" or "web-scraping"
+  - Database tools → "data-management"
+  - DevOps/cloud tools → "devops-cicd" or "cloud-infra"
+  - Communication (Slack, Discord, email) → "communication"
+  - File/storage tools → "file-management"
+  - AI/ML tools → "ai-ml"
+  - Security tools → "security"
+
+- **intents**: Extract from the tool names — what ACTIONS can the user perform?
+  Example: `["navigate", "click", "screenshot", "inspect", "evaluate", "automate"]`
+
+- **domain_gates**: If the MCP is specific to a platform, language, or service, add gates.
+  Example for a Dart MCP: `{"programming_language": ["dart", "flutter"]}`
+  Example for a Firebase MCP: `{"cloud_provider": ["firebase", "google cloud", "gcp"]}`
+  If the MCP is general-purpose (e.g., filesystem, fetch), use `{}`
+
+- **platforms**: The OS/platform the MCP works on. Most are `["universal"]`.
+  If the MCP binary is platform-specific, list supported platforms.
+
+- **tier**: "primary" for essential/commonly-used MCPs, "secondary" for domain-specific, "specialized" for niche
 
 ### LSP SERVERS — NOT processed by haiku agents
 
