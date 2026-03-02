@@ -29,7 +29,7 @@ Incrementally add or update a single element (skill, agent, command, rule, MCP, 
 
 1. **Resolve element**: Find the element by name (lookup in index or scan known locations) or by direct path
 2. **Check for duplicates**: If the element already exists in `~/.claude/cache/skill-index.json`, it will be UPDATED (not duplicated)
-3. **Run Pass 1 scan**: Spawn a haiku agent to read the element file and extract metadata (keywords, intents, category, etc.)
+3. **Run Pass 1 scan**: Spawn a sonnet agent to read the element file and extract metadata (keywords, intents, category, etc.)
 4. **Merge into index**: Add or update the element in the existing index using `pss_merge_queue.py`
 
 ### Plugin Mode (`--plugin`)
@@ -43,7 +43,7 @@ Incrementally add or update a single element (skill, agent, command, rule, MCP, 
 2. **For MCP servers found in plugin configs**:
    - The discovery script (`pss_discover.py`) automatically builds descriptor `.md` files in the system temp dir
    - Each descriptor aggregates: MCP config + README content + tool names from source code
-   - The haiku agent reads the descriptor file (pointed to by the element's `path` field) for deep inspection
+   - The sonnet agent reads the descriptor file (pointed to by the element's `path` field) for deep inspection
    - **NEVER activate or run the MCP server** — only read static files (README, source, config)
 3. **For each element**: Run the single-element workflow (check duplicate → scan → merge)
 4. **Report**: Show count of elements added/updated
@@ -97,18 +97,18 @@ Read `skill-index.json` and check if an entry with the same name already exists.
 - If EXISTS: Will be UPDATED (overwritten with fresh scan data)
 - If NEW: Will be ADDED
 
-### Step 4: Spawn Haiku Agent for Metadata Extraction
+### Step 4: Spawn Sonnet Agent for Metadata Extraction
 
-For EACH element to process, spawn a haiku agent with the Pass 1 template from `${CLAUDE_PLUGIN_ROOT}/prompts/pass1-haiku.md`.
+For EACH element to process, spawn a sonnet agent with the Pass 1 template from `${CLAUDE_PLUGIN_ROOT}/prompts/pass1-sonnet.md`.
 
-**IMPORTANT**: When spawning the haiku agent:
-- Use `model: haiku` to minimize cost
+**IMPORTANT**: When spawning the sonnet agent:
+- Use `model: sonnet` for accurate extraction
 - Provide only ONE element per agent
 - The agent writes a `.pss` file to `${PSS_TMPDIR}/pss-queue/`
 
 ### Step 5: Merge into Index
 
-After the haiku agent completes, merge the `.pss` file into the index:
+After the sonnet agent completes, merge the `.pss` file into the index:
 
 ```bash
 PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
@@ -135,8 +135,8 @@ else:
 ### Step 7 (Optional): Pass 2
 
 If `--pass2` is specified, also run co-usage analysis:
-1. Read the Pass 2 template from `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-haiku.md`
-2. Spawn a haiku agent to analyze co-usage relationships
+1. Read the Pass 2 template from `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-sonnet.md`
+2. Spawn a sonnet agent to analyze co-usage relationships
 3. Merge the co-usage data into the index
 
 ## Example

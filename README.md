@@ -22,7 +22,7 @@
 Indexes all 6 Claude Code element types — not just skills. The unified index powers both real-time hook suggestions and AI-driven agent configuration profiling.
 
 ### AI-Analyzed Keywords
-Haiku subagents analyze each element's source file to extract optimal activation patterns. Instead of relying on manually defined keywords, the AI reads the content and determines what user prompts should trigger it.
+Sonnet subagents analyze each element's source file to extract optimal activation patterns. Instead of relying on manually defined keywords, the AI reads the content and determines what user prompts should trigger it.
 
 ### Native Rust Binary (~10ms)
 A pre-compiled Rust binary handles all matching logic, keeping hook latency minimal. No Python interpreter startup, no JIT compilation - just fast native code.
@@ -204,7 +204,7 @@ Run the reindex command to analyze all skills with AI:
 /pss-reindex-skills
 ```
 
-This spawns Haiku subagents to analyze each SKILL.md and generate optimal activation keywords.
+This spawns Sonnet subagents to analyze each SKILL.md and generate optimal activation keywords.
 
 ### 2. Check Status
 
@@ -292,7 +292,7 @@ Generate AI-analyzed keyword index for all elements (skills, agents, commands, r
 
 | Flag | Description |
 |------|-------------|
-| `--batch-size N` | Elements per Haiku batch (default: 10) |
+| `--batch-size N` | Elements per Sonnet batch (default: 10) |
 | `--pass1-only` | Run only Pass 1 (keyword extraction) |
 | `--pass2-only` | Run only Pass 2 (co-usage analysis) |
 | `--all-projects` | Scan all known projects, not just current |

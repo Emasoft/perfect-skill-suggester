@@ -285,7 +285,7 @@ Checklist written to: /Users/you/.claude/cache/skill-checklist.md
 
 ### Step 2: Divide Work Among Agents
 
-The orchestrator reads the checklist and spawns haiku subagents, one per batch:
+The orchestrator reads the checklist and spawns sonnet subagents, one per batch:
 
 ```
 Batch 1 (elements 1-10)   → Agent A
@@ -297,7 +297,7 @@ Batch 22 (elements 211-216) → Agent V
 
 **Key Workflow:**
 1. Orchestrator reads the checklist file
-2. For each batch, spawn a haiku subagent with:
+2. For each batch, spawn a sonnet subagent with:
    - The batch number and range
    - The list of element paths in that batch
    - Instructions to read each element and generate patterns
@@ -308,20 +308,20 @@ Batch 22 (elements 211-216) → Agent V
 ### Step 3: Subagent Analysis
 
 **IMPORTANT: MODEL SELECTION**
-- Pass 1 agents MUST use `model: haiku` (factual extraction only - cheap)
-- Pass 2 agents MUST use `model: haiku` (guided co-usage with decision gates)
+- Pass 1 agents MUST use `model: sonnet` (factual extraction only)
+- Pass 2 agents MUST use `model: sonnet` (guided co-usage with decision gates)
 - The orchestrator (you) runs on the parent model (Sonnet/Opus)
 
 **IMPORTANT: PROMPT TEMPLATES**
-The full Haiku-optimized prompts are in external template files:
-- **Pass 1**: Read `${CLAUDE_PLUGIN_ROOT}/prompts/pass1-haiku.md` for the complete template
-- **Pass 2**: Read `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-haiku.md` for the complete template
+The full Sonnet-optimized prompts are in external template files:
+- **Pass 1**: Read `${CLAUDE_PLUGIN_ROOT}/prompts/pass1-sonnet.md` for the complete template
+- **Pass 2**: Read `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-sonnet.md` for the complete template
 
-Read the appropriate template file, fill in the {variables}, and pass it to the haiku subagent.
+Read the appropriate template file, fill in the {variables}, and pass it to the sonnet subagent.
 
 **IMPORTANT: TRIPLE VERIFICATION**
 Both templates include mandatory triple-read verification steps where the agent re-reads the element file
-2 additional times to cross-check its extraction results. This compensates for Haiku's lower accuracy.
+2 additional times to cross-check its extraction results. This ensures high extraction accuracy.
 Do NOT remove or skip these verification steps.
 
 **IMPORTANT: AGENT REPORTING**
@@ -332,7 +332,7 @@ Each subagent receives the prompt built from the external template file.
 
 **HOW TO BUILD THE PASS 1 PROMPT:**
 
-1. Read the template file: `${CLAUDE_PLUGIN_ROOT}/prompts/pass1-haiku.md`
+1. Read the template file: `${CLAUDE_PLUGIN_ROOT}/prompts/pass1-sonnet.md`
 2. Copy the content between `## TEMPLATE START` and `## TEMPLATE END`
 3. Replace these variables:
    - `{batch_num}` → the batch number (e.g., 3)
@@ -340,7 +340,7 @@ Each subagent receives the prompt built from the external template file.
    - `{end}` → last element number in batch (e.g., 30)
    - `{list_of_element_paths}` → newline-separated list of element paths with source and name
 4. Replace `${CLAUDE_PLUGIN_ROOT}` with the absolute path to the plugin directory
-5. Send the filled template to the haiku subagent
+5. Send the filled template to the sonnet subagent
 
 **CRITICAL**: The `${CLAUDE_PLUGIN_ROOT}` variable may NOT be available inside subagents.
 You MUST resolve it to an absolute path BEFORE sending the prompt. Example:
@@ -448,7 +448,7 @@ cd "${PLUGIN_ROOT}" && uv run --with pyyaml python scripts/validate_plugin.py . 
 
 ### Step 5b: Check Pass 1 Agent Tracking Files (MANDATORY)
 
-The haiku agents write per-batch tracking files to `${PSS_TMPDIR}/pss-queue/batch-*-pass1-tracking.md`.
+The sonnet agents write per-batch tracking files to `${PSS_TMPDIR}/pss-queue/batch-*-pass1-tracking.md`.
 The orchestrator MUST check these files to verify no elements were skipped:
 
 ```bash
@@ -460,8 +460,8 @@ grep -E "PENDING|FAILED" ${PSS_TMPDIR}/pss-queue/batch-*-pass1-tracking.md
 ```
 
 **If ANY element shows PENDING:**
-- The agent forgot to process that element (common with Haiku)
-- Re-spawn a haiku agent for JUST the missed elements
+- The agent forgot to process that element (possible with batch processing)
+- Re-spawn a sonnet agent for JUST the missed elements
 - The re-run agent should process ONLY the PENDING elements, not the entire batch
 
 **If ANY element shows FAILED:**
@@ -515,12 +515,12 @@ This provides heuristic guidance for candidate selection:
 }
 ```
 
-### Step 7: Spawn Pass 2 Agents (Parallel, Batched, Haiku)
+### Step 7: Spawn Pass 2 Agents (Parallel, Batched, Sonnet)
 
-**MODEL**: Use `model: haiku` for all Pass 2 agents.
+**MODEL**: Use `model: sonnet` for all Pass 2 agents.
 
-**PROMPT TEMPLATE**: Read `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-haiku.md` for the complete template.
-Fill in the {variables} and pass to each haiku subagent.
+**PROMPT TEMPLATE**: Read `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-sonnet.md` for the complete template.
+Fill in the {variables} and pass to each sonnet subagent.
 
 **BATCHING (same as Pass 1):**
 - Group elements into batches of 10
@@ -529,7 +529,7 @@ Fill in the {variables} and pass to each haiku subagent.
 - Wait for all batches to complete before proceeding to Step 8
 
 **TRIPLE VERIFICATION**: The Pass 2 template includes 3 verification rounds where the agent
-re-reads element data and re-validates each co-usage link. This is mandatory for Haiku accuracy.
+re-reads element data and re-validates each co-usage link. This ensures high extraction accuracy.
 
 **MANDATORY BINARY CHECK (before spawning ANY Pass 2 agents):**
 
@@ -554,7 +554,7 @@ Do NOT spawn any Pass 2 agents if the binary check fails. This is a hard gate.
 
 **HOW TO BUILD THE PASS 2 PROMPT:**
 
-1. Read the template file: `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-haiku.md`
+1. Read the template file: `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-sonnet.md`
 2. Copy the content between `## TEMPLATE START` and `## TEMPLATE END`
 3. Replace these variables:
    - `{batch_num}` → the batch number (e.g., 3)
@@ -565,7 +565,7 @@ Do NOT spawn any Pass 2 agents if the binary check fails. This is a hard gate.
    - `{keywords_as_phrase}` → element's keywords joined as a phrase
    - `{binary_path}` → absolute path to the platform-specific Rust binary (see below)
 4. Replace `${CLAUDE_PLUGIN_ROOT}` with the resolved absolute path to the plugin directory
-5. Send the filled template to the haiku subagent
+5. Send the filled template to the sonnet subagent
 
 **RESOLVING {binary_path} (platform detection):**
 ```bash
@@ -673,7 +673,7 @@ grep -E "PENDING|FAILED" ${PSS_TMPDIR}/pss-queue/batch-*-pass2-tracking.md
 ```
 
 **If ANY element shows PENDING:**
-- Re-spawn a haiku agent for JUST the missed elements
+- Re-spawn a sonnet agent for JUST the missed elements
 - After the re-run completes, run the validator AGAIN (Step 8a)
 
 **If ANY element shows FAILED:**
@@ -844,10 +844,10 @@ This improves matching accuracy significantly.
 For 200+ elements, process in batches:
 
 ```
-Batch 1: Elements 1-20   → 20 parallel haiku subagents
-Batch 2: Elements 21-40  → 20 parallel haiku subagents
+Batch 1: Elements 1-20   → 20 parallel sonnet subagents
+Batch 2: Elements 21-40  → 20 parallel sonnet subagents
 ...
-Batch 11: Elements 201-216 → 16 parallel haiku subagents
+Batch 11: Elements 201-216 → 16 parallel sonnet subagents
 ```
 
 Each subagent:
@@ -886,7 +886,7 @@ Found 216 elements across 19 sources.
 Generating checklist: ~/.claude/cache/skill-checklist.md
   22 batches (10 elements per batch)
 
-Spawning haiku subagents (22 parallel)...
+Spawning sonnet subagents (22 parallel)...
   Batch 1 (Agent A): analyzing elements 1-10...
   Batch 2 (Agent B): analyzing elements 11-20...
   ...
@@ -899,7 +899,7 @@ Collecting results...
 
 Index generated: ~/.claude/cache/skill-index.json
   216 elements analyzed
-  Method: AI-analyzed (haiku)
+  Method: AI-analyzed (sonnet)
   Format: PSS v3.0 (rio compatible)
   Total keywords: 2,592
 ```
@@ -963,6 +963,6 @@ RUST_LOG=debug ./rust/skill-suggester/bin/pss-darwin-arm64 < payload.json
 | Error pattern detection | Limited | Full |
 | Context understanding | None | Yes |
 | Processing time | ~5 seconds | ~2-3 minutes |
-| Requires API calls | No | Yes (Haiku) |
+| Requires API calls | No | Yes (Sonnet) |
 | **Commitment mechanism** | No | **Yes** |
 | **Confidence routing** | No | **Yes (3-tier)** |

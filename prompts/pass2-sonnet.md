@@ -1,6 +1,6 @@
-# PSS Pass 2 Haiku Agent Prompt Template (Multi-Type)
+# PSS Pass 2 Sonnet Agent Prompt Template (Multi-Type)
 
-**Model**: haiku
+**Model**: sonnet
 **Purpose**: Determine co-usage relationships between elements (skills, agents, commands, rules, MCP servers)
 **This requires reasoning about workflows. Follow the decision gates strictly.**
 

@@ -61,7 +61,7 @@ Comparison of features from the four source projects that were combined into Per
 
 | Feature | LimorAI | Catalyst | Claude-Rio | Reliable | **PSS** |
 |---------|---------|----------|------------|----------|---------|
-| AI-analyzed keywords | No | Yes | No | No | **Yes (Haiku subagents)** |
+| AI-analyzed keywords | No | Yes | No | No | **Yes (Sonnet subagents)** |
 | Per-skill config files | No | No | No | No | **Yes (.pss files)** |
 | Skill tiers | No | No | No | No | **Yes (primary/secondary/utility)** |
 | Skill categories | No | No | No | No | **Yes** |

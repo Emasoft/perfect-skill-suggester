@@ -28,7 +28,7 @@ Output Modes:
 
 Checklist Format:
     The checklist divides elements into batches (default 10 per batch) for parallel
-    agent processing. Each batch can be assigned to a different haiku subagent.
+    agent processing. Each batch can be assigned to a different sonnet subagent.
 """
 
 import argparse
@@ -303,7 +303,7 @@ def _build_mcp_descriptor(
     plugin_dir: Path,
     marketplace: str,
 ) -> Path:
-    """Build a markdown descriptor file for an MCP server for haiku agent consumption.
+    """Build a markdown descriptor file for an MCP server for indexer agent consumption.
 
     Returns path to the descriptor .md file in the system temp directory.
     """
@@ -340,7 +340,7 @@ def _build_mcp_descriptor(
         lines.append(", ".join(tools))
         lines.append("")
 
-    # If no README and no tools, add inference note for haiku agent
+    # If no README and no tools, add inference note for indexer agent
     if not readme and not tools:
         lines.append("## No README or source code found")
         lines.append("")
@@ -400,7 +400,7 @@ def _discover_marketplace_mcps(seen_names: set[str]) -> list[dict[str, Any]]:
 
                     seen_names.add(mcp_name)
 
-                    # Build descriptor file for haiku agent consumption
+                    # Build descriptor file for indexer agent consumption
                     descriptor_path = _build_mcp_descriptor(
                         mcp_name, config, fpath, Path(root), marketplace
                     )
@@ -872,7 +872,7 @@ def generate_checklist(elements: list[dict[str, Any]], batch_size: int = 10) -> 
         "",
         "## Instructions for Parallel Processing",
         "",
-        "Each batch can be assigned to a separate haiku subagent "
+        "Each batch can be assigned to a separate sonnet subagent "
         "for parallel analysis.",
         "The orchestrator should:",
         "",

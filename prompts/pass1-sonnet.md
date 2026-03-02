@@ -1,6 +1,6 @@
-# PSS Pass 1 Haiku Agent Prompt Template (Multi-Type)
+# PSS Pass 1 Sonnet Agent Prompt Template (Multi-Type)
 
-**Model**: haiku
+**Model**: sonnet
 **Purpose**: Extract structured metadata from element files (skills, agents, commands, rules, MCP servers)
 **This is a READ-ONLY extraction task. Do NOT invent or paraphrase anything.**
 
@@ -198,7 +198,7 @@ You MUST deeply inspect each MCP to understand what it actually does — its too
 
 - **tier**: "primary" for essential/commonly-used MCPs, "secondary" for domain-specific, "specialized" for niche
 
-### LSP SERVERS — NOT processed by haiku agents
+### LSP SERVERS — NOT processed by indexer agents
 
 LSP servers use hardcoded metadata from the discovery script. Skip any LSP entries in your batch.
 
