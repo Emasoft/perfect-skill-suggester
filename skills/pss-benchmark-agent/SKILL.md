@@ -1,5 +1,18 @@
 # PSS Benchmark Agent Documentation Protocol
 
+## Overview
+
+Mandatory documentation protocol for Opus agents competing to improve the PSS scoring engine. Defines report structure, benchmark tracking format, sacred parameters, and anti-patterns. Ensures each agent's work becomes high-quality training data for the next competition cycle.
+
+## Prerequisites
+
+- Access to the PSS scoring engine source: `rust/skill-suggester/src/main.rs`
+- Benchmark files: `docs_dev/benchmark-v2-prompts-100.jsonl` and `docs_dev/benchmark-v2-gold-100.json`
+- History file: `docs_dev/methodology-improvement-history.md`
+- Built binary: `cargo build --release` in `rust/skill-suggester/`
+
+## Instructions
+
 You are an Opus agent competing to improve the PSS scoring engine. This skill defines the MANDATORY documentation standards for your work. Your report is the TRAINING DATA for future agents — its quality directly determines whether the next cycle succeeds or fails.
 
 ## REPORT FILE
@@ -326,3 +339,40 @@ Save the full output to the benchmark log, then update your work tracker.
 ```
 
 **WHY THIS MATTERS:** Your report becomes the training data for the next 3 agents. If you write "changed a weight, didn't work" without saying WHICH weight, WHAT value, and WHAT score, the next agent will waste time trying the exact same thing. Every detail you skip costs the next cycle ~30 minutes of redundant work.
+
+## Output
+
+- `docs_dev/worktree-{AGENT_ID}-report.md` — structured report with all mandatory sections
+- `docs_dev/worktree-{AGENT_ID}-benchmark-log.md` — per-prompt benchmark results (append-only)
+- Modified `rust/skill-suggester/src/main.rs` — with improvements to the scoring engine
+
+## Error Handling
+
+- If baseline benchmark fails to run: verify binary is built (`cargo build --release`)
+- If benchmark score is 0: check that `skill-index.json` exists at `~/.claude/cache/skill-index.json`
+- If cargo tests fail after changes: revert last change, re-run tests, diagnose the issue
+- If a change causes catastrophic regression (>50 points): revert immediately, document in report
+
+## Examples
+
+Run baseline benchmark:
+```bash
+cd rust/skill-suggester && cargo build --release
+python3 scripts/pss_benchmark.py --prompts docs_dev/benchmark-v2-prompts-100.jsonl --gold docs_dev/benchmark-v2-gold-100.json
+```
+
+Document a change:
+```markdown
+### Change 1: Type filter fix (+36)
+**BEFORE (line 6976):** `if type == "skill" || type == "agent"`
+**AFTER (line 6976):** removed type filter, include all types
+**Score:** 392 → 428 (+36)
+**Hypothesis:** Gold elements of type command/rule/mcp were being filtered out
+```
+
+## Resources
+
+- `docs_dev/methodology-improvement-history.md` — full history of all cycles and insights
+- `docs_dev/baseline-per-prompt-results.txt` — per-prompt results for current baseline
+- `skills/pss-benchmark-agent/SKILL.md` — this file (documentation protocol)
+- `schemas/pss-agent-toml-schema.json` — schema for agent.toml output files
