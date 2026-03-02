@@ -2376,6 +2376,22 @@ pub struct SkillIndex {
     pub skills: HashMap<String, SkillEntry>,
 }
 
+/// Co-usage relationship data (nested under "co_usage" in JSON index)
+#[derive(Debug, Default, Deserialize)]
+pub struct CoUsageData {
+    /// Skills often used in the SAME session/task
+    #[serde(default)]
+    pub usually_with: Vec<String>,
+
+    /// Skills typically used BEFORE this skill
+    #[serde(default)]
+    pub precedes: Vec<String>,
+
+    /// Skills typically used AFTER this skill
+    #[serde(default)]
+    pub follows: Vec<String>,
+}
+
 /// A single skill entry in the index (enhanced with intents, patterns, directories)
 #[derive(Debug, Deserialize)]
 pub struct SkillEntry {
@@ -2484,19 +2500,11 @@ pub struct SkillEntry {
     #[serde(default)]
     pub language_ids: Vec<String>,
 
-    // Co-usage fields (from Pass 2)
+    // Co-usage fields (from Pass 2, nested under "co_usage" in JSON)
 
-    /// Skills often used in the SAME session/task
+    /// Co-usage data: usually_with, precedes, follows
     #[serde(default)]
-    pub usually_with: Vec<String>,
-
-    /// Skills typically used BEFORE this skill
-    #[serde(default)]
-    pub precedes: Vec<String>,
-
-    /// Skills typically used AFTER this skill
-    #[serde(default)]
-    pub follows: Vec<String>,
+    pub co_usage: CoUsageData,
 
     /// Skills that solve the SAME problem differently
     #[serde(default)]
@@ -5824,7 +5832,7 @@ fn find_matches(
         for matched_name in &high_scoring {
             if let Some(entry) = index.skills.get(matched_name) {
                 let booster_score = *score_lookup.get(matched_name.as_str()).unwrap_or(&0);
-                for related in &entry.usually_with {
+                for related in &entry.co_usage.usually_with {
                     co_usage_boosts
                         .entry(related.clone())
                         .or_default()
@@ -5833,13 +5841,14 @@ fn find_matches(
             }
         }
 
-        // Apply co-usage boosts to existing matches (proportional to booster score)
+        // Apply co-usage boosts to existing matches (small tiebreaker, not a ranker).
+        // Co-usage data is informative but noisy — large boosts cause regressions by
+        // displacing direct keyword-matched skills. Keep boosts minimal.
         for m in &mut matches {
             if let Some(boosters) = co_usage_boosts.get(&m.name) {
-                // Boost is 50% of the highest booster's score, minimum 8
-                // This ensures co-used skills rank near their boosters
+                // Boost is 5% of highest booster's score, capped at 50 points
                 let max_booster_score = boosters.iter().map(|(_, s)| *s).max().unwrap_or(0);
-                let co_boost = std::cmp::max(8, (max_booster_score * 50) / 100);
+                let co_boost = std::cmp::min(50, std::cmp::max(3, (max_booster_score * 5) / 100));
                 m.score += co_boost;
                 for (booster, _) in boosters {
                     m.evidence.push(format!("co_usage:{}", booster));
@@ -5847,21 +5856,22 @@ fn find_matches(
             }
         }
 
-        // Also add skills from co_usage that weren't matched at all
+        // Also add skills from co_usage that weren't matched at all (minimal score).
+        // These are tiebreaker-level injections — they rank below any keyword match.
         for (related_name, boosters) in &co_usage_boosts {
             // Skip if already in matches
             if matches.iter().any(|m| &m.name == related_name) {
                 continue;
             }
-            // Add the related skill with score based on booster scores
+            // Add the related skill with minimal score (tiebreaker level only)
             if let Some(entry) = index.skills.get(related_name) {
                 let evidence: Vec<String> = boosters
                     .iter()
                     .map(|(b, _)| format!("co_usage:{}", b))
                     .collect();
-                // Score is 40% of highest booster score + 2 per additional booster
+                // Score is 3% of highest booster score, capped at 30 points
                 let max_booster_score = boosters.iter().map(|(_, s)| *s).max().unwrap_or(0);
-                let score = std::cmp::max(10, (max_booster_score * 40) / 100) + ((boosters.len() as i32 - 1) * 2);
+                let score = std::cmp::min(30, std::cmp::max(5, (max_booster_score * 3) / 100));
                 matches.push(MatchedSkill {
                     name: related_name.clone(),
                     path: entry.path.clone(),
@@ -6186,9 +6196,7 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
             // LSP server metadata (empty for PSS files - populated by reindex)
             language_ids: vec![],
             // Co-usage fields (empty for PSS files - populated by reindex)
-            usually_with: vec![],
-            precedes: vec![],
-            follows: vec![],
+            co_usage: CoUsageData::default(),
             alternatives: vec![],
             use_cases: vec![],
         };
@@ -6758,7 +6766,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     let existing_agent_names: HashSet<String> = complementary_agents_vec.iter().map(|a| a.name.clone()).collect();
     for p in &primary {
         if let Some(entry) = index.skills.get(&p.name) {
-            for uw in &entry.usually_with {
+            for uw in &entry.co_usage.usually_with {
                 if !existing_agent_names.contains(uw.as_str()) {
                     if let Some(uw_entry) = index.skills.get(uw.as_str()) {
                         if uw_entry.skill_type == "agent" {
@@ -7320,9 +7328,7 @@ mod tests {
                 tools: vec![],
                 file_types: vec![],
                 domain_gates: HashMap::new(),
-                usually_with: vec![],
-                precedes: vec![],
-                follows: vec![],
+                co_usage: CoUsageData::default(),
                 alternatives: vec![],
                 use_cases: vec![],
                 server_type: String::new(),
@@ -7360,9 +7366,7 @@ mod tests {
                 tools: vec![],
                 file_types: vec![],
                 domain_gates: HashMap::new(),
-                usually_with: vec![],
-                precedes: vec![],
-                follows: vec![],
+                co_usage: CoUsageData::default(),
                 alternatives: vec![],
                 use_cases: vec![],
                 server_type: String::new(),
@@ -7520,9 +7524,7 @@ mod tests {
                 tools: vec![],
                 file_types: vec![],
                 domain_gates: HashMap::new(),
-                usually_with: vec![],
-                precedes: vec![],
-                follows: vec![],
+                co_usage: CoUsageData::default(),
                 alternatives: vec![],
                 use_cases: vec![],
                 server_type: String::new(),
@@ -7555,9 +7557,7 @@ mod tests {
                 tools: vec![],
                 file_types: vec![],
                 domain_gates: HashMap::new(),
-                usually_with: vec![],
-                precedes: vec![],
-                follows: vec![],
+                co_usage: CoUsageData::default(),
                 alternatives: vec![],
                 use_cases: vec![],
                 server_type: String::new(),
@@ -7693,9 +7693,7 @@ mod tests {
                 tools: vec![],
                 file_types: vec![],
                 domain_gates: HashMap::new(),
-                usually_with: vec![],
-                precedes: vec![],
-                follows: vec![],
+                co_usage: CoUsageData::default(),
                 alternatives: vec![],
                 use_cases: vec![],
                 server_type: String::new(),
@@ -8255,9 +8253,7 @@ mod tests {
                     g.insert("target_language".to_string(), vec!["python".to_string()]);
                     g
                 },
-                usually_with: vec![],
-                precedes: vec![],
-                follows: vec![],
+                co_usage: CoUsageData::default(),
                 alternatives: vec![],
                 use_cases: vec![],
                 server_type: String::new(),
@@ -8294,9 +8290,7 @@ mod tests {
                     g.insert("target_language".to_string(), vec!["rust".to_string()]);
                     g
                 },
-                usually_with: vec![],
-                precedes: vec![],
-                follows: vec![],
+                co_usage: CoUsageData::default(),
                 alternatives: vec![],
                 use_cases: vec![],
                 server_type: String::new(),
@@ -9150,9 +9144,7 @@ mediapipe>=0.10
                 tools: vec![],
                 file_types: vec![],
                 domain_gates: HashMap::new(),
-                usually_with: vec![],
-                precedes: vec![],
-                follows: vec![],
+                co_usage: CoUsageData::default(),
                 alternatives: vec![],
                 use_cases: vec![],
                 server_type: String::new(),
@@ -9264,9 +9256,7 @@ mediapipe>=0.10
                 tools: vec![],
                 file_types: vec![],
                 domain_gates: HashMap::new(),
-                usually_with: vec![],
-                precedes: vec![],
-                follows: vec![],
+                co_usage: CoUsageData::default(),
                 alternatives: vec![],
                 use_cases: vec![],
                 server_type: String::new(),
@@ -9342,9 +9332,7 @@ mediapipe>=0.10
                     tools: vec![],
                     file_types: vec![],
                     domain_gates: HashMap::new(),
-                    usually_with: vec![],
-                    precedes: vec![],
-                    follows: vec![],
+                    co_usage: CoUsageData::default(),
                     alternatives: vec![],
                     use_cases: vec![],
                     server_type: String::new(),
@@ -9375,17 +9363,17 @@ mediapipe>=0.10
             None,
         );
 
-        // Apply the same hook-mode filter as production code (line 5582-5584):
-        // keep only entries where item_type is "skill", "agent", or empty
+        // Apply the same hook-mode filter as production code (W20 fix: include ALL types)
         let filtered: Vec<_> = matches
             .iter()
             .filter(|m| {
                 let t = m.skill_type.as_str();
-                t == "skill" || t == "agent" || t.is_empty()
+                // W20: all actionable types are now included (not just skill/agent)
+                t == "skill" || t == "agent" || t == "command" || t == "rule" || t == "mcp" || t == "lsp" || t.is_empty()
             })
             .collect();
 
-        // skill and agent should survive the filter
+        // ALL types should survive the W20-era filter
         assert!(
             filtered.iter().any(|m| m.name == "auto-skill"),
             "skill type should pass hook filter"
@@ -9394,23 +9382,21 @@ mediapipe>=0.10
             filtered.iter().any(|m| m.name == "auto-agent"),
             "agent type should pass hook filter"
         );
-
-        // command, rule, mcp, lsp should be blocked
         assert!(
-            !filtered.iter().any(|m| m.name == "auto-command"),
-            "command type should be blocked by hook filter"
+            filtered.iter().any(|m| m.name == "auto-command"),
+            "command type should pass hook filter (W20 fix)"
         );
         assert!(
-            !filtered.iter().any(|m| m.name == "auto-rule"),
-            "rule type should be blocked by hook filter"
+            filtered.iter().any(|m| m.name == "auto-rule"),
+            "rule type should pass hook filter (W20 fix)"
         );
         assert!(
-            !filtered.iter().any(|m| m.name == "auto-mcp"),
-            "mcp type should be blocked by hook filter"
+            filtered.iter().any(|m| m.name == "auto-mcp"),
+            "mcp type should pass hook filter (W20 fix)"
         );
         assert!(
-            !filtered.iter().any(|m| m.name == "auto-lsp"),
-            "lsp type should be blocked by hook filter"
+            filtered.iter().any(|m| m.name == "auto-lsp"),
+            "lsp type should pass hook filter (W20 fix)"
         );
     }
 
@@ -9506,9 +9492,7 @@ mediapipe>=0.10
                     tools: vec![],
                     file_types: vec![],
                     domain_gates: HashMap::new(),
-                    usually_with: vec![],
-                    precedes: vec![],
-                    follows: vec![],
+                    co_usage: CoUsageData::default(),
                     alternatives: vec![],
                     use_cases: vec![],
                     server_type: String::new(),
