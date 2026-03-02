@@ -35,7 +35,9 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -242,6 +244,196 @@ def get_all_skill_locations(scan_all_projects: bool = False) -> list[tuple[str, 
     return [(source, path) for source, _, path in element_locs]
 
 
+def _find_readme_in_plugin(plugin_dir: Path) -> str | None:
+    """Find the most relevant README.md for an MCP server in a plugin directory."""
+    candidates = [
+        plugin_dir / "README.md",
+        plugin_dir.parent / "README.md",
+    ]
+    # Also check .claude-plugin subdirectory
+    claude_plugin_dir = plugin_dir / ".claude-plugin"
+    if claude_plugin_dir.exists():
+        candidates.insert(0, claude_plugin_dir / "README.md")
+
+    for c in candidates:
+        if c.is_file():
+            try:
+                content = c.read_text(errors="replace")
+                if len(content) > 100:
+                    return content[:8000]
+            except OSError:
+                continue
+    return None
+
+
+def _find_tool_names_in_source(plugin_dir: Path) -> list[str]:
+    """Search for tool/function names in MCP server source code."""
+    tool_patterns = [
+        r'name:\s*["\']([^"\']+)["\']',
+        r'server\.tool\(\s*["\']([^"\']+)["\']',
+        r'\.addTool\(\s*["\']([^"\']+)["\']',
+        r'@tool\s*\(\s*["\']([^"\']+)["\']',
+        r'"name":\s*"([^"]+)".*?"description"',
+    ]
+    tools_found: set[str] = set()
+    skip_dirs = {"node_modules", ".git", "dist", "build", "__pycache__", ".next"}
+
+    for root, dirs, files in os.walk(plugin_dir):
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
+        for fname in files:
+            if not fname.endswith((".ts", ".py", ".js")):
+                continue
+            fpath = Path(root) / fname
+            try:
+                content = fpath.read_text(errors="replace")
+                for pattern in tool_patterns:
+                    for match in re.finditer(pattern, content):
+                        tool_name = match.group(1).strip()
+                        if 2 < len(tool_name) < 60 and " " not in tool_name:
+                            tools_found.add(tool_name)
+            except OSError:
+                continue
+    return sorted(tools_found)[:30]
+
+
+def _build_mcp_descriptor(
+    name: str,
+    config: dict,
+    config_path: Path,
+    plugin_dir: Path,
+    marketplace: str,
+) -> Path:
+    """Build a markdown descriptor file for an MCP server for haiku agent consumption.
+
+    Returns path to the descriptor .md file in the system temp directory.
+    """
+    descriptor_dir = Path(tempfile.gettempdir()) / "pss-mcp-descriptors"
+    descriptor_dir.mkdir(parents=True, exist_ok=True)
+
+    command = config.get("command", "unknown")
+    args = config.get("args", [])
+    args_str = " ".join(str(a) for a in args) if isinstance(args, list) else str(args)
+
+    lines = [
+        f"# MCP Server: {name}",
+        "",
+        "**Type**: MCP server",
+        f"**Command**: `{command} {args_str}`",
+        f"**Marketplace**: {marketplace}",
+        f"**Config path**: {config_path}",
+        "",
+    ]
+
+    # Add README content if available
+    readme = _find_readme_in_plugin(plugin_dir)
+    if readme:
+        lines.append("## README Content")
+        lines.append("")
+        lines.append(readme[:4000])
+        lines.append("")
+
+    # Add discovered tool names from source code
+    tools = _find_tool_names_in_source(plugin_dir)
+    if tools:
+        lines.append("## Discovered Tool Names")
+        lines.append("")
+        lines.append(", ".join(tools))
+        lines.append("")
+
+    # If no README and no tools, add inference note for haiku agent
+    if not readme and not tools:
+        lines.append("## No README or source code found")
+        lines.append("")
+        lines.append(
+            f"Infer the MCP server's purpose from its name '{name}' and command '{command} {args_str}'."
+        )
+        lines.append("The package name in the command often reveals the purpose.")
+        lines.append("")
+
+    out_file = descriptor_dir / f"{name.replace('/', '_')}.md"
+    out_file.write_text("\n".join(lines))
+    return out_file
+
+
+def _discover_marketplace_mcps(seen_names: set[str]) -> list[dict[str, Any]]:
+    """Scan all marketplace plugins for MCP server configurations.
+
+    Searches ~/.claude/plugins/marketplaces/ for:
+    - .mcp.json files with mcpServers
+    - plugin.json files with mcpServers
+    - mcp.json files
+
+    Deduplicates by server name. Builds descriptor files for each MCP.
+    """
+    servers: list[dict[str, Any]] = []
+    marketplaces_dir = get_home_dir() / ".claude" / "plugins" / "marketplaces"
+    if not marketplaces_dir.exists():
+        return servers
+
+    skip_dirs = {"node_modules", ".git", "dist", "build", "__pycache__"}
+    config_filenames = {".mcp.json", "mcp.json", "plugin.json"}
+
+    for root, dirs, files in os.walk(marketplaces_dir):
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
+        for fname in files:
+            if fname not in config_filenames:
+                continue
+            fpath = Path(root) / fname
+            try:
+                data = json.loads(fpath.read_text(encoding="utf-8"))
+                mcp_servers = data.get("mcpServers", data.get("mcp_servers", {}))
+                if not isinstance(mcp_servers, dict) or not mcp_servers:
+                    continue
+
+                # Determine marketplace name from relative path
+                rel = str(fpath).replace(str(marketplaces_dir) + "/", "")
+                marketplace = rel.split("/")[0]
+
+                for mcp_name, config in mcp_servers.items():
+                    if mcp_name in seen_names:
+                        continue
+                    # Handle string configs (just a URL or command)
+                    if isinstance(config, str):
+                        config = {"command": config}
+                    elif not isinstance(config, dict):
+                        continue
+
+                    seen_names.add(mcp_name)
+
+                    # Build descriptor file for haiku agent consumption
+                    descriptor_path = _build_mcp_descriptor(
+                        mcp_name, config, fpath, Path(root), marketplace
+                    )
+
+                    # Extract basic description from README
+                    description = ""
+                    readme = _find_readme_in_plugin(Path(root))
+                    if readme:
+                        for line in readme.split("\n"):
+                            line = line.strip()
+                            if line and not line.startswith("#") and len(line) > 20:
+                                description = line[:200]
+                                break
+
+                    server_data: dict[str, Any] = {
+                        "name": mcp_name,
+                        "type": "mcp",
+                        "source": f"marketplace:{marketplace}",
+                        "path": str(descriptor_path),
+                        "description": description,
+                        "preview": json.dumps(config, indent=2)[:500],
+                        "server_type": config.get("type", "stdio"),
+                        "server_command": config.get("command", ""),
+                        "server_args": config.get("args", []),
+                    }
+                    servers.append(server_data)
+
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+                continue
+
+    return servers
+
+
 def parse_frontmatter(content: str) -> dict[str, Any]:
     """Parse YAML frontmatter from markdown content using PyYAML."""
     if not content.startswith("---"):
@@ -348,6 +540,10 @@ def discover_mcp_servers(scan_all_projects: bool = False) -> list[dict[str, Any]
                 continue
             seen_paths.add(project_path)
             _extract_servers(project_path / ".mcp.json", f"project:{project_path.name}")
+
+    # 4. Marketplace plugins: ~/.claude/plugins/marketplaces/**/
+    marketplace_mcps = _discover_marketplace_mcps(seen_names)
+    servers.extend(marketplace_mcps)
 
     return servers
 

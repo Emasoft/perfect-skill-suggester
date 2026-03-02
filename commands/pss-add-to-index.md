@@ -39,9 +39,14 @@ Incrementally add or update a single element (skill, agent, command, rule, MCP, 
    - `agents/*.md` — agent definitions
    - `commands/*.md` — command definitions
    - `rules/*.md` — rule definitions
-   - Check plugin's `plugin.json` for MCP/LSP configurations
-2. **For each element**: Run the single-element workflow (check duplicate → scan → merge)
-3. **Report**: Show count of elements added/updated
+   - Check plugin's `plugin.json`, `.mcp.json`, or `mcp.json` for MCP server configurations
+2. **For MCP servers found in plugin configs**:
+   - The discovery script (`pss_discover.py`) automatically builds descriptor `.md` files in the system temp dir
+   - Each descriptor aggregates: MCP config + README content + tool names from source code
+   - The haiku agent reads the descriptor file (pointed to by the element's `path` field) for deep inspection
+   - **NEVER activate or run the MCP server** — only read static files (README, source, config)
+3. **For each element**: Run the single-element workflow (check duplicate → scan → merge)
+4. **Report**: Show count of elements added/updated
 
 ## Element Discovery Locations
 

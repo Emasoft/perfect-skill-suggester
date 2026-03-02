@@ -107,7 +107,8 @@ For EACH element, a dedicated agent:
 7. Commands: `~/.claude/commands/`, `.claude/commands/`, plugin commands/
 8. Rules: `~/.claude/rules/`, `.claude/rules/`
 9. MCP servers: `~/.claude.json`, `.mcp.json`
-10. LSP servers: `~/.claude/settings.json` enabled plugins
+10. Marketplace MCP servers: `~/.claude/plugins/marketplaces/**/` (`.mcp.json`, `plugin.json`, `mcp.json`)
+11. LSP servers: `~/.claude/settings.json` enabled plugins
 
 **With `--all-projects`**, it ALSO scans:
 11. ALL projects registered in `~/.claude.json`:
