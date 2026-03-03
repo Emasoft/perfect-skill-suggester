@@ -1,6 +1,6 @@
 ---
 name: pss-status
-description: "View Perfect Skill Suggester status, index statistics, and recent activations."
+description: "Show PSS index status and test matching"
 argument-hint: "[--verbose] [--test PROMPT] [--run-tests]"
 allowed-tools: ["Bash", "Read"]
 ---

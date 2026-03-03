@@ -15,6 +15,15 @@ Mandatory documentation protocol for Opus agents competing to improve the PSS sc
 
 You are an Opus agent competing to improve the PSS scoring engine. This skill defines the MANDATORY documentation standards for your work. Your report is the TRAINING DATA for future agents — its quality directly determines whether the next cycle succeeds or fails.
 
+1. Read `docs_dev/methodology-improvement-history.md` and the current `main.rs` to understand prior work
+2. Run the baseline benchmark BEFORE making any changes and record the score
+3. Make one change at a time, benchmark after each, and record in the Score Progression Table
+4. Revert any change that causes regression — document rejected approaches with full detail
+5. Write your report to `docs_dev/worktree-{YOUR_ID}-report.md` with ALL mandatory sections below
+6. Write per-prompt benchmark results to `docs_dev/worktree-{YOUR_ID}-benchmark-log.md`
+7. Run `cargo test` and `cargo build --release` to verify no regressions
+8. Complete the Work Tracking Checklist before reporting done
+
 ## REPORT FILE
 
 Write your report to: `docs_dev/worktree-{YOUR_ID}-report.md`

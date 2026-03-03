@@ -1,6 +1,6 @@
 ---
 name: pss-reindex-skills
-description: "Scan ALL elements (skills, agents, commands, rules, MCP, LSP) and generate AI-analyzed keyword/phrase index."
+description: "Rebuild the PSS skill index"
 argument-hint: "[--batch-size N] [--pass1-only] [--pass2-only] [--all-projects]"
 allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep", "Task"]
 ---
@@ -279,7 +279,7 @@ This creates `~/.claude/cache/skill-checklist.md` with:
 
 Example output:
 ```
-Checklist written to: /Users/you/.claude/cache/skill-checklist.md
+Checklist written to: ~/.claude/cache/skill-checklist.md
   350 elements in 35 batches
 ```
 

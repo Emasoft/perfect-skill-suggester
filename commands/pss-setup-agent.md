@@ -1,6 +1,6 @@
 ---
 name: pss-setup-agent
-description: "Analyze an agent and suggest best-fit skills using the Rust scorer + AI post-filtering, writing results to .agent.toml"
+description: "Profile an agent with best-fit skills"
 argument-hint: "<agent-path-or-name> [--requirements PATH...] [--output PATH]"
 allowed-tools: ["Task", "Read", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
 ---

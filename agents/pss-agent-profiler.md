@@ -348,6 +348,26 @@ uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH
 - [ ] Summary includes: primary count, secondary count, specialized count, excluded count
 - [ ] No validation errors remain
 
+## Examples
+
+<example>
+Context: User wants to profile a new code review agent
+user: "/pss-setup-agent agents/code-reviewer.md"
+assistant: "I'll use the pss-agent-profiler agent to analyze the code-reviewer definition and generate a .agent.toml profile."
+<commentary>
+The user wants to create a configuration profile for their code review agent. The profiler will read the agent definition, invoke the Rust binary for candidate scoring, apply AI post-filtering (mutual exclusivity, stack compatibility, redundancy pruning), and write a validated .agent.toml file.
+</commentary>
+</example>
+
+<example>
+Context: User wants to profile an agent with project requirements
+user: "/pss-setup-agent agents/backend-architect.md --requirements docs/prd.md docs/tech-spec.md"
+assistant: "I'll use the pss-agent-profiler agent to analyze the backend-architect definition alongside the project requirements."
+<commentary>
+The user provides requirements documents that give project-specific context. The profiler reads both the agent definition AND the requirements, then uses the combined context to select skills that match the specific project's tech stack, constraints, and domain. This produces more targeted recommendations than profiling without requirements.
+</commentary>
+</example>
+
 ## Error Handling (FAIL-FAST — NO FALLBACKS)
 
 Every error is fatal. Do NOT attempt workarounds, bypasses, or simplified alternatives. Either the pipeline works correctly end-to-end, or it fails with a clear error.
