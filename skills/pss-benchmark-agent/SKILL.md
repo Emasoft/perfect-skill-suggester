@@ -296,7 +296,7 @@ Save the full output to the benchmark log, then update your work tracker.
 
 ## WORK TRACKING CHECKLIST
 
-**COPY THIS ENTIRE BLOCK to the TOP of your report file immediately when you start working.** Update it as you go. This is your task tracker — it ensures you never skip documentation.
+**Copy this checklist and track your progress.** Copy this entire block to the TOP of your report file immediately when you start working. Update it as you go. This is your task tracker — it ensures you never skip documentation.
 
 ```markdown
 # {AGENT_ID} Work Tracker

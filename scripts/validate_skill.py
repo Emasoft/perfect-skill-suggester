@@ -95,8 +95,9 @@ def parse_frontmatter(content: str) -> tuple[dict[str, Any] | None, str, int]:
         return None, content, 0
 
 
-def validate_frontmatter(skill_path: Path, content: str, report: ValidationReport) -> dict[str, Any] | None:
+def validate_frontmatter(_skill_path: Path, content: str, report: ValidationReport) -> dict[str, Any] | None:
     """Validate YAML frontmatter structure and content."""
+    del _skill_path  # parameter reserved for per-file reporting
     # Check frontmatter exists
     if not content.startswith("---"):
         report.info("No YAML frontmatter found (optional but recommended)", "SKILL.md")
@@ -104,6 +105,7 @@ def validate_frontmatter(skill_path: Path, content: str, report: ValidationRepor
 
     # Parse frontmatter
     frontmatter, _body, _fm_end_line = parse_frontmatter(content)
+    del _body, _fm_end_line  # only frontmatter dict is needed here
 
     if frontmatter is None and content.startswith("---"):
         # Started with --- but failed to parse
@@ -301,8 +303,31 @@ def validate_allowed_tools_field(frontmatter: dict[str, Any], report: Validation
     tools = frontmatter["allowed-tools"]
 
     if isinstance(tools, str):
-        # Single tool or comma-separated list
-        tool_list = [t.strip() for t in tools.split(",")]
+        # Single tool or comma-separated list — respect parenthesized scopes
+        # e.g. "Read, Bash(git:*,gh:*), Write" should yield 3 tools, not 4
+        if "(" in tools and "," in tools:
+            tool_list = []
+            depth = 0
+            current: list[str] = []
+            for ch in tools:
+                if ch == "(":
+                    depth += 1
+                    current.append(ch)
+                elif ch == ")":
+                    depth -= 1
+                    current.append(ch)
+                elif ch == "," and depth == 0:
+                    token = "".join(current).strip()
+                    if token:
+                        tool_list.append(token)
+                    current = []
+                else:
+                    current.append(ch)
+            token = "".join(current).strip()
+            if token:
+                tool_list.append(token)
+        else:
+            tool_list = [t.strip() for t in tools.split(",")]
     elif isinstance(tools, list):
         tool_list = tools
     else:
@@ -433,7 +458,7 @@ def validate_supporting_files(skill_path: Path, report: ValidationReport) -> Non
     if not skill_md.exists():
         return
 
-    content = skill_md.read_text()
+    content = skill_md.read_text(encoding="utf-8")
 
     # Find markdown links to local files
     local_refs = re.findall(r"\[([^\]]+)\]\(([^)]+)\)", content)
@@ -480,7 +505,7 @@ def validate_skill(skill_path: Path) -> SkillValidationReport:
 
     # Read SKILL.md content
     skill_md = skill_path / "SKILL.md"
-    content = skill_md.read_text()
+    content = skill_md.read_text(encoding="utf-8")
 
     # Validate frontmatter
     frontmatter = validate_frontmatter(skill_path, content, report)

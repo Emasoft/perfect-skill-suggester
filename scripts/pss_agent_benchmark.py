@@ -107,20 +107,26 @@ def run_agent_profile(binary: str, agent_name: str, prompt: str, cwd: str, timeo
         json.dump(descriptor, f)
         descriptor_path = f.name
 
+    # Use file-based output to avoid SIGPIPE/exit-137 with large JSON output
+    output_file = descriptor_path.replace(".json", "-out.json")
     try:
-        proc = subprocess.run(
-            [binary, "--agent-profile", descriptor_path, "--format", "json", "--top", "30"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        with open(output_file, "w") as stdout_f, open(os.devnull, "w") as devnull:
+            proc = subprocess.run(
+                [binary, "--agent-profile", descriptor_path, "--format", "json", "--top", "30"],
+                stdout=stdout_f,
+                stderr=devnull,
+                timeout=timeout,
+            )
         if proc.returncode != 0:
             return {}
-        return json.loads(proc.stdout)
+        with open(output_file) as f:
+            return json.load(f)
     except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
         return {}
     finally:
         os.unlink(descriptor_path)
+        if os.path.exists(output_file):
+            os.unlink(output_file)
 
 
 def extract_names_from_profile(profile: dict[str, Any]) -> dict[str, list[str]]:
