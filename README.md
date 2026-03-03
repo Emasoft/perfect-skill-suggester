@@ -1,6 +1,6 @@
 # Perfect Skill Suggester (PSS)
 
-![Version](https://img.shields.io/badge/version-2.2.4-blue)
+![Version](https://img.shields.io/badge/version-2.3.0-blue)
 ![Platforms](https://img.shields.io/badge/platforms-6-green)
 ![Accuracy](https://img.shields.io/badge/accuracy-88%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
@@ -14,7 +14,7 @@
 > Orchestrated by [AI Maestro](https://github.com/Emasoft/ai-maestro) |
 > Part of the [Emasoft Plugins](https://github.com/Emasoft/emasoft-plugins) ecosystem
 
-**High-accuracy skill activation (88%+) for Claude Code** with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing. Indexes 6 element types: skills, agents, commands, rules, MCP servers, and LSP servers.
+**High-accuracy skill activation (88%+) for Claude Code** with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing. Indexes 6 element types: skills, agents, commands, rules, MCP servers, and LSP servers — 874+ elements including 246 MCP servers.
 
 ## Features
 
@@ -23,6 +23,9 @@ Indexes all 6 Claude Code element types — not just skills. The unified index p
 
 ### AI-Analyzed Keywords
 Sonnet subagents analyze each element's source file to extract optimal activation patterns. Instead of relying on manually defined keywords, the AI reads the content and determines what user prompts should trigger it.
+
+### MCP Server Auto-Discovery
+Automatically discovers and indexes MCP servers from installed marketplace plugins (~250+ servers). Each MCP server entry includes AI-extracted tools, domain gates, patterns, and multi-word keyword phrases for precise matching.
 
 ### Native Rust Binary (~10ms)
 A pre-compiled Rust binary handles all matching logic, keeping hook latency minimal. No Python interpreter startup, no JIT compilation - just fast native code.
@@ -204,7 +207,7 @@ Run the reindex command to analyze all skills with AI:
 /pss-reindex-skills
 ```
 
-This spawns Sonnet subagents to analyze each SKILL.md and generate optimal activation keywords.
+This spawns Sonnet subagents to analyze each element (skills, agents, commands, rules, MCP servers) and generate optimal activation keywords. Marketplace MCP servers are automatically discovered and indexed.
 
 ### 2. Check Status
 
@@ -358,7 +361,7 @@ const MEDIUM_THRESHOLD: i32 = 6;
   "version": "3.0",
   "generated": "2026-02-27T06:00:00Z",
   "method": "ai-analyzed",
-  "skills_count": 216,
+  "skills_count": 874,
   "skills": {
     "devops-expert": {
       "source": "user",

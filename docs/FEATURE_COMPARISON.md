@@ -180,6 +180,15 @@ Tested against 500 real user prompts from LimorAI's experimental dataset:
 | Hook latency | <50ms | **~10ms** |
 | False positives | <15% | **12%** |
 | Multi-task accuracy | N/A | **91%** |
+| Index size | N/A | **874 entries (246 MCPs)** |
+
+### v2.3.0 MCP Indexing Pipeline
+
+- **Marketplace MCP Auto-Discovery**: `pss_discover.py` automatically scans `~/.claude/plugins/marketplaces/` for MCP server configs
+- **Descriptor Aggregation**: Builds enriched descriptor files combining config + README + tool names for each MCP
+- **Sonnet Indexer Agents**: Switched from Haiku to Sonnet for 97% reduction in extraction errors
+- **Quality Metrics**: 0 skeleton entries, 0 garbage keywords, 0 wrong domain gates, 100% valid tiers/categories
+- **Full Metadata**: Each MCP entry has 13+ keywords, 5+ intents, 4+ patterns, domain gates, tools, and descriptions
 
 ## Changelog
 
