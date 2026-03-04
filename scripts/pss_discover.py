@@ -9,6 +9,7 @@ This script discovers element locations from:
 - User-level elements (~/.claude/{skills,agents,commands,rules}/)
 - All projects registered in ~/.claude.json
 - Plugin caches and local plugins
+- Marketplace plugins (~/.claude/plugins/marketplaces/*/) — recursive scan
 - MCP server configs (~/.claude.json mcpServers, .mcp.json)
 - LSP servers enabled in ~/.claude/settings.json
 
@@ -17,6 +18,7 @@ Keyword/phrase extraction is done by the agent reading each element.
 
 Usage:
     python3 pss_discover.py [--json] [--project-only] [--user-only]
+    python3 pss_discover.py --jsonl  # One JSON object per line
     python3 pss_discover.py --checklist [--batch-size 10] [--output FILE]
     python3 pss_discover.py --all-projects
     python3 pss_discover.py --type skill,agent  # Filter to specific types
@@ -24,6 +26,7 @@ Usage:
 Output Modes:
     Default: List of element paths with metadata (name, path, source, type)
     --json: JSON format for programmatic use
+    --jsonl: One JSON object per line (name, type, source, path, description)
     --checklist: Markdown checklist with batches for parallel agent processing
 
 Checklist Format:
@@ -201,6 +204,49 @@ def get_all_element_locations(
                 _add_element_dirs(
                     plugin_dir, f"plugin:{plugin_dir.name}", include_rules=False
                 )
+
+    # 5b. Marketplace plugins: ~/.claude/plugins/marketplaces/*/
+    # Marketplaces contain thousands of elements at variable directory depth.
+    # We recursively find all skills/, agents/, commands/ directories and add them.
+    # This is essential for agent profiling which needs ALL available elements,
+    # not just the ones currently active in the user's Claude Code instance.
+    _SKIP_DIRS = {
+        ".git", "node_modules", "__pycache__", ".venv", "venv",
+        "dist", "build", ".cache", ".tox", ".mypy_cache",
+    }
+    marketplace_root = home / ".claude" / "plugins" / "marketplaces"
+    if marketplace_root.exists():
+        for marketplace_dir in marketplace_root.iterdir():
+            if not marketplace_dir.is_dir():
+                continue
+            if marketplace_dir.name.startswith("."):
+                continue
+            # Walk the marketplace directory tree to find element subdirectories
+            # at any depth (structure varies: some have skills/ at depth 1,
+            # others nest inside plugin-name/skills/ or plugin/version/skills/)
+            for dirpath, dirnames, _ in os.walk(
+                marketplace_dir, followlinks=False
+            ):
+                # Prune directories we should never descend into
+                dirnames[:] = [
+                    d for d in dirnames
+                    if d not in _SKIP_DIRS and not d.startswith(".")
+                ]
+                dp = Path(dirpath)
+                dir_name = dp.name
+                # Check if this directory IS a recognized element subdirectory
+                if dir_name in subdirs_to_scan:
+                    elem_type = subdirs_to_scan[dir_name]
+                    # Derive source label from marketplace name + relative path
+                    rel = dp.relative_to(marketplace_root)
+                    # rel looks like: marketplace-name/subpath/skills
+                    # source = "marketplace:<marketplace-name>"
+                    mp_name = rel.parts[0]
+                    source_label = f"marketplace:{mp_name}"
+                    locations.append((source_label, elem_type, dp))
+                    # Do not descend into the element dir itself (no nested
+                    # skills/skills/ etc.), prune it from further walking
+                    dirnames.clear()
 
     # 6. All projects from ~/.claude.json (comprehensive indexing)
     if scan_all_projects:
@@ -720,6 +766,67 @@ def _extract_body_preview(content: str, max_len: int = 500) -> str:
     return content[:max_len]
 
 
+def extract_use_context(content: str, max_len: int = 500) -> str:
+    """Extract usage-context text from a matching heading section in markdown content.
+
+    Scans for headings (# or ##) matching usage-related patterns (e.g. "When to Use",
+    "Use Cases", "Usage"). Returns the body text under that heading, up to the next
+    heading or end of content. Skips YAML frontmatter before scanning.
+
+    Args:
+        content: Raw markdown file content (may include YAML frontmatter).
+        max_len: Maximum character length of the returned text.
+
+    Returns:
+        Extracted section text (stripped, capped at max_len), or "" if no match.
+    """
+    # Patterns to match against heading text (case-insensitive)
+    heading_patterns = [
+        "when to use",
+        "use this skill",
+        "use cases",
+        "usage",
+        "when should",
+        "use this when",
+        "intended for",
+        "designed for",
+    ]
+
+    # Skip YAML frontmatter
+    body = content
+    if content.startswith("---"):
+        end_idx = content.find("\n---", 3)
+        if end_idx != -1:
+            body = content[end_idx + 4 :]
+
+    lines = body.split("\n")
+    capturing = False
+    captured: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        # Check if this line is a heading (starts with #)
+        if stripped.startswith("#"):
+            if capturing:
+                # Hit the next heading -- stop capturing
+                break
+            # Check if this heading matches any of our patterns
+            # Remove leading #s and whitespace to get heading text
+            heading_text = stripped.lstrip("#").strip().lower()
+            for pattern in heading_patterns:
+                if pattern in heading_text:
+                    capturing = True
+                    break
+        elif capturing:
+            captured.append(line)
+
+    if not captured:
+        return ""
+
+    result = "\n".join(captured).strip()
+    return result[:max_len]
+
+
 def discover_elements(
     locations: list[tuple[str, str, Path]],
     specific_name: str | None = None,
@@ -765,6 +872,7 @@ def discover_elements(
                     content = skill_md.read_text(encoding="utf-8")
                     frontmatter = parse_frontmatter(content)
                     body = _extract_body_preview(content)
+                    use_ctx = extract_use_context(content)
                     elements.append(
                         {
                             "name": frontmatter.get("name") or skill_path.name,
@@ -773,6 +881,7 @@ def discover_elements(
                             "type": "skill",
                             "description": frontmatter.get("description", "")[:200],
                             "preview": body,
+                            "use_context": use_ctx,
                         }
                     )
                     seen_names.add(dedup_key)
@@ -828,6 +937,7 @@ def discover_elements(
                         description = frontmatter.get("description", "")[:200]
 
                     body = _extract_body_preview(content)
+                    use_ctx = extract_use_context(content)
 
                     elements.append(
                         {
@@ -837,6 +947,7 @@ def discover_elements(
                             "type": element_type,
                             "description": description,
                             "preview": body,
+                            "use_context": use_ctx,
                         }
                     )
                     seen_names.add(dedup_key)
@@ -977,6 +1088,11 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(
+        "--jsonl",
+        action="store_true",
+        help="Output one JSON object per line (name, type, source, path, description)",
+    )
+    parser.add_argument(
         "--name", type=str, help="Only discover specific element by name"
     )
     parser.add_argument(
@@ -1071,6 +1187,26 @@ def main() -> int:
         elements = [e for e in elements if e.get("source") == "project"]
     elif args.user_only:
         elements = [e for e in elements if e.get("source") in ("user", "built-in")]
+
+    # JSONL mode: one JSON object per line with minimal fields
+    if args.jsonl:
+        for elem in elements:
+            desc = elem.get("description", "") or ""
+            if len(desc) > 200:
+                desc = desc[:200]
+            use_ctx = elem.get("use_context", "") or ""
+            if len(use_ctx) > 500:
+                use_ctx = use_ctx[:500]
+            record = {
+                "name": elem.get("name", ""),
+                "type": elem.get("type", ""),
+                "source": elem.get("source", ""),
+                "path": elem.get("path", ""),
+                "description": desc,
+                "use_context": use_ctx,
+            }
+            print(json.dumps(record, ensure_ascii=False))
+        return 0
 
     # Checklist mode: generate markdown checklist with batches
     if args.checklist:

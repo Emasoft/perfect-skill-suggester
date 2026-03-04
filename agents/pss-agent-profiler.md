@@ -129,7 +129,30 @@ Use these pre-scored results as your starting candidates for each .agent.toml se
 
 ### Step 4: AI Post-Filtering (YOUR CRITICAL VALUE-ADD)
 
-The Rust binary produces raw candidates. YOU must now apply intelligent filtering that only an AI can do. Read the SKILL.md of each candidate skill (the path is in the skill-index.json entry) and evaluate:
+The Rust binary produces raw candidates. YOU must now apply intelligent filtering that only an AI can do.
+
+**IMPORTANT — Use Entry IDs**: Every element has a unique 13-character ID (base36). Names collide frequently (11 "setup" entries, 5 "debug" entries). Always use the 13-char ID when inspecting, comparing, or resolving entries. Use `pss inspect <id>` to get full details and `pss resolve <id>` to get the file path for reading the actual content.
+
+**CLI tools for this phase:**
+```bash
+# Inspect a candidate's full metadata
+pss inspect <13-char-id> --format json
+
+# Compare two competing candidates (shared/unique keywords, frameworks, etc.)
+pss compare <id1> <id2> --format json
+
+# Get file paths to read actual SKILL.md content for final decision
+pss resolve <id1> <id2> <id3>
+
+# Search for additional candidates not in binary output
+pss search "websocket" --type skill --language typescript
+
+# Check coverage gaps
+pss coverage --type skill
+pss vocab languages --type skill
+```
+
+For each candidate, read its SKILL.md (use `pss resolve <id>` to get the path) and evaluate:
 
 #### 4a. Mutual Exclusivity Detection
 Identify skills that are **alternatives to each other** and should NOT both be recommended:
@@ -160,11 +183,15 @@ Verify each candidate is compatible with the project's actual stack:
 - A skill requiring a specific cloud provider should match the requirements
 
 #### 4d. Requirements-Driven Promotion
-If requirements mention specific needs not covered by high-scoring candidates, SEARCH for relevant skills in the index that the binary may have ranked low:
-- Requirements mention "real-time" → look for WebSocket, SSE, streaming skills
-- Requirements mention "i18n" → look for internationalization, locale skills
-- Requirements mention "HIPAA" or "PCI" → look for compliance, security audit skills
-- Requirements mention "PDF generation" → look for document processing skills
+If requirements mention specific needs not covered by high-scoring candidates, use `pss search` to find relevant skills:
+```bash
+pss search "websocket" --type skill       # Requirements mention "real-time"
+pss search "i18n" --type skill            # Requirements mention internationalization
+pss search "compliance" --type skill --category security  # HIPAA/PCI needs
+pss search "pdf" --type skill             # PDF generation needs
+pss search "accessibility" --type skill   # WCAG/a11y needs
+```
+Also check coverage gaps: `pss coverage --type skill` shows what languages/frameworks are covered.
 
 #### 4e. Redundancy Pruning
 Remove skills that are strict subsets of other recommended skills. If skill A covers everything skill B does plus more, remove skill B.

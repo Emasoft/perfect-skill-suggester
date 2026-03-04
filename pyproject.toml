@@ -8,6 +8,7 @@ dependencies = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
     "types-pyyaml>=6.0.12.20250915",
+    "anthropic>=0.84.0",
 ]
 
 [project.optional-dependencies]

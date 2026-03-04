@@ -108,10 +108,37 @@ Agents are autonomous AI workers that perform specific tasks. They have rich fro
 **How to extract data:**
 - **description**: From frontmatter `description` field (VERBATIM)
 - **use_cases**: From the agent's duties, capabilities, and trigger conditions in the body
-- **keywords**: From description + tools list + skills list + body content. Include: agent name, specialization, tools it uses, domains it covers. 8-15 keywords.
+- **keywords**: Generate from the agent's name + description FIRST. These define the agent's CORE DOMAIN.
+  Then scan the body for tools, frameworks, and technologies that DIRECTLY SERVE that core domain.
+  REJECT any keyword from the body that does not relate to the agent's name or description.
+  8-15 keywords, all anchored to the agent's stated specialization.
 - **category**: Infer from agent description (e.g., "security agent" → "security", "test writer" → "testing")
 - **intents**: From agent's primary actions/duties (e.g., "audit", "test", "review", "deploy", "analyze")
 - **frontmatter fields to read**: name, description, model, tools, disallowedTools, skills, mcpServers
+
+**CRITICAL — DOMAIN COHERENCE FOR AGENTS:**
+
+Agent definitions may contain references to skills, tools, or capabilities that are NOT part of the
+agent's actual specialization. These are "inherited" from the environment and must be FILTERED OUT.
+
+The agent's TRUE domain is defined by TWO things only:
+1. The agent **name** (e.g., "go-developer" → Go language, "security-auditor" → security)
+2. The agent **description** (the one-line summary of what it does)
+
+**FILTERING RULE**: For every keyword, tool, framework, or capability you find in the agent body,
+ask: "Does this directly serve the purpose stated in the agent's name and description?"
+- If YES → include it
+- If NO → EXCLUDE it, even if the body explicitly mentions it
+
+**Examples of contamination to REJECT:**
+- Agent "go-developer" body mentions "SwiftUI", "iOS app development" → REJECT (Go agent, not iOS)
+- Agent "security-auditor" body mentions "React components", "CSS styling" → REJECT (security, not frontend)
+- Agent "data-scientist" body mentions "Xcode debugging", "App Store submission" → REJECT (data science, not mobile)
+- Agent "rust-developer" body lists skill "senior-ios" in frontmatter skills → REJECT (Rust, not iOS)
+
+**Why this matters**: The skill index may be skewed toward certain domains (e.g., iOS/Apple).
+Agent bodies may list skills from that skewed index. Without filtering, ALL agents get contaminated
+with the dominant domain's keywords, making them indistinguishable to the scorer.
 
 ### COMMANDS (`<name>.md` in `commands/` directories)
 
@@ -317,6 +344,19 @@ Scan for file extensions mentioned (.py, .ts, .mp4, etc). Record WITHOUT the dot
 
 ### STEP 11: GENERATE KEYWORDS
 Follow the KEYWORD RULES below. Generate 10-20 multi-word phrases.
+
+**AGENT-SPECIFIC KEYWORD GENERATION (MANDATORY for agent elements):**
+If the current element is an AGENT, you MUST apply this 3-step process:
+1. **Anchor step**: Write down the agent's name and description. These define the CORE DOMAIN.
+2. **Generate step**: Generate candidate keywords from the body content.
+3. **Filter step**: For EACH candidate keyword, check: "Is this keyword about the same domain
+   as the agent's name and description?" If NO, discard it. Do NOT include cross-domain keywords
+   even if they appear literally in the agent's body or skills list.
+
+Example: Agent "go-developer" with description "Develop Go applications with modern patterns"
+- KEEP: "go concurrency patterns", "golang http server", "go module dependency"
+- DISCARD: "swift ios development", "react component design", "python data analysis"
+  (even if these appear in the agent's skills list or body)
 
 ### STEP 12: EXTRACT INTENTS
 Pick 3-5 action verbs from the VALID INTENTS list that match what the element helps users DO.
@@ -559,6 +599,15 @@ Read the element file AGAIN from the beginning. Compare what you extracted again
   Use the "5 imaginary users" technique: imagine 5 different people accidentally triggering this element.
   Would it be WRONG for any of them? If yes, you need a domain gate for the constraint that makes
   it wrong. If no, verify that domain_gates is {}.
+- **AGENT DOMAIN COHERENCE CHECK** (MANDATORY for agents): Re-read the agent's name and description.
+  Now scan EVERY keyword you generated. Does each keyword relate to what the name+description say?
+  If you find ANY keyword about a technology/domain NOT mentioned in the agent's name or description,
+  REMOVE IT immediately. Common contamination patterns to catch:
+  - iOS/Swift/Xcode keywords on a non-Apple agent
+  - React/CSS/HTML keywords on a non-frontend agent
+  - Python/pandas/numpy keywords on a non-data-science agent
+  - Docker/K8s keywords on a non-devops agent
+  Replace removed keywords with domain-relevant alternatives derived from the agent's actual specialization.
 
 Fix ANY discrepancies found.
 
@@ -931,7 +980,9 @@ Before writing the .pss file, check EACH item:
 □ 23. If methodology-specific: domain_gates has a gate for the methodology or tool
 □ 24. If industry-specific: domain_gates has a gate for the industry or compliance standard
 □ 25. I applied the "5 imaginary users" test — no user outside the domain would accidentally get this element
-□ 26. pass is set to 1
+□ 26. AGENTS ONLY: Every keyword relates to the agent's name+description domain. No cross-domain contamination.
+□ 27. AGENTS ONLY: No keywords from the agent's skills/tools frontmatter that don't match the agent's core domain.
+□ 28. pass is set to 1
 
 If ANY check fails, FIX IT before proceeding.
 

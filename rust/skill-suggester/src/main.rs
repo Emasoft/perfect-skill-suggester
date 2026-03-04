@@ -19,12 +19,14 @@
 use chrono::Utc;
 use clap::Parser;
 use colored::Colorize;
+use cozo::{DataValue, DbInstance, ScriptMutability};
 use lazy_static::lazy_static;
+use rayon::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use thiserror::Error;
@@ -82,14 +84,211 @@ struct Cli {
     /// Bypasses stdin reading — input comes from the file, not the hook.
     #[arg(long)]
     agent_profile: Option<String>,
+
+    /// Run Pass 1 batch enrichment: read JSONL from stdin (one element per line),
+    /// enrich each with deterministic keywords/category/intents, output enriched JSONL.
+    /// Replaces Sonnet agent calls for 10K-scale indexing.
+    #[arg(long, default_value_t = false)]
+    pass1_batch: bool,
+
+    /// Build CozoDB SQLite index from JSON index file.
+    /// Reads skill-index.json (from --index path) and writes skill-index.db alongside it.
+    /// The DB enables fast pre-filtered scoring (~35ms vs ~109ms for JSON full-scan).
+    #[arg(long, default_value_t = false)]
+    build_db: bool,
+
+    /// Query/inspect subcommand (search, list, inspect, compare, stats, vocab, coverage, resolve).
+    /// When omitted, the binary runs in hook mode (reads JSON from stdin).
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+/// Query/inspect subcommands for exploring the skill index.
+/// These use CozoDB Datalog queries when available, with JSON fallback.
+#[derive(clap::Subcommand, Debug)]
+enum Commands {
+    /// Full-text search across name, description, and keywords
+    Search {
+        /// Search query string (case-insensitive substring match)
+        query: String,
+
+        /// Filter by entry type: skill, agent, command, rule, mcp, lsp
+        #[arg(long, value_name = "TYPE")]
+        r#type: Option<String>,
+
+        /// Filter by domain (e.g. security, ai-ml, devops)
+        #[arg(long)]
+        domain: Option<String>,
+
+        /// Filter by programming language (e.g. python, typescript, rust)
+        #[arg(long)]
+        language: Option<String>,
+
+        /// Filter by framework (e.g. react, django, flutter)
+        #[arg(long)]
+        framework: Option<String>,
+
+        /// Filter by tool (e.g. docker, ffmpeg, terraform)
+        #[arg(long)]
+        tool: Option<String>,
+
+        /// Filter by category
+        #[arg(long)]
+        category: Option<String>,
+
+        /// Filter by file type/extension (e.g. pdf, svg, xlsx)
+        #[arg(long)]
+        file_type: Option<String>,
+
+        /// Filter by keyword
+        #[arg(long)]
+        keyword: Option<String>,
+
+        /// Filter by platform (e.g. ios, linux, universal)
+        #[arg(long)]
+        platform: Option<String>,
+
+        /// Maximum number of results (default: 20)
+        #[arg(long, default_value_t = 20)]
+        top: usize,
+
+        /// Output format: json (default) or table
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+
+    /// List entries with optional filtering and sorting
+    List {
+        /// Filter by entry type: skill, agent, command, rule, mcp, lsp
+        #[arg(long, value_name = "TYPE")]
+        r#type: Option<String>,
+
+        /// Filter by domain
+        #[arg(long)]
+        domain: Option<String>,
+
+        /// Filter by programming language
+        #[arg(long)]
+        language: Option<String>,
+
+        /// Filter by framework
+        #[arg(long)]
+        framework: Option<String>,
+
+        /// Filter by tool
+        #[arg(long)]
+        tool: Option<String>,
+
+        /// Filter by category
+        #[arg(long)]
+        category: Option<String>,
+
+        /// Filter by file type/extension
+        #[arg(long)]
+        file_type: Option<String>,
+
+        /// Filter by keyword
+        #[arg(long)]
+        keyword: Option<String>,
+
+        /// Filter by platform
+        #[arg(long)]
+        platform: Option<String>,
+
+        /// Sort order: name (default) or category
+        #[arg(long, default_value = "name")]
+        sort: String,
+
+        /// Maximum number of results (default: 50)
+        #[arg(long, default_value_t = 50)]
+        top: usize,
+
+        /// Output format: json (default) or table
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+
+    /// Show full details of a named entry (accepts name or ID)
+    Inspect {
+        /// Name or 13-char ID of the entry to inspect
+        name: String,
+
+        /// Output format: json (default) or table
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+
+    /// Side-by-side comparison of two entries (accepts names or IDs)
+    Compare {
+        /// First entry (name or ID)
+        name1: String,
+
+        /// Second entry (name or ID)
+        name2: String,
+
+        /// Output format: json (default) or table
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+
+    /// Show index statistics (counts by type, domain, category, language, etc.)
+    Stats {
+        /// Output format: json (default) or table
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+
+    /// List all distinct values for a field (the "menu" of available options).
+    /// Valid fields: languages, frameworks, tools, domains, keywords, intents,
+    /// platforms, file-types, categories, types
+    Vocab {
+        /// Field name to enumerate
+        field: String,
+
+        /// Filter by entry type when listing field values
+        #[arg(long, value_name = "TYPE")]
+        r#type: Option<String>,
+
+        /// Maximum number of values to return (default: 50)
+        #[arg(long, default_value_t = 50)]
+        top: usize,
+
+        /// Output format: json (default) or table
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+
+    /// Per-type coverage breakdown: what languages/domains/frameworks are covered
+    Coverage {
+        /// Entry type to analyze: skill, agent, command, rule, mcp, lsp
+        #[arg(long, value_name = "TYPE")]
+        r#type: Option<String>,
+
+        /// Output format: json (default) or table
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+
+    /// Resolve entry IDs to file paths (for reading actual skill/agent files)
+    Resolve {
+        /// One or more entry IDs (13-char deterministic hashes) or names
+        ids: Vec<String>,
+
+        /// Output format: json (default) or table
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
 }
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-/// Default index file location
+/// Default index file location (JSON)
 const INDEX_FILE: &str = "skill-index.json";
+
+/// Default CozoDB index file location (SQLite-backed)
+const DB_FILE: &str = "pss-skill-index.db";
 
 /// Default domain registry file location
 const REGISTRY_FILE: &str = "domain-registry.json";
@@ -123,6 +322,36 @@ const MAX_LOG_PROMPT_LENGTH: usize = 100;
 
 /// Maximum number of log entries before rotation (keep logs manageable)
 const MAX_LOG_ENTRIES: usize = 10000;
+
+// ============================================================================
+// Entry ID Generation (deterministic FNV-1a hash → base36)
+// ============================================================================
+
+/// Generate a deterministic 13-char ID from an entry's HashMap key.
+/// Uses FNV-1a 64-bit hash encoded as base36 (a-z0-9).
+/// Same key always produces the same ID across rebuilds.
+fn make_entry_id(key: &str) -> String {
+    // FNV-1a 64-bit hash
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in key.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    // Encode as base36, zero-padded to 13 chars (64-bit needs up to 13 base36 digits)
+    let mut result = String::with_capacity(13);
+    let mut val = hash;
+    let chars: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    loop {
+        result.push(chars[(val % 36) as usize] as char);
+        val /= 36;
+        if val == 0 { break; }
+    }
+    // Pad to 13 chars, reverse for consistent ordering
+    while result.len() < 13 {
+        result.push('0');
+    }
+    result.chars().rev().collect()
+}
 
 // ============================================================================
 // Scoring Weights — 4-tier logarithmic scale
@@ -2377,7 +2606,7 @@ pub struct SkillIndex {
 }
 
 /// Co-usage relationship data (nested under "co_usage" in JSON index)
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct CoUsageData {
     /// Skills often used in the SAME session/task
     #[serde(default)]
@@ -2393,7 +2622,7 @@ pub struct CoUsageData {
 }
 
 /// A single skill entry in the index (enhanced with intents, patterns, directories)
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SkillEntry {
     /// Where the skill comes from: user, project, plugin
     #[serde(default)]
@@ -2483,21 +2712,21 @@ pub struct SkillEntry {
     // MCP server additional metadata (only for type=mcp entries)
 
     /// MCP server transport type (stdio, sse)
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub server_type: String,
 
     /// MCP server launch command
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub server_command: String,
 
     /// MCP server command arguments
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub server_args: Vec<String>,
 
     // LSP server additional metadata (only for type=lsp entries)
 
     /// LSP language identifiers (e.g., ["python"], ["typescript", "javascript"])
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub language_ids: Vec<String>,
 
     // Co-usage fields (from Pass 2, nested under "co_usage" in JSON)
@@ -5590,7 +5819,6 @@ fn find_matches(
 ) -> Vec<MatchedSkill> {
     let weights = MatchWeights::default();
     let thresholds = ConfidenceThresholds::default();
-    let mut matches: Vec<MatchedSkill> = Vec::new();
 
     let original_lower = original_prompt.to_lowercase();
     let expanded_lower = expanded_prompt.to_lowercase();
@@ -5605,7 +5833,8 @@ fn find_matches(
     // keywords. By the time we reach this loop, at least one keyword matched or
     // some skills are ungated. Per-skill gate checks below handle individual filtering.
 
-    for (name, entry) in &index.skills {
+    // Parallel scoring: each skill scored independently across all CPU cores via rayon
+    let mut matches: Vec<MatchedSkill> = index.skills.par_iter().filter_map(|(name, entry)| {
         let mut score: i32 = 0;
         let mut evidence: Vec<String> = Vec::new();
         let mut keyword_matches = 0;
@@ -5623,7 +5852,7 @@ fn find_matches(
         });
         if has_negative {
             debug!("Skipping skill '{}' due to negative keyword match", name);
-            continue;
+            return None;
         }
 
         // Domain gate hard pre-filter: ALL gates must pass or skill is skipped entirely.
@@ -5698,7 +5927,7 @@ fn find_matches(
                 "Skipping skill '{}' due to platform mismatch (skill: {:?}, context: {:?})",
                 name, entry.platforms, context.platforms
             );
-            continue;
+            return None;
         }
         if context_boost > 0 {
             score += context_boost;
@@ -6285,7 +6514,7 @@ fn find_matches(
 
         // Only include if score is meaningful (at least one common-tier match)
         if score >= 10 {
-            matches.push(MatchedSkill {
+            Some(MatchedSkill {
                 name: name.clone(),
                 path: entry.path.clone(),
                 skill_type: entry.skill_type.clone(),
@@ -6293,9 +6522,11 @@ fn find_matches(
                 score,
                 confidence,
                 evidence,
-            });
+            })
+        } else {
+            None
         }
-    }
+    }).collect();
 
     // Co-usage boosting (skip in incomplete_mode)
     // If a high-scoring skill lists another skill in usually_with, boost that skill
@@ -6478,18 +6709,9 @@ fn get_index_path(cli_index: Option<&str>) -> Result<PathBuf, SuggesterError> {
         }
     }
 
-    // 3. Default: ~/.claude/cache/skill-index.json (native targets only)
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let home = dirs::home_dir().ok_or(SuggesterError::NoHomeDir)?;
-        Ok(home.join(".claude").join(CACHE_DIR).join(INDEX_FILE))
-    }
-
-    // On WASM, --index or PSS_INDEX_PATH is required
-    #[cfg(target_arch = "wasm32")]
-    {
-        Err(SuggesterError::NoHomeDir)
-    }
+    // 3. Default: ~/.claude/cache/skill-index.json
+    let home = dirs::home_dir().ok_or(SuggesterError::NoHomeDir)?;
+    Ok(home.join(".claude").join(CACHE_DIR).join(INDEX_FILE))
 }
 
 /// Load and parse the skill index
@@ -6528,18 +6750,9 @@ fn get_registry_path(cli_registry: Option<&str>) -> Option<PathBuf> {
         }
     }
 
-    // 3. Default: ~/.claude/cache/domain-registry.json (native targets only)
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let home = dirs::home_dir()?;
-        Some(home.join(".claude").join(CACHE_DIR).join(REGISTRY_FILE))
-    }
-
-    // On WASM, registry is not available unless explicitly set
-    #[cfg(target_arch = "wasm32")]
-    {
-        None
-    }
+    // 3. Default: ~/.claude/cache/domain-registry.json
+    let home = dirs::home_dir()?;
+    Some(home.join(".claude").join(CACHE_DIR).join(REGISTRY_FILE))
 }
 
 /// Load and parse the domain registry. Returns None if registry doesn't exist
@@ -6699,8 +6912,6 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
 }
 
 /// Discover and load all PSS files from skill directories.
-/// On WASM targets this is a no-op since there is no home directory.
-#[cfg(not(target_arch = "wasm32"))]
 fn load_pss_files(index: &mut SkillIndex) {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -6759,19 +6970,12 @@ fn load_pss_files(index: &mut SkillIndex) {
     }
 }
 
-/// WASM stub: PSS file loading is not available (no home directory)
-#[cfg(target_arch = "wasm32")]
-fn load_pss_files(_index: &mut SkillIndex) {
-    debug!("PSS file loading not available on WASM targets");
-}
 
 // ============================================================================
 // Activation Logging
 // ============================================================================
 
 /// Get the path to the activation log file.
-/// On WASM targets, returns None (no home directory for log storage).
-#[cfg(not(target_arch = "wasm32"))]
 fn get_log_path() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     let log_dir = home.join(".claude").join(LOG_DIR);
@@ -6787,11 +6991,6 @@ fn get_log_path() -> Option<PathBuf> {
     Some(log_dir.join(ACTIVATION_LOG_FILE))
 }
 
-/// WASM stub: activation logging is not available (no home directory)
-#[cfg(target_arch = "wasm32")]
-fn get_log_path() -> Option<PathBuf> {
-    None
-}
 
 /// Calculate a simple hash of the prompt for deduplication
 fn hash_prompt(prompt: &str) -> String {
@@ -6965,28 +7164,68 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
 
     info!("Agent profile mode: analyzing agent '{}'", profile.name);
 
-    // Load skill index
-    let index_path = get_index_path(cli.index.as_deref())?;
-    let index = match load_index(&index_path) {
-        Ok(idx) => idx,
-        Err(SuggesterError::IndexNotFound(path)) => {
-            error!("Skill index not found at {:?}", path);
-            return Err(SuggesterError::IndexNotFound(path));
+    // Open CozoDB first — if available, load index from DB instead of JSON
+    let db = get_db_path(cli.index.as_deref()).and_then(|p| {
+        match open_db(&p) {
+            Ok(db) => {
+                info!("Agent profile: using CozoDB at {:?}", p);
+                Some(db)
+            }
+            Err(e) => {
+                warn!("Agent profile: CozoDB open failed: {}, using JSON", e);
+                None
+            }
         }
-        Err(e) => return Err(e),
+    });
+
+    // Load skill index: try CozoDB first, then JSON file fallback
+    let index = if let Some(ref db) = db {
+        match load_index_from_db(db) {
+            Ok(idx) => {
+                info!("Loaded {} skills from CozoDB", idx.skills.len());
+                idx
+            }
+            Err(e) => {
+                warn!("CozoDB index load failed: {}, falling back to JSON", e);
+                let index_path = get_index_path(cli.index.as_deref())?;
+                load_index(&index_path)?
+            }
+        }
+    } else {
+        let index_path = get_index_path(cli.index.as_deref())?;
+        match load_index(&index_path) {
+            Ok(idx) => idx,
+            Err(SuggesterError::IndexNotFound(path)) => {
+                error!("Skill index not found at {:?}", path);
+                return Err(SuggesterError::IndexNotFound(path));
+            }
+            Err(e) => return Err(e),
+        }
     };
     info!("Loaded {} skills from index", index.skills.len());
 
-    // Load domain registry (optional, graceful)
-    let registry = match get_registry_path(cli.registry.as_deref()) {
-        Some(reg_path) => match load_domain_registry(&reg_path) {
-            Ok(Some(reg)) => {
-                info!("Loaded domain registry: {} domains", reg.domains.len());
-                Some(reg)
+    // Load domain registry: try CozoDB first, then JSON file fallback
+    let registry = if let Some(ref db) = db {
+        match load_domain_registry_from_db(db) {
+            Ok(Some(reg)) => Some(reg),
+            _ => {
+                match get_registry_path(cli.registry.as_deref()) {
+                    Some(reg_path) => load_domain_registry(&reg_path).ok().flatten(),
+                    None => None,
+                }
             }
-            _ => None,
-        },
-        None => None,
+        }
+    } else {
+        match get_registry_path(cli.registry.as_deref()) {
+            Some(reg_path) => match load_domain_registry(&reg_path) {
+                Ok(Some(reg)) => {
+                    info!("Loaded domain registry: {} domains", reg.domains.len());
+                    Some(reg)
+                }
+                _ => None,
+            },
+            None => None,
+        }
     };
 
     // Build project context from the agent descriptor's cwd (if provided)
@@ -7231,14 +7470,11 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
             None => HashMap::new(),
         };
 
+        // Score all skills with the unchanged find_matches() algorithm
+        // (index was loaded from CozoDB or JSON above — scoring is identical either way)
         let matches = find_matches(
-            &corrected,
-            &expanded,
-            &index,
-            &profile.cwd,
-            &context,
-            false, // not incomplete_mode — use full scoring including co_usage
-            if detected_domains.is_empty() { &empty_domains } else { &detected_domains },
+            &corrected, &expanded, &index, &profile.cwd, &context,
+            false, if detected_domains.is_empty() { &empty_domains } else { &detected_domains },
             registry.as_ref(),
         );
 
@@ -8004,6 +8240,2064 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     Ok(())
 }
 
+// ============================================================================
+// Pass 1 Batch Enrichment — deterministic keyword/category/intent generation
+// ============================================================================
+
+/// Stopwords to filter out during keyword generation.
+/// These add no discriminative value for skill matching.
+fn is_pass1_stopword(w: &str) -> bool {
+    matches!(
+        w,
+        "the" | "a" | "an" | "and" | "or" | "but" | "in" | "on" | "at" | "to" | "for"
+            | "of" | "with" | "by" | "from" | "as" | "is" | "was" | "are" | "be" | "been"
+            | "being" | "have" | "has" | "had" | "do" | "does" | "did" | "will" | "would"
+            | "could" | "should" | "may" | "might" | "can" | "shall" | "this" | "that"
+            | "these" | "those" | "it" | "its" | "you" | "your" | "use" | "using" | "used"
+            | "all" | "each" | "every" | "any" | "both" | "more" | "most" | "other"
+            | "some" | "such" | "than" | "too" | "very" | "just" | "also" | "not" | "no"
+            | "so" | "if" | "then" | "when" | "how" | "what" | "which" | "who" | "whom"
+            | "where" | "why" | "new" | "best" | "modern" | "advanced" | "expert"
+    )
+}
+
+/// Generate keywords from element name + description (deterministic, no LLM).
+/// Splits on separators, stems, deduplicates, caps at 15.
+fn generate_pass1_keywords(name: &str, description: &str) -> Vec<String> {
+    let mut keywords: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Helper: add a keyword if not already seen and not a stopword
+    let mut add = |word: String| {
+        if word.len() > 1 && !is_pass1_stopword(&word) && seen.insert(word.clone()) {
+            keywords.push(word);
+        }
+    };
+
+    // 1. Split name on separators: "go-developer" → ["go", "developer"]
+    for part in name.split(|c: char| c == '-' || c == '_' || c == ' ' || c == '.') {
+        let lower = part.to_lowercase();
+        if lower.is_empty() {
+            continue;
+        }
+        let stemmed = stem_word(&lower);
+        add(lower.clone());
+        if stemmed != lower {
+            add(stemmed);
+        }
+    }
+
+    // 2. Split description on whitespace, strip punctuation, stem
+    for word in description.split_whitespace() {
+        let lower: String = word
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        if lower.len() <= 2 {
+            continue;
+        }
+        let stemmed = stem_word(&lower);
+        add(lower.clone());
+        if stemmed != lower {
+            add(stemmed);
+        }
+    }
+
+    // 3. Add compound name as-is for exact matching (e.g., "go-developer")
+    let compound = name.to_lowercase();
+    if compound.len() > 1 && !is_pass1_stopword(&compound) && !seen.contains(&compound) {
+        seen.insert(compound.clone());
+        keywords.push(compound);
+    }
+
+    // 4. Cap at 15 keywords
+    keywords.truncate(15);
+    keywords
+}
+
+/// Assign a category from the 16-category taxonomy based on keyword signals.
+/// Priority-ordered: first match wins (same logic as the scoring engine).
+fn assign_pass1_category(keywords: &[String]) -> &'static str {
+    // Category signal table — priority order (highest priority first)
+    let category_signals: &[(&str, &[&str])] = &[
+        ("mobile", &["ios", "android", "swift", "swiftui", "flutter", "react-native", "kotlin", "xcode", "mobile", "app-store"]),
+        ("plugin-dev", &["plugin", "hook", "skill", "mcp", "extension", "marketplace"]),
+        ("security", &["security", "secur", "audit", "vulnerability", "owasp", "pentest", "encrypt", "auth", "jwt", "oauth"]),
+        ("devops-cicd", &["docker", "kubernetes", "k8s", "ci", "cd", "pipeline", "deploy", "github-actions", "jenkins", "helm"]),
+        ("infrastructure", &["terraform", "aws", "azure", "gcp", "cloud", "infrastructure", "iac", "serverless", "lambda"]),
+        ("testing", &["test", "jest", "pytest", "cypress", "playwright", "e2e", "tdd", "spec", "assert", "coverage"]),
+        ("debugging", &["debug", "debugger", "profil", "trace", "log", "breakpoint", "inspect", "diagnos"]),
+        ("data-ml", &["data", "ml", "machine-learning", "pandas", "numpy", "sklearn", "dataset", "featur", "model"]),
+        ("ai-llm", &["llm", "ai", "gpt", "prompt", "rag", "langchain", "openai", "anthropic", "embedding", "vector"]),
+        ("web-frontend", &["react", "vue", "angular", "css", "html", "frontend", "ui", "component", "tailwind", "nextjs", "svelte"]),
+        ("web-backend", &["api", "rest", "graphql", "backend", "server", "express", "django", "rails", "fastapi", "endpoint"]),
+        ("visualization", &["chart", "graph", "plot", "d3", "visual", "dashboard", "diagram"]),
+        ("cli-tools", &["cli", "command", "terminal", "shell", "bash", "script", "automation"]),
+        ("code-quality", &["lint", "format", "refactor", "review", "clean", "style", "prettier", "eslint", "ruff"]),
+        ("research", &["research", "paper", "academic", "analysis", "study", "survey", "literature"]),
+        ("project-mgmt", &["project", "management", "plan", "organiz", "roadmap", "sprint", "agile", "kanban"]),
+    ];
+
+    for (category, signals) in category_signals {
+        for kw in keywords {
+            for signal in *signals {
+                // Prefix match: "secur" matches "security", "secure", etc.
+                if kw.starts_with(signal) || signal.starts_with(kw.as_str()) {
+                    return category;
+                }
+            }
+        }
+    }
+    "cli-tools" // fallback for unclassifiable elements
+}
+
+/// Infer default intents for a category. Maps each category to typical user intents.
+fn infer_pass1_intents(category: &str) -> Vec<String> {
+    match category {
+        "mobile" => vec!["develop", "build", "deploy", "test"],
+        "plugin-dev" => vec!["create", "extend", "configure", "develop"],
+        "security" => vec!["audit", "secure", "scan", "review"],
+        "devops-cicd" => vec!["deploy", "automate", "build", "configure"],
+        "infrastructure" => vec!["provision", "configure", "manage", "scale"],
+        "testing" => vec!["test", "validate", "verify", "assert"],
+        "debugging" => vec!["debug", "diagnose", "trace", "inspect"],
+        "data-ml" => vec!["analyze", "train", "predict", "transform"],
+        "ai-llm" => vec!["generate", "prompt", "embed", "chat"],
+        "web-frontend" => vec!["build", "style", "render", "animate"],
+        "web-backend" => vec!["serve", "route", "query", "authenticate"],
+        "visualization" => vec!["visualize", "chart", "plot", "display"],
+        "cli-tools" => vec!["run", "execute", "automate", "script"],
+        "code-quality" => vec!["lint", "format", "refactor", "review"],
+        "research" => vec!["research", "analyze", "synthesize", "cite"],
+        "project-mgmt" => vec!["plan", "track", "organize", "prioritize"],
+        _ => vec!["develop", "implement", "configure"],
+    }
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+/// Extract programming languages mentioned in keywords.
+/// Returns a list of recognized language names.
+fn extract_pass1_languages(keywords: &[String]) -> Vec<String> {
+    let lang_map: &[(&str, &str)] = &[
+        ("python", "python"), ("py", "python"), ("rust", "rust"), ("go", "go"),
+        ("golang", "go"), ("java", "java"), ("javascript", "javascript"), ("js", "javascript"),
+        ("typescript", "typescript"), ("ts", "typescript"), ("ruby", "ruby"), ("rb", "ruby"),
+        ("swift", "swift"), ("kotlin", "kotlin"), ("dart", "dart"), ("flutter", "dart"),
+        ("c++", "c++"), ("cpp", "c++"), ("csharp", "c#"), ("c#", "c#"),
+        ("php", "php"), ("scala", "scala"), ("elixir", "elixir"), ("lua", "lua"),
+        ("sql", "sql"), ("html", "html"), ("css", "css"), ("shell", "shell"),
+        ("bash", "shell"), ("haskell", "haskell"), ("perl", "perl"), ("r", "r"),
+    ];
+
+    let mut langs: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for kw in keywords {
+        for (pattern, lang) in lang_map {
+            if kw == pattern && seen.insert(lang.to_string()) {
+                langs.push(lang.to_string());
+            }
+        }
+    }
+    langs
+}
+
+/// Extract frameworks mentioned in keywords.
+fn extract_pass1_frameworks(keywords: &[String]) -> Vec<String> {
+    let fw_set: &[&str] = &[
+        "react", "vue", "angular", "svelte", "nextjs", "next", "nuxt", "express",
+        "django", "flask", "fastapi", "rails", "spring", "laravel", "nest",
+        "tailwind", "bootstrap", "electron", "tauri", "unity", "unreal",
+        "tensorflow", "pytorch", "keras", "langchain", "playwright", "cypress",
+        "jest", "pytest", "docker", "kubernetes", "terraform",
+    ];
+
+    keywords
+        .iter()
+        .filter(|kw| fw_set.contains(&kw.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// Extract platform signals from keywords.
+fn extract_pass1_platforms(keywords: &[String]) -> Vec<String> {
+    let plat_map: &[(&str, &str)] = &[
+        ("ios", "ios"), ("android", "android"), ("macos", "macos"), ("windows", "windows"),
+        ("linux", "linux"), ("web", "web"), ("mobile", "mobile"), ("desktop", "desktop"),
+        ("cloud", "cloud"), ("aws", "aws"), ("azure", "azure"), ("gcp", "gcp"),
+        ("docker", "docker"), ("wasm", "wasm"), ("serverless", "serverless"),
+    ];
+
+    let mut platforms: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for kw in keywords {
+        for (pattern, platform) in plat_map {
+            if kw == pattern && seen.insert(platform.to_string()) {
+                platforms.push(platform.to_string());
+            }
+        }
+    }
+    platforms
+}
+
+/// Detect negation patterns in text and split words into positive/negative buckets.
+/// Returns (positive_words, negative_words) extracted from the text.
+///
+/// Negation patterns recognized:
+/// - "not compatible with X", "incompatible with X"
+/// - "does not work with X", "doesn't work with X"
+/// - "but not X", "except X", "excluding X"
+/// - "instead of X", "not for X", "not intended for X"
+/// - "should not be used for X", "do not use for X"
+fn extract_negation_keywords(text: &str) -> (Vec<String>, Vec<String>) {
+    let mut positive: Vec<String> = Vec::new();
+    let mut negative: Vec<String> = Vec::new();
+
+    if text.is_empty() {
+        return (positive, negative);
+    }
+
+    // Split text into rough sentences (by period, newline, or bullet point)
+    let sentences: Vec<&str> = text
+        .split(|c: char| c == '.' || c == '\n' || c == ';')
+        .collect();
+
+    // Negation markers — when found, subsequent content words go to negative_keywords
+    let negation_markers: &[&str] = &[
+        "not compatible",
+        "incompatible",
+        "does not work",
+        "doesn't work",
+        "do not work",
+        "not work with",
+        "but not",
+        "except for",
+        "except",
+        "excluding",
+        "instead of",
+        "not for",
+        "not intended",
+        "not designed",
+        "not suitable",
+        "should not",
+        "do not use",
+        "don't use",
+        "not recommended",
+        "won't work",
+        "will not work",
+        "cannot be used",
+        "can't be used",
+        "not supported",
+        "unsupported",
+    ];
+
+    for sentence in &sentences {
+        let lower = sentence.to_lowercase();
+        let trimmed = lower.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Check if this sentence contains a negation marker
+        let has_negation = negation_markers.iter().any(|marker| trimmed.contains(marker));
+
+        // Extract content words from this sentence
+        for word in trimmed.split_whitespace() {
+            let clean: String = word
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                .collect();
+            if clean.len() <= 2 || is_pass1_stopword(&clean) {
+                continue;
+            }
+            // Skip the negation marker words themselves
+            if matches!(
+                clean.as_str(),
+                "not" | "does" | "doesn" | "don" | "won" | "cannot" | "can"
+                    | "should" | "recommended" | "compatible" | "incompatible"
+                    | "intended" | "designed" | "suitable" | "supported" | "unsupported"
+                    | "work" | "works" | "working" | "except" | "excluding" | "instead"
+            ) {
+                continue;
+            }
+
+            if has_negation {
+                negative.push(clean);
+            } else {
+                positive.push(clean);
+            }
+        }
+    }
+
+    (positive, negative)
+}
+
+/// Run Pass 1 batch enrichment: read JSONL from stdin, enrich each element,
+/// output enriched JSONL to stdout. Zero LLM calls — pure deterministic.
+fn run_pass1_batch() -> Result<(), SuggesterError> {
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let mut out = io::BufWriter::new(stdout.lock());
+    let mut count: usize = 0;
+    let mut errors: usize = 0;
+
+    for line_result in stdin.lock().lines() {
+        let line = match line_result {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("Warning: read error: {}", e);
+                errors += 1;
+                continue;
+            }
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Parse input JSONL line
+        let input: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("Warning: invalid JSON: {}", e);
+                errors += 1;
+                continue;
+            }
+        };
+
+        let name = input["name"].as_str().unwrap_or("");
+        let elem_type = input["type"].as_str().unwrap_or("skill");
+        let source = input["source"].as_str().unwrap_or("");
+        let path = input["path"].as_str().unwrap_or("");
+        let description = input["description"].as_str().unwrap_or("");
+        // use_context: "when to use" / "use cases" section from the body (if present)
+        let use_context = input["use_context"].as_str().unwrap_or("");
+
+        if name.is_empty() {
+            eprintln!("Warning: skipping element with empty name");
+            errors += 1;
+            continue;
+        }
+
+        // Combine description + use_context for richer keyword extraction
+        let combined_text = if use_context.is_empty() {
+            description.to_string()
+        } else {
+            format!("{} {}", description, use_context)
+        };
+
+        // Deterministic enrichment from name + description + use_context
+        let keywords = generate_pass1_keywords(name, &combined_text);
+        let category = assign_pass1_category(&keywords);
+        let intents = infer_pass1_intents(category);
+        let languages = extract_pass1_languages(&keywords);
+        let frameworks = extract_pass1_frameworks(&keywords);
+        let platforms = extract_pass1_platforms(&keywords);
+
+        // Negation-aware extraction from description + use_context
+        // Words near negation markers ("not compatible with X") go to negative_keywords
+        let (extra_positive, negative_keywords) = extract_negation_keywords(&combined_text);
+
+        // Merge extra positive words into keywords (dedup via seen set)
+        let mut all_keywords = keywords;
+        let kw_set: std::collections::HashSet<String> =
+            all_keywords.iter().cloned().collect();
+        for w in extra_positive {
+            let stemmed = stem_word(&w);
+            if !kw_set.contains(&w) && !is_pass1_stopword(&w) && w.len() > 2 {
+                all_keywords.push(w);
+            }
+            if !kw_set.contains(&stemmed) && !is_pass1_stopword(&stemmed) && stemmed.len() > 2 {
+                all_keywords.push(stemmed);
+            }
+        }
+        all_keywords.truncate(20); // Allow slightly more with use_context
+
+        // Dedup negative keywords
+        let neg_set: std::collections::HashSet<String> =
+            negative_keywords.into_iter().collect();
+        let negative_kw: Vec<String> = neg_set.iter().cloned().collect();
+
+        // Remove negative keywords AND their stems from positive keywords
+        // e.g., "not compatible with Google" removes both "google" and "googl"
+        if !neg_set.is_empty() {
+            let neg_stems: std::collections::HashSet<String> =
+                neg_set.iter().map(|w| stem_word(w)).collect();
+            all_keywords.retain(|kw| !neg_set.contains(kw) && !neg_stems.contains(kw));
+        }
+
+        // Extract use_cases from use_context bullet points (lines starting with - or *)
+        let use_cases: Vec<String> = if use_context.is_empty() {
+            vec![]
+        } else {
+            use_context
+                .lines()
+                .filter(|line| {
+                    let t = line.trim();
+                    t.starts_with("- ") || t.starts_with("* ") || t.starts_with("• ")
+                })
+                .map(|line| {
+                    line.trim()
+                        .trim_start_matches(|c: char| c == '-' || c == '*' || c == '•')
+                        .trim()
+                        .to_string()
+                })
+                .filter(|s| !s.is_empty())
+                .take(5) // Cap at 5 use cases
+                .collect()
+        };
+
+        // Determine tier from source: marketplace → community, user/project → built-in
+        let tier = if source.starts_with("marketplace:") {
+            "community"
+        } else if source.starts_with("project:") {
+            "project"
+        } else {
+            "built-in"
+        };
+
+        // Build enriched output object
+        let output = serde_json::json!({
+            "name": name,
+            "type": elem_type,
+            "source": source,
+            "path": path,
+            "description": description,
+            "keywords": all_keywords,
+            "negative_keywords": negative_kw,
+            "category": category,
+            "intents": intents,
+            "tier": tier,
+            "boost": 0,
+            "platforms": platforms,
+            "frameworks": frameworks,
+            "languages": languages,
+            "domains": [],
+            "tools": [],
+            "file_types": [],
+            "patterns": [],
+            "directories": [],
+            "path_patterns": [],
+            "use_cases": use_cases,
+            "secondary_categories": [],
+            "domain_gates": {},
+        });
+
+        // Write enriched JSONL line to stdout
+        if let Err(e) = writeln!(out, "{}", serde_json::to_string(&output).unwrap_or_default()) {
+            // Broken pipe (downstream consumer closed) — exit cleanly
+            if e.kind() == io::ErrorKind::BrokenPipe {
+                break;
+            }
+            return Err(SuggesterError::StdinRead(e));
+        }
+        count += 1;
+    }
+
+    eprintln!("Pass1 batch: enriched {} elements ({} errors)", count, errors);
+    Ok(())
+}
+
+// ============================================================================
+// CozoDB Index (SQLite-backed pre-filtering for fast skill scoring)
+// ============================================================================
+
+/// Resolve the CozoDB index path. Returns None if the DB file does not exist.
+/// Derives from the JSON index path by replacing .json with .db extension.
+fn get_db_path(cli_index: Option<&str>) -> Option<PathBuf> {
+    // If --index explicitly points to a .db file, use it directly
+    if let Some(path) = cli_index {
+        if path.ends_with(".db") {
+            let p = PathBuf::from(path);
+            return if p.exists() { Some(p) } else { None };
+        }
+        // Derive DB path: same directory as JSON, using DB_FILE name
+        let json_path = PathBuf::from(path);
+        if let Some(parent) = json_path.parent() {
+            let db_path = parent.join(DB_FILE);
+            if db_path.exists() {
+                return Some(db_path);
+            }
+        }
+    }
+
+    // Check PSS_INDEX_PATH env var — derive DB path from same directory
+    if let Ok(path) = std::env::var("PSS_INDEX_PATH") {
+        if !path.is_empty() {
+            let json_path = PathBuf::from(&path);
+            if let Some(parent) = json_path.parent() {
+                let db_path = parent.join(DB_FILE);
+                if db_path.exists() {
+                    return Some(db_path);
+                }
+            }
+        }
+    }
+
+    // Default: ~/.claude/cache/pss-skill-index.db
+    let home = dirs::home_dir()?;
+    let db_path = home.join(".claude").join(CACHE_DIR).join(DB_FILE);
+    if db_path.exists() { Some(db_path) } else { None }
+}
+
+/// Open a CozoDB instance with SQLite backend at the given path.
+fn open_db(path: &Path) -> Result<DbInstance, SuggesterError> {
+    DbInstance::new("sqlite", path.to_str().unwrap_or(""), Default::default())
+        .map_err(|e| SuggesterError::IndexParse(format!("CozoDB open failed: {}", e)))
+}
+
+/// Create the CozoDB schema with all relations needed for skill indexing.
+fn create_db_schema(db: &DbInstance) -> Result<(), SuggesterError> {
+    // Main skills table: scalar fields + JSON-serialized vector fields
+    // `id` is a deterministic 13-char hash of the entry key for stable references
+    db.run_script(
+        r#"
+        {:create skills {
+            name: String =>
+            id: String,
+            path: String,
+            skill_type: String,
+            source: String,
+            description: String,
+            tier: String,
+            boost: Int,
+            category: String,
+            server_type: String,
+            server_command: String,
+            server_args_json: String,
+            language_ids_json: String,
+            negative_kw_json: String,
+            patterns_json: String,
+            directories_json: String,
+            path_patterns_json: String,
+            use_cases_json: String,
+            co_usage_json: String,
+            alternatives_json: String,
+            domain_gates_json: String,
+            file_types_json: String,
+            keywords_json: String,
+            intents_json: String,
+            tools_json: String,
+            frameworks_json: String,
+            languages_json: String,
+            platforms_json: String,
+            domains_json: String
+        }}
+        "#,
+        Default::default(),
+        ScriptMutability::Mutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Schema create (skills) failed: {}", e)))?;
+
+    // Pre-filter relations: normalized for Datalog joins during candidate selection
+    let relations = [
+        "skill_keywords", "skill_intents", "skill_tools", "skill_frameworks",
+        "skill_languages", "skill_platforms", "skill_domains", "skill_file_types",
+    ];
+    for rel in &relations {
+        let script = format!(
+            "{{:create {} {{ skill_name: String, value: String }}}}",
+            rel
+        );
+        db.run_script(&script, Default::default(), ScriptMutability::Mutable)
+            .map_err(|e| SuggesterError::IndexParse(
+                format!("Schema create ({}) failed: {}", rel, e)
+            ))?;
+    }
+
+    // Domain registry table: stores canonical domain entries
+    db.run_script(
+        r#"{:create domain_registry {
+            canonical_name: String =>
+            has_generic: Bool,
+            skill_count: Int
+        }}"#,
+        Default::default(),
+        ScriptMutability::Mutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Schema create (domain_registry) failed: {}", e)))?;
+
+    // Domain registry aliases: maps alias names to canonical domains
+    db.run_script(
+        "{:create domain_aliases { alias: String, canonical_name: String }}",
+        Default::default(),
+        ScriptMutability::Mutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Schema create (domain_aliases) failed: {}", e)))?;
+
+    // Domain registry keywords: keywords for each domain used in detection
+    db.run_script(
+        "{:create domain_keywords { canonical_name: String, keyword: String }}",
+        Default::default(),
+        ScriptMutability::Mutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Schema create (domain_keywords) failed: {}", e)))?;
+
+    // Domain registry skills: which skills are gated by each domain
+    db.run_script(
+        "{:create domain_skills { canonical_name: String, skill_name: String }}",
+        Default::default(),
+        ScriptMutability::Mutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Schema create (domain_skills) failed: {}", e)))?;
+
+    // ID lookup table: maps 13-char deterministic IDs to entry names
+    db.run_script(
+        "{:create skill_ids { id: String => name: String }}",
+        Default::default(),
+        ScriptMutability::Mutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Schema create (skill_ids) failed: {}", e)))?;
+
+    // Metadata table for version, generated timestamp, etc.
+    db.run_script(
+        "{:create pss_metadata { key: String => value: String }}",
+        Default::default(),
+        ScriptMutability::Mutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Schema create (metadata) failed: {}", e)))?;
+
+    Ok(())
+}
+
+/// Helper: build inline Datalog data from a vec of (skill_name, value) pairs.
+/// Returns a string like: [["skill1", "kw1"], ["skill1", "kw2"], ...]
+fn build_inline_data(pairs: &[(String, String)]) -> String {
+    pairs.iter()
+        .map(|(name, val)| {
+            format!("[\"{}\", \"{}\"]",
+                name.replace('\\', "\\\\").replace('"', "\\\""),
+                val.replace('\\', "\\\\").replace('"', "\\\""))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Batch-insert all skills from a SkillIndex into the CozoDB.
+/// Uses batched inline data (500 rows per query) for efficiency.
+fn insert_skills_batch(
+    db: &DbInstance,
+    skills: &HashMap<String, SkillEntry>,
+) -> Result<usize, SuggesterError> {
+    let mut count = 0;
+
+    // Collect normalized relation data for batch insert
+    let mut kw_pairs: Vec<(String, String)> = Vec::new();
+    let mut intent_pairs: Vec<(String, String)> = Vec::new();
+    let mut tool_pairs: Vec<(String, String)> = Vec::new();
+    let mut fw_pairs: Vec<(String, String)> = Vec::new();
+    let mut lang_pairs: Vec<(String, String)> = Vec::new();
+    let mut plat_pairs: Vec<(String, String)> = Vec::new();
+    let mut domain_pairs: Vec<(String, String)> = Vec::new();
+    let mut ft_pairs: Vec<(String, String)> = Vec::new();
+    let mut id_pairs: Vec<(String, String)> = Vec::new();
+
+    // Insert main skills table in batches of 100
+    let skill_entries: Vec<(&String, &SkillEntry)> = skills.iter().collect();
+    for chunk in skill_entries.chunks(100) {
+        let rows: Vec<String> = chunk.iter().map(|(name, entry)| {
+            let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+            format!(
+                "[\"{}\", \"{}\", \"{}\", \"{}\", \"{}\", \"{}\", {}, \"{}\", \"{}\", \"{}\", {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}]",
+                esc(name),
+                esc(&entry.path),
+                esc(&entry.skill_type),
+                esc(&entry.source),
+                esc(&entry.description.chars().take(500).collect::<String>()),
+                esc(&entry.tier),
+                entry.boost,
+                esc(&entry.category),
+                esc(&entry.server_type),
+                esc(&entry.server_command),
+                serde_json::to_string(&entry.server_args).unwrap_or_else(|_| "\"[]\"".into()).replace('"', "\\\"").replace('\\', "\\\\").len(), // placeholder
+                serde_json::to_string(&entry.language_ids).unwrap_or_else(|_| "\"[]\"".into()).replace('"', "\\\"").replace('\\', "\\\\").len(),
+                0, 0, 0, 0, 0, 0, 0, 0, 0
+            )
+        }).collect();
+        // This approach is getting too complex with escaping; use parameterized queries instead
+        let _ = rows; // discard
+        for (name, entry) in chunk {
+            let entry_id = make_entry_id(name);
+            let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+            params.insert("name".into(), DataValue::Str((*name).clone().into()));
+            params.insert("id".into(), DataValue::Str(entry_id.clone().into()));
+            params.insert("path".into(), DataValue::Str(entry.path.clone().into()));
+            params.insert("skill_type".into(), DataValue::Str(entry.skill_type.clone().into()));
+            params.insert("source".into(), DataValue::Str(entry.source.clone().into()));
+            params.insert("description".into(), DataValue::Str(
+                entry.description.chars().take(500).collect::<String>().into()));
+            params.insert("tier".into(), DataValue::Str(entry.tier.clone().into()));
+            params.insert("boost".into(), DataValue::from(entry.boost as i64));
+            params.insert("category".into(), DataValue::Str(entry.category.clone().into()));
+            params.insert("server_type".into(), DataValue::Str(entry.server_type.clone().into()));
+            params.insert("server_command".into(), DataValue::Str(entry.server_command.clone().into()));
+            params.insert("server_args_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.server_args).unwrap_or_default().into()));
+            params.insert("language_ids_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.language_ids).unwrap_or_default().into()));
+            params.insert("negative_kw_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.negative_keywords).unwrap_or_default().into()));
+            params.insert("patterns_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.patterns).unwrap_or_default().into()));
+            params.insert("directories_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.directories).unwrap_or_default().into()));
+            params.insert("path_patterns_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.path_patterns).unwrap_or_default().into()));
+            params.insert("use_cases_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.use_cases).unwrap_or_default().into()));
+            params.insert("co_usage_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.co_usage).unwrap_or_default().into()));
+            params.insert("alternatives_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.alternatives).unwrap_or_default().into()));
+            params.insert("domain_gates_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.domain_gates).unwrap_or_default().into()));
+            params.insert("file_types_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.file_types).unwrap_or_default().into()));
+            // Store vector fields as JSON for single-query candidate loading
+            params.insert("keywords_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.keywords).unwrap_or_default().into()));
+            params.insert("intents_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.intents).unwrap_or_default().into()));
+            params.insert("tools_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.tools).unwrap_or_default().into()));
+            params.insert("frameworks_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.frameworks).unwrap_or_default().into()));
+            params.insert("languages_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.languages).unwrap_or_default().into()));
+            params.insert("platforms_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.platforms).unwrap_or_default().into()));
+            params.insert("domains_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.domains).unwrap_or_default().into()));
+
+            db.run_script(
+                "?[name, id, path, skill_type, source, description, tier, boost, category, \
+                 server_type, server_command, server_args_json, language_ids_json, \
+                 negative_kw_json, patterns_json, directories_json, path_patterns_json, \
+                 use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
+                 keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json] <- \
+                 [[$name, $id, $path, $skill_type, $source, $description, $tier, $boost, $category, \
+                   $server_type, $server_command, $server_args_json, $language_ids_json, \
+                   $negative_kw_json, $patterns_json, $directories_json, $path_patterns_json, \
+                   $use_cases_json, $co_usage_json, $alternatives_json, $domain_gates_json, $file_types_json, \
+                   $keywords_json, $intents_json, $tools_json, $frameworks_json, $languages_json, $platforms_json, $domains_json]] \
+                 :put skills { name => id, path, skill_type, source, description, tier, boost, category, \
+                              server_type, server_command, server_args_json, language_ids_json, \
+                              negative_kw_json, patterns_json, directories_json, path_patterns_json, \
+                              use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
+                              keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json }",
+                params,
+                ScriptMutability::Mutable,
+            ).map_err(|e| SuggesterError::IndexParse(
+                format!("Insert skill '{}' failed: {}", name, e)
+            ))?;
+
+            // Collect normalized data for batch insert
+            for kw in &entry.keywords {
+                kw_pairs.push(((*name).clone(), kw.clone()));
+            }
+            for intent in &entry.intents {
+                intent_pairs.push(((*name).clone(), intent.clone()));
+            }
+            for tool in &entry.tools {
+                tool_pairs.push(((*name).clone(), tool.clone()));
+            }
+            for fw in &entry.frameworks {
+                fw_pairs.push(((*name).clone(), fw.clone()));
+            }
+            for lang in &entry.languages {
+                lang_pairs.push(((*name).clone(), lang.clone()));
+            }
+            for plat in &entry.platforms {
+                plat_pairs.push(((*name).clone(), plat.clone()));
+            }
+            for domain in &entry.domains {
+                domain_pairs.push(((*name).clone(), domain.clone()));
+            }
+            for ft in &entry.file_types {
+                ft_pairs.push(((*name).clone(), ft.clone()));
+            }
+            // Collect ID → name mapping for batch insert into skill_ids
+            id_pairs.push((entry_id, (*name).clone()));
+
+            count += 1;
+        }
+    }
+
+    // Batch-insert normalized relations (500 rows per query to avoid query size limits)
+    let batch_insert = |rel: &str, pairs: &[(String, String)]| -> Result<(), SuggesterError> {
+        for chunk in pairs.chunks(500) {
+            let data = build_inline_data(chunk);
+            if data.is_empty() { continue; }
+            let script = format!(
+                "?[skill_name, value] <- [{}] :put {} {{ skill_name, value }}",
+                data, rel
+            );
+            db.run_script(&script, Default::default(), ScriptMutability::Mutable)
+                .map_err(|e| SuggesterError::IndexParse(
+                    format!("Batch insert {} failed: {}", rel, e)
+                ))?;
+        }
+        Ok(())
+    };
+
+    batch_insert("skill_keywords", &kw_pairs)?;
+    batch_insert("skill_intents", &intent_pairs)?;
+    batch_insert("skill_tools", &tool_pairs)?;
+    batch_insert("skill_frameworks", &fw_pairs)?;
+    batch_insert("skill_languages", &lang_pairs)?;
+    batch_insert("skill_platforms", &plat_pairs)?;
+    batch_insert("skill_domains", &domain_pairs)?;
+    batch_insert("skill_file_types", &ft_pairs)?;
+
+    // Batch-insert ID → name mappings into skill_ids lookup table
+    for chunk in id_pairs.chunks(500) {
+        let data = build_inline_data(chunk);
+        if data.is_empty() { continue; }
+        let script = format!(
+            "?[id, name] <- [{}] :put skill_ids {{ id => name }}",
+            data
+        );
+        db.run_script(&script, Default::default(), ScriptMutability::Mutable)
+            .map_err(|e| SuggesterError::IndexParse(
+                format!("Batch insert skill_ids failed: {}", e)
+            ))?;
+    }
+
+    Ok(count)
+}
+
+/// Build CozoDB from JSON index: pss --build-db --index path/to/skill-index.json
+fn run_build_db(cli: &Cli) -> Result<(), SuggesterError> {
+    let json_path = get_index_path(cli.index.as_deref())?;
+    // Place DB in the same directory as the JSON index, using DB_FILE name
+    let db_path = json_path.parent()
+        .map(|p| p.join(DB_FILE))
+        .unwrap_or_else(|| PathBuf::from(DB_FILE));
+
+    eprintln!("Loading JSON index from {:?}...", json_path);
+    let index = load_index(&json_path)?;
+    eprintln!("Loaded {} skills from JSON index", index.skills.len());
+
+    // Remove existing DB file if present (fresh build)
+    if db_path.exists() {
+        fs::remove_file(&db_path).map_err(|e| SuggesterError::IndexRead {
+            path: db_path.clone(),
+            source: e,
+        })?;
+    }
+
+    let db = open_db(&db_path)?;
+    create_db_schema(&db)?;
+
+    // Insert metadata
+    let mut meta_params: BTreeMap<String, DataValue> = BTreeMap::new();
+    meta_params.insert("key".into(), DataValue::Str("version".into()));
+    meta_params.insert("value".into(), DataValue::Str(index.version.clone().into()));
+    db.run_script(
+        "?[key, value] <- [[$key, $value]] :put pss_metadata { key => value }",
+        meta_params,
+        ScriptMutability::Mutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Insert metadata failed: {}", e)))?;
+
+    let start = Instant::now();
+    let count = insert_skills_batch(&db, &index.skills)?;
+    let elapsed = start.elapsed();
+
+    eprintln!(
+        "Inserted {} skills in {:.2}s",
+        count, elapsed.as_secs_f64()
+    );
+
+    // Insert domain registry into DB (if available)
+    // Look for domain-registry.json in same directory as skill-index.json
+    let registry_path = json_path.parent()
+        .map(|p| p.join(REGISTRY_FILE))
+        .unwrap_or_else(|| PathBuf::from(REGISTRY_FILE));
+
+    if registry_path.exists() {
+        let reg_start = Instant::now();
+        match load_domain_registry(&registry_path)? {
+            Some(registry) => {
+                let domain_count = insert_domain_registry_batch(&db, &registry)?;
+                let reg_elapsed = reg_start.elapsed();
+                eprintln!(
+                    "Inserted {} domains in {:.2}s",
+                    domain_count, reg_elapsed.as_secs_f64()
+                );
+
+                // Store registry metadata
+                let mut meta_params: BTreeMap<String, DataValue> = BTreeMap::new();
+                meta_params.insert("key".into(), DataValue::Str("registry_version".into()));
+                meta_params.insert("value".into(), DataValue::Str(registry.version.into()));
+                db.run_script(
+                    "?[key, value] <- [[$key, $value]] :put pss_metadata { key => value }",
+                    meta_params,
+                    ScriptMutability::Mutable,
+                ).map_err(|e| SuggesterError::IndexParse(format!("Insert registry metadata failed: {}", e)))?;
+            }
+            None => {
+                eprintln!("Domain registry file exists but could not be loaded, skipping");
+            }
+        }
+    } else {
+        eprintln!("No domain registry found at {:?}, skipping", registry_path);
+    }
+
+    eprintln!(
+        "Built CozoDB at {:?} in {:.2}s total",
+        db_path, start.elapsed().as_secs_f64()
+    );
+
+    Ok(())
+}
+
+/// Batch-insert domain registry data into CozoDB.
+/// Populates domain_registry, domain_aliases, domain_keywords, domain_skills tables.
+fn insert_domain_registry_batch(
+    db: &DbInstance,
+    registry: &DomainRegistry,
+) -> Result<usize, SuggesterError> {
+    let mut count = 0;
+    let mut alias_pairs: Vec<(String, String)> = Vec::new();
+    let mut keyword_pairs: Vec<(String, String)> = Vec::new();
+    let mut skill_pairs: Vec<(String, String)> = Vec::new();
+
+    // Insert each domain into domain_registry (parameterized, one at a time)
+    for (canonical, entry) in &registry.domains {
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("canonical_name".into(), DataValue::Str(canonical.clone().into()));
+        params.insert("has_generic".into(), DataValue::Bool(entry.has_generic));
+        params.insert("skill_count".into(), DataValue::from(entry.skill_count as i64));
+
+        db.run_script(
+            "?[canonical_name, has_generic, skill_count] <- \
+             [[$canonical_name, $has_generic, $skill_count]] \
+             :put domain_registry { canonical_name => has_generic, skill_count }",
+            params,
+            ScriptMutability::Mutable,
+        ).map_err(|e| SuggesterError::IndexParse(
+            format!("Insert domain '{}' failed: {}", canonical, e)
+        ))?;
+
+        // Collect normalized data for batch insert
+        for alias in &entry.aliases {
+            alias_pairs.push((alias.clone(), canonical.clone()));
+        }
+        for kw in &entry.example_keywords {
+            keyword_pairs.push((canonical.clone(), kw.clone()));
+        }
+        for skill in &entry.skills {
+            skill_pairs.push((canonical.clone(), skill.clone()));
+        }
+
+        count += 1;
+    }
+
+    // Batch-insert normalized relations (500 rows per query)
+    let batch_insert_2col = |rel: &str, col1: &str, col2: &str, pairs: &[(String, String)]| -> Result<(), SuggesterError> {
+        for chunk in pairs.chunks(500) {
+            let data = build_inline_data(chunk);
+            if data.is_empty() { continue; }
+            let script = format!(
+                "?[{}, {}] <- [{}] :put {} {{ {}, {} }}",
+                col1, col2, data, rel, col1, col2
+            );
+            db.run_script(&script, Default::default(), ScriptMutability::Mutable)
+                .map_err(|e| SuggesterError::IndexParse(
+                    format!("Batch insert {} failed: {}", rel, e)
+                ))?;
+        }
+        Ok(())
+    };
+
+    batch_insert_2col("domain_aliases", "alias", "canonical_name", &alias_pairs)?;
+    batch_insert_2col("domain_keywords", "canonical_name", "keyword", &keyword_pairs)?;
+    batch_insert_2col("domain_skills", "canonical_name", "skill_name", &skill_pairs)?;
+
+    Ok(count)
+}
+
+/// Load domain registry from CozoDB.
+/// Reconstructs DomainRegistry from the domain_registry, domain_aliases,
+/// domain_keywords, and domain_skills tables.
+fn load_domain_registry_from_db(db: &DbInstance) -> Result<Option<DomainRegistry>, SuggesterError> {
+    // Check if domain_registry table has any data
+    let count_result = db.run_script(
+        "?[count(canonical_name)] := *domain_registry{ canonical_name }",
+        Default::default(),
+        ScriptMutability::Immutable,
+    );
+
+    let domain_count = match count_result {
+        Ok(ref result) => {
+            result.rows.first()
+                .and_then(|row| row.first())
+                .and_then(|v| match v {
+                    DataValue::Num(cozo::Num::Int(n)) => Some(*n as usize),
+                    DataValue::Num(cozo::Num::Float(f)) => Some(*f as usize),
+                    _ => None,
+                })
+                .unwrap_or(0)
+        }
+        Err(_) => return Ok(None), // Table doesn't exist or query failed — no registry
+    };
+
+    if domain_count == 0 {
+        debug!("No domain registry data in CozoDB");
+        return Ok(None);
+    }
+
+    // Load all domain entries
+    let domains_result = db.run_script(
+        "?[canonical_name, has_generic, skill_count] := *domain_registry{ canonical_name, has_generic, skill_count }",
+        Default::default(),
+        ScriptMutability::Immutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Load domain_registry failed: {}", e)))?;
+
+    let mut domains: HashMap<String, DomainRegistryEntry> = HashMap::new();
+
+    for row in &domains_result.rows {
+        let canonical = match row.first() {
+            Some(DataValue::Str(s)) => s.to_string(),
+            _ => continue,
+        };
+        let has_generic = match row.get(1) {
+            Some(DataValue::Bool(b)) => *b,
+            _ => false,
+        };
+        let skill_count = match row.get(2) {
+            Some(DataValue::Num(cozo::Num::Int(n))) => *n as usize,
+            Some(DataValue::Num(cozo::Num::Float(f))) => *f as usize,
+            _ => 0,
+        };
+
+        domains.insert(canonical.clone(), DomainRegistryEntry {
+            canonical_name: canonical,
+            aliases: Vec::new(),
+            example_keywords: Vec::new(),
+            has_generic,
+            skill_count,
+            skills: Vec::new(),
+        });
+    }
+
+    // Load aliases: alias → canonical_name
+    let aliases_result = db.run_script(
+        "?[alias, canonical_name] := *domain_aliases{ alias, canonical_name }",
+        Default::default(),
+        ScriptMutability::Immutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Load domain_aliases failed: {}", e)))?;
+
+    for row in &aliases_result.rows {
+        if let (Some(DataValue::Str(alias)), Some(DataValue::Str(canonical))) = (row.first(), row.get(1)) {
+            if let Some(entry) = domains.get_mut(&canonical.to_string()) {
+                entry.aliases.push(alias.to_string());
+            }
+        }
+    }
+
+    // Load keywords: canonical_name → keyword
+    let keywords_result = db.run_script(
+        "?[canonical_name, keyword] := *domain_keywords{ canonical_name, keyword }",
+        Default::default(),
+        ScriptMutability::Immutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Load domain_keywords failed: {}", e)))?;
+
+    for row in &keywords_result.rows {
+        if let (Some(DataValue::Str(canonical)), Some(DataValue::Str(keyword))) = (row.first(), row.get(1)) {
+            if let Some(entry) = domains.get_mut(&canonical.to_string()) {
+                entry.example_keywords.push(keyword.to_string());
+            }
+        }
+    }
+
+    // Load skills: canonical_name → skill_name
+    let skills_result = db.run_script(
+        "?[canonical_name, skill_name] := *domain_skills{ canonical_name, skill_name }",
+        Default::default(),
+        ScriptMutability::Immutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Load domain_skills failed: {}", e)))?;
+
+    for row in &skills_result.rows {
+        if let (Some(DataValue::Str(canonical)), Some(DataValue::Str(skill))) = (row.first(), row.get(1)) {
+            if let Some(entry) = domains.get_mut(&canonical.to_string()) {
+                entry.skills.push(skill.to_string());
+            }
+        }
+    }
+
+    // Load registry version from metadata
+    let version = db.run_script(
+        "?[value] := *pss_metadata{ key: 'registry_version', value }",
+        Default::default(),
+        ScriptMutability::Immutable,
+    ).ok()
+        .and_then(|r| r.rows.first().cloned())
+        .and_then(|row| row.first().cloned())
+        .and_then(|v| match v {
+            DataValue::Str(s) => Some(s.to_string()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let registry = DomainRegistry {
+        version,
+        generated: String::new(),
+        source_index: String::new(),
+        domain_count: domains.len(),
+        domains,
+    };
+
+    info!("Loaded domain registry from CozoDB: {} domains", registry.domains.len());
+    Ok(Some(registry))
+}
+
+/// Load ALL skills from CozoDB as a SkillIndex.
+/// Used as an alternative to JSON parsing — produces the exact same SkillIndex.
+fn load_index_from_db(db: &DbInstance) -> Result<SkillIndex, SuggesterError> {
+    // Single query: fetch all fields including JSON-serialized vector fields
+    let main_result = db.run_script(
+        "?[name, path, skill_type, source, description, tier, boost, category, \
+         server_type, server_command, server_args_json, language_ids_json, \
+         negative_kw_json, patterns_json, directories_json, path_patterns_json, \
+         use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
+         keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json] := \
+         *skills{ name, path, skill_type, source, description, tier, boost, category, \
+                  server_type, server_command, server_args_json, language_ids_json, \
+                  negative_kw_json, patterns_json, directories_json, path_patterns_json, \
+                  use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
+                  keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json }",
+        Default::default(),
+        ScriptMutability::Immutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Load all skills from DB failed: {}", e)))?;
+
+    // Helper to extract string from DataValue
+    let dv_str = |v: &DataValue| -> String {
+        match v {
+            DataValue::Str(s) => s.to_string(),
+            _ => String::new(),
+        }
+    };
+    let dv_i32 = |v: &DataValue| -> i32 {
+        match v {
+            DataValue::Num(cozo::Num::Int(n)) => *n as i32,
+            DataValue::Num(cozo::Num::Float(f)) => *f as i32,
+            _ => 0,
+        }
+    };
+
+    let mut skills: HashMap<String, SkillEntry> = HashMap::new();
+    for row in &main_result.rows {
+        if row.len() < 28 { continue; }
+        let name = dv_str(&row[0]);
+        let entry = SkillEntry {
+            path: dv_str(&row[1]),
+            skill_type: dv_str(&row[2]),
+            source: dv_str(&row[3]),
+            description: dv_str(&row[4]),
+            tier: dv_str(&row[5]),
+            boost: dv_i32(&row[6]),
+            category: dv_str(&row[7]),
+            server_type: dv_str(&row[8]),
+            server_command: dv_str(&row[9]),
+            server_args: serde_json::from_str(&dv_str(&row[10])).unwrap_or_default(),
+            language_ids: serde_json::from_str(&dv_str(&row[11])).unwrap_or_default(),
+            negative_keywords: serde_json::from_str(&dv_str(&row[12])).unwrap_or_default(),
+            patterns: serde_json::from_str(&dv_str(&row[13])).unwrap_or_default(),
+            directories: serde_json::from_str(&dv_str(&row[14])).unwrap_or_default(),
+            path_patterns: serde_json::from_str(&dv_str(&row[15])).unwrap_or_default(),
+            use_cases: serde_json::from_str(&dv_str(&row[16])).unwrap_or_default(),
+            co_usage: serde_json::from_str(&dv_str(&row[17])).unwrap_or_default(),
+            alternatives: serde_json::from_str(&dv_str(&row[18])).unwrap_or_default(),
+            domain_gates: serde_json::from_str(&dv_str(&row[19])).unwrap_or_default(),
+            file_types: serde_json::from_str(&dv_str(&row[20])).unwrap_or_default(),
+            keywords: serde_json::from_str(&dv_str(&row[21])).unwrap_or_default(),
+            intents: serde_json::from_str(&dv_str(&row[22])).unwrap_or_default(),
+            tools: serde_json::from_str(&dv_str(&row[23])).unwrap_or_default(),
+            frameworks: serde_json::from_str(&dv_str(&row[24])).unwrap_or_default(),
+            languages: serde_json::from_str(&dv_str(&row[25])).unwrap_or_default(),
+            platforms: serde_json::from_str(&dv_str(&row[26])).unwrap_or_default(),
+            domains: serde_json::from_str(&dv_str(&row[27])).unwrap_or_default(),
+        };
+        skills.insert(name, entry);
+    }
+
+    // Load version from metadata
+    let version = db.run_script(
+        "?[value] := *pss_metadata{ key: 'version', value }",
+        Default::default(),
+        ScriptMutability::Immutable,
+    ).ok()
+        .and_then(|r| r.rows.first().cloned())
+        .and_then(|row| row.first().cloned())
+        .and_then(|v| match v {
+            DataValue::Str(s) => Some(s.to_string()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let skills_count = skills.len();
+    info!("Loaded {} skills from CozoDB", skills_count);
+
+    Ok(SkillIndex {
+        version,
+        generated: String::new(),
+        method: "cozodb".to_string(),
+        skills_count,
+        skills,
+    })
+}
+
+// ============================================================================
+// Query/Inspect Subcommands
+// ============================================================================
+
+/// Open CozoDB for query commands (read-only, no full index load needed).
+fn open_db_for_query(cli: &Cli) -> Result<DbInstance, SuggesterError> {
+    let db_path = get_db_path(cli.index.as_deref())
+        .ok_or_else(|| SuggesterError::IndexNotFound(PathBuf::from("pss-skill-index.db")))?;
+    open_db(&db_path)
+}
+
+/// Valid entry types — whitelist for --type filter.
+const VALID_TYPES: &[&str] = &["skill", "agent", "command", "rule", "mcp", "lsp"];
+
+/// Validate --type filter against whitelist.
+/// Returns error if the value is not a known type. Prevents Datalog injection
+/// by ensuring only whitelisted values are used in queries.
+fn validate_type_filter(t: Option<&str>) -> Result<(), SuggesterError> {
+    if let Some(t) = t {
+        if !VALID_TYPES.contains(&t) {
+            return Err(SuggesterError::IndexParse(format!(
+                "Invalid type '{}'. Valid types: {}", t, VALID_TYPES.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Validate that a string filter value contains only safe characters.
+/// Rejects values containing Datalog control characters that could be used
+/// for injection: single quotes, backslashes, newlines, colons, braces.
+fn validate_filter_value(name: &str, value: &str) -> Result<(), SuggesterError> {
+    if value.contains('\'') || value.contains('\\') || value.contains('\n')
+        || value.contains('\r') || value.contains('{') || value.contains('}')
+        || value.contains(':') || value.contains(';')
+    {
+        return Err(SuggesterError::IndexParse(format!(
+            "Invalid characters in --{} filter: '{}'", name, value
+        )));
+    }
+    Ok(())
+}
+
+/// Resolve a name-or-ID reference to an entry name using CozoDB.
+/// If the input looks like a 13-char alphanumeric ID, look it up in skill_ids.
+/// Otherwise treat it as a name directly.
+fn resolve_name_or_id(db: &DbInstance, ref_str: &str) -> Result<String, SuggesterError> {
+    // Check if it looks like an ID (13 chars, all alphanumeric lowercase)
+    if ref_str.len() == 13 && ref_str.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) {
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("id".into(), DataValue::Str(ref_str.into()));
+        let result = db.run_script(
+            "?[name] := *skill_ids{ id: $id, name }",
+            params,
+            ScriptMutability::Immutable,
+        ).map_err(|e| SuggesterError::IndexParse(format!("ID lookup failed: {}", e)))?;
+        if let Some(row) = result.rows.first() {
+            if let DataValue::Str(s) = &row[0] {
+                return Ok(s.to_string());
+            }
+        }
+        // Fall through to treat as name if ID not found
+    }
+    Ok(ref_str.to_string())
+}
+
+/// Dispatch query subcommands.
+fn run_query_command(cli: &Cli, cmd: &Commands) -> Result<(), SuggesterError> {
+    let db = open_db_for_query(cli)?;
+    match cmd {
+        Commands::Search { query, r#type, domain, language, framework, tool,
+                           category, file_type, keyword, platform, top, format } =>
+            cmd_search(&db, query, r#type.as_deref(), domain.as_deref(),
+                       language.as_deref(), framework.as_deref(), tool.as_deref(),
+                       category.as_deref(), file_type.as_deref(), keyword.as_deref(),
+                       platform.as_deref(), *top, format),
+        Commands::List { r#type, domain, language, framework, tool,
+                         category, file_type, keyword, platform, sort, top, format } =>
+            cmd_list(&db, r#type.as_deref(), domain.as_deref(),
+                     language.as_deref(), framework.as_deref(), tool.as_deref(),
+                     category.as_deref(), file_type.as_deref(), keyword.as_deref(),
+                     platform.as_deref(), sort, *top, format),
+        Commands::Inspect { name, format } =>
+            cmd_inspect(&db, name, format),
+        Commands::Compare { name1, name2, format } =>
+            cmd_compare(&db, name1, name2, format),
+        Commands::Stats { format } =>
+            cmd_stats(&db, format),
+        Commands::Vocab { field, r#type, top, format } =>
+            cmd_vocab(&db, field, r#type.as_deref(), *top, format),
+        Commands::Coverage { r#type, format } =>
+            cmd_coverage(&db, r#type.as_deref(), format),
+        Commands::Resolve { ids, format } =>
+            cmd_resolve(&db, ids, format),
+    }
+}
+
+/// Helper: extract string from DataValue.
+fn dv_to_string(v: &DataValue) -> String {
+    match v {
+        DataValue::Str(s) => s.to_string(),
+        DataValue::Num(cozo::Num::Int(n)) => n.to_string(),
+        DataValue::Num(cozo::Num::Float(f)) => f.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Helper: extract i64 from DataValue.
+fn dv_to_i64(v: &DataValue) -> i64 {
+    match v {
+        DataValue::Num(cozo::Num::Int(n)) => *n,
+        DataValue::Num(cozo::Num::Float(f)) => *f as i64,
+        _ => 0,
+    }
+}
+
+/// Print a table with Unicode borders.
+fn print_table(headers: &[&str], rows: &[Vec<String>]) {
+    if rows.is_empty() {
+        println!("(no results)");
+        return;
+    }
+    // Calculate column widths
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+    for row in rows {
+        for (i, cell) in row.iter().enumerate() {
+            if i < widths.len() {
+                widths[i] = widths[i].max(cell.len().min(80));
+            }
+        }
+    }
+    // Print header
+    let sep: String = widths.iter().map(|w| "─".repeat(*w + 2)).collect::<Vec<_>>().join("┬");
+    println!("┌{}┐", sep);
+    let hdr: String = headers.iter().enumerate()
+        .map(|(i, h)| format!(" {:<width$} ", h, width = widths[i]))
+        .collect::<Vec<_>>().join("│");
+    println!("│{}│", hdr);
+    let sep2: String = widths.iter().map(|w| "═".repeat(*w + 2)).collect::<Vec<_>>().join("╪");
+    println!("╞{}╡", sep2);
+    // Print rows
+    for row in rows {
+        let cells: String = row.iter().enumerate()
+            .map(|(i, c)| {
+                let w = if i < widths.len() { widths[i] } else { 20 };
+                let truncated: String = c.chars().take(w).collect();
+                format!(" {:<width$} ", truncated, width = w)
+            })
+            .collect::<Vec<_>>().join("│");
+        println!("│{}│", cells);
+    }
+    let sep3: String = widths.iter().map(|w| "─".repeat(*w + 2)).collect::<Vec<_>>().join("┴");
+    println!("└{}┘", sep3);
+    println!("({} results)", rows.len());
+}
+
+// --- cmd_stats ---
+
+fn cmd_stats(db: &DbInstance, format: &str) -> Result<(), SuggesterError> {
+    // Count by type
+    let type_result = db.run_script(
+        "?[skill_type, count(name)] := *skills{name, skill_type} :order -count(name)",
+        Default::default(), ScriptMutability::Immutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("stats query failed: {}", e)))?;
+
+    let mut total: i64 = 0;
+    let mut by_type: Vec<(String, i64)> = Vec::new();
+    for row in &type_result.rows {
+        let t = dv_to_string(&row[0]);
+        let c = dv_to_i64(&row[1]);
+        total += c;
+        by_type.push((t, c));
+    }
+
+    // Count by source
+    let source_result = db.run_script(
+        "?[source, count(name)] := *skills{name, source} :order -count(name)",
+        Default::default(), ScriptMutability::Immutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("stats query failed: {}", e)))?;
+    let by_source: Vec<(String, i64)> = source_result.rows.iter()
+        .map(|r| (dv_to_string(&r[0]), dv_to_i64(&r[1]))).collect();
+
+    // Top domains, categories, languages, frameworks, platforms, tools (top 20 each)
+    let agg_query = |table: &str| -> Vec<(String, i64)> {
+        db.run_script(
+            &format!("?[value, count(skill_name)] := *{}{{skill_name, value}} :order -count(skill_name) :limit 20", table),
+            Default::default(), ScriptMutability::Immutable,
+        ).map(|r| r.rows.iter().map(|row| (dv_to_string(&row[0]), dv_to_i64(&row[1]))).collect())
+         .unwrap_or_default()
+    };
+
+    let by_domain = agg_query("skill_domains");
+    let by_category = db.run_script(
+        "?[category, count(name)] := *skills{name, category}, category != '' :order -count(name) :limit 20",
+        Default::default(), ScriptMutability::Immutable,
+    ).map(|r| r.rows.iter().map(|row| (dv_to_string(&row[0]), dv_to_i64(&row[1]))).collect::<Vec<_>>())
+     .unwrap_or_default();
+    let by_language = agg_query("skill_languages");
+    let by_framework = agg_query("skill_frameworks");
+    let by_platform = agg_query("skill_platforms");
+    let by_tool = agg_query("skill_tools");
+
+    if format == "json" {
+        let mut stats = serde_json::Map::new();
+        stats.insert("total".into(), serde_json::Value::Number(total.into()));
+        let to_obj = |pairs: &[(String, i64)]| -> serde_json::Value {
+            let map: serde_json::Map<String, serde_json::Value> = pairs.iter()
+                .map(|(k, v)| (k.clone(), serde_json::Value::Number((*v).into())))
+                .collect();
+            serde_json::Value::Object(map)
+        };
+        stats.insert("by_type".into(), to_obj(&by_type));
+        stats.insert("by_source".into(), to_obj(&by_source));
+        stats.insert("by_domain".into(), to_obj(&by_domain));
+        stats.insert("by_category".into(), to_obj(&by_category));
+        stats.insert("by_language".into(), to_obj(&by_language));
+        stats.insert("by_framework".into(), to_obj(&by_framework));
+        stats.insert("by_platform".into(), to_obj(&by_platform));
+        stats.insert("by_tool".into(), to_obj(&by_tool));
+        println!("{}", serde_json::to_string_pretty(&serde_json::Value::Object(stats))
+            .unwrap_or_default());
+    } else {
+        println!("Total entries: {}", total);
+        let print_section = |title: &str, pairs: &[(String, i64)]| {
+            println!("\n  {} ({})", title, pairs.len());
+            for (k, v) in pairs {
+                println!("    {:30} {:>6}", k, v);
+            }
+        };
+        print_section("BY TYPE", &by_type);
+        print_section("BY SOURCE", &by_source);
+        print_section("BY DOMAIN", &by_domain);
+        print_section("BY CATEGORY", &by_category);
+        print_section("BY LANGUAGE", &by_language);
+        print_section("BY FRAMEWORK", &by_framework);
+        print_section("BY PLATFORM", &by_platform);
+        print_section("BY TOOL", &by_tool);
+    }
+    Ok(())
+}
+
+// --- cmd_vocab ---
+
+fn cmd_vocab(db: &DbInstance, field: &str, type_filter: Option<&str>, top: usize, format: &str) -> Result<(), SuggesterError> {
+    // Validate type_filter before building any query
+    validate_type_filter(type_filter)?;
+    let top = top.min(10000);
+
+    // Map field name to the appropriate CozoDB table or parametrized query
+    let (query, params) = match field {
+        "languages" => build_vocab_query("skill_languages", type_filter, top),
+        "frameworks" => build_vocab_query("skill_frameworks", type_filter, top),
+        "tools" => build_vocab_query("skill_tools", type_filter, top),
+        "domains" => build_vocab_query("skill_domains", type_filter, top),
+        "keywords" => build_vocab_query("skill_keywords", type_filter, top),
+        "intents" => build_vocab_query("skill_intents", type_filter, top),
+        "platforms" => build_vocab_query("skill_platforms", type_filter, top),
+        "file-types" | "file_types" => build_vocab_query("skill_file_types", type_filter, top),
+        "categories" => {
+            let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+            if let Some(t) = type_filter {
+                p.insert("f_type".into(), DataValue::Str(t.into()));
+                (format!("?[value, count(name)] := *skills{{name, category: value, skill_type}}, skill_type = $f_type, value != '' :order -count(name) :limit {}", top), p)
+            } else {
+                (format!("?[value, count(name)] := *skills{{name, category: value}}, value != '' :order -count(name) :limit {}", top), p)
+            }
+        }
+        "types" => {
+            (
+                "?[value, count(name)] := *skills{name, skill_type: value} :order -count(name)".to_string(),
+                BTreeMap::new(),
+            )
+        }
+        _ => return Err(SuggesterError::IndexParse(
+            format!("Unknown vocab field '{}'. Valid: languages, frameworks, tools, domains, keywords, intents, platforms, file-types, categories, types", field)
+        )),
+    };
+
+    let result = db.run_script(&query, params, ScriptMutability::Immutable)
+        .map_err(|e| SuggesterError::IndexParse(format!("vocab query failed: {}", e)))?;
+
+    let entries: Vec<(String, i64)> = result.rows.iter()
+        .map(|r| (dv_to_string(&r[0]), dv_to_i64(&r[1])))
+        .collect();
+
+    if format == "json" {
+        let arr: Vec<serde_json::Value> = entries.iter()
+            .map(|(v, c)| serde_json::json!({"value": v, "count": c}))
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&arr).unwrap_or_default());
+    } else {
+        println!("  {} ({} distinct values)", field.to_uppercase(), entries.len());
+        print_table(&["VALUE", "COUNT"], &entries.iter()
+            .map(|(v, c)| vec![v.clone(), c.to_string()])
+            .collect::<Vec<_>>());
+    }
+    Ok(())
+}
+
+fn build_vocab_query(table: &str, type_filter: Option<&str>, top: usize) -> (String, BTreeMap<String, DataValue>) {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    if let Some(t) = type_filter {
+        params.insert("f_type".into(), DataValue::Str(t.into()));
+        (format!(
+            "?[value, count(skill_name)] := *{}{{skill_name, value}}, *skills{{name: skill_name, skill_type}}, skill_type = $f_type :order -count(skill_name) :limit {}",
+            table, top
+        ), params)
+    } else {
+        (format!(
+            "?[value, count(skill_name)] := *{}{{skill_name, value}} :order -count(skill_name) :limit {}",
+            table, top
+        ), params)
+    }
+}
+
+// --- cmd_resolve ---
+
+fn cmd_resolve(db: &DbInstance, ids: &[String], format: &str) -> Result<(), SuggesterError> {
+    let mut results: Vec<serde_json::Value> = Vec::new();
+    for ref_str in ids {
+        let name = resolve_name_or_id(db, ref_str)?;
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("name".into(), DataValue::Str(name.clone().into()));
+        let result = db.run_script(
+            "?[name, id, path, skill_type, description] := *skills{name, id, path, skill_type, description}, name = $name",
+            params,
+            ScriptMutability::Immutable,
+        ).map_err(|e| SuggesterError::IndexParse(format!("resolve query failed: {}", e)))?;
+
+        if let Some(row) = result.rows.first() {
+            results.push(serde_json::json!({
+                "id": dv_to_string(&row[1]),
+                "name": dv_to_string(&row[0]),
+                "path": dv_to_string(&row[2]),
+                "type": dv_to_string(&row[3]),
+                "description": dv_to_string(&row[4]),
+            }));
+        } else {
+            results.push(serde_json::json!({
+                "ref": ref_str,
+                "error": format!("not found: {}", ref_str),
+            }));
+        }
+    }
+
+    if format == "json" {
+        println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
+    } else {
+        print_table(&["ID", "NAME", "TYPE", "PATH"],
+            &results.iter().map(|r| vec![
+                r["id"].as_str().unwrap_or("").to_string(),
+                r["name"].as_str().unwrap_or("").to_string(),
+                r["type"].as_str().unwrap_or("").to_string(),
+                r["path"].as_str().unwrap_or("").to_string(),
+            ]).collect::<Vec<_>>());
+    }
+    Ok(())
+}
+
+// --- cmd_list ---
+
+fn cmd_list(db: &DbInstance, type_filter: Option<&str>, domain: Option<&str>,
+            language: Option<&str>, framework: Option<&str>, tool: Option<&str>,
+            category: Option<&str>, file_type: Option<&str>, keyword: Option<&str>,
+            platform: Option<&str>, sort: &str, top: usize, format: &str,
+) -> Result<(), SuggesterError> {
+    // Validate inputs — reject injection attempts before building any query
+    validate_type_filter(type_filter)?;
+    if let Some(c) = category { validate_filter_value("category", c)?; }
+
+    // Build Datalog query with AND-combined filters via parametrized queries
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    // Scalar filters use parametrized binding ($param), never format!() interpolation
+    let mut conditions = String::new();
+    if let Some(t) = type_filter {
+        conditions.push_str(", skill_type = $f_type");
+        params.insert("f_type".into(), DataValue::Str(t.into()));
+    }
+    if let Some(c) = category {
+        conditions.push_str(", category = $f_category");
+        params.insert("f_category".into(), DataValue::Str(c.into()));
+    }
+
+    // Normalized table joins for multi-value filters (already parametrized)
+    let mut joins = String::new();
+    let add_join = |joins: &mut String, params: &mut BTreeMap<String, DataValue>, table: &str, param_name: &str, value: Option<&str>| {
+        if let Some(v) = value {
+            joins.push_str(&format!(", *{}{{skill_name: name, value: ${}}}", table, param_name));
+            params.insert(param_name.into(), DataValue::Str(v.into()));
+        }
+    };
+    add_join(&mut joins, &mut params, "skill_domains", "f_domain", domain);
+    add_join(&mut joins, &mut params, "skill_languages", "f_language", language);
+    add_join(&mut joins, &mut params, "skill_frameworks", "f_framework", framework);
+    add_join(&mut joins, &mut params, "skill_tools", "f_tool", tool);
+    add_join(&mut joins, &mut params, "skill_file_types", "f_file_type", file_type);
+    add_join(&mut joins, &mut params, "skill_keywords", "f_keyword", keyword);
+    add_join(&mut joins, &mut params, "skill_platforms", "f_platform", platform);
+
+    let order = if sort == "category" { ":order category, name" } else { ":order name" };
+    let top = top.min(10000); // Cap to prevent excessive memory usage
+
+    let query = format!(
+        "?[id, name, skill_type, category, description, path, source] := \
+         *skills{{name, id, skill_type, category, description, path, source}}{}{} {} :limit {}",
+        conditions, joins, order, top
+    );
+
+    let result = db.run_script(&query, params, ScriptMutability::Immutable)
+        .map_err(|e| SuggesterError::IndexParse(format!("list query failed: {}", e)))?;
+
+    let entries: Vec<serde_json::Value> = result.rows.iter().map(|r| {
+        serde_json::json!({
+            "id": dv_to_string(&r[0]),
+            "name": dv_to_string(&r[1]),
+            "type": dv_to_string(&r[2]),
+            "category": dv_to_string(&r[3]),
+            "description": dv_to_string(&r[4]),
+            "path": dv_to_string(&r[5]),
+            "source": dv_to_string(&r[6]),
+        })
+    }).collect();
+
+    if format == "json" {
+        println!("{}", serde_json::to_string_pretty(&entries).unwrap_or_default());
+    } else {
+        print_table(&["ID", "NAME", "TYPE", "CATEGORY", "DESCRIPTION"],
+            &entries.iter().map(|e| vec![
+                e["id"].as_str().unwrap_or("").to_string(),
+                e["name"].as_str().unwrap_or("").to_string(),
+                e["type"].as_str().unwrap_or("").to_string(),
+                e["category"].as_str().unwrap_or("").to_string(),
+                e["description"].as_str().unwrap_or("").chars().take(60).collect::<String>(),
+            ]).collect::<Vec<_>>());
+    }
+    Ok(())
+}
+
+// --- cmd_search ---
+
+fn cmd_search(db: &DbInstance, query: &str, type_filter: Option<&str>, domain: Option<&str>,
+              language: Option<&str>, framework: Option<&str>, tool: Option<&str>,
+              category: Option<&str>, file_type: Option<&str>, keyword: Option<&str>,
+              platform: Option<&str>, top: usize, format: &str,
+) -> Result<(), SuggesterError> {
+    // Validate inputs — reject injection attempts before building any query
+    validate_type_filter(type_filter)?;
+    if let Some(c) = category { validate_filter_value("category", c)?; }
+
+    let query_lower = query.to_lowercase();
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("q".into(), DataValue::Str(query_lower.clone().into()));
+
+    // Build union match: name contains query OR keywords contain query OR description contains query
+    // All filters use parametrized binding ($param), never format!() interpolation
+    let mut filter_conditions = String::new();
+    let mut filter_joins = String::new();
+
+    if let Some(t) = type_filter {
+        filter_conditions.push_str(", skill_type = $f_type");
+        params.insert("f_type".into(), DataValue::Str(t.into()));
+    }
+    if let Some(c) = category {
+        filter_conditions.push_str(", category = $f_category");
+        params.insert("f_category".into(), DataValue::Str(c.into()));
+    }
+
+    let add_join = |joins: &mut String, params: &mut BTreeMap<String, DataValue>, table: &str, param_name: &str, value: Option<&str>| {
+        if let Some(v) = value {
+            joins.push_str(&format!(", *{}{{skill_name: name, value: ${}}}", table, param_name));
+            params.insert(param_name.into(), DataValue::Str(v.into()));
+        }
+    };
+    add_join(&mut filter_joins, &mut params, "skill_domains", "f_domain", domain);
+    add_join(&mut filter_joins, &mut params, "skill_languages", "f_language", language);
+    add_join(&mut filter_joins, &mut params, "skill_frameworks", "f_framework", framework);
+    add_join(&mut filter_joins, &mut params, "skill_tools", "f_tool", tool);
+    add_join(&mut filter_joins, &mut params, "skill_file_types", "f_file_type", file_type);
+    add_join(&mut filter_joins, &mut params, "skill_keywords", "f_keyword", keyword);
+    add_join(&mut filter_joins, &mut params, "skill_platforms", "f_platform", platform);
+
+    // Use Datalog: match on name (str_includes) OR keyword (str_includes) OR description (str_includes)
+    // CozoDB uses str_includes(haystack, needle) for substring matching
+    let top = top.min(10000); // Cap to prevent excessive memory usage
+    let script = format!(
+        "matches[name] := *skills{{name, skill_type, category}}, str_includes(lowercase(name), $q){fc}{fj}\n\
+         matches[name] := *skill_keywords{{skill_name: name, value: kw}}, str_includes(kw, $q), *skills{{name: name, skill_type, category}}{fc}{fj}\n\
+         matches[name] := *skills{{name, skill_type, category, description}}, str_includes(lowercase(description), $q){fc}{fj}\n\
+         ?[id, name, skill_type, category, description, path] := matches[name], *skills{{name: name, id, skill_type, category, description, path}}\n\
+         :order name\n\
+         :limit {top}",
+        fc = filter_conditions, fj = filter_joins, top = top
+    );
+
+    let result = db.run_script(&script, params, ScriptMutability::Immutable)
+        .map_err(|e| SuggesterError::IndexParse(format!("search query failed: {}", e)))?;
+
+    let entries: Vec<serde_json::Value> = result.rows.iter().map(|r| {
+        serde_json::json!({
+            "id": dv_to_string(&r[0]),
+            "name": dv_to_string(&r[1]),
+            "type": dv_to_string(&r[2]),
+            "category": dv_to_string(&r[3]),
+            "description": dv_to_string(&r[4]),
+            "path": dv_to_string(&r[5]),
+        })
+    }).collect();
+
+    if format == "json" {
+        println!("{}", serde_json::to_string_pretty(&entries).unwrap_or_default());
+    } else {
+        print_table(&["ID", "NAME", "TYPE", "CATEGORY", "DESCRIPTION"],
+            &entries.iter().map(|e| vec![
+                e["id"].as_str().unwrap_or("").to_string(),
+                e["name"].as_str().unwrap_or("").to_string(),
+                e["type"].as_str().unwrap_or("").to_string(),
+                e["category"].as_str().unwrap_or("").to_string(),
+                e["description"].as_str().unwrap_or("").chars().take(60).collect::<String>(),
+            ]).collect::<Vec<_>>());
+    }
+    Ok(())
+}
+
+// --- cmd_inspect ---
+
+fn cmd_inspect(db: &DbInstance, name_or_id: &str, format: &str) -> Result<(), SuggesterError> {
+    let name = resolve_name_or_id(db, name_or_id)?;
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("name".into(), DataValue::Str(name.clone().into()));
+
+    // Fetch main entry
+    let result = db.run_script(
+        "?[name, id, path, skill_type, source, description, tier, boost, category, \
+         server_type, server_command, server_args_json, language_ids_json, \
+         negative_kw_json, patterns_json, directories_json, path_patterns_json, \
+         use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
+         keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json] := \
+         *skills{ name, id, path, skill_type, source, description, tier, boost, category, \
+                  server_type, server_command, server_args_json, language_ids_json, \
+                  negative_kw_json, patterns_json, directories_json, path_patterns_json, \
+                  use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
+                  keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json }, name = $name",
+        params,
+        ScriptMutability::Immutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("inspect query failed: {}", e)))?;
+
+    let row = result.rows.first()
+        .ok_or_else(|| SuggesterError::IndexParse(format!("Entry not found: '{}'", name_or_id)))?;
+
+    // Parse JSON vector fields
+    let parse_vec = |idx: usize| -> Vec<String> {
+        serde_json::from_str(&dv_to_string(&row[idx])).unwrap_or_default()
+    };
+    let parse_map = |idx: usize| -> HashMap<String, Vec<String>> {
+        serde_json::from_str(&dv_to_string(&row[idx])).unwrap_or_default()
+    };
+
+    if format == "json" {
+        let mut entry = serde_json::Map::new();
+        entry.insert("id".into(), serde_json::json!(dv_to_string(&row[1])));
+        entry.insert("name".into(), serde_json::json!(dv_to_string(&row[0])));
+        entry.insert("path".into(), serde_json::json!(dv_to_string(&row[2])));
+        entry.insert("type".into(), serde_json::json!(dv_to_string(&row[3])));
+        entry.insert("source".into(), serde_json::json!(dv_to_string(&row[4])));
+        entry.insert("description".into(), serde_json::json!(dv_to_string(&row[5])));
+        entry.insert("tier".into(), serde_json::json!(dv_to_string(&row[6])));
+        entry.insert("boost".into(), serde_json::json!(dv_to_i64(&row[7])));
+        entry.insert("category".into(), serde_json::json!(dv_to_string(&row[8])));
+        // MCP/LSP fields (only if non-empty)
+        let st = dv_to_string(&row[9]);
+        if !st.is_empty() { entry.insert("server_type".into(), serde_json::json!(st)); }
+        let sc = dv_to_string(&row[10]);
+        if !sc.is_empty() { entry.insert("server_command".into(), serde_json::json!(sc)); }
+        let sa: Vec<String> = parse_vec(11);
+        if !sa.is_empty() { entry.insert("server_args".into(), serde_json::json!(sa)); }
+        let li: Vec<String> = parse_vec(12);
+        if !li.is_empty() { entry.insert("language_ids".into(), serde_json::json!(li)); }
+        // Vector fields
+        entry.insert("negative_keywords".into(), serde_json::json!(parse_vec(13)));
+        entry.insert("patterns".into(), serde_json::json!(parse_vec(14)));
+        entry.insert("directories".into(), serde_json::json!(parse_vec(15)));
+        entry.insert("path_patterns".into(), serde_json::json!(parse_vec(16)));
+        entry.insert("use_cases".into(), serde_json::json!(parse_vec(17)));
+        let co_usage: CoUsageData = serde_json::from_str(&dv_to_string(&row[18])).unwrap_or_default();
+        entry.insert("co_usage".into(), serde_json::json!(co_usage));
+        entry.insert("alternatives".into(), serde_json::json!(parse_vec(19)));
+        entry.insert("domain_gates".into(), serde_json::json!(parse_map(20)));
+        entry.insert("file_types".into(), serde_json::json!(parse_vec(21)));
+        entry.insert("keywords".into(), serde_json::json!(parse_vec(22)));
+        entry.insert("intents".into(), serde_json::json!(parse_vec(23)));
+        entry.insert("tools".into(), serde_json::json!(parse_vec(24)));
+        entry.insert("frameworks".into(), serde_json::json!(parse_vec(25)));
+        entry.insert("languages".into(), serde_json::json!(parse_vec(26)));
+        entry.insert("platforms".into(), serde_json::json!(parse_vec(27)));
+        entry.insert("domains".into(), serde_json::json!(parse_vec(28)));
+
+        println!("{}", serde_json::to_string_pretty(&serde_json::Value::Object(entry)).unwrap_or_default());
+    } else {
+        // Table format
+        println!("━━━ ENTRY: {} ━━━", dv_to_string(&row[0]));
+        println!("  ID          : {}", dv_to_string(&row[1]));
+        println!("  Type        : {}", dv_to_string(&row[3]));
+        println!("  Source      : {}", dv_to_string(&row[4]));
+        println!("  Category    : {}", dv_to_string(&row[8]));
+        println!("  Tier        : {}", dv_to_string(&row[6]));
+        println!("  Boost       : {}", dv_to_i64(&row[7]));
+        println!("  Description : {}", dv_to_string(&row[5]));
+        println!("  Path        : {}", dv_to_string(&row[2]));
+
+        let print_vec = |label: &str, idx: usize| {
+            let v: Vec<String> = parse_vec(idx);
+            if !v.is_empty() { println!("  {:12}: {}", label, v.join(", ")); }
+        };
+        print_vec("Keywords", 22);
+        print_vec("Intents", 23);
+        print_vec("Languages", 26);
+        print_vec("Frameworks", 25);
+        print_vec("Platforms", 27);
+        print_vec("Domains", 28);
+        print_vec("Tools", 24);
+        print_vec("File types", 21);
+        print_vec("Use cases", 17);
+        print_vec("Alternatives", 19);
+        print_vec("Neg keywords", 13);
+
+        let gates = parse_map(20);
+        if !gates.is_empty() {
+            println!("  Domain gates:");
+            for (k, v) in &gates { println!("    {} : {}", k, v.join(", ")); }
+        }
+        let co: CoUsageData = serde_json::from_str(&dv_to_string(&row[18])).unwrap_or_default();
+        if !co.usually_with.is_empty() { println!("  Usually with: {}", co.usually_with.join(", ")); }
+        if !co.precedes.is_empty() { println!("  Precedes    : {}", co.precedes.join(", ")); }
+        if !co.follows.is_empty() { println!("  Follows     : {}", co.follows.join(", ")); }
+    }
+    Ok(())
+}
+
+// --- cmd_compare ---
+
+fn cmd_compare(db: &DbInstance, ref1: &str, ref2: &str, format: &str) -> Result<(), SuggesterError> {
+    // Load both entries via normalized tables for set operations
+    let load_sets = |name: &str| -> Result<HashMap<String, HashSet<String>>, SuggesterError> {
+        let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
+        let tables = [
+            ("keywords", "skill_keywords"), ("intents", "skill_intents"),
+            ("tools", "skill_tools"), ("frameworks", "skill_frameworks"),
+            ("languages", "skill_languages"), ("platforms", "skill_platforms"),
+            ("domains", "skill_domains"), ("file_types", "skill_file_types"),
+        ];
+        for (field, table) in &tables {
+            let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+            params.insert("name".into(), DataValue::Str(name.into()));
+            let result = db.run_script(
+                &format!("?[value] := *{}{{skill_name: $name, value}}", table),
+                params, ScriptMutability::Immutable,
+            ).map_err(|e| SuggesterError::IndexParse(format!("compare query failed: {}", e)))?;
+            let values: HashSet<String> = result.rows.iter().map(|r| dv_to_string(&r[0])).collect();
+            sets.insert(field.to_string(), values);
+        }
+        Ok(sets)
+    };
+
+    let name1 = resolve_name_or_id(db, ref1)?;
+    let name2 = resolve_name_or_id(db, ref2)?;
+
+    // Load scalar fields for both
+    let load_scalars = |name: &str| -> Result<serde_json::Value, SuggesterError> {
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("name".into(), DataValue::Str(name.into()));
+        let result = db.run_script(
+            "?[id, skill_type, source, category, tier, boost, description] := \
+             *skills{name: $name, id, skill_type, source, category, tier, boost, description}",
+            params, ScriptMutability::Immutable,
+        ).map_err(|e| SuggesterError::IndexParse(format!("compare query failed: {}", e)))?;
+        let row = result.rows.first()
+            .ok_or_else(|| SuggesterError::IndexParse(format!("Entry not found: '{}'", name)))?;
+        Ok(serde_json::json!({
+            "id": dv_to_string(&row[0]), "type": dv_to_string(&row[1]),
+            "source": dv_to_string(&row[2]), "category": dv_to_string(&row[3]),
+            "tier": dv_to_string(&row[4]), "boost": dv_to_i64(&row[5]),
+            "description": dv_to_string(&row[6]),
+        }))
+    };
+
+    let scalars_a = load_scalars(&name1)?;
+    let scalars_b = load_scalars(&name2)?;
+    let sets_a = load_sets(&name1)?;
+    let sets_b = load_sets(&name2)?;
+
+    // Compute shared/unique per field
+    let fields = ["keywords", "intents", "tools", "frameworks", "languages", "platforms", "domains", "file_types"];
+    let mut shared: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    let mut unique_a: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    let mut unique_b: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+
+    for field in &fields {
+        let empty = HashSet::new();
+        let a = sets_a.get(*field).unwrap_or(&empty);
+        let b = sets_b.get(*field).unwrap_or(&empty);
+        let s: Vec<&String> = a.intersection(b).collect();
+        let ua: Vec<&String> = a.difference(b).collect();
+        let ub: Vec<&String> = b.difference(a).collect();
+        if !s.is_empty() { shared.insert(field.to_string(), serde_json::json!(s)); }
+        if !ua.is_empty() { unique_a.insert(field.to_string(), serde_json::json!(ua)); }
+        if !ub.is_empty() { unique_b.insert(field.to_string(), serde_json::json!(ub)); }
+    }
+
+    // Scalar diffs
+    let mut scalar_diffs: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    for key in &["type", "source", "category", "tier"] {
+        let va = scalars_a[key].as_str().unwrap_or("");
+        let vb = scalars_b[key].as_str().unwrap_or("");
+        if va != vb { scalar_diffs.insert(key.to_string(), serde_json::json!([va, vb])); }
+    }
+    let ba = scalars_a["boost"].as_i64().unwrap_or(0);
+    let bb = scalars_b["boost"].as_i64().unwrap_or(0);
+    if ba != bb { scalar_diffs.insert("boost".into(), serde_json::json!([ba, bb])); }
+
+    if format == "json" {
+        let output = serde_json::json!({
+            "entry_a": {"name": name1, "scalars": scalars_a},
+            "entry_b": {"name": name2, "scalars": scalars_b},
+            "shared": serde_json::Value::Object(shared),
+            "unique_a": serde_json::Value::Object(unique_a),
+            "unique_b": serde_json::Value::Object(unique_b),
+            "scalar_diffs": serde_json::Value::Object(scalar_diffs),
+        });
+        println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+    } else {
+        println!("━━━ COMPARISON: {} vs {} ━━━", name1, name2);
+        println!("\n  {} ({})", name1, scalars_a["type"].as_str().unwrap_or(""));
+        println!("    {}", scalars_a["description"].as_str().unwrap_or(""));
+        println!("\n  {} ({})", name2, scalars_b["type"].as_str().unwrap_or(""));
+        println!("    {}", scalars_b["description"].as_str().unwrap_or(""));
+
+        if !scalar_diffs.is_empty() {
+            println!("\n  SCALAR DIFFERENCES:");
+            for (k, v) in &scalar_diffs { println!("    {:12}: {} vs {}", k, v[0], v[1]); }
+        }
+        for field in &fields {
+            let print_set = |label: &str, map: &serde_json::Map<String, serde_json::Value>| {
+                if let Some(v) = map.get(*field) {
+                    if let Some(arr) = v.as_array() {
+                        let items: Vec<String> = arr.iter().filter_map(|x| x.as_str().map(String::from)).collect();
+                        if !items.is_empty() { println!("    {}: {}", label, items.join(", ")); }
+                    }
+                }
+            };
+            let has_data = shared.contains_key(*field) || unique_a.contains_key(*field) || unique_b.contains_key(*field);
+            if has_data {
+                println!("\n  {}:", field.to_uppercase());
+                print_set("Shared", &shared);
+                print_set(&format!("Only {}", name1), &unique_a);
+                print_set(&format!("Only {}", name2), &unique_b);
+            }
+        }
+    }
+    Ok(())
+}
+
+// --- cmd_coverage ---
+
+fn cmd_coverage(db: &DbInstance, type_filter: Option<&str>, format: &str) -> Result<(), SuggesterError> {
+    // Validate type filter against whitelist to prevent injection
+    validate_type_filter(type_filter)?;
+
+    // Build parametrized queries — never interpolate user input into Datalog
+    let mut total_params: BTreeMap<String, DataValue> = BTreeMap::new();
+    let total_query = match type_filter {
+        Some(t) => {
+            total_params.insert("f_type".into(), DataValue::Str(t.into()));
+            "?[count(name)] := *skills{name, skill_type}, skill_type = $f_type".to_string()
+        }
+        None => "?[count(name)] := *skills{name}".to_string(),
+    };
+
+    let total_result = db.run_script(&total_query, total_params, ScriptMutability::Immutable)
+        .map_err(|e| SuggesterError::IndexParse(format!("coverage query failed: {}", e)))?;
+    let total = total_result.rows.first().map(|r| dv_to_i64(&r[0])).unwrap_or(0);
+
+    // Type filter clause and params for coverage sub-queries
+    let (type_clause, type_param) = match type_filter {
+        Some(t) => (
+            ", *skills{name: skill_name, skill_type}, skill_type = $f_type".to_string(),
+            Some(("f_type".to_string(), DataValue::Str(t.into()))),
+        ),
+        None => (String::new(), None),
+    };
+
+    let coverage_query = |table: &str| -> Vec<(String, i64)> {
+        let q = format!(
+            "?[value, count(skill_name)] := *{}{{skill_name, value}}{} :order -count(skill_name) :limit 50",
+            table, type_clause
+        );
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        if let Some((ref k, ref v)) = type_param {
+            params.insert(k.clone(), v.clone());
+        }
+        db.run_script(&q, params, ScriptMutability::Immutable)
+            .map(|r| r.rows.iter().map(|row| (dv_to_string(&row[0]), dv_to_i64(&row[1]))).collect())
+            .unwrap_or_default()
+    };
+
+    let languages = coverage_query("skill_languages");
+    let frameworks = coverage_query("skill_frameworks");
+    let domains = coverage_query("skill_domains");
+    let tools = coverage_query("skill_tools");
+    let platforms = coverage_query("skill_platforms");
+
+    if format == "json" {
+        let to_obj = |pairs: &[(String, i64)]| -> serde_json::Value {
+            let map: serde_json::Map<String, serde_json::Value> = pairs.iter()
+                .map(|(k, v)| (k.clone(), serde_json::Value::Number((*v).into())))
+                .collect();
+            serde_json::Value::Object(map)
+        };
+        let output = serde_json::json!({
+            "type": type_filter.unwrap_or("all"),
+            "total": total,
+            "languages": to_obj(&languages),
+            "frameworks": to_obj(&frameworks),
+            "domains": to_obj(&domains),
+            "tools": to_obj(&tools),
+            "platforms": to_obj(&platforms),
+            "language_count": languages.len(),
+            "framework_count": frameworks.len(),
+            "domain_count": domains.len(),
+        });
+        println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+    } else {
+        println!("━━━ COVERAGE: {} ━━━", type_filter.unwrap_or("all types"));
+        println!("  Total entries: {}", total);
+        let print_coverage = |title: &str, pairs: &[(String, i64)]| {
+            println!("\n  {} ({} distinct):", title, pairs.len());
+            for (k, v) in pairs {
+                let pct = if total > 0 { *v as f64 / total as f64 * 100.0 } else { 0.0 };
+                println!("    {:30} {:>6} ({:>5.1}%)", k, v, pct);
+            }
+        };
+        print_coverage("LANGUAGES", &languages);
+        print_coverage("FRAMEWORKS", &frameworks);
+        print_coverage("DOMAINS", &domains);
+        print_coverage("TOOLS", &tools);
+        print_coverage("PLATFORMS", &platforms);
+    }
+    Ok(())
+}
+
+// ============================================================================
+// Main Entry Point
+// ============================================================================
+
 fn main() {
     // Initialize tracing if RUST_LOG is set
     tracing_subscriber::fmt()
@@ -8018,8 +10312,23 @@ fn main() {
         info!("Running in INCOMPLETE MODE - co_usage data will be ignored");
     }
 
-    // Dispatch: agent-profile mode vs normal hook mode
-    let result = if let Some(ref profile_path) = cli.agent_profile {
+    // Dispatch: query subcommands vs build-db vs pass1-batch vs agent-profile vs hook
+    if let Some(ref cmd) = cli.command {
+        // Query subcommands use stderr for errors and exit(1) on failure
+        if let Err(e) = run_query_command(&cli, cmd) {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    let result = if cli.build_db {
+        info!("Running in BUILD DB mode");
+        run_build_db(&cli)
+    } else if cli.pass1_batch {
+        info!("Running in PASS1 BATCH mode");
+        run_pass1_batch()
+    } else if let Some(ref profile_path) = cli.agent_profile {
         info!("Running in AGENT PROFILE mode: {}", profile_path);
         run_agent_profile(&cli, profile_path)
     } else {
@@ -8062,21 +10371,56 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
     // Start timing for activation logging
     let start_time = Instant::now();
 
-    // Load skill index (--index flag > PSS_INDEX_PATH env > ~/.claude/cache/)
-    let index_path = get_index_path(cli.index.as_deref())?;
-    debug!("Loading index from: {:?}", index_path);
-
-    let mut index = match load_index(&index_path) {
-        Ok(idx) => idx,
-        Err(SuggesterError::IndexNotFound(path)) => {
-            warn!("Skill index not found at {:?}, returning empty", path);
-            let output = HookOutput::empty();
-            println!("{}", serde_json::to_string(&output)?);
-            return Ok(());
+    // Open CozoDB first — if available, load index from DB instead of parsing JSON
+    let db = get_db_path(cli.index.as_deref()).and_then(|p| {
+        match open_db(&p) {
+            Ok(db) => {
+                info!("Using CozoDB at {:?}", p);
+                Some(db)
+            }
+            Err(e) => {
+                warn!("Failed to open CozoDB: {}, falling back to JSON", e);
+                None
+            }
         }
-        Err(e) => return Err(e),
-    };
+    });
 
+    // Load skill index: try CozoDB first, then JSON file fallback
+    let mut index = if let Some(ref db) = db {
+        match load_index_from_db(db) {
+            Ok(idx) => {
+                info!("Loaded {} skills from CozoDB", idx.skills.len());
+                idx
+            }
+            Err(e) => {
+                warn!("CozoDB index load failed: {}, falling back to JSON", e);
+                let index_path = get_index_path(cli.index.as_deref())?;
+                match load_index(&index_path) {
+                    Ok(idx) => idx,
+                    Err(SuggesterError::IndexNotFound(path)) => {
+                        warn!("Skill index not found at {:?}, returning empty", path);
+                        let output = HookOutput::empty();
+                        println!("{}", serde_json::to_string(&output)?);
+                        return Ok(());
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+    } else {
+        let index_path = get_index_path(cli.index.as_deref())?;
+        debug!("Loading index from: {:?}", index_path);
+        match load_index(&index_path) {
+            Ok(idx) => idx,
+            Err(SuggesterError::IndexNotFound(path)) => {
+                warn!("Skill index not found at {:?}, returning empty", path);
+                let output = HookOutput::empty();
+                println!("{}", serde_json::to_string(&output)?);
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        }
+    };
     info!("Loaded {} skills from index", index.skills.len());
 
     // Load and merge PSS files only if --load-pss flag is passed
@@ -8085,28 +10429,43 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
         load_pss_files(&mut index);
     }
 
-    // Load domain registry for domain gate filtering (graceful: no registry = no gate filtering)
-    let registry = match get_registry_path(cli.registry.as_deref()) {
-        Some(reg_path) => {
-            debug!("Loading domain registry from: {:?}", reg_path);
-            match load_domain_registry(&reg_path) {
-                Ok(Some(reg)) => {
-                    info!("Loaded domain registry: {} domains", reg.domains.len());
-                    Some(reg)
-                }
-                Ok(None) => {
-                    debug!("Domain registry not found at {:?}, gate filtering disabled", reg_path);
-                    None
-                }
-                Err(e) => {
-                    warn!("Failed to load domain registry: {}, gate filtering disabled", e);
-                    None
+    // Load domain registry: try CozoDB first, then JSON file fallback
+    let registry = if let Some(ref db) = db {
+        // Try loading from CozoDB (domain tables inside pss-skill-index.db)
+        match load_domain_registry_from_db(db) {
+            Ok(Some(reg)) => Some(reg),
+            _ => {
+                debug!("No domain registry in CozoDB, trying JSON file fallback");
+                match get_registry_path(cli.registry.as_deref()) {
+                    Some(reg_path) => load_domain_registry(&reg_path).ok().flatten(),
+                    None => None,
                 }
             }
         }
-        None => {
-            debug!("No domain registry path configured, gate filtering disabled");
-            None
+    } else {
+        // No DB available — load from JSON file
+        match get_registry_path(cli.registry.as_deref()) {
+            Some(reg_path) => {
+                debug!("Loading domain registry from: {:?}", reg_path);
+                match load_domain_registry(&reg_path) {
+                    Ok(Some(reg)) => {
+                        info!("Loaded domain registry: {} domains", reg.domains.len());
+                        Some(reg)
+                    }
+                    Ok(None) => {
+                        debug!("Domain registry not found at {:?}, gate filtering disabled", reg_path);
+                        None
+                    }
+                    Err(e) => {
+                        warn!("Failed to load domain registry: {}, gate filtering disabled", e);
+                        None
+                    }
+                }
+            }
+            None => {
+                debug!("No domain registry path configured, gate filtering disabled");
+                None
+            }
         }
     };
 
@@ -8300,6 +10659,8 @@ fn run(cli: &Cli) -> Result<(), SuggesterError> {
         }
     }
 
+    // Score all skills with the unchanged find_matches() algorithm
+    // (index was loaded from CozoDB or JSON above — scoring is identical either way)
     let matches = if is_multi_task {
         let all_matches: Vec<Vec<MatchedSkill>> = sub_tasks
             .iter()

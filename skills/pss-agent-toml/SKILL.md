@@ -207,61 +207,42 @@ The binary returns scored candidates grouped by type:
 
 **CRITICAL**: These are CANDIDATES, not final selections. The binary scores by keyword/intent matching only. YOU must now evaluate each candidate intelligently.
 
-**2.2 Search for additional candidates**
+**2.2 Search for additional candidates using CLI query commands**
 
-If the binary output doesn't cover a known need from the requirements, search the index directly:
+If the binary output doesn't cover a known need from the requirements, use the `pss` CLI subcommands to search the index. These use CozoDB Datalog for fast indexed queries.
+
+**IMPORTANT — Entry Identifiers**: Every entry has a unique 13-character ID (base36). Names collide frequently (11 entries named "setup", 5 named "debug"). Always reference entries by their 13-char ID, not by name, when comparing, inspecting, or resolving to file paths.
 
 ```bash
-# Powerful multi-field index search — supports type, category, language, framework filters
-cat ~/.claude/cache/skill-index.json | python3 -c "
-import json, sys
+# Discover what's available — the "menu" of installed elements
+pss stats                                    # Overall index statistics
+pss vocab languages                          # What languages are covered?
+pss vocab frameworks --type skill            # What frameworks do skills support?
+pss vocab domains --top 30                   # Domain coverage
+pss coverage --type skill                    # Per-language/framework coverage for skills
 
-idx = json.load(sys.stdin)
-args = sys.argv[1:]
-query = None
-filters = {}
-for i, a in enumerate(args):
-    if a.startswith('--type='):       filters['type'] = a.split('=',1)[1]
-    elif a.startswith('--category='): filters['category'] = a.split('=',1)[1]
-    elif a.startswith('--language='): filters['languages'] = a.split('=',1)[1]
-    elif a.startswith('--framework='): filters['frameworks'] = a.split('=',1)[1]
-    elif not a.startswith('--'):    query = a.lower()
+# Search with text query + filters (AND-combined)
+pss search "websocket" --type skill          # Full-text search for websocket skills
+pss search "testing" --type skill --top 10   # Testing skills
+pss search "deploy" --framework kubernetes   # Kubernetes deployment entries
 
-for name, e in idx['skills'].items():
-    # Apply filters first (exact match on structured fields)
-    if 'type' in filters and e.get('type','') != filters['type']:
-        continue
-    if 'category' in filters and e.get('category','') != filters['category']:
-        if filters['category'] not in e.get('secondary_categories', []):
-            continue
-    if 'languages' in filters and filters['languages'] not in e.get('languages', []):
-        continue
-    if 'frameworks' in filters and filters['frameworks'] not in e.get('frameworks', []):
-        continue
-    # Then keyword search across multiple fields
-    if query:
-        searchable = ' '.join([
-            name,
-            e.get('description', ''),
-            ' '.join(e.get('keywords', [])),
-            ' '.join(e.get('use_cases', [])),
-            ' '.join(e.get('intents', [])),
-            e.get('category', ''),
-        ]).lower()
-        if query not in searchable:
-            continue
-    cat = e.get('category', '?')
-    typ = e.get('type', 'skill')
-    print(f'{typ:8} {cat:16} {name:30} {e.get(\"description\",\"\")[:55]}')
-" "<search-term>" [--type=skill|agent|command|rule|mcp|lsp] [--category=<category>] [--language=<language>] [--framework=<framework>]
+# List with structured filters (no text query)
+pss list --type mcp --top 20                 # All MCP servers
+pss list --type skill --language python --category security  # Python security skills
+pss list --type agent --category mobile      # Mobile agents
+
+# Inspect a specific entry by ID (preferred) or name
+pss inspect 1o7bxu6yv8aj8                   # By 13-char ID — unambiguous
+pss inspect flutter-expert                   # By name — may be ambiguous
+
+# Compare two candidates side-by-side
+pss compare <id1> <id2>                      # Shows shared/unique keywords, frameworks, etc.
+
+# Resolve IDs to file paths (for reading actual skill/agent content)
+pss resolve <id1> <id2> <id3>               # Returns file paths for each ID
 ```
 
-**Search examples:**
-- `"websocket"` — find all elements mentioning websocket
-- `"testing" --type=skill` — find only skills related to testing
-- `"" --category=security` — list all elements in the security category
-- `"react" --framework=react` — find React-specific elements
-- `"" --language=python --type=skill` — find all Python skills
+After narrowing to ~5 candidates per slot, use `pss resolve <id1> <id2> ...` to get file paths, then read the actual SKILL.md/agent.md files to make the final selection.
 
 **Phase 2 Completion Checklist** (ALL items must be checked before proceeding to Phase 3):
 

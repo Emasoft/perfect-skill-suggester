@@ -10,6 +10,7 @@ Usage:
     python pss_merge_queue.py <pss_file> --pass 1
     python pss_merge_queue.py <pss_file> --pass 2
     python pss_merge_queue.py <pss_file> --index /path/to/skill-index.json
+    python pss_merge_queue.py --batch-stdin < batch.jsonl
 """
 
 import argparse
@@ -349,7 +350,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "pss_file",
+        nargs="?",
         type=Path,
+        default=None,
         help="Path to the .pss JSON file to merge",
     )
     parser.add_argument(
@@ -366,12 +369,49 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_INDEX_PATH,
         help=(f"Path to skill-index.json (default: {DEFAULT_INDEX_PATH})"),
     )
+    parser.add_argument(
+        "--batch-stdin",
+        action="store_true",
+        default=False,
+        help="Read JSONL from stdin, merge each line as pass-1 data",
+    )
     return parser.parse_args(argv)
 
 
 def main() -> None:
     """Entry point: parse args and run the merge operation."""
     args = parse_args()
+
+    # --batch-stdin mode: read JSONL from stdin and merge each line as pass-1
+    if args.batch_stdin:
+        index_path = Path(args.index)
+        if index_path.exists():
+            index = read_json_file(index_path)
+        else:
+            index = create_skeleton_index()
+        count = 0
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                pss_data = json.loads(line)
+                merge_pass1(index, pss_data)
+                count += 1
+            except json.JSONDecodeError as e:
+                print(f"Warning: Skipping invalid JSON line: {e}", file=sys.stderr)
+        index["skill_count"] = len(index.get("skills", {}))
+        atomic_write_json(index_path, index)
+        print(f"Merged {count} elements into {index_path}", file=sys.stderr)
+        sys.exit(0)
+
+    # Normal single-file mode requires pss_file argument
+    if args.pss_file is None:
+        print(
+            "[ERROR] pss_file argument is required (unless using --batch-stdin)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     pss_file: Path = args.pss_file.resolve()
     index_path: Path = args.index.resolve()
