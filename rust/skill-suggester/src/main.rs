@@ -78,12 +78,12 @@ struct Cli {
     #[arg(long)]
     registry: Option<String>,
 
-    /// Run in agent-profile mode: score all skills against an agent descriptor
-    /// JSON file and return tiered recommendations. The JSON file should contain
-    /// name, description, role, duties, tools, domains, and requirements_summary.
-    /// Bypasses stdin reading — input comes from the file, not the hook.
+    /// Generate .agent.toml profile for an agent. Accepts an agent name (resolved
+    /// via index) or a path to the agent's .md file. Parses frontmatter + body to
+    /// extract name, description, duties, tools, domains, then scores against the
+    /// skill index and writes <name>.agent.toml to the current directory.
     #[arg(long)]
-    agent_profile: Option<String>,
+    agent: Option<String>,
 
     /// Run Pass 1 batch enrichment: read JSONL from stdin (one element per line),
     /// enrich each with deterministic keywords/category/intents, output enriched JSONL.
@@ -644,9 +644,13 @@ pub struct AgentProfileInput {
     /// Current working directory for project context scanning
     #[serde(default)]
     pub cwd: String,
+
+    /// Absolute path to the agent's .md definition file (set by resolve_agent_input)
+    #[serde(skip)]
+    pub source_path: String,
 }
 
-/// Output for --agent-profile mode: tiered skill recommendations
+/// Output for --agent mode: tiered skill recommendations written as .agent.toml
 #[derive(Debug, Serialize)]
 pub struct AgentProfileOutput {
     /// Agent name
@@ -7153,14 +7157,417 @@ fn rotate_log_if_needed(log_path: &PathBuf) {
 // Main Entry Point
 // ============================================================================
 
-/// Run in agent-profile mode: score all skills against an agent descriptor,
+/// Parse a YAML frontmatter block from a markdown file.
+/// Returns a HashMap of key-value pairs from the frontmatter.
+fn parse_frontmatter(content: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    // Frontmatter is between first "---" and second "---"
+    if !content.starts_with("---") {
+        return map;
+    }
+    let after_first = &content[3..];
+    if let Some(end) = after_first.find("\n---") {
+        let fm_block = &after_first[..end];
+        for line in fm_block.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(colon_pos) = line.find(':') {
+                let key = line[..colon_pos].trim().to_string();
+                let val = line[colon_pos + 1..].trim().to_string();
+                // Strip surrounding quotes if present
+                let val = if (val.starts_with('"') && val.ends_with('"'))
+                    || (val.starts_with('\'') && val.ends_with('\''))
+                {
+                    val[1..val.len() - 1].to_string()
+                } else {
+                    val
+                };
+                map.insert(key, val);
+            }
+        }
+    }
+    map
+}
+
+/// Extract the markdown body (everything after frontmatter).
+fn extract_md_body(content: &str) -> &str {
+    if content.starts_with("---") {
+        let after_first = &content[3..];
+        if let Some(end) = after_first.find("\n---") {
+            let rest = &after_first[end + 4..];
+            // Skip the newline after closing ---
+            rest.trim_start_matches('\n')
+        } else {
+            content
+        }
+    } else {
+        content
+    }
+}
+
+/// Extract duties from markdown body: bullet items under headings containing
+/// "dut", "responsibilit", "step", "task", "workflow", "capabilit".
+fn extract_duties_from_md(body: &str) -> Vec<String> {
+    let mut duties = Vec::new();
+    let mut in_duty_section = false;
+
+    for line in body.lines() {
+        let trimmed = line.trim();
+        // Check for headings
+        if trimmed.starts_with('#') {
+            let heading_lower = trimmed.to_lowercase();
+            in_duty_section = heading_lower.contains("dut")
+                || heading_lower.contains("responsibilit")
+                || heading_lower.contains("step")
+                || heading_lower.contains("task")
+                || heading_lower.contains("workflow")
+                || heading_lower.contains("capabilit")
+                || heading_lower.contains("what")
+                || heading_lower.contains("how");
+            continue;
+        }
+        // Collect bullet items in duty sections
+        if in_duty_section && (trimmed.starts_with("- ") || trimmed.starts_with("* ")) {
+            let item = trimmed[2..].trim();
+            if !item.is_empty() && item.len() > 5 {
+                duties.push(item.to_string());
+            }
+        }
+        // Stop at next heading or code block
+        if in_duty_section && trimmed.starts_with("```") {
+            in_duty_section = false;
+        }
+    }
+    duties
+}
+
+/// Extract tools mentioned in markdown body by scanning for known tool names.
+fn extract_tools_from_md(body: &str) -> Vec<String> {
+    let known_tools = [
+        "Bash", "Read", "Write", "Edit", "Grep", "Glob", "Agent",
+        "WebFetch", "WebSearch", "NotebookEdit",
+        "git", "gh", "docker", "terraform", "kubectl",
+        "npm", "bun", "cargo", "pip", "uv",
+        "grep", "rg", "find", "sed", "awk",
+        "semgrep", "bandit", "eslint", "ruff", "mypy", "pyright",
+    ];
+    let body_lower = body.to_lowercase();
+    let mut found = Vec::new();
+    for tool in &known_tools {
+        if body_lower.contains(&tool.to_lowercase()) {
+            found.push(tool.to_string());
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
+/// Infer role from agent description and body text.
+fn infer_role(description: &str, body: &str) -> String {
+    let text = format!("{} {}", description, body).to_lowercase();
+    let role_keywords = [
+        ("debug", "debugger"),
+        ("review", "reviewer"),
+        ("test", "tester"),
+        ("secur", "security-analyst"),
+        ("deploy", "deployer"),
+        ("architect", "architect"),
+        ("develop", "developer"),
+        ("build", "developer"),
+        ("research", "researcher"),
+        ("analyz", "analyst"),
+        ("document", "documenter"),
+        ("monitor", "operator"),
+        ("audit", "auditor"),
+        ("refactor", "developer"),
+    ];
+    for (keyword, role) in &role_keywords {
+        if text.contains(keyword) {
+            return role.to_string();
+        }
+    }
+    "developer".to_string()
+}
+
+/// Infer domains from agent description and body text.
+fn infer_domains(description: &str, body: &str) -> Vec<String> {
+    let text = format!("{} {}", description, body).to_lowercase();
+    let domain_keywords = [
+        ("debug", "debugging"),
+        ("secur", "security"),
+        ("test", "testing"),
+        ("deploy", "devops"),
+        ("docker", "devops"),
+        ("kubernetes", "devops"),
+        ("frontend", "web-frontend"),
+        ("react", "web-frontend"),
+        ("backend", "web-backend"),
+        ("api", "web-backend"),
+        ("database", "data"),
+        ("machine learn", "ai-ml"),
+        ("mobile", "mobile"),
+        ("ios", "mobile"),
+        ("flutter", "mobile"),
+        ("performance", "performance"),
+        ("infrastructure", "infrastructure"),
+    ];
+    let mut domains = Vec::new();
+    for (keyword, domain) in &domain_keywords {
+        if text.contains(keyword) && !domains.contains(&domain.to_string()) {
+            domains.push(domain.to_string());
+        }
+    }
+    if domains.is_empty() {
+        domains.push("general".to_string());
+    }
+    domains
+}
+
+/// Parse an agent .md file into an AgentProfileInput.
+/// Extracts name, description from frontmatter; duties, tools, role, domains from body.
+fn parse_agent_md(path: &str) -> Result<AgentProfileInput, SuggesterError> {
+    let content = fs::read_to_string(path)
+        .map_err(|e| SuggesterError::IndexRead { path: PathBuf::from(path), source: e })?;
+
+    let fm = parse_frontmatter(&content);
+    let body = extract_md_body(&content);
+
+    // Name: from frontmatter, or filename without extension
+    let name = fm.get("name").cloned().unwrap_or_else(|| {
+        Path::new(path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    });
+
+    // Description: from frontmatter, or first non-empty paragraph in body
+    let description = fm.get("description").cloned().unwrap_or_else(|| {
+        body.lines()
+            .find(|l| {
+                let t = l.trim();
+                !t.is_empty() && !t.starts_with('#') && !t.starts_with("```")
+            })
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    });
+
+    let duties = extract_duties_from_md(body);
+    let tools = extract_tools_from_md(body);
+    let role = infer_role(&description, body);
+    let domains = infer_domains(&description, body);
+
+    // Store the absolute path so the TOML output can reference it
+    let abs_path = fs::canonicalize(path)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string());
+
+    Ok(AgentProfileInput {
+        name,
+        description,
+        role,
+        duties,
+        tools,
+        domains,
+        requirements_summary: String::new(),
+        cwd: String::new(),
+        source_path: abs_path,
+    })
+}
+
+/// Resolve an agent reference to an AgentProfileInput.
+/// Accepts:
+///   1. Path to .md agent definition file
+///   2. Agent name (resolved via CozoDB/index to find the .md path, then parsed)
+fn resolve_agent_input(
+    agent_ref: &str,
+    cli: &Cli,
+) -> Result<AgentProfileInput, SuggesterError> {
+    let path = Path::new(agent_ref);
+
+    // Case 1: .md file path (absolute or relative)
+    if path.exists() && path.is_file() {
+        return parse_agent_md(agent_ref);
+    }
+
+    // Case 2: Agent name — resolve via index to find the .md path
+    // Try CozoDB first, then JSON index
+    let db = get_db_path(cli.index.as_deref()).and_then(|p| open_db(&p).ok());
+
+    if let Some(ref db) = db {
+        // Try resolving by name via CozoDB
+        let resolved = resolve_name_or_id(db, agent_ref);
+        if let Ok(name) = resolved {
+            // Get path from skills table
+            let query = "?[path] := *skills{name, path}, name = $name";
+            let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+            params.insert("name".into(), DataValue::Str(name.clone().into()));
+            if let Ok(result) = db.run_script(query, params, ScriptMutability::Immutable) {
+                if let Some(row) = result.rows.first() {
+                    let md_path = dv_to_string(&row[0]);
+                    if !md_path.is_empty() && Path::new(&md_path).exists() {
+                        return parse_agent_md(&md_path);
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: try loading JSON index and searching by name
+    // SkillEntry has no `name` field — the name is the HashMap key suffix after ":"
+    if let Ok(index_path) = get_index_path(cli.index.as_deref()) {
+        if let Ok(index) = load_index(&index_path) {
+            for (key, entry) in &index.skills {
+                // Key format is "source:name" — extract the name part
+                let entry_name = key.rsplit(':').next().unwrap_or(key);
+                if entry_name == agent_ref && entry.skill_type == "agent" {
+                    if Path::new(&entry.path).exists() {
+                        return parse_agent_md(&entry.path);
+                    }
+                }
+            }
+        }
+    }
+
+    Err(SuggesterError::IndexParse(format!(
+        "Cannot resolve '{}': not a valid .md agent file or known agent name in the index",
+        agent_ref
+    )))
+}
+
+/// Derive the TOML `source` field from the agent's file path.
+/// Returns "plugin:<name>" if the path is under a plugins directory, otherwise "path".
+fn derive_agent_source(path: &str) -> String {
+    // Plugin paths look like: ~/.claude/plugins/cache/<hash>/<plugin-name>/1.0/agents/foo.md
+    if let Some(idx) = path.find("/plugins/") {
+        let after = &path[idx + "/plugins/".len()..];
+        // Skip "cache/<hash>/" if present
+        let after = if after.starts_with("cache/") {
+            // cache/<hash>/<plugin-name>/...
+            after.splitn(4, '/').nth(2).unwrap_or(after)
+        } else {
+            after
+        };
+        // Take the first path component as the plugin name
+        if let Some(name) = after.split('/').next() {
+            if !name.is_empty() {
+                return format!("plugin:{}", name);
+            }
+        }
+    }
+    "path".to_string()
+}
+
+/// Escape a TOML string value: wrap in quotes, escape backslashes and internal quotes.
+fn toml_escape(s: &str) -> String {
+    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{}\"", escaped)
+}
+
+/// Format a Vec<String> as a TOML array literal: ["a", "b", "c"]
+fn toml_string_array(items: &[String]) -> String {
+    if items.is_empty() {
+        return "[]".to_string();
+    }
+    let parts: Vec<String> = items.iter().map(|s| toml_escape(s)).collect();
+    format!("[{}]", parts.join(", "))
+}
+
+/// Format a Vec<AgentProfileCandidate> as a TOML array of their names.
+fn candidates_to_names(candidates: &[AgentProfileCandidate]) -> Vec<String> {
+    candidates.iter().map(|c| c.name.clone()).collect()
+}
+
+/// Write an .agent.toml file from the profiling output.
+/// Returns the absolute path of the written file.
+fn write_agent_toml(
+    output: &AgentProfileOutput,
+    source_path: &str,
+) -> Result<String, SuggesterError> {
+    let source = derive_agent_source(source_path);
+
+    let mut toml = String::with_capacity(2048);
+
+    // [agent] section
+    toml.push_str("[agent]\n");
+    toml.push_str(&format!("name = {}\n", toml_escape(&output.agent)));
+    toml.push_str(&format!("source = {}\n", toml_escape(&source)));
+    toml.push_str(&format!("path = {}\n", toml_escape(source_path)));
+    toml.push('\n');
+
+    // [requirements] section — empty for now (populated by AI post-filter in the skill)
+    toml.push_str("[requirements]\n");
+    toml.push_str("files = []\n");
+    toml.push_str("project_type = \"\"\n");
+    toml.push_str("tech_stack = []\n");
+    toml.push('\n');
+
+    // [skills] section — primary/secondary/specialized are name arrays
+    toml.push_str("[skills]\n");
+    let primary_names = candidates_to_names(&output.skills.primary);
+    let secondary_names = candidates_to_names(&output.skills.secondary);
+    let specialized_names = candidates_to_names(&output.skills.specialized);
+    toml.push_str(&format!("primary = {}\n", toml_string_array(&primary_names)));
+    toml.push_str(&format!("secondary = {}\n", toml_string_array(&secondary_names)));
+    toml.push_str(&format!("specialized = {}\n", toml_string_array(&specialized_names)));
+    toml.push('\n');
+
+    // [subagents] section — agents used as sub-agents, not main agents
+    toml.push_str("[subagents]\n");
+    let agent_names = candidates_to_names(&output.complementary_agents);
+    toml.push_str(&format!("recommended = {}\n", toml_string_array(&agent_names)));
+    toml.push('\n');
+
+    // [commands] section
+    toml.push_str("[commands]\n");
+    let command_names = candidates_to_names(&output.commands);
+    toml.push_str(&format!("recommended = {}\n", toml_string_array(&command_names)));
+    toml.push('\n');
+
+    // [rules] section
+    toml.push_str("[rules]\n");
+    let rule_names = candidates_to_names(&output.rules);
+    toml.push_str(&format!("recommended = {}\n", toml_string_array(&rule_names)));
+    toml.push('\n');
+
+    // [mcp] section
+    toml.push_str("[mcp]\n");
+    let mcp_names = candidates_to_names(&output.mcp);
+    toml.push_str(&format!("recommended = {}\n", toml_string_array(&mcp_names)));
+    toml.push('\n');
+
+    // [hooks] section — empty (not scored by the profiler)
+    toml.push_str("[hooks]\n");
+    toml.push_str("recommended = []\n");
+    toml.push('\n');
+
+    // [lsp] section
+    toml.push_str("[lsp]\n");
+    let lsp_names = candidates_to_names(&output.lsp);
+    toml.push_str(&format!("recommended = {}\n", toml_string_array(&lsp_names)));
+
+    // Write to <agent-name>.agent.toml in current directory
+    let filename = format!("{}.agent.toml", output.agent);
+    let out_path = std::env::current_dir()
+        .map_err(|e| SuggesterError::IndexParse(format!("Cannot get cwd: {}", e)))?
+        .join(&filename);
+
+    fs::write(&out_path, &toml)
+        .map_err(|e| SuggesterError::IndexParse(format!("Cannot write {}: {}", out_path.display(), e)))?;
+
+    let abs = out_path.to_string_lossy().to_string();
+    Ok(abs)
+}
+
+/// Run in agent mode: score all skills against an agent's .md definition,
 /// synthesizing multiple queries from the agent's description, duties, and requirements.
-/// Returns tiered recommendations as JSON.
+/// Writes <agent-name>.agent.toml to the current directory and prints the path to stdout.
 fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError> {
-    // Read and parse the agent descriptor JSON file
-    let profile_json = fs::read_to_string(profile_path)
-        .map_err(|e| SuggesterError::IndexRead { path: PathBuf::from(profile_path), source: e })?;
-    let profile: AgentProfileInput = serde_json::from_str(&profile_json)?;
+    // Resolve the agent reference: accepts name, .md path, or .json descriptor
+    let profile = resolve_agent_input(profile_path, cli)?;
 
     info!("Agent profile mode: analyzing agent '{}'", profile.name);
 
@@ -7436,7 +7843,8 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
             mcp: vec![],
             lsp: vec![],
         };
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        let toml_path = write_agent_toml(&output, &profile.source_path)?;
+        eprintln!("Wrote {}", toml_path);
         return Ok(());
     }
 
@@ -7510,6 +7918,68 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         }
     }
 
+    // LANGUAGE-AGNOSTIC PENALTY: When the agent's description has no language,
+    // penalize language/framework-specific entries. A language-agnostic agent
+    // (like sleuth: "general bug investigation") should not get Swift-only skills
+    // (like axiom-*) just because they share keywords like "debugging"/"testing".
+    //
+    // Detection uses ALL signals (name, keywords, description, languages array)
+    // because most entries in the index have empty languages arrays.
+    let agent_is_language_agnostic = context.languages.is_empty();
+    let agent_is_framework_agnostic = context.frameworks.is_empty();
+
+    // Language signal patterns: (signal_word, language_it_implies)
+    // Used to detect language specificity from name/keywords/description
+    // when the entry.languages array is empty (common for 95%+ of entries).
+    let lang_signal_patterns: &[(&str, &str)] = &[
+        // Swift/iOS ecosystem
+        ("swift", "swift"), ("swiftui", "swift"), ("uikit", "swift"),
+        ("xcode", "swift"), ("xctest", "swift"), ("storekit", "swift"),
+        ("spritekit", "swift"), ("realitykit", "swift"), ("arkit", "swift"),
+        ("mapkit", "swift"), ("cloudkit", "swift"), ("widgetkit", "swift"),
+        ("appkit", "swift"), ("axiom-", "swift"), ("core-data", "swift"),
+        ("ios-", "swift"), ("swiftdata", "swift"), ("app-store", "swift"),
+        ("hig", "swift"),
+        // Kotlin/Android ecosystem
+        ("kotlin", "kotlin"), ("android", "kotlin"), ("jetpack", "kotlin"),
+        ("gradle", "kotlin"),
+        // Python ecosystem
+        ("django", "python"), ("flask", "python"), ("fastapi", "python"),
+        ("pytorch", "python"), ("pandas", "python"), ("numpy", "python"),
+        ("scikit", "python"), ("pytest", "python"), ("ruff", "python"),
+        ("jupyter", "python"), ("scipy", "python"), ("matplotlib", "python"),
+        // JavaScript/TypeScript ecosystem
+        ("react-native", "javascript"), ("nextjs", "javascript"),
+        ("vuejs", "javascript"), ("angular", "javascript"),
+        ("svelte", "javascript"), ("nestjs", "javascript"),
+        ("express-", "javascript"), ("webpack", "javascript"),
+        // Ruby ecosystem
+        ("rails", "ruby"), ("rspec", "ruby"),
+        // Rust ecosystem
+        ("cargo", "rust"),
+        // Go ecosystem
+        ("gopls", "go"),
+        // Java ecosystem
+        ("spring-", "java"), ("quarkus", "java"), ("micronaut", "java"),
+        // Dart/Flutter ecosystem
+        ("flutter", "dart"), ("dart", "dart"),
+        // C# ecosystem
+        ("blazor", "c#"), ("dotnet", "c#"), ("aspnet", "c#"),
+        // PHP ecosystem
+        ("laravel", "php"), ("drupal", "php"), ("wordpress", "php"),
+        // Elixir ecosystem
+        ("phoenix", "elixir"),
+    ];
+
+    // Framework signal patterns: detect framework specificity
+    let fw_signal_patterns: &[&str] = &[
+        "swiftui", "uikit", "appkit", "react-native", "react", "next.js", "nextjs",
+        "vue", "angular", "flutter", "express", "django", "spring", "rails",
+        "svelte", "jetpack-compose", "laravel", "fastapi", "flask", "nestjs",
+        "storekit", "spritekit", "realitykit", "arkit", "mapkit", "cloudkit",
+        "widgetkit", "core-data", "swiftdata",
+    ];
+
     // Build sorted list. Each entry gets a type-appropriate score:
     // - Skills and agents use domain_score only (workflow queries pollute domain-specific rankings)
     // - Commands, rules, MCPs use combined_score (these benefit from workflow query boost)
@@ -7519,10 +7989,83 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
             let entry_type = index.skills.get(&name)
                 .map(|e| e.skill_type.as_str())
                 .unwrap_or("skill");
+
+            // Apply language/framework agnostic penalty: when the agent has no
+            // language or framework, entries that are locked to specific
+            // languages/frameworks get severely penalized. Detection uses
+            // the entry's languages array AND name/keywords/description scanning
+            // to catch entries with incomplete index metadata.
+            let mut adj_combined = combined_score;
+            let mut adj_domain = domain_score;
+
+            if agent_is_language_agnostic {
+                // Check if entry is language-specific via multiple signals
+                let mut is_lang_specific = false;
+
+                if let Some(entry) = index.skills.get(&name) {
+                    // Signal 1: explicit languages array (when populated)
+                    if !entry.languages.is_empty()
+                        && !entry.languages.contains(&"any".to_string())
+                        && !entry.languages.contains(&"universal".to_string())
+                    {
+                        is_lang_specific = true;
+                    }
+
+                    // Signal 2: name/keywords/description contain language patterns
+                    if !is_lang_specific {
+                        // Build a searchable text from name + keywords + description
+                        let entry_name_lower = name.to_lowercase();
+                        let kw_text: String = entry.keywords.iter()
+                            .map(|k| k.to_lowercase())
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        let desc_lower = entry.description.to_lowercase();
+                        let search_text = format!("{} {} {}", entry_name_lower, kw_text, desc_lower);
+
+                        for &(signal, _lang) in lang_signal_patterns {
+                            if search_text.contains(signal) {
+                                is_lang_specific = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if is_lang_specific {
+                    // 88% penalty: language-specific entries are noise for generic agents
+                    adj_combined = (adj_combined as f64 * 0.12) as i32;
+                    adj_domain = (adj_domain as f64 * 0.12) as i32;
+                }
+            }
+
+            if agent_is_framework_agnostic {
+                // Check if entry is framework-specific
+                let mut is_fw_specific = false;
+                if let Some(entry) = index.skills.get(&name) {
+                    if !entry.frameworks.is_empty() {
+                        is_fw_specific = true;
+                    }
+                    if !is_fw_specific {
+                        let entry_name_lower = name.to_lowercase();
+                        for &fw_sig in fw_signal_patterns {
+                            if entry_name_lower.contains(fw_sig) {
+                                is_fw_specific = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if is_fw_specific {
+                    // 80% penalty: framework-specific entries are noise for generic agents
+                    adj_combined = (adj_combined as f64 * 0.20) as i32;
+                    adj_domain = (adj_domain as f64 * 0.20) as i32;
+                }
+            }
+
             // Skills and agents rank by domain score; commands/rules/MCPs by combined score
             let effective_score = match entry_type {
-                "skill" | "agent" => domain_score,
-                _ => combined_score,
+                "skill" | "agent" => adj_domain,
+                _ => adj_combined,
             };
             (name, effective_score, evidence, path, confidence, description)
         })
@@ -7570,10 +8113,9 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     }
 
     // Truncate non-skill type vectors to top_n (or 5, whichever is larger)
-    // so each type gets fair representation after the type-partitioned buffer.
-    let per_type_limit = top_n.max(5);
-    // Agent profiles need more agent candidates (benchmark expects up to 10)
-    agent_candidates.truncate(per_type_limit.max(15));
+    // Max 10 entries per TOML section for subagents/commands/rules/mcp/lsp
+    let per_type_limit = 10;
+    agent_candidates.truncate(per_type_limit);
     command_candidates.truncate(per_type_limit);
 
     // Inject ALL scarce types (rules, MCP, LSP) that weren't captured by scoring.
@@ -7676,12 +8218,17 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     mcp_candidates.truncate(per_type_limit);
     lsp_candidates.truncate(per_type_limit);
 
-    // Classify skills+agents into tiers based on relative score
+    // Classify skills into tiers based on relative score.
+    // Max 10 skills total across all tiers; higher thresholds to filter noise.
     let mut primary: Vec<AgentProfileCandidate> = Vec::new();
     let mut secondary: Vec<AgentProfileCandidate> = Vec::new();
     let mut specialized: Vec<AgentProfileCandidate> = Vec::new();
+    let max_total_skills: usize = 10;
 
     for (name, score, evidence, path, confidence, description, _etype) in skill_candidates {
+        let total = primary.len() + secondary.len() + specialized.len();
+        if total >= max_total_skills { break; }
+
         let relative = (score as f64) / (max_score as f64);
         let candidate = AgentProfileCandidate {
             name,
@@ -7692,13 +8239,13 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
             description,
         };
 
-        // Moderate thresholds: tight enough to avoid co_usage noise from low-scoring skills,
-        // loose enough to capture domain-relevant skills for co_usage scanning.
-        if relative >= 0.50 && primary.len() < 7 {
+        // Tighter thresholds: primary must be strongly relevant, secondary
+        // must be clearly useful, specialized must still have meaningful signal.
+        if relative >= 0.60 && primary.len() < 5 {
             primary.push(candidate);
-        } else if relative >= 0.25 && secondary.len() < 12 {
+        } else if relative >= 0.35 && secondary.len() < 3 {
             secondary.push(candidate);
-        } else if relative >= 0.10 && specialized.len() < 10 {
+        } else if relative >= 0.20 {
             specialized.push(candidate);
         }
     }
@@ -7730,6 +8277,37 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         .map(|s| s.name.clone())
         .collect();
 
+    // Co-usage language gate: when agent is language-agnostic, skip co_usage entries
+    // that are language-specific. Without this, axiom-* and other language-locked entries
+    // leak into language-agnostic profiles via co_usage chains, bypassing the 88% penalty
+    // applied during scoring. The closure checks the entry name, keywords, and description
+    // against the same lang_signal_patterns used in the scoring penalty.
+    let is_entry_lang_specific = |entry_name: &str| -> bool {
+        if let Some(entry) = index.skills.get(entry_name) {
+            // Signal 1: explicit languages array
+            if !entry.languages.is_empty()
+                && !entry.languages.contains(&"any".to_string())
+                && !entry.languages.contains(&"universal".to_string())
+            {
+                return true;
+            }
+            // Signal 2: name/keywords/description contain language-specific patterns
+            let name_lower = entry_name.to_lowercase();
+            let kw_text: String = entry.keywords.iter()
+                .map(|k| k.to_lowercase())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let desc_lower = entry.description.to_lowercase();
+            let search_text = format!("{} {} {}", name_lower, kw_text, desc_lower);
+            for &(signal, _lang) in lang_signal_patterns {
+                if search_text.contains(signal) {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+
     // Scan ALL tiered skills for co_usage, not just primary — captures 80% more complementary relationships.
     // Also discovers skills reachable via co_usage (gold skills often connected through domain co_usage).
     // Collect tiered skill names to iterate without borrowing specialized mutably during the loop.
@@ -7757,6 +8335,11 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         if let Some(entry) = index.skills.get(p_name.as_str()) {
             for uw in &entry.co_usage.usually_with {
                 if let Some(uw_entry) = index.skills.get(uw.as_str()) {
+                    // Language gate: skip language-specific co_usage entries for language-agnostic agents.
+                    // Without this, axiom-* skills leak in via co_usage chains from generic debugging skills.
+                    if agent_is_language_agnostic && is_entry_lang_specific(uw.as_str()) {
+                        continue;
+                    }
                     // Co-usage score = 50% of parent's score. Higher values (0.9) promote junk agents
                     // (hound-agent, epca-*) that are co-used with many skills but aren't domain-relevant.
                     let co_score = parent_score * 0.5;
@@ -7823,6 +8406,10 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
             for uw in &entry.co_usage.usually_with {
                 if hop2_added >= hop2_max_per_parent { break; }
                 if let Some(uw_entry) = index.skills.get(uw.as_str()) {
+                    // Language gate: skip language-specific 2-hop co_usage for language-agnostic agents
+                    if agent_is_language_agnostic && is_entry_lang_specific(uw.as_str()) {
+                        continue;
+                    }
                     match uw_entry.skill_type.as_str() {
                         "agent" if !existing_agent_names.contains(uw.as_str()) => {
                             complementary_agents_vec.push(AgentProfileCandidate {
@@ -7892,6 +8479,10 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         for (agent_name, _) in &agent_names_for_reverse {
             if let Some(mentioners) = reverse_co_usage.get(agent_name.as_str()) {
                 for &(mentioner_name, mentioner_type) in mentioners {
+                    // Language gate: skip language-specific reverse co_usage for language-agnostic agents
+                    if agent_is_language_agnostic && is_entry_lang_specific(mentioner_name) {
+                        continue;
+                    }
                     match mentioner_type {
                         "skill" if !existing_skill_names.contains(mentioner_name) => {
                             let entry = &index.skills[mentioner_name];
@@ -7945,6 +8536,10 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         for skill_name in &skill_names_for_reverse {
             if let Some(mentioners) = reverse_co_usage.get(skill_name.as_str()) {
                 for &(mentioner_name, mentioner_type) in mentioners {
+                    // Language gate: skip language-specific reverse co_usage for language-agnostic agents
+                    if agent_is_language_agnostic && is_entry_lang_specific(mentioner_name) {
+                        continue;
+                    }
                     match mentioner_type {
                         "skill" if !existing_skill_names.contains(mentioner_name) => {
                             let entry = &index.skills[mentioner_name];
@@ -8187,10 +8782,8 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     complementary_agents_vec.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     command_candidates_vec.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Cap agents and commands to prevent co_usage noise from overwhelming scored candidates.
-    // Without this cap, 2-hop and reverse co_usage can add 60+ low-scored agents that displace
-    // gold agents from the top-10 cutoff. Keep 20 agents (2x the benchmark's 10-agent window).
-    complementary_agents_vec.truncate(20);
+    // Max 10 per section for subagents and commands (matching the TOML section limits).
+    complementary_agents_vec.truncate(10);
     command_candidates_vec.truncate(10);
 
     // Re-sort skills across tiers by score after co-usage discovery.
@@ -8204,13 +8797,15 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         all_skills.append(&mut specialized);
         // Sort by score descending — highest-scored skills go to primary (benchmark's top-5 source)
         all_skills.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-        // Redistribute: top 7 → primary, next 12 → secondary, rest → specialized
+        // Redistribute: top 5 → primary, next 3 → secondary, rest → specialized (max 10 total)
         for skill in all_skills {
-            if primary.len() < 7 {
+            let total = primary.len() + secondary.len() + specialized.len();
+            if total >= max_total_skills { break; }
+            if primary.len() < 5 {
                 primary.push(skill);
-            } else if secondary.len() < 12 {
+            } else if secondary.len() < 3 {
                 secondary.push(skill);
-            } else if specialized.len() < 10 {
+            } else {
                 specialized.push(skill);
             }
         }
@@ -8236,7 +8831,9 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         lsp: to_candidates(lsp_candidates),
     };
 
-    println!("{}", serde_json::to_string_pretty(&output)?);
+    // Write .agent.toml file instead of JSON to stdout
+    let toml_path = write_agent_toml(&output, &profile.source_path)?;
+    println!("{}", toml_path);
     Ok(())
 }
 
@@ -10328,9 +10925,9 @@ fn main() {
     } else if cli.pass1_batch {
         info!("Running in PASS1 BATCH mode");
         run_pass1_batch()
-    } else if let Some(ref profile_path) = cli.agent_profile {
-        info!("Running in AGENT PROFILE mode: {}", profile_path);
-        run_agent_profile(&cli, profile_path)
+    } else if let Some(ref agent_ref) = cli.agent {
+        info!("Running in AGENT PROFILE mode: {}", agent_ref);
+        run_agent_profile(&cli, agent_ref)
     } else {
         run(&cli)
     };

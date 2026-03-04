@@ -88,13 +88,13 @@
       },
       "additionalProperties": false
     },
-    "agents": {
+    "subagents": {
       "type": "object",
-      "description": "Complementary agents that work well with this one",
+      "description": "Sub-agents that complement this agent's workflow (spawned as helpers, not used as main agents)",
       "properties": {
         "recommended": {
           "type": "array",
-          "description": "Agent names that complement this agent's workflow",
+          "description": "Agent names that complement this agent as sub-agents",
           "items": { "type": "string" },
           "default": []
         }
