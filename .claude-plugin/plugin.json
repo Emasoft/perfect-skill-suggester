@@ -26,7 +26,10 @@
     "./commands/pss-add-to-index.md"
   ],
   "skills": [
-    "./skills/pss-usage"
+    "./skills/pss-usage",
+    "./skills/pss-agent-toml",
+    "./skills/pss-benchmark-agent",
+    "./skills/text-categorization-improver"
   ],
   "agents": [
     "./agents/pss-agent-profiler.md"

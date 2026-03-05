@@ -8913,6 +8913,548 @@ fn generate_pass1_keywords(name: &str, description: &str) -> Vec<String> {
     keywords
 }
 
+// ============================================================================
+// Activity Classification System — Cue→Activity Scoring (same tiers as hook mode)
+// ============================================================================
+// Replaces the 16-category flat taxonomy with a multi-activity scored system.
+// Uses the same 4-tier logarithmic weights as the hook mode scorer:
+//   Tool cues:      2,000 pts (e.g., "ruff" → linting)
+//   Framework cues: 20,000 pts (e.g., "flutter" → mobile-development)
+//   Keyword cues:   100 pts (phrase tier), 10 pts (common tier via LOW_SIGNAL_DIVISOR)
+// Each entry gets scored against ALL activities; top-N are assigned.
+
+/// Activity definition — a category with tiered cues for inference.
+struct ActivityDef {
+    /// Activity identifier, e.g. "linting", "unit-testing", "container-deployment"
+    name: &'static str,
+    /// Parent activity for hierarchy, e.g. "testing" is parent of "unit-testing"
+    parent: Option<&'static str>,
+    /// Tool-tier cues (2000 pts) — tool names that strongly imply this activity
+    tools: &'static [&'static str],
+    /// Framework-tier cues (20000 pts) — framework names that strongly imply this activity
+    frameworks: &'static [&'static str],
+    /// Phrase-tier cues (100 pts each, /10 if low-signal) — descriptive keywords
+    keywords: &'static [&'static str],
+}
+
+/// Static registry of all activity definitions (~130 activities).
+/// Organized hierarchically: parent activities group related leaf activities.
+static ACTIVITY_REGISTRY: &[ActivityDef] = &[
+    // ── Development (10x) ──────────────────────────────────────────────────
+    ActivityDef { name: "implementation", parent: None,
+        tools: &[],
+        frameworks: &[],
+        keywords: &["implement", "develop", "build", "create", "feature", "functionality"] },
+    ActivityDef { name: "api-development", parent: Some("implementation"),
+        tools: &["postman", "insomnia", "swagger", "openapi", "hoppscotch"],
+        frameworks: &["express", "fastapi", "flask", "django-rest", "spring-boot", "gin", "actix", "axum", "hono", "koa", "nest"],
+        keywords: &["api", "endpoint", "rest", "graphql", "grpc", "route", "handler", "middleware", "request", "response"] },
+    ActivityDef { name: "ui-development", parent: Some("implementation"),
+        tools: &["storybook", "figma", "chromatic"],
+        frameworks: &["react", "vue", "angular", "svelte", "solid", "qwik", "htmx", "alpine"],
+        keywords: &["ui", "interface", "layout", "component", "widget", "render", "dom", "jsx", "tsx", "template"] },
+    ActivityDef { name: "cli-development", parent: Some("implementation"),
+        tools: &["clap", "commander", "yargs", "inquirer", "oclif", "cobra", "click"],
+        frameworks: &[],
+        keywords: &["cli", "command-line", "terminal", "argparse", "flag", "subcommand", "prompt", "interactive"] },
+    ActivityDef { name: "mobile-development", parent: Some("implementation"),
+        tools: &["xcode", "android-studio", "expo", "fastlane", "cocoapods", "gradle"],
+        frameworks: &["react-native", "flutter", "swiftui", "uikit", "jetpack-compose", "ionic", "capacitor", "maui"],
+        keywords: &["mobile", "app", "native", "ios", "android", "tablet", "smartphone", "touch", "gesture"] },
+    ActivityDef { name: "game-development", parent: Some("implementation"),
+        tools: &["unity", "unreal", "godot", "bevy", "pygame", "love2d", "phaser", "pixi"],
+        frameworks: &[],
+        keywords: &["game", "engine", "physics", "sprite", "render", "collision", "shader", "mesh", "scene"] },
+    ActivityDef { name: "library-development", parent: Some("implementation"),
+        tools: &[],
+        frameworks: &[],
+        keywords: &["library", "package", "module", "crate", "sdk", "wrapper", "binding", "publish", "registry"] },
+    ActivityDef { name: "plugin-development", parent: Some("implementation"),
+        tools: &[],
+        frameworks: &[],
+        keywords: &["plugin", "extension", "hook", "addon", "marketplace", "integration", "middleware"] },
+    ActivityDef { name: "web-development", parent: Some("implementation"),
+        tools: &[],
+        frameworks: &["nextjs", "nuxt", "remix", "astro", "gatsby", "sveltekit", "fresh"],
+        keywords: &["web", "website", "webapp", "browser", "html", "css", "responsive", "progressive"] },
+    ActivityDef { name: "frontend-development", parent: Some("web-development"),
+        tools: &["storybook", "chromatic", "bit"],
+        frameworks: &["react", "vue", "angular", "svelte", "solid", "preact", "lit"],
+        keywords: &["frontend", "client-side", "spa", "ssr", "ssg", "hydration", "state-management"] },
+    ActivityDef { name: "backend-development", parent: Some("web-development"),
+        tools: &[],
+        frameworks: &["express", "django", "rails", "fastapi", "spring", "laravel", "phoenix", "gin", "actix", "nest"],
+        keywords: &["backend", "server-side", "microservice", "service", "api-server", "worker"] },
+    ActivityDef { name: "database-development", parent: Some("implementation"),
+        tools: &["prisma", "drizzle", "typeorm", "sequelize", "knex", "sqlalchemy", "diesel", "sea-orm"],
+        frameworks: &[],
+        keywords: &["database", "schema", "migration", "query", "orm", "sql", "nosql", "table", "index", "relation"] },
+    ActivityDef { name: "embedded-development", parent: Some("implementation"),
+        tools: &["platformio", "arduino", "stm32cube", "esp-idf"],
+        frameworks: &[],
+        keywords: &["embedded", "firmware", "microcontroller", "iot", "rtos", "gpio", "uart", "spi", "i2c"] },
+    ActivityDef { name: "blockchain-development", parent: Some("implementation"),
+        tools: &["hardhat", "foundry", "truffle", "brownie", "anchor"],
+        frameworks: &["ethers", "web3", "wagmi", "viem"],
+        keywords: &["blockchain", "smart-contract", "web3", "solidity", "defi", "nft", "token", "wallet", "chain"] },
+    ActivityDef { name: "desktop-development", parent: Some("implementation"),
+        tools: &["electron", "tauri", "wails"],
+        frameworks: &["swiftui", "wpf", "gtk", "qt", "tkinter"],
+        keywords: &["desktop", "native-app", "window", "menu", "tray", "dialog", "cross-platform"] },
+
+    // ── Quality (20x) ──────────────────────────────────────────────────────
+    ActivityDef { name: "testing", parent: None,
+        tools: &[],
+        frameworks: &[],
+        keywords: &["test", "spec", "assert", "coverage", "fixture", "mock", "stub", "suite"] },
+    ActivityDef { name: "unit-testing", parent: Some("testing"),
+        tools: &["jest", "pytest", "vitest", "rspec", "junit", "nunit", "xunit", "googletest", "catch2", "mocha", "ava"],
+        frameworks: &[],
+        keywords: &["unit-test", "unit", "isolated", "function-test", "method-test"] },
+    ActivityDef { name: "integration-testing", parent: Some("testing"),
+        tools: &["supertest", "testcontainers"],
+        frameworks: &[],
+        keywords: &["integration", "service-test", "api-test", "contract-test", "pact"] },
+    ActivityDef { name: "e2e-testing", parent: Some("testing"),
+        tools: &["cypress", "playwright", "selenium", "puppeteer", "webdriverio", "detox", "appium", "maestro"],
+        frameworks: &[],
+        keywords: &["e2e", "end-to-end", "acceptance", "browser-test", "ui-test", "functional-test"] },
+    ActivityDef { name: "snapshot-testing", parent: Some("testing"),
+        tools: &["percy", "chromatic", "loki", "backstop"],
+        frameworks: &[],
+        keywords: &["snapshot", "visual-regression", "screenshot-test", "pixel-diff"] },
+    ActivityDef { name: "fuzz-testing", parent: Some("testing"),
+        tools: &["afl", "libfuzzer", "cargo-fuzz", "atheris", "jazzer"],
+        frameworks: &["hypothesis", "proptest", "quickcheck"],
+        keywords: &["fuzz", "property-based", "generative-test", "mutation-test"] },
+    ActivityDef { name: "load-testing", parent: Some("testing"),
+        tools: &["k6", "artillery", "locust", "gatling", "jmeter", "wrk", "ab", "vegeta"],
+        frameworks: &[],
+        keywords: &["load-test", "stress-test", "benchmark", "throughput", "latency-test", "soak-test"] },
+    ActivityDef { name: "test-automation", parent: Some("testing"),
+        tools: &["github-actions", "gitlab-ci", "jenkins"],
+        frameworks: &[],
+        keywords: &["test-runner", "ci-test", "test-pipeline", "test-suite", "test-report", "test-coverage"] },
+    ActivityDef { name: "linting", parent: None,
+        tools: &["eslint", "ruff", "pylint", "clippy", "flake8", "rubocop", "golangci-lint", "ktlint",
+                  "stylelint", "htmlhint", "shellcheck", "hadolint", "markdownlint", "yamllint",
+                  "swiftlint", "detekt", "checkstyle", "pmd", "spotbugs", "biome"],
+        frameworks: &[],
+        keywords: &["lint", "linter", "static-analysis", "code-style", "rule-violation", "code-smell"] },
+    ActivityDef { name: "formatting", parent: None,
+        tools: &["prettier", "black", "gofmt", "rustfmt", "clang-format", "autopep8", "yapf",
+                  "swift-format", "ktfmt", "google-java-format", "shfmt", "biome"],
+        frameworks: &[],
+        keywords: &["format", "formatter", "prettify", "indent", "whitespace", "code-style", "auto-format"] },
+    ActivityDef { name: "code-review", parent: None,
+        tools: &["reviewbot", "danger", "coderabbit", "codacy", "codeclimate"],
+        frameworks: &[],
+        keywords: &["review", "pull-request", "pr-review", "code-quality", "peer-review", "approve", "request-changes"] },
+    ActivityDef { name: "type-checking", parent: None,
+        tools: &["mypy", "pyright", "tsc", "flow", "sorbet", "steep"],
+        frameworks: &[],
+        keywords: &["type-check", "type-safe", "type-annotation", "typing", "type-error", "type-inference"] },
+    ActivityDef { name: "refactoring", parent: None,
+        tools: &["rope", "jscodeshift", "ts-morph"],
+        frameworks: &[],
+        keywords: &["refactor", "restructure", "clean-code", "technical-debt", "extract-method", "rename", "simplify"] },
+    ActivityDef { name: "documentation", parent: None,
+        tools: &["sphinx", "typedoc", "javadoc", "rustdoc", "doxygen", "mkdocs", "docusaurus", "vitepress", "jsdoc"],
+        frameworks: &[],
+        keywords: &["document", "docstring", "readme", "api-docs", "documentation", "wiki", "changelog", "guide"] },
+    ActivityDef { name: "accessibility-audit", parent: None,
+        tools: &["axe", "lighthouse", "pa11y", "wave"],
+        frameworks: &[],
+        keywords: &["accessibility", "a11y", "wcag", "aria", "screen-reader", "keyboard-nav", "contrast"] },
+
+    // ── Operations (30x) ───────────────────────────────────────────────────
+    ActivityDef { name: "deployment", parent: None,
+        tools: &[],
+        frameworks: &[],
+        keywords: &["deploy", "release", "ship", "rollout", "publish", "promote"] },
+    ActivityDef { name: "container-deployment", parent: Some("deployment"),
+        tools: &["docker", "podman", "buildah", "docker-compose", "containerd", "nerdctl"],
+        frameworks: &[],
+        keywords: &["container", "containerize", "dockerfile", "image", "registry", "layer", "multi-stage"] },
+    ActivityDef { name: "cloud-deployment", parent: Some("deployment"),
+        tools: &["vercel", "netlify", "heroku", "fly", "render", "railway", "amplify", "firebase-hosting"],
+        frameworks: &[],
+        keywords: &["cloud-deploy", "cloud-hosting", "platform-as-service", "paas", "auto-deploy"] },
+    ActivityDef { name: "kubernetes-ops", parent: Some("deployment"),
+        tools: &["kubectl", "helm", "kustomize", "argocd", "flux", "skaffold", "tilt", "k3s", "minikube", "kind"],
+        frameworks: &[],
+        keywords: &["kubernetes", "k8s", "pod", "cluster", "namespace", "ingress", "service-mesh", "istio"] },
+    ActivityDef { name: "serverless-deployment", parent: Some("deployment"),
+        tools: &["serverless", "sam", "claudia", "architect", "sst"],
+        frameworks: &["aws-lambda", "cloudflare-workers", "deno-deploy", "azure-functions", "google-cloud-functions"],
+        keywords: &["serverless", "lambda", "function-as-service", "faas", "edge-function", "cold-start"] },
+    ActivityDef { name: "ci-cd", parent: None,
+        tools: &["github-actions", "gitlab-ci", "jenkins", "circleci", "travis", "drone", "buildkite",
+                  "tekton", "concourse", "woodpecker", "semaphore", "bitbucket-pipelines"],
+        frameworks: &[],
+        keywords: &["ci", "cd", "pipeline", "continuous-integration", "continuous-delivery", "workflow", "build-automation"] },
+    ActivityDef { name: "infrastructure-provisioning", parent: None,
+        tools: &["terraform", "pulumi", "ansible", "cloudformation", "cdktf", "crossplane", "chef", "puppet", "salt"],
+        frameworks: &[],
+        keywords: &["infrastructure", "iac", "provision", "infrastructure-as-code", "resource", "stack"] },
+    ActivityDef { name: "monitoring", parent: None,
+        tools: &["datadog", "grafana", "prometheus", "sentry", "newrelic", "elastic-apm", "honeycomb", "pagerduty", "opsgenie"],
+        frameworks: &[],
+        keywords: &["monitor", "observability", "metrics", "alerting", "dashboard", "uptime", "health-check", "incident"] },
+    ActivityDef { name: "logging", parent: None,
+        tools: &["elk", "splunk", "loki", "fluentd", "logstash", "vector", "papertrail", "logtail"],
+        frameworks: &[],
+        keywords: &["logging", "log-aggregation", "log-analysis", "structured-logging", "log-level", "log-rotation"] },
+    ActivityDef { name: "configuration-management", parent: None,
+        tools: &["dotenv", "consul", "etcd", "vault", "configmap"],
+        frameworks: &[],
+        keywords: &["config", "env-vars", "settings", "dotenv", "configuration", "feature-flag", "toggle"] },
+    ActivityDef { name: "package-management", parent: None,
+        tools: &["npm", "yarn", "pnpm", "bun", "pip", "uv", "cargo", "maven", "gradle", "gem", "brew",
+                  "composer", "nuget", "cocoapods", "swift-package-manager", "go-mod"],
+        frameworks: &[],
+        keywords: &["package", "dependency", "version", "install", "upgrade", "lockfile", "registry", "publish"] },
+    ActivityDef { name: "bundling", parent: None,
+        tools: &["webpack", "vite", "esbuild", "rollup", "parcel", "turbopack", "swc", "tsup", "unbuild", "bun"],
+        frameworks: &[],
+        keywords: &["bundle", "bundler", "build-tool", "transpile", "minify", "tree-shake", "code-split", "sourcemap"] },
+    ActivityDef { name: "release-management", parent: None,
+        tools: &["semantic-release", "changesets", "lerna", "release-it", "goreleaser", "standard-version"],
+        frameworks: &[],
+        keywords: &["release", "changelog", "semver", "versioning", "tag", "publish", "distribution"] },
+
+    // ── Investigation (40x) ────────────────────────────────────────────────
+    ActivityDef { name: "debugging", parent: None,
+        tools: &["gdb", "lldb", "pdb", "chrome-devtools", "vs-debugger", "delve", "node-inspect"],
+        frameworks: &[],
+        keywords: &["debug", "debugger", "breakpoint", "step-through", "stack-trace", "backtrace", "watchpoint",
+                     "bug", "investigate", "root-cause", "bisect"] },
+    ActivityDef { name: "root-cause-analysis", parent: Some("debugging"),
+        tools: &[],
+        frameworks: &[],
+        keywords: &["root-cause", "investigate", "diagnose", "postmortem", "incident-review",
+                     "failure-analysis", "regression", "reproduce"] },
+    ActivityDef { name: "profiling", parent: None,
+        tools: &["perf", "instruments", "py-spy", "clinic", "flamegraph", "dotnet-trace",
+                  "async-profiler", "yourkit", "gperftools", "vtune", "coz"],
+        frameworks: &[],
+        keywords: &["profile", "profiler", "performance", "bottleneck", "flame-graph", "cpu-time",
+                     "hot-path", "benchmark", "optimize"] },
+    ActivityDef { name: "memory-debugging", parent: Some("debugging"),
+        tools: &["valgrind", "heaptrack", "leaks", "addresssanitizer", "msan", "drmemory"],
+        frameworks: &[],
+        keywords: &["memory-leak", "heap", "allocation", "garbage-collection", "use-after-free",
+                     "buffer-overflow", "memory-safety", "stack-overflow"] },
+    ActivityDef { name: "log-analysis", parent: Some("debugging"),
+        tools: &[],
+        frameworks: &[],
+        keywords: &["log-analysis", "parse-logs", "error-pattern", "log-grep", "log-tail", "log-search"] },
+    ActivityDef { name: "network-debugging", parent: Some("debugging"),
+        tools: &["wireshark", "tcpdump", "curl", "httpie", "charles", "fiddler", "mitmproxy", "ngrep"],
+        frameworks: &[],
+        keywords: &["network-debug", "packet", "dns", "ssl", "tls", "http-trace", "latency", "timeout", "connection"] },
+    ActivityDef { name: "tracing", parent: None,
+        tools: &["jaeger", "zipkin", "otel", "opentelemetry", "lightstep", "tempo"],
+        frameworks: &[],
+        keywords: &["trace", "distributed-tracing", "span", "opentelemetry", "correlation-id", "propagation"] },
+
+    // ── Architecture (50x) ─────────────────────────────────────────────────
+    ActivityDef { name: "system-design", parent: None,
+        tools: &["mermaid", "plantuml", "drawio", "excalidraw", "lucidchart"],
+        frameworks: &[],
+        keywords: &["architecture", "system-design", "scalability", "microservice", "monolith",
+                     "event-driven", "cqrs", "domain-driven", "hexagonal"] },
+    ActivityDef { name: "api-design", parent: Some("system-design"),
+        tools: &["swagger", "openapi", "stoplight", "redocly", "graphql-codegen"],
+        frameworks: &[],
+        keywords: &["api-design", "schema-design", "openapi", "swagger", "specification", "contract-first", "versioning"] },
+    ActivityDef { name: "database-design", parent: Some("system-design"),
+        tools: &["dbdiagram", "pgmodeler", "dbeaver"],
+        frameworks: &[],
+        keywords: &["schema-design", "erd", "normalization", "indexing", "partitioning", "sharding", "replication"] },
+    ActivityDef { name: "design-patterns", parent: Some("system-design"),
+        tools: &[],
+        frameworks: &[],
+        keywords: &["design-pattern", "factory", "observer", "strategy", "solid", "dependency-injection",
+                     "singleton", "adapter", "decorator", "mediator"] },
+    ActivityDef { name: "migration-planning", parent: None,
+        tools: &["goose", "flyway", "alembic", "knex-migrate", "dbmate"],
+        frameworks: &[],
+        keywords: &["migration", "upgrade", "modernize", "legacy", "rewrite", "port", "migrate", "backward-compatible"] },
+
+    // ── Data (60x) ─────────────────────────────────────────────────────────
+    ActivityDef { name: "data-processing", parent: None,
+        tools: &["pandas", "spark", "dbt", "airflow", "dagster", "prefect", "beam", "flink", "polars"],
+        frameworks: &[],
+        keywords: &["data", "etl", "pipeline", "transform", "ingest", "extract", "batch", "stream"] },
+    ActivityDef { name: "data-analysis", parent: Some("data-processing"),
+        tools: &["numpy", "scipy", "jupyter", "rstudio", "stata", "matlab", "mathematica"],
+        frameworks: &[],
+        keywords: &["analyze", "statistics", "insight", "metric", "correlation", "regression", "hypothesis"] },
+    ActivityDef { name: "data-visualization", parent: Some("data-processing"),
+        tools: &["matplotlib", "d3", "plotly", "grafana", "tableau", "metabase", "superset",
+                  "seaborn", "altair", "recharts", "nivo", "echarts", "chart-js", "vega"],
+        frameworks: &[],
+        keywords: &["visualize", "chart", "graph", "plot", "dashboard", "diagram", "heatmap", "histogram"] },
+    ActivityDef { name: "data-cleaning", parent: Some("data-processing"),
+        tools: &["openrefine", "trifacta", "great-expectations"],
+        frameworks: &[],
+        keywords: &["clean", "preprocess", "normalize", "deduplicate", "impute", "outlier", "validation"] },
+    ActivityDef { name: "machine-learning", parent: None,
+        tools: &["sklearn", "xgboost", "lightgbm", "catboost", "mlflow", "wandb", "optuna", "ray"],
+        frameworks: &["tensorflow", "pytorch", "keras", "jax"],
+        keywords: &["ml", "model", "train", "predict", "feature-engineering", "classification",
+                     "regression", "clustering", "ensemble", "hyperparameter"] },
+    ActivityDef { name: "deep-learning", parent: Some("machine-learning"),
+        tools: &["tensorboard", "wandb", "weights-and-biases"],
+        frameworks: &["pytorch", "tensorflow", "keras", "jax", "flax", "haiku", "lightning"],
+        keywords: &["neural-network", "cnn", "rnn", "transformer", "attention", "backpropagation",
+                     "gpu", "cuda", "distributed-training", "fine-tune"] },
+    ActivityDef { name: "nlp", parent: Some("machine-learning"),
+        tools: &["spacy", "nltk", "huggingface", "gensim", "fasttext", "stanza"],
+        frameworks: &["transformers"],
+        keywords: &["nlp", "text-processing", "tokenize", "embedding", "sentiment",
+                     "ner", "pos-tagging", "text-classification", "summarization"] },
+    ActivityDef { name: "computer-vision", parent: Some("machine-learning"),
+        tools: &["opencv", "yolo", "detectron", "mediapipe", "tesseract"],
+        frameworks: &["torchvision"],
+        keywords: &["vision", "image-processing", "object-detection", "segmentation",
+                     "ocr", "face-detection", "pose-estimation", "image-classification"] },
+    ActivityDef { name: "llm-integration", parent: None,
+        tools: &["langchain", "llamaindex", "openai", "anthropic", "ollama", "vllm",
+                  "chromadb", "pinecone", "weaviate", "qdrant", "milvus", "faiss"],
+        frameworks: &[],
+        keywords: &["llm", "prompt-engineering", "rag", "fine-tune", "embedding",
+                     "retrieval-augmented", "vector-store", "chain-of-thought", "agent", "chat-model"] },
+
+    // ── Security (70x) ─────────────────────────────────────────────────────
+    ActivityDef { name: "security-audit", parent: None,
+        tools: &["trivy", "grype", "nessus", "qualys"],
+        frameworks: &[],
+        keywords: &["security", "vulnerability", "cve", "owasp", "threat-model",
+                     "risk-assessment", "compliance", "hardening"] },
+    ActivityDef { name: "authentication", parent: Some("security-audit"),
+        tools: &["auth0", "clerk", "nextauth", "passport", "keycloak", "okta", "firebase-auth", "supabase-auth"],
+        frameworks: &[],
+        keywords: &["auth", "login", "sso", "oauth", "jwt", "session", "mfa", "2fa",
+                     "identity", "sign-in", "sign-up", "password"] },
+    ActivityDef { name: "authorization", parent: Some("security-audit"),
+        tools: &["casbin", "opa", "cerbos", "permit"],
+        frameworks: &[],
+        keywords: &["rbac", "permissions", "access-control", "policy", "role", "privilege", "scope", "claim"] },
+    ActivityDef { name: "encryption", parent: Some("security-audit"),
+        tools: &["openssl", "age", "sops", "gpg"],
+        frameworks: &[],
+        keywords: &["encrypt", "decrypt", "hash", "tls", "ssl", "certificate", "pki", "signing", "cipher"] },
+    ActivityDef { name: "secret-management", parent: Some("security-audit"),
+        tools: &["vault", "doppler", "aws-secrets-manager", "infisical", "dotenvx", "truffleHog"],
+        frameworks: &[],
+        keywords: &["secrets", "vault", "credentials", "api-key", "token-rotation", "key-management"] },
+    ActivityDef { name: "penetration-testing", parent: Some("security-audit"),
+        tools: &["burp", "nmap", "metasploit", "zap", "nuclei", "sqlmap", "gobuster", "hydra"],
+        frameworks: &[],
+        keywords: &["pentest", "exploit", "ctf", "red-team", "payload", "injection", "brute-force"] },
+    ActivityDef { name: "dependency-scanning", parent: Some("security-audit"),
+        tools: &["snyk", "dependabot", "renovate", "socket", "mend", "fossa"],
+        frameworks: &[],
+        keywords: &["supply-chain", "dependency-audit", "cve-scan", "vulnerability-scan", "sbom", "license-check"] },
+    ActivityDef { name: "code-scanning", parent: Some("security-audit"),
+        tools: &["semgrep", "sonarqube", "codeql", "checkmarx", "veracode", "fortify", "bandit", "brakeman"],
+        frameworks: &[],
+        keywords: &["sast", "dast", "code-scan", "taint-analysis", "security-lint", "vuln-detect"] },
+
+    // ── Content (80x) ──────────────────────────────────────────────────────
+    ActivityDef { name: "content-creation", parent: None,
+        tools: &[],
+        frameworks: &[],
+        keywords: &["write", "blog", "article", "copy", "content", "post", "newsletter", "editorial"] },
+    ActivityDef { name: "seo", parent: Some("content-creation"),
+        tools: &["ahrefs", "semrush", "screaming-frog", "google-search-console"],
+        frameworks: &[],
+        keywords: &["seo", "search-engine", "meta-tag", "sitemap", "ranking", "keyword-research", "backlink"] },
+    ActivityDef { name: "localization", parent: None,
+        tools: &["crowdin", "lokalise", "transifex", "weblate", "phrase", "i18next"],
+        frameworks: &[],
+        keywords: &["i18n", "l10n", "translate", "locale", "internationalization", "localization", "rtl", "pluralization"] },
+    ActivityDef { name: "media-processing", parent: None,
+        tools: &["ffmpeg", "imagemagick", "sharp", "jimp", "sox", "handbrake", "gimp"],
+        frameworks: &[],
+        keywords: &["image", "video", "audio", "transcode", "compress", "thumbnail", "resize", "watermark", "convert"] },
+    ActivityDef { name: "pdf-processing", parent: Some("media-processing"),
+        tools: &["puppeteer", "wkhtmltopdf", "pdfkit", "reportlab", "fpdf", "weasyprint", "prince"],
+        frameworks: &[],
+        keywords: &["pdf", "document", "report-generation", "print-layout", "page-break"] },
+
+    // ── Management (90x) ───────────────────────────────────────────────────
+    ActivityDef { name: "project-management", parent: None,
+        tools: &["jira", "linear", "asana", "trello", "notion", "clickup", "shortcut", "monday"],
+        frameworks: &[],
+        keywords: &["project", "sprint", "backlog", "roadmap", "kanban", "scrum", "epic", "story", "ticket"] },
+    ActivityDef { name: "git-workflow", parent: None,
+        tools: &["git", "gh", "gitea", "gitlab"],
+        frameworks: &[],
+        keywords: &["git", "branch", "merge", "rebase", "commit", "pull-request", "cherry-pick", "stash", "conflict"] },
+    ActivityDef { name: "code-generation", parent: None,
+        tools: &["plop", "hygen", "yeoman", "cookiecutter", "create-react-app", "create-next-app"],
+        frameworks: &[],
+        keywords: &["generate", "scaffold", "boilerplate", "template", "starter", "init", "create-app"] },
+    ActivityDef { name: "research", parent: None,
+        tools: &["arxiv", "scholar", "zotero", "mendeley", "paperpile"],
+        frameworks: &[],
+        keywords: &["research", "paper", "literature", "survey", "analysis", "study", "experiment", "hypothesis"] },
+    ActivityDef { name: "automation", parent: None,
+        tools: &["make", "just", "task", "nox", "tox", "invoke"],
+        frameworks: &[],
+        keywords: &["automate", "script", "workflow", "cron", "scheduled", "batch", "pipeline", "taskfile"] },
+
+    // ── Fallback ───────────────────────────────────────────────────────────
+    ActivityDef { name: "general-development", parent: None,
+        tools: &[],
+        frameworks: &[],
+        keywords: &["develop", "code", "program", "software", "engineering"] },
+];
+
+/// Score an entry's text against a single activity definition using the same
+/// logarithmic tier weights as the hook mode scorer.
+/// Returns the total score (0 if no cues matched).
+fn score_entry_against_activity(
+    entry_words: &[&str],
+    entry_name_parts: &[&str],
+    activity: &ActivityDef,
+    weights: &MatchWeights,
+) -> i32 {
+    let mut score: i32 = 0;
+    let mut has_non_low_signal = false;
+
+    // Helper: match a cue name against entry words.
+    // Short cues (< 4 chars, e.g. "age", "d3", "k6") require exact word match
+    // to avoid false positives like "coverage".contains("age").
+    // Longer cues allow substring match (e.g. "docker" in "dockerfile" is valid).
+    let cue_matches = |cue: &str, words: &[&str]| -> bool {
+        if cue.len() < 4 {
+            // Short cue: exact word match only
+            words.iter().any(|w| *w == cue)
+        } else {
+            // Longer cue: exact match or substring
+            words.iter().any(|w| *w == cue || w.contains(cue))
+        }
+    };
+
+    // Framework-tier matching (20000 pts) — highest confidence cue
+    for fw in activity.frameworks {
+        if cue_matches(fw, entry_words) {
+            score += weights.framework_match; // 20000
+            has_non_low_signal = true;
+        }
+    }
+
+    // Tool-tier matching (2000 pts) — high confidence cue
+    // Same common-tool dampening as hook mode (COMMON_TOOLS at line ~6067)
+    static INDEXER_COMMON_TOOLS: &[&str] = &[
+        "python", "python3", "bash", "git", "npm", "pip", "node", "bun",
+    ];
+    for tool in activity.tools {
+        if cue_matches(tool, entry_words) {
+            let is_common = INDEXER_COMMON_TOOLS.iter().any(|t| *t == *tool);
+            let tool_score = if is_common {
+                weights.tool_match / 5 // 400 for common tools
+            } else {
+                weights.tool_match // 2000 for specific tools
+            };
+            score += tool_score;
+            has_non_low_signal = true;
+        }
+    }
+
+    // Keyword/phrase-tier matching (100 pts, /10 for low-signal)
+    let mut kw_count = 0;
+    for kw in activity.keywords {
+        // Prefix-match: entry word can prefix-match keyword only if word is >= 4 chars
+        // This prevents short words like "and" from matching "android"
+        let matched = entry_words.iter().any(|w| {
+            *w == *kw
+                || w.starts_with(kw)
+                || (w.len() >= 4 && kw.starts_with(w))
+        });
+        if matched {
+            let is_low = LOW_SIGNAL_WORDS.contains(kw);
+            let base = if is_low {
+                weights.keyword / LOW_SIGNAL_DIVISOR // 10
+            } else {
+                weights.keyword // 100
+            };
+            // First-match bonus (same as hook mode)
+            score += if kw_count == 0 {
+                base + weights.first_match / (if is_low { LOW_SIGNAL_DIVISOR } else { 1 })
+            } else {
+                base
+            };
+            if !is_low { has_non_low_signal = true; }
+            kw_count += 1;
+        }
+    }
+
+    // Activity name in entry name — strong signal (like whole_name_match in hook mode)
+    let activity_name_words: Vec<&str> = activity.name.split('-').collect();
+    let name_overlap = activity_name_words
+        .iter()
+        .filter(|aw| entry_name_parts.iter().any(|np| np == *aw || np.starts_with(*aw) || aw.starts_with(np)))
+        .count();
+    if name_overlap > 0 {
+        // 2000 + 1000*(n-1): same scaling as whole_name_match in hook mode
+        score += weights.tool_match + (name_overlap as i32 - 1) * 1000;
+        has_non_low_signal = true;
+    }
+
+    // Same ALL_LOW_SIGNAL_CAP as hook mode: if only common words matched, cap at 90
+    if !has_non_low_signal {
+        score = score.min(ALL_LOW_SIGNAL_CAP);
+    }
+
+    score
+}
+
+/// Classify an entry into multiple activities using the reversed logarithmic scorer.
+/// Returns top-N (activity_name, score) pairs, sorted descending by score.
+/// Replaces the old assign_pass1_category() single-category assignment.
+fn classify_entry_activities(
+    name: &str,
+    description: &str,
+    use_context: &str,
+) -> Vec<(String, i32)> {
+    // Combine all text into words for matching
+    let combined = format!("{} {} {}", name.to_lowercase(), description.to_lowercase(), use_context.to_lowercase());
+    let entry_words: Vec<&str> = combined.split_whitespace().collect();
+    let name_lower = name.to_lowercase();
+    let name_parts: Vec<&str> = name_lower.split(|c: char| c == '-' || c == '_' || c == ':').collect();
+    let weights = MatchWeights::default();
+
+    // Score against every activity definition
+    let mut scores: Vec<(String, i32)> = ACTIVITY_REGISTRY
+        .iter()
+        .map(|activity| {
+            let score = score_entry_against_activity(&entry_words, &name_parts, activity, &weights);
+            (activity.name.to_string(), score)
+        })
+        .filter(|(_, score)| *score > 0)
+        .collect();
+
+    // Sort descending by score, take top 5
+    scores.sort_by(|a, b| b.1.cmp(&a.1));
+    scores.truncate(5);
+
+    // Fallback if no activity scored
+    if scores.is_empty() {
+        scores.push(("general-development".to_string(), 10));
+    }
+
+    scores
+}
+
+/// DEPRECATED: Old 16-category flat taxonomy. Kept for reference only.
+/// Use classify_entry_activities() instead, which uses the same logarithmic
+/// tier weights as the hook mode scorer for accurate classification.
+#[allow(dead_code)]
 /// Assign a category from the 16-category taxonomy based on keyword signals.
 /// Priority-ordered: first match wins (same logic as the scoring engine).
 fn assign_pass1_category(keywords: &[String]) -> &'static str {
@@ -8923,8 +9465,10 @@ fn assign_pass1_category(keywords: &[String]) -> &'static str {
         ("security", &["security", "secur", "audit", "vulnerability", "owasp", "pentest", "encrypt", "auth", "jwt", "oauth"]),
         ("devops-cicd", &["docker", "kubernetes", "k8s", "ci", "cd", "pipeline", "deploy", "github-actions", "jenkins", "helm"]),
         ("infrastructure", &["terraform", "aws", "azure", "gcp", "cloud", "infrastructure", "iac", "serverless", "lambda"]),
+        // debugging MUST be before testing: agents like "sleuth" have both "debug" and "test"
+        // in their keywords (from use_context), and first-match-wins means debugging must win
+        ("debugging", &["debug", "debugger", "profil", "trace", "log", "breakpoint", "inspect", "diagnos", "bug", "investigat", "root-cause"]),
         ("testing", &["test", "jest", "pytest", "cypress", "playwright", "e2e", "tdd", "spec", "assert", "coverage"]),
-        ("debugging", &["debug", "debugger", "profil", "trace", "log", "breakpoint", "inspect", "diagnos"]),
         ("data-ml", &["data", "ml", "machine-learning", "pandas", "numpy", "sklearn", "dataset", "featur", "model"]),
         ("ai-llm", &["llm", "ai", "gpt", "prompt", "rag", "langchain", "openai", "anthropic", "embedding", "vector"]),
         ("web-frontend", &["react", "vue", "angular", "css", "html", "frontend", "ui", "component", "tailwind", "nextjs", "svelte"]),
@@ -8949,30 +9493,109 @@ fn assign_pass1_category(keywords: &[String]) -> &'static str {
     "cli-tools" // fallback for unclassifiable elements
 }
 
-/// Infer default intents for a category. Maps each category to typical user intents.
-fn infer_pass1_intents(category: &str) -> Vec<String> {
-    match category {
-        "mobile" => vec!["develop", "build", "deploy", "test"],
-        "plugin-dev" => vec!["create", "extend", "configure", "develop"],
-        "security" => vec!["audit", "secure", "scan", "review"],
-        "devops-cicd" => vec!["deploy", "automate", "build", "configure"],
-        "infrastructure" => vec!["provision", "configure", "manage", "scale"],
-        "testing" => vec!["test", "validate", "verify", "assert"],
-        "debugging" => vec!["debug", "diagnose", "trace", "inspect"],
-        "data-ml" => vec!["analyze", "train", "predict", "transform"],
-        "ai-llm" => vec!["generate", "prompt", "embed", "chat"],
-        "web-frontend" => vec!["build", "style", "render", "animate"],
-        "web-backend" => vec!["serve", "route", "query", "authenticate"],
-        "visualization" => vec!["visualize", "chart", "plot", "display"],
-        "cli-tools" => vec!["run", "execute", "automate", "script"],
-        "code-quality" => vec!["lint", "format", "refactor", "review"],
-        "research" => vec!["research", "analyze", "synthesize", "cite"],
-        "project-mgmt" => vec!["plan", "track", "organize", "prioritize"],
-        _ => vec!["develop", "implement", "configure"],
-    }
-    .into_iter()
-    .map(String::from)
-    .collect()
+/// Infer default intents from the primary activity name.
+/// Handles both old 16-category names (backward compat) and new ~130 activity names.
+/// Uses substring matching so parent activities cover their children:
+/// "unit-testing" matches the "testing" arm, "container-deployment" matches "deployment".
+fn infer_pass1_intents(activity: &str) -> Vec<String> {
+    // Match against activity groups using contains() for hierarchical coverage
+    let intents: Vec<&str> = if activity.contains("testing") || activity == "test-automation" {
+        vec!["test", "validate", "verify", "assert"]
+    } else if activity.contains("debugging") || activity == "root-cause-analysis"
+        || activity == "memory-debugging" || activity == "log-analysis"
+        || activity == "network-debugging"
+    {
+        vec!["debug", "diagnose", "trace", "inspect"]
+    } else if activity.contains("deployment") || activity == "ci-cd"
+        || activity == "kubernetes-ops" || activity == "serverless-deployment"
+    {
+        vec!["deploy", "release", "ship", "configure"]
+    } else if activity == "linting" {
+        vec!["lint", "check", "validate", "enforce"]
+    } else if activity == "formatting" {
+        vec!["format", "style", "prettify", "normalize"]
+    } else if activity == "type-checking" {
+        vec!["check", "validate", "annotate", "infer"]
+    } else if activity == "refactoring" {
+        vec!["refactor", "restructure", "simplify", "extract"]
+    } else if activity == "code-review" {
+        vec!["review", "approve", "comment", "suggest"]
+    } else if activity == "profiling" {
+        vec!["profile", "measure", "optimize", "benchmark"]
+    } else if activity == "tracing" {
+        vec!["trace", "correlate", "instrument", "observe"]
+    } else if activity.contains("security") || activity == "penetration-testing"
+        || activity == "dependency-scanning" || activity == "code-scanning"
+    {
+        vec!["audit", "secure", "scan", "review"]
+    } else if activity == "authentication" {
+        vec!["authenticate", "login", "authorize", "verify"]
+    } else if activity == "authorization" {
+        vec!["authorize", "permit", "restrict", "enforce"]
+    } else if activity == "encryption" || activity == "secret-management" {
+        vec!["encrypt", "protect", "rotate", "manage"]
+    } else if activity.contains("mobile") || activity == "desktop-development" {
+        vec!["develop", "build", "deploy", "test"]
+    } else if activity == "plugin-development" {
+        vec!["create", "extend", "configure", "develop"]
+    } else if activity == "infrastructure-provisioning" {
+        vec!["provision", "configure", "manage", "scale"]
+    } else if activity.contains("data") || activity == "machine-learning"
+        || activity == "deep-learning"
+    {
+        vec!["analyze", "train", "predict", "transform"]
+    } else if activity == "nlp" || activity == "computer-vision" {
+        vec!["process", "classify", "detect", "extract"]
+    } else if activity == "llm-integration" {
+        vec!["generate", "prompt", "embed", "retrieve"]
+    } else if activity.contains("frontend") || activity == "ui-development" {
+        vec!["build", "style", "render", "animate"]
+    } else if activity.contains("backend") || activity == "api-development" {
+        vec!["serve", "route", "query", "authenticate"]
+    } else if activity == "data-visualization" {
+        vec!["visualize", "chart", "plot", "display"]
+    } else if activity == "cli-development" || activity == "automation" {
+        vec!["run", "execute", "automate", "script"]
+    } else if activity == "documentation" {
+        vec!["document", "describe", "explain", "annotate"]
+    } else if activity == "research" {
+        vec!["research", "analyze", "synthesize", "cite"]
+    } else if activity == "project-management" {
+        vec!["plan", "track", "organize", "prioritize"]
+    } else if activity == "git-workflow" {
+        vec!["commit", "branch", "merge", "review"]
+    } else if activity == "code-generation" {
+        vec!["generate", "scaffold", "create", "template"]
+    } else if activity == "monitoring" || activity == "logging" {
+        vec!["monitor", "alert", "observe", "diagnose"]
+    } else if activity == "package-management" || activity == "bundling" {
+        vec!["install", "build", "bundle", "publish"]
+    } else if activity == "release-management" {
+        vec!["release", "version", "tag", "publish"]
+    } else if activity == "configuration-management" {
+        vec!["configure", "manage", "toggle", "provision"]
+    } else if activity == "localization" {
+        vec!["translate", "localize", "adapt", "internationalize"]
+    } else if activity == "media-processing" || activity == "pdf-processing" {
+        vec!["process", "convert", "transform", "generate"]
+    } else if activity == "seo" || activity == "content-creation" {
+        vec!["write", "optimize", "publish", "promote"]
+    } else if activity == "accessibility-audit" {
+        vec!["audit", "check", "remediate", "comply"]
+    } else if activity == "system-design" || activity == "api-design"
+        || activity == "database-design" || activity == "design-patterns"
+    {
+        vec!["design", "architect", "model", "diagram"]
+    } else if activity == "migration-planning" {
+        vec!["migrate", "upgrade", "port", "modernize"]
+    } else if activity == "web-development" || activity == "database-development" {
+        vec!["develop", "build", "configure", "query"]
+    } else {
+        // Fallback for any unhandled activity name
+        vec!["develop", "implement", "configure"]
+    };
+
+    intents.into_iter().map(String::from).collect()
 }
 
 /// Extract programming languages mentioned in keywords.
@@ -9189,7 +9812,10 @@ fn run_pass1_batch() -> Result<(), SuggesterError> {
 
         // Deterministic enrichment from name + description + use_context
         let keywords = generate_pass1_keywords(name, &combined_text);
-        let category = assign_pass1_category(&keywords);
+        // Activity classification using reversed logarithmic scorer (same tiers as hook mode)
+        let activities = classify_entry_activities(name, description, use_context);
+        // Primary category = top-scoring activity (backward compat for existing consumers)
+        let category = activities.first().map(|(a, _)| a.as_str()).unwrap_or("general-development");
         let intents = infer_pass1_intents(category);
         let languages = extract_pass1_languages(&keywords);
         let frameworks = extract_pass1_frameworks(&keywords);
@@ -9267,6 +9893,7 @@ fn run_pass1_batch() -> Result<(), SuggesterError> {
             "keywords": all_keywords,
             "negative_keywords": negative_kw,
             "category": category,
+            "activities": activities.iter().map(|(name, score)| serde_json::json!({"name": name, "score": score})).collect::<Vec<_>>(),
             "intents": intents,
             "tier": tier,
             "boost": 0,

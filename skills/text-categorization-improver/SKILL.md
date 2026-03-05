@@ -1,3 +1,9 @@
+---
+name: text-categorization-improver
+description: "Systematic methodology for iteratively improving text categorization, scoring, or matching algorithms using parallel experimentation, qualitative LLM-as-judge evaluation, and merge testing."
+user-invocable: false
+---
+
 # Text Categorization Algorithm Improvement Protocol
 
 > Systematic methodology for iteratively improving text categorization, scoring, or matching algorithms using parallel experimentation, qualitative LLM-as-judge evaluation, and merge testing.
