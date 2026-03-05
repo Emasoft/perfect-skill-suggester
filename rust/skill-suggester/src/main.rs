@@ -5827,6 +5827,110 @@ fn find_matches(
     let original_lower = original_prompt.to_lowercase();
     let expanded_lower = expanded_prompt.to_lowercase();
 
+    // LANGUAGE/FRAMEWORK CONFLICT GATE — prompt-level detection
+    // Detect languages mentioned in the prompt so we can reject entries with conflicting languages.
+    // e.g., "Write Go unit tests" → detect "go" → reject entries with languages: ["python"]
+    let lang_signal_patterns: &[(&str, &str)] = &[
+        ("swift", "swift"), ("swiftui", "swift"), ("uikit", "swift"),
+        ("xcode", "swift"), ("xctest", "swift"), ("storekit", "swift"),
+        ("spritekit", "swift"), ("realitykit", "swift"), ("arkit", "swift"),
+        ("mapkit", "swift"), ("cloudkit", "swift"), ("widgetkit", "swift"),
+        ("appkit", "swift"), ("axiom-", "swift"), ("core-data", "swift"),
+        ("ios-", "swift"), ("swiftdata", "swift"), ("app-store", "swift"),
+        ("kotlin", "kotlin"), ("android", "kotlin"), ("jetpack", "kotlin"),
+        ("gradle", "kotlin"),
+        ("django", "python"), ("flask", "python"), ("fastapi", "python"),
+        ("pytorch", "python"), ("pandas", "python"), ("numpy", "python"),
+        ("scikit", "python"), ("pytest", "python"), ("ruff", "python"),
+        ("jupyter", "python"), ("scipy", "python"), ("matplotlib", "python"),
+        ("react-native", "javascript"), ("nextjs", "javascript"),
+        ("vuejs", "javascript"), ("angular", "javascript"),
+        ("svelte", "javascript"), ("nestjs", "javascript"),
+        ("express-", "javascript"), ("webpack", "javascript"),
+        ("rails", "ruby"), ("rspec", "ruby"),
+        ("cargo", "rust"),
+        ("gopls", "go"), ("goroutine", "go"),
+        ("spring-", "java"), ("quarkus", "java"), ("micronaut", "java"),
+        ("flutter", "dart"), ("dart", "dart"),
+        ("blazor", "c#"), ("dotnet", "c#"), ("aspnet", "c#"),
+        ("laravel", "php"), ("drupal", "php"), ("wordpress", "php"),
+        ("phoenix", "elixir"),
+    ];
+
+    // Compatible language groups (don't conflict with each other)
+    let compatible_lang_groups: &[&[&str]] = &[
+        &["javascript", "typescript"],
+        &["java", "kotlin"],
+        &["c", "cpp"],
+        &["shell", "bash"],
+    ];
+
+    // Detect languages from prompt words (exact word match for language names)
+    let prompt_words_for_lang: Vec<&str> = original_lower.split_whitespace().collect();
+    let mut prompt_langs: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let direct_lang_names: &[&str] = &[
+        "python", "javascript", "typescript", "rust", "go", "swift", "kotlin",
+        "java", "ruby", "php", "dart", "elixir", "c#", "csharp", "cpp", "c++",
+        "shell", "bash", "lua", "scala", "haskell", "perl",
+    ];
+    for &lang in direct_lang_names {
+        if prompt_words_for_lang.iter().any(|w| *w == lang) {
+            prompt_langs.insert(lang.to_string());
+        }
+    }
+    // Tool/framework-implied languages from prompt (e.g., "django" → python)
+    for &(signal, lang) in lang_signal_patterns {
+        if original_lower.contains(signal) {
+            prompt_langs.insert(lang.to_string());
+        }
+    }
+    // Include project-context languages (from file scan)
+    for lang in &context.languages {
+        prompt_langs.insert(lang.to_lowercase());
+    }
+    // Expand with compatible languages (e.g., javascript ↔ typescript)
+    let mut expanded_prompt_langs: std::collections::HashSet<String> = prompt_langs.clone();
+    for &group in compatible_lang_groups {
+        if group.iter().any(|g| prompt_langs.contains(*g)) {
+            for &member in group {
+                expanded_prompt_langs.insert(member.to_string());
+            }
+        }
+    }
+
+    // Detect competing frameworks from prompt for framework conflict gating
+    let competing_fw_groups: &[&[&str]] = &[
+        &["react", "vue", "angular", "svelte"],
+        &["django", "flask", "fastapi"],
+        &["express", "fastify", "koa", "hono", "nestjs"],
+        &["nextjs", "nuxt", "sveltekit", "remix"],
+        &["jest", "vitest", "mocha"],
+        &["pytest", "unittest"],
+        &["docker", "podman"],
+        &["terraform", "pulumi", "cloudformation"],
+        &["flutter", "react-native", "ionic"],
+        &["unity", "unreal", "godot"],
+        &["pytorch", "tensorflow", "jax"],
+        &["playwright", "cypress", "selenium"],
+        &["spring", "quarkus", "micronaut"],
+        &["rails", "sinatra"],
+        &["laravel", "symfony"],
+        &["webpack", "vite", "esbuild", "rollup", "parcel", "turbopack"],
+    ];
+    let mut conflicting_frameworks: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for &group in competing_fw_groups {
+        let prompt_has: Vec<&&str> = group.iter()
+            .filter(|fw| original_lower.contains(**fw))
+            .collect();
+        if !prompt_has.is_empty() {
+            for &fw in group {
+                if !original_lower.contains(fw) {
+                    conflicting_frameworks.insert(fw.to_string());
+                }
+            }
+        }
+    }
+
     if incomplete_mode {
         debug!("INCOMPLETE MODE: Skipping tier boost and explicit boost fields");
     }
@@ -6505,6 +6609,61 @@ fn find_matches(
         if gate_penalty_factor < 1.0 {
             score = ((score as f64) * gate_penalty_factor) as i32;
             evidence.push(format!("gate_penalty:{:.2}", gate_penalty_factor));
+        }
+
+        // LANGUAGE CONFLICT GATE: When the prompt explicitly mentions a language,
+        // entries locked to a DIFFERENT language get a 95% penalty.
+        // e.g., prompt "Write Go unit tests" → python-test-writer gets nuked.
+        if !expanded_prompt_langs.is_empty() {
+            if !entry.languages.is_empty()
+                && !entry.languages.contains(&"any".to_string())
+                && !entry.languages.contains(&"universal".to_string())
+            {
+                // Entry has explicit languages — check for conflict
+                let has_lang_overlap = entry.languages.iter().any(|el| {
+                    expanded_prompt_langs.contains(&el.to_lowercase())
+                });
+                if !has_lang_overlap {
+                    // Hard gate: entry's language conflicts with prompt's language
+                    score = (score as f64 * 0.05) as i32;
+                    evidence.push("lang_conflict".to_string());
+                }
+            } else if entry.languages.is_empty() {
+                // Entry has no explicit languages — infer from name/keywords/description
+                let entry_name_lower = name.to_lowercase();
+                let kw_text: String = entry.keywords.iter()
+                    .map(|k| k.to_lowercase())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let desc_lower = entry.description.to_lowercase();
+                let search_text = format!("{} {} {}", entry_name_lower, kw_text, desc_lower);
+                let mut inferred_lang: Option<&str> = None;
+                for &(signal, lang) in lang_signal_patterns {
+                    if search_text.contains(signal) {
+                        inferred_lang = Some(lang);
+                        break;
+                    }
+                }
+                if let Some(lang) = inferred_lang {
+                    if !expanded_prompt_langs.contains(lang) {
+                        // Softer 90% penalty for inferred conflicts (less certain)
+                        score = (score as f64 * 0.10) as i32;
+                        evidence.push("lang_conflict_inferred".to_string());
+                    }
+                }
+            }
+        }
+
+        // FRAMEWORK CONFLICT GATE: When the prompt mentions a specific framework,
+        // entries with a COMPETING framework get a 90% penalty.
+        if !conflicting_frameworks.is_empty() {
+            let has_fw_conflict = entry.frameworks.iter().any(|ef| {
+                conflicting_frameworks.contains(&ef.to_lowercase())
+            });
+            if has_fw_conflict {
+                score = (score as f64 * 0.10) as i32;
+                evidence.push("fw_conflict".to_string());
+            }
         }
 
         // Determine confidence level (from reliable)
@@ -7918,21 +8077,13 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         }
     }
 
-    // LANGUAGE-AGNOSTIC PENALTY: When the agent's description has no language,
-    // penalize language/framework-specific entries. A language-agnostic agent
-    // (like sleuth: "general bug investigation") should not get Swift-only skills
-    // (like axiom-*) just because they share keywords like "debugging"/"testing".
-    //
-    // Detection uses ALL signals (name, keywords, description, languages array)
-    // because most entries in the index have empty languages arrays.
+    // LANGUAGE-AGNOSTIC PENALTY (agent profiler): When the agent's description has
+    // no language, penalize language/framework-specific entries.
     let agent_is_language_agnostic = context.languages.is_empty();
     let agent_is_framework_agnostic = context.frameworks.is_empty();
 
-    // Language signal patterns: (signal_word, language_it_implies)
-    // Used to detect language specificity from name/keywords/description
-    // when the entry.languages array is empty (common for 95%+ of entries).
+    // Language signal patterns for agent profiler language detection
     let lang_signal_patterns: &[(&str, &str)] = &[
-        // Swift/iOS ecosystem
         ("swift", "swift"), ("swiftui", "swift"), ("uikit", "swift"),
         ("xcode", "swift"), ("xctest", "swift"), ("storekit", "swift"),
         ("spritekit", "swift"), ("realitykit", "swift"), ("arkit", "swift"),
@@ -7940,38 +8091,27 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         ("appkit", "swift"), ("axiom-", "swift"), ("core-data", "swift"),
         ("ios-", "swift"), ("swiftdata", "swift"), ("app-store", "swift"),
         ("hig", "swift"),
-        // Kotlin/Android ecosystem
         ("kotlin", "kotlin"), ("android", "kotlin"), ("jetpack", "kotlin"),
         ("gradle", "kotlin"),
-        // Python ecosystem
         ("django", "python"), ("flask", "python"), ("fastapi", "python"),
         ("pytorch", "python"), ("pandas", "python"), ("numpy", "python"),
         ("scikit", "python"), ("pytest", "python"), ("ruff", "python"),
         ("jupyter", "python"), ("scipy", "python"), ("matplotlib", "python"),
-        // JavaScript/TypeScript ecosystem
         ("react-native", "javascript"), ("nextjs", "javascript"),
         ("vuejs", "javascript"), ("angular", "javascript"),
         ("svelte", "javascript"), ("nestjs", "javascript"),
         ("express-", "javascript"), ("webpack", "javascript"),
-        // Ruby ecosystem
         ("rails", "ruby"), ("rspec", "ruby"),
-        // Rust ecosystem
         ("cargo", "rust"),
-        // Go ecosystem
         ("gopls", "go"),
-        // Java ecosystem
         ("spring-", "java"), ("quarkus", "java"), ("micronaut", "java"),
-        // Dart/Flutter ecosystem
         ("flutter", "dart"), ("dart", "dart"),
-        // C# ecosystem
         ("blazor", "c#"), ("dotnet", "c#"), ("aspnet", "c#"),
-        // PHP ecosystem
         ("laravel", "php"), ("drupal", "php"), ("wordpress", "php"),
-        // Elixir ecosystem
         ("phoenix", "elixir"),
     ];
 
-    // Framework signal patterns: detect framework specificity
+    // Framework signal patterns for agent profiler framework detection
     let fw_signal_patterns: &[&str] = &[
         "swiftui", "uikit", "appkit", "react-native", "react", "next.js", "nextjs",
         "vue", "angular", "flutter", "express", "django", "spring", "rails",
