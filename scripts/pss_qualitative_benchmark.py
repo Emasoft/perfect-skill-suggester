@@ -30,6 +30,7 @@ from typing import Any
 
 # ── Binary detection ─────────────────────────────────────────────────────────
 
+
 def detect_binary(project_root: Path) -> str:
     """Detect the platform-specific PSS binary path."""
     bin_dir = project_root / "rust" / "skill-suggester" / "bin"
@@ -55,7 +56,10 @@ def detect_binary(project_root: Path) -> str:
 
 # ── PSS execution ───────────────────────────────────────────────────────────
 
-def run_agent_profile(binary: str, agent_name: str, prompt: str, cwd: str, timeout: int = 30) -> dict[str, Any]:
+
+def run_agent_profile(
+    binary: str, agent_name: str, prompt: str, cwd: str, timeout: int = 30
+) -> dict[str, Any]:
     """Run PSS binary in --agent-profile mode. Returns parsed JSON output."""
     descriptor = {
         "name": agent_name,
@@ -67,7 +71,9 @@ def run_agent_profile(binary: str, agent_name: str, prompt: str, cwd: str, timeo
         "requirements_summary": "",
         "cwd": cwd,
     }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, prefix="pss-qual-") as f:
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, prefix="pss-qual-"
+    ) as f:
         json.dump(descriptor, f)
         descriptor_path = f.name
 
@@ -75,8 +81,18 @@ def run_agent_profile(binary: str, agent_name: str, prompt: str, cwd: str, timeo
     try:
         with open(output_file, "w") as stdout_f, open(os.devnull, "w") as devnull:
             proc = subprocess.run(
-                [binary, "--agent-profile", descriptor_path, "--format", "json", "--top", "30"],
-                stdout=stdout_f, stderr=devnull, timeout=timeout,
+                [
+                    binary,
+                    "--agent-profile",
+                    descriptor_path,
+                    "--format",
+                    "json",
+                    "--top",
+                    "30",
+                ],
+                stdout=stdout_f,
+                stderr=devnull,
+                timeout=timeout,
             )
         if proc.returncode != 0:
             return {}
@@ -113,7 +129,9 @@ def format_suggestions(profile: dict[str, Any]) -> str:
     # Complementary agents
     agents = profile.get("complementary_agents", [])
     if agents:
-        lines.append(f"\n### Complementary Agents — {len(agents)} total (showing top 10)")
+        lines.append(
+            f"\n### Complementary Agents — {len(agents)} total (showing top 10)"
+        )
         for item in agents[:10]:
             if isinstance(item, dict):
                 name = item.get("name", "?")
@@ -197,43 +215,70 @@ def write_eval_task(
     with open(filepath, "w") as f:
         f.write(f"# Evaluation Task: A{agent_id} — {agent_name}\n\n")
         f.write(f"{EVAL_INSTRUCTIONS}\n\n")
-        f.write(f"---\n\n")
-        f.write(f"## Agent Definition\n\n")
+        f.write("---\n\n")
+        f.write("## Agent Definition\n\n")
         f.write(f"**Name:** {agent_name}\n\n")
         f.write(agent_definition[:3000])
-        f.write(f"\n\n---\n\n")
-        f.write(f"## PSS Suggestions\n")
+        f.write("\n\n---\n\n")
+        f.write("## PSS Suggestions\n")
         f.write(suggestions_text)
-        f.write(f"\n\n---\n\n")
-        f.write(f"## Your Evaluation\n\n")
-        f.write(f"(Write your evaluation below)\n")
+        f.write("\n\n---\n\n")
+        f.write("## Your Evaluation\n\n")
+        f.write("(Write your evaluation below)\n")
 
     return filepath
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="PSS Qualitative Benchmark — Phase 1: Generate evaluation tasks"
     )
-    parser.add_argument("--sample", type=int, default=20,
-                        help="Number of random agents to evaluate (default: 20)")
-    parser.add_argument("--agents", type=str, default=None,
-                        help="Specific agent IDs (comma-separated, e.g., '1,5,12')")
-    parser.add_argument("--prompts", default="docs_dev/agent-benchmark-prompts-100.jsonl",
-                        help="Path to agent prompts JSONL file")
-    parser.add_argument("--binary", default=None,
-                        help="Path to PSS binary (auto-detected if not set)")
-    parser.add_argument("--output-dir", default=None,
-                        help="Output directory for eval tasks (default: docs_dev/qual-eval-TIMESTAMP/)")
-    parser.add_argument("--seed", type=int, default=None,
-                        help="Random seed for reproducible sampling")
+    parser.add_argument(
+        "--sample",
+        type=int,
+        default=20,
+        help="Number of random agents to evaluate (default: 20)",
+    )
+    parser.add_argument(
+        "--agents",
+        type=str,
+        default=None,
+        help="Specific agent IDs (comma-separated, e.g., '1,5,12')",
+    )
+    parser.add_argument(
+        "--prompts",
+        default="docs_dev/agent-benchmark-prompts-100.jsonl",
+        help="Path to agent prompts JSONL file",
+    )
+    parser.add_argument(
+        "--binary", default=None, help="Path to PSS binary (auto-detected if not set)"
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Output directory for eval tasks (default: docs_dev/qual-eval-TIMESTAMP/)",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed for reproducible sampling"
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Suppress per-agent progress, print only final summary + manifest path",
+    )
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent.parent
     binary = args.binary or detect_binary(project_root)
-    prompts_path = str(project_root / args.prompts) if not os.path.isabs(args.prompts) else args.prompts
+    prompts_path = (
+        str(project_root / args.prompts)
+        if not os.path.isabs(args.prompts)
+        else args.prompts
+    )
 
     if not os.path.isfile(prompts_path):
         print(f"ERROR: Prompts file not found: {prompts_path}", file=sys.stderr)
@@ -260,10 +305,11 @@ def main() -> None:
         output_dir = project_root / "docs_dev" / f"qual-eval-{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Binary: {binary}")
-    print(f"Agents: {len(selected)} selected")
-    print(f"Output: {output_dir}")
-    print()
+    if not args.quiet:
+        print(f"Binary: {binary}")
+        print(f"Agents: {len(selected)} selected")
+        print(f"Output: {output_dir}")
+        print()
 
     # Run PSS and generate eval tasks
     task_files: list[str] = []
@@ -275,37 +321,60 @@ def main() -> None:
         prompt = agent.get("prompt", "")
         cwd = agent.get("cwd", "/tmp")
 
-        print(f"[{i+1}/{len(selected)}] {agent_name} (A{agent_id})...", end=" ", flush=True)
+        if not args.quiet:
+            print(
+                f"[{i + 1}/{len(selected)}] {agent_name} (A{agent_id})...",
+                end=" ",
+                flush=True,
+            )
 
         profile = run_agent_profile(binary, agent_name, prompt, cwd)
         if not profile:
-            print("SKIP (binary failed)")
+            if not args.quiet:
+                print("SKIP (binary failed)")
             continue
 
         suggestions_text = format_suggestions(profile)
-        filepath = write_eval_task(output_dir, agent_id, agent_name, prompt, suggestions_text)
+        filepath = write_eval_task(
+            output_dir, agent_id, agent_name, prompt, suggestions_text
+        )
         task_files.append(str(filepath))
-        manifest.append({
-            "agent_id": agent_id,
-            "agent_name": agent_name,
-            "eval_file": str(filepath),
-        })
-        print("OK")
+        manifest.append(
+            {
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "eval_file": str(filepath),
+            }
+        )
+        if not args.quiet:
+            print("OK")
 
     # Write manifest for orchestrator
     manifest_path = output_dir / "manifest.json"
     with open(manifest_path, "w") as f:
-        json.dump({
-            "timestamp": timestamp,
-            "binary": binary,
-            "agent_count": len(manifest),
-            "agents": manifest,
-            "output_dir": str(output_dir),
-        }, f, indent=2)
+        json.dump(
+            {
+                "timestamp": timestamp,
+                "binary": binary,
+                "agent_count": len(manifest),
+                "agents": manifest,
+                "output_dir": str(output_dir),
+            },
+            f,
+            indent=2,
+        )
 
-    print(f"\nGenerated {len(task_files)} evaluation tasks in: {output_dir}")
-    print(f"Manifest: {manifest_path}")
-    print(f"\nNext: Spawn subagents to evaluate each task file, then aggregate results.")
+    # Always print final summary (works for both quiet and verbose modes)
+    print(
+        f"[DONE] qualitative-benchmark - {len(manifest)} eval tasks generated. Manifest: {manifest_path}"
+    )
+
+    if not args.quiet:
+        print(f"\nGenerated {len(task_files)} evaluation tasks in: {output_dir}")
+        print(f"Manifest: {manifest_path}")
+        print(
+            "\nNext: Spawn subagents to evaluate each task file, then aggregate results."
+        )
 
 
 if __name__ == "__main__":

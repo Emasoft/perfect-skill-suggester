@@ -430,6 +430,7 @@ def generate_for_directory(
     category: str | None = None,
     source: str | None = None,
     force: bool = False,
+    quiet: bool = False,
 ) -> int:
     """
     Generate .pss files for all skills in a directory.
@@ -447,7 +448,8 @@ def generate_for_directory(
         pss_path = queue_dir / f"{extract_skill_name(skill_md)}.pss"
 
         if pss_path.exists() and not force:
-            print(f"Skipping (exists): {pss_path}")
+            if not quiet:
+                print(f"Skipping (exists): {pss_path}")
             continue
 
         try:
@@ -475,7 +477,8 @@ def generate_for_directory(
 
             pss_path = queue_dir / f"{md_file.stem}.pss"
             if pss_path.exists() and not force:
-                print(f"Skipping (exists): {pss_path}")
+                if not quiet:
+                    print(f"Skipping (exists): {pss_path}")
                 continue
 
             try:
@@ -488,7 +491,9 @@ def generate_for_directory(
     return count
 
 
-def import_from_index(index_path: Path, output_dir: Path, force: bool = False) -> int:
+def import_from_index(
+    index_path: Path, output_dir: Path, force: bool = False, quiet: bool = False
+) -> int:
     """
     Import skills from an existing skill-index.json file.
 
@@ -504,7 +509,8 @@ def import_from_index(index_path: Path, output_dir: Path, force: bool = False) -
         pss_path = output_dir / f"{skill_name}.pss"
 
         if pss_path.exists() and not force:
-            print(f"Skipping (exists): {pss_path}")
+            if not quiet:
+                print(f"Skipping (exists): {pss_path}")
             continue
 
         # Convert index format to PSS format with explicit typing
@@ -588,6 +594,12 @@ def main() -> int:
     parser.add_argument(
         "--force", "-f", action="store_true", help="Overwrite existing .pss files"
     )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Suppress per-element output, print only final summary",
+    )
 
     args = parser.parse_args()
 
@@ -596,7 +608,7 @@ def main() -> int:
         index_path = Path(args.from_index)
         output_dir = Path(args.output) if args.output else Path(".")
         output_dir.mkdir(parents=True, exist_ok=True)
-        count = import_from_index(index_path, output_dir, args.force)
+        count = import_from_index(index_path, output_dir, args.force, quiet=args.quiet)
         print(f"\nImported {count} skill(s) from index")
         return 0
 
@@ -607,7 +619,12 @@ def main() -> int:
             print(f"Error: {dir_path} is not a directory", file=sys.stderr)
             return 1
         count = generate_for_directory(
-            dir_path, args.tier, args.category, args.source, args.force
+            dir_path,
+            args.tier,
+            args.category,
+            args.source,
+            args.force,
+            quiet=args.quiet,
         )
         print(f"\nGenerated {count} .pss file(s)")
         return 0

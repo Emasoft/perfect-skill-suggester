@@ -365,15 +365,18 @@ uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH
 ### Step 9: Clean Up and Report
 
 - Delete the temporary `${PSS_INPUT}` file
-- Print the output path and a 1-line summary: how many primary/secondary/specialized skills recommended, how many excluded and why
+- **TOKEN BUDGET RULE**: Return ONLY a 1-2 line summary to the orchestrator. NEVER return verbose text, code blocks, TOML contents, candidate lists, or detailed reasoning. Write any detailed report to a file instead.
+- Output format: `[DONE] pss-agent-profiler - <agent-name>: P=<n> S=<n> Sp=<n> excluded=<n>. Output: <OUTPUT_PATH>`
+- If failed: `[FAILED] pss-agent-profiler - <error summary>`
 
 **Step 9 Completion Checklist** (MANDATORY before reporting DONE):
 
 - [ ] Validator returned exit code 0 (never report success on exit 1 or 2)
 - [ ] Temporary input file `${PSS_INPUT}` deleted
 - [ ] Output file exists at `${OUTPUT_PATH}` and is non-empty
-- [ ] Summary includes: primary count, secondary count, specialized count, excluded count
+- [ ] Summary includes: primary count (P), secondary count (S), specialized count (Sp), excluded count
 - [ ] No validation errors remain
+- [ ] Response to orchestrator is MAX 2 lines — no verbose output
 
 ## Examples
 

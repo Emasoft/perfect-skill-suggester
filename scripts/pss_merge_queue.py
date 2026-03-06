@@ -14,17 +14,21 @@ Usage:
 """
 
 import argparse
+
 try:
     import fcntl
 except ImportError:
     fcntl = None  # type: ignore[assignment]  # Windows has no fcntl
 import json
+import logging
 import os
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger("pss_merge")
 
 # Default paths for index and lock files
 DEFAULT_INDEX_PATH = Path.home() / ".claude" / "cache" / "skill-index.json"
@@ -267,6 +271,7 @@ def run_merge(
     pss_file: Path,
     pass_num: int | None,
     index_path: Path,
+    quiet: bool = False,
 ) -> None:
     """Execute the full merge operation with file locking.
 
@@ -280,6 +285,7 @@ def run_merge(
         pass_num: Which pass to merge (1 or 2), or None for
             auto-detection.
         index_path: Path to the skill-index.json file.
+        quiet: If True, suppress per-element output.
     """
     # Read the .pss file before acquiring lock (fail fast)
     pss_data = read_json_file(pss_file)
@@ -327,7 +333,8 @@ def run_merge(
         # Cleanup: delete the merged .pss file
         pss_file.unlink()
 
-        print(f"[MERGED] {skill_name} (pass {pass_num}) into {index_path.name}")
+        if not quiet:
+            print(f"[MERGED] {skill_name} (pass {pass_num}) into {index_path.name}")
 
     finally:
         # Release lock and close file descriptor
@@ -374,6 +381,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Read JSONL from stdin, merge each line as pass-1 data",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        default=False,
+        help="Suppress per-element output, print only final summary",
     )
     return parser.parse_args(argv)
 
@@ -423,7 +437,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    run_merge(pss_file, args.pass_num, index_path)
+    run_merge(pss_file, args.pass_num, index_path, quiet=args.quiet)
 
 
 if __name__ == "__main__":
