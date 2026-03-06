@@ -364,7 +364,7 @@ Q: Is this element used frequently but only for specific project types?
 After writing EACH .pss file, immediately merge it:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "${PSS_TMPDIR}/pss-queue/<element-name>.pss" --pass 2
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "${PSS_TMPDIR}/pss-queue/<element-name>.pss" --pass 2 --quiet
 ```
 
 ## COMPLETION VERIFICATION (MANDATORY - DO THIS BEFORE THE FINAL REPORT)

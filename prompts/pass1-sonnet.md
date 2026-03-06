@@ -1047,7 +1047,7 @@ If this validation fails:
 After writing EACH .pss file, immediately merge it:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "${PSS_TMPDIR}/pss-queue/<element-name>.pss" --pass 1
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "${PSS_TMPDIR}/pss-queue/<element-name>.pss" --pass 1 --quiet
 ```
 
 ## COMPLETION VERIFICATION (MANDATORY - DO THIS BEFORE THE FINAL REPORT)

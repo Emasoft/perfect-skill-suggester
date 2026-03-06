@@ -112,7 +112,7 @@ After the sonnet agent completes, merge the `.pss` file into the index:
 
 ```bash
 PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" --quiet
 ```
 
 ### Step 6: Verify
