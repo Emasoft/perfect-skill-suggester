@@ -91,6 +91,12 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     pass1_batch: bool,
 
+    /// Index a single element file: read .md, parse frontmatter+body,
+    /// enrich with Pass 1 pipeline (keywords, activities, languages, frameworks),
+    /// output enriched JSON to stdout.
+    #[arg(long, value_name = "PATH")]
+    index_file: Option<String>,
+
     /// Build CozoDB SQLite index from JSON index file.
     /// Reads skill-index.json (from --index path) and writes skill-index.db alongside it.
     /// The DB enables fast pre-filtered scoring (~35ms vs ~109ms for JSON full-scan).
@@ -10067,6 +10073,269 @@ fn run_pass1_batch() -> Result<(), SuggesterError> {
 }
 
 // ============================================================================
+// Single-file indexing (--index-file)
+// ============================================================================
+
+/// Read a single element .md file, parse frontmatter+body, run Pass 1
+/// enrichment pipeline, and output enriched JSON to stdout.
+fn run_index_file(path: &str) -> Result<(), SuggesterError> {
+    let file_path = std::path::Path::new(path);
+
+    // (a) Read the file
+    let content = fs::read_to_string(file_path).map_err(|e| SuggesterError::IndexRead {
+        path: PathBuf::from(path),
+        source: e,
+    })?;
+
+    // (b) Parse frontmatter
+    let frontmatter = parse_frontmatter(&content);
+
+    // (c) Extract body (everything after frontmatter)
+    let body = extract_md_body(&content);
+
+    // (d) Extract name: from frontmatter, fallback to filename stem
+    // For SKILL.md files, use parent directory name as the skill name
+    let name = frontmatter
+        .get("name")
+        .cloned()
+        .or_else(|| frontmatter.get("title").cloned())
+        .unwrap_or_else(|| {
+            let fname = file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            // SKILL.md uses parent dir as name (e.g., skills/my-skill/SKILL.md → "my-skill")
+            if fname.eq_ignore_ascii_case("SKILL.md") || fname.eq_ignore_ascii_case("skill.md") {
+                file_path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            } else {
+                file_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            }
+        });
+
+    // (e) Extract description: from frontmatter, fallback to first non-empty non-heading paragraph
+    let description = frontmatter
+        .get("description")
+        .cloned()
+        .unwrap_or_else(|| {
+            body.lines()
+                .map(|l| l.trim())
+                .find(|l| !l.is_empty() && !l.starts_with('#'))
+                .unwrap_or("")
+                .to_string()
+        });
+
+    // (f) Determine type from frontmatter or infer from path
+    // Also check for frontmatter keys that imply command type (argument-hint, allowed-tools)
+    let elem_type = frontmatter
+        .get("type")
+        .cloned()
+        .unwrap_or_else(|| {
+            // Canonicalize path separators for reliable matching
+            let p = path.replace('\\', "/").to_lowercase();
+            let fname = file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            // Check both /skills/ and leading skills/ (relative paths)
+            if p.contains("/skills/") || p.starts_with("skills/") || fname == "SKILL.md" {
+                "skill".to_string()
+            } else if p.contains("/agents/") || p.starts_with("agents/") {
+                "agent".to_string()
+            } else if p.contains("/commands/") || p.starts_with("commands/")
+                || frontmatter.contains_key("argument-hint")
+                || frontmatter.contains_key("allowed-tools")
+            {
+                "command".to_string()
+            } else if p.contains("/rules/") || p.starts_with("rules/") {
+                "rule".to_string()
+            } else {
+                "skill".to_string()
+            }
+        });
+
+    // (g) Determine source from path using canonicalized path for reliable matching
+    let canonical_path = fs::canonicalize(file_path)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string());
+    let source = {
+        let p = canonical_path.to_lowercase();
+        if p.contains("plugins/cache") {
+            "marketplace:unknown"
+        } else if p.contains(".claude/") {
+            "user"
+        } else {
+            "project"
+        }
+    };
+
+    // (h) Extract use_context: sections headed "When to Use", "Use Cases", etc.
+    let use_context = extract_use_context_from_body(body);
+
+    // (i) Run the EXACT same enrichment pipeline as run_pass1_batch
+    let combined_text = if use_context.is_empty() {
+        description.clone()
+    } else {
+        format!("{} {}", description, use_context)
+    };
+
+    let keywords = generate_pass1_keywords(&name, &combined_text);
+    let activities = classify_entry_activities(&name, &description, &use_context);
+    let category = activities
+        .first()
+        .map(|(a, _)| a.as_str())
+        .unwrap_or("general-development");
+    let intents = infer_pass1_intents(category);
+    let languages = extract_pass1_languages(&keywords);
+    let frameworks = extract_pass1_frameworks(&keywords);
+    let platforms = extract_pass1_platforms(&keywords);
+
+    let (extra_positive, negative_keywords) = extract_negation_keywords(&combined_text);
+
+    // Merge extra positive words into keywords (dedup via seen set)
+    let mut all_keywords = keywords;
+    let kw_set: std::collections::HashSet<String> = all_keywords.iter().cloned().collect();
+    for w in extra_positive {
+        let stemmed = stem_word(&w);
+        if !kw_set.contains(&w) && !is_pass1_stopword(&w) && w.len() > 2 {
+            all_keywords.push(w);
+        }
+        if !kw_set.contains(&stemmed) && !is_pass1_stopword(&stemmed) && stemmed.len() > 2 {
+            all_keywords.push(stemmed);
+        }
+    }
+    all_keywords.truncate(20);
+
+    // Dedup negative keywords
+    let neg_set: std::collections::HashSet<String> = negative_keywords.into_iter().collect();
+    let negative_kw: Vec<String> = neg_set.iter().cloned().collect();
+
+    // Remove negative keywords AND their stems from positive keywords
+    if !neg_set.is_empty() {
+        let neg_stems: std::collections::HashSet<String> =
+            neg_set.iter().map(|w| stem_word(w)).collect();
+        all_keywords.retain(|kw| !neg_set.contains(kw) && !neg_stems.contains(kw));
+    }
+
+    // Extract use_cases from use_context bullet points
+    let use_cases: Vec<String> = if use_context.is_empty() {
+        vec![]
+    } else {
+        use_context
+            .lines()
+            .filter(|line| {
+                let t = line.trim();
+                t.starts_with("- ") || t.starts_with("* ") || t.starts_with("• ")
+            })
+            .map(|line| {
+                line.trim()
+                    .trim_start_matches(|c: char| c == '-' || c == '*' || c == '•')
+                    .trim()
+                    .to_string()
+            })
+            .filter(|s| !s.is_empty())
+            .take(5)
+            .collect()
+    };
+
+    // Determine tier from source
+    let tier = if source.starts_with("marketplace:") {
+        "community"
+    } else if source.starts_with("project:") {
+        "project"
+    } else {
+        "built-in"
+    };
+
+    // (j) Build enriched output JSON (same fields as run_pass1_batch)
+    let output = serde_json::json!({
+        "name": name,
+        "type": elem_type,
+        "source": source,
+        "path": path,
+        "description": description,
+        "keywords": all_keywords,
+        "negative_keywords": negative_kw,
+        "category": category,
+        "activities": activities.iter().map(|(name, score)| serde_json::json!({"name": name, "score": score})).collect::<Vec<_>>(),
+        "intents": intents,
+        "tier": tier,
+        "boost": 0,
+        "platforms": platforms,
+        "frameworks": frameworks,
+        "languages": languages,
+        "domains": [],
+        "tools": [],
+        "file_types": [],
+        "patterns": [],
+        "directories": [],
+        "path_patterns": [],
+        "use_cases": use_cases,
+        "secondary_categories": [],
+        "domain_gates": {},
+    });
+
+    // (k) Print to stdout
+    println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+
+    eprintln!("Index file: enriched '{}' from {}", name, path);
+    Ok(())
+}
+
+/// Extract "when to use" / "use cases" sections from a markdown body.
+/// Looks for headings containing: "When to Use", "Use Cases", "Usage",
+/// "Use this when", "Triggers" (case-insensitive). Collects all text
+/// (bullet points and paragraphs) under those sections until the next
+/// heading or EOF.
+fn extract_use_context_from_body(body: &str) -> String {
+    let trigger_patterns = [
+        "when to use",
+        "use cases",
+        "usage",
+        "use this when",
+        "triggers",
+    ];
+
+    let mut collecting = false;
+    let mut lines_collected: Vec<&str> = Vec::new();
+
+    for line in body.lines() {
+        let trimmed = line.trim();
+
+        // Check if this is a heading line
+        if trimmed.starts_with('#') {
+            let heading_text = trimmed.trim_start_matches('#').trim().to_lowercase();
+            // Check if heading matches any trigger pattern
+            let matches = trigger_patterns
+                .iter()
+                .any(|pat| heading_text.contains(pat));
+            if matches {
+                collecting = true;
+                continue; // skip the heading line itself
+            } else if collecting {
+                // Hit a new non-matching heading — stop collecting
+                break;
+            }
+        } else if collecting {
+            // Collect body text under matching heading
+            if !trimmed.is_empty() {
+                lines_collected.push(trimmed);
+            }
+        }
+    }
+
+    lines_collected.join("\n")
+}
+
+// ============================================================================
 // CozoDB Index (SQLite-backed pre-filtering for fast skill scoring)
 // ============================================================================
 
@@ -11686,7 +11955,10 @@ fn main() {
         return;
     }
 
-    let result = if cli.build_db {
+    let result = if let Some(ref file_path) = cli.index_file {
+        info!("Running in INDEX FILE mode: {}", file_path);
+        run_index_file(file_path)
+    } else if cli.build_db {
         info!("Running in BUILD DB mode");
         run_build_db(&cli)
     } else if cli.pass1_batch {
