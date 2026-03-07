@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.5] - 2026-03-07
+
+### Bug Fixes
+
+- Use systemMessage for user notification, remove WASM target
+
 ## [2.3.4] - 2026-03-07
 
 ### Bug Fixes
 
 - Unset VIRTUAL_ENV before hook execution
+
+### Bump
+
+- Version 2.3.3 → 2.3.4
 
 ## [2.3.3] - 2026-03-07
 
