@@ -2,11 +2,27 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.6] - 2026-03-07
+
+### Bug Fixes
+
+- Add required section headers to refactored SKILL.md files
+- Add missing required sections to pass validation
+- Resolve all MINOR validation issues in skill files
+
+### Refactor
+
+- Externalize skill/command docs into reference files
+
 ## [2.3.5] - 2026-03-07
 
 ### Bug Fixes
 
 - Use systemMessage for user notification, remove WASM target
+
+### Bump
+
+- Version 2.3.4 → 2.3.5
 
 ## [2.3.4] - 2026-03-07
 
