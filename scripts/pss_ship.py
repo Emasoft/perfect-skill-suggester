@@ -539,14 +539,14 @@ def git_tag(new: str) -> None:
 
 
 def git_push() -> None:
-    """Push commits and tags to remote."""
+    """Push commits and tags to remote. Never skips pre-push hook."""
     info("Pushing to remote...")
 
-    result = run(["git", "push", "--no-verify"])
+    result = run(["git", "push"])
     if result.returncode != 0:
         fatal(f"git push failed: {result.stderr.strip()}")
 
-    result = run(["git", "push", "--tags", "--no-verify"])
+    result = run(["git", "push", "--tags"])
     if result.returncode != 0:
         fatal(f"git push --tags failed: {result.stderr.strip()}")
 
