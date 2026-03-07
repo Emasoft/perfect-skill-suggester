@@ -41,6 +41,7 @@ from typing import Any
 import yaml
 from cpv_validation_common import (
     BUILTIN_AGENT_TYPES,
+    COLORS,
     EXIT_CRITICAL,
     EXIT_MAJOR,
     EXIT_OK,
@@ -48,7 +49,7 @@ from cpv_validation_common import (
     Level,
     ValidationReport,
     ValidationResult,
-    calculate_letter_grade,
+    save_report_and_print_summary,
 )
 
 # =============================================================================
@@ -760,15 +761,7 @@ def validate_enterprise_compliance(
 def print_results(report: EnterpriseComplianceReport, verbose: bool = False) -> None:
     """Print validation results in human-readable format."""
     # ANSI colors
-    colors = {
-        "CRITICAL": "\033[91m",  # Red
-        "MAJOR": "\033[93m",  # Yellow
-        "MINOR": "\033[94m",  # Blue
-        "INFO": "\033[90m",  # Gray
-        "PASSED": "\033[92m",  # Green
-        "RESET": "\033[0m",
-        "BOLD": "\033[1m",
-    }
+    colors = COLORS
 
     # Count by level
     counts = report.count_by_level()
@@ -846,7 +839,7 @@ def print_results(report: EnterpriseComplianceReport, verbose: bool = False) -> 
         rst = colors["RESET"]
         print(f"{minor}NOTICE: Minor compliance issues found{rst}")
 
-    print(f"\nScore: {report.score}/100 ({calculate_letter_grade(report.score)})")
+    print(f"\nScore: {report.score}/100")
     print()
 
 
@@ -901,6 +894,9 @@ Exit codes:
         action="store_true",
         help="Enterprise mode: all rules become CRITICAL (fail-fast)",
     )
+    parser.add_argument(
+        "--report", type=str, default=None, help="Save detailed report to file, print only summary to stdout"
+    )
     args = parser.parse_args()
 
     plugin_path = Path(args.plugin_path).resolve()
@@ -925,6 +921,8 @@ Exit codes:
 
     if args.json:
         print_json(report)
+    elif args.report:
+        save_report_and_print_summary(report, Path(args.report), "Enterprise Validation", print_results, args.verbose, plugin_path=args.plugin_path)
     else:
         print_results(report, args.verbose)
 

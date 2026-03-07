@@ -19,19 +19,5 @@
     "performance",
     "ml"
   ],
-  "commands": [
-    "./commands/pss-reindex-skills.md",
-    "./commands/pss-status.md",
-    "./commands/pss-setup-agent.md",
-    "./commands/pss-add-to-index.md"
-  ],
-  "skills": [
-    "./skills/pss-usage",
-    "./skills/pss-agent-toml",
-    "./skills/pss-benchmark-agent",
-    "./skills/text-categorization-improver"
-  ],
-  "agents": [
-    "./agents/pss-agent-profiler.md"
-  ]
+  "outputStyles": []
 }

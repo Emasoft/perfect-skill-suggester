@@ -44,13 +44,18 @@ from typing import Any, Literal
 import yaml
 from cpv_validation_common import (
     BUILTIN_AGENT_TYPES,
+    COLORS,
     EXIT_CRITICAL,
     EXIT_MAJOR,
     EXIT_MINOR,
     EXIT_OK,
+    SKILL_FRONTMATTER_FIELDS,
     VALID_CONTEXT_VALUES,
+    VALID_HOOK_EVENTS,
     VALID_TOOLS,
     Level,
+    save_report_and_print_summary,
+    validate_component_name,
     validate_toc_embedding,
 )
 from cpv_validation_common import (
@@ -70,7 +75,7 @@ from cpv_validation_common import (
 Score = Literal[0, 1, 2, 3]
 
 # --- AgentSkills OpenSpec Constants ---
-MAX_SKILL_NAME_LENGTH = 64
+MAX_SKILL_NAME_LENGTH = 70  # Aligned with MAX_NAME_LENGTH in cpv_validation_common
 MAX_DESCRIPTION_LENGTH = 1024
 MAX_COMPATIBILITY_LENGTH = 500
 
@@ -85,18 +90,7 @@ OPENSPEC_ALLOWED_FIELDS = {
 }
 
 # --- Claude Code Extended Fields ---
-CLAUDE_CODE_FIELDS = {
-    "name",
-    "description",
-    "argument-hint",
-    "disable-model-invocation",
-    "user-invocable",
-    "allowed-tools",
-    "model",
-    "context",
-    "agent",
-    "hooks",
-}
+CLAUDE_CODE_FIELDS = SKILL_FRONTMATTER_FIELDS
 
 # --- Nixtla/Enterprise Extended Fields ---
 ENTERPRISE_REQUIRED_FIELDS = {"name", "description", "allowed-tools", "version", "author", "license"}
@@ -538,37 +532,16 @@ def validate_name_field(
     # Unicode NFKC normalization (AgentSkills OpenSpec)
     name = unicodedata.normalize("NFKC", name.strip())
 
-    # Length check (max 64 chars)
-    if len(name) > MAX_SKILL_NAME_LENGTH:
-        report.major(
-            f"Skill name exceeds {MAX_SKILL_NAME_LENGTH} characters ({len(name)} chars): {name}",
-            "SKILL.md",
-            category="Frontmatter",
-        )
+    # Uniform naming validation via shared function (length, pattern, end-digit, dir-name match)
+    # Dir-name match is always MAJOR when name is in frontmatter
+    validate_component_name(
+        name,
+        "skill",
+        report,
+        directory_name=unicodedata.normalize("NFKC", skill_dir_name) if "name" in frontmatter else None,
+    )
 
-    # Lowercase check
-    if name != name.lower():
-        report.major(f"Skill name must be lowercase: {name}", "SKILL.md", category="Frontmatter")
-
-    # Kebab-case format check
-    if not re.match(r"^[a-z][a-z0-9-]*[a-z0-9]$", name) and len(name) > 1:
-        # Allow Unicode characters for i18n support
-        if not all(c.isalnum() or c == "-" for c in name):
-            report.major(
-                f"Skill name must use only letters, numbers, hyphens: {name}",
-                "SKILL.md",
-                category="Frontmatter",
-            )
-
-    # No leading/trailing hyphens
-    if name.startswith("-") or name.endswith("-"):
-        report.major("Skill name cannot start or end with a hyphen", "SKILL.md", category="Frontmatter")
-
-    # No consecutive hyphens
-    if "--" in name:
-        report.major("Skill name cannot contain consecutive hyphens", "SKILL.md", category="Frontmatter")
-
-    # Reserved words check
+    # Reserved words check (Anthropic-specific)
     name_lower = name.lower()
     if "anthropic" in name_lower or "claude" in name_lower:
         report.major(f"Skill name contains reserved word: {name}", "SKILL.md", category="Frontmatter")
@@ -599,22 +572,6 @@ def validate_name_field(
             report.info(
                 f"Consider gerund naming pattern (verb + -ing) for skill: {name} "
                 "(e.g., 'processing-pdfs', 'analyzing-data', 'building-apis')",
-                "SKILL.md",
-                category="Frontmatter",
-            )
-
-    # Directory name match check (AgentSkills OpenSpec requirement)
-    dir_name = unicodedata.normalize("NFKC", skill_dir_name)
-    if "name" in frontmatter and dir_name != name:
-        if strict_openspec:
-            report.major(
-                f"Directory name '{skill_dir_name}' must match skill name '{name}'",
-                "SKILL.md",
-                category="Frontmatter",
-            )
-        else:
-            report.info(
-                f"Skill name '{name}' differs from directory name '{skill_dir_name}'",
                 "SKILL.md",
                 category="Frontmatter",
             )
@@ -1014,26 +971,7 @@ def validate_hooks_field(
         return
 
     # Validate hook structure (keys should be valid hook event names)
-    valid_hook_events = {
-        "PreToolUse",
-        "PostToolUse",
-        "PostToolUseFailure",
-        "PermissionRequest",
-        "UserPromptSubmit",
-        "Notification",
-        "Stop",
-        "SubagentStart",
-        "SubagentStop",
-        "Setup",
-        "SessionStart",
-        "SessionEnd",
-        "PreCompact",
-        "TeammateIdle",
-        "TaskCompleted",
-        "ConfigChange",
-        "WorktreeCreate",
-        "WorktreeRemove",
-    }
+    valid_hook_events = VALID_HOOK_EVENTS
 
     for event_name in hooks.keys():
         if event_name not in valid_hook_events:
@@ -2075,18 +2013,10 @@ def validate_skill(
 
 def print_results(report: ValidationReport, verbose: bool = False) -> None:
     """Print validation results in human-readable format."""
-    colors = {
-        "CRITICAL": "\033[91m",  # Red
-        "MAJOR": "\033[93m",  # Yellow
-        "MINOR": "\033[94m",  # Blue
-        "INFO": "\033[90m",  # Gray
-        "PASSED": "\033[92m",  # Green
-        "RESET": "\033[0m",
-        "BOLD": "\033[1m",
-    }
+    colors = COLORS
 
     # Count by level
-    counts = {"CRITICAL": 0, "MAJOR": 0, "MINOR": 0, "INFO": 0, "PASSED": 0}
+    counts = {"CRITICAL": 0, "MAJOR": 0, "MINOR": 0, "NIT": 0, "WARNING": 0, "INFO": 0, "PASSED": 0}
     for r in report.results:
         counts[r.level] += 1
 
@@ -2095,10 +2025,9 @@ def print_results(report: ValidationReport, verbose: bool = False) -> None:
     print(f"Skill Validation: {report.skill_path}")
     print("=" * 70)
 
-    # Print grade
-    grade_colors = {"A": "\033[92m", "B": "\033[92m", "C": "\033[93m", "D": "\033[93m", "F": "\033[91m"}
-    grade_color = grade_colors.get(report.grade, "")
-    print(f"\n{colors['BOLD']}Grade: {grade_color}{report.grade}{colors['RESET']} ({report.overall_score:.1f}/100)")
+    # Print score
+    score_color = "\033[92m" if report.overall_score >= 80 else "\033[93m" if report.overall_score >= 60 else "\033[91m"
+    print(f"\n{colors['BOLD']}Score:{colors['RESET']} {score_color}{report.overall_score:.1f}/100{colors['RESET']}")
 
     # Print summary
     print("\nSummary:")
@@ -2218,6 +2147,9 @@ def main() -> int:
         action="store_true",
         help="Enable 8+1 Pillars validation (for lang-* and convert-* skills)",
     )
+    parser.add_argument(
+        "--report", type=str, default=None, help="Save detailed report to file, print only summary to stdout"
+    )
     args = parser.parse_args()
 
     skill_path = Path(args.skill_path).resolve()
@@ -2247,6 +2179,11 @@ def main() -> int:
 
     if args.json:
         print_json(report)
+    elif args.report:
+        save_report_and_print_summary(
+            report, Path(args.report), "Comprehensive Skill Validation", print_results, args.verbose,
+            plugin_path=args.skill_path,
+        )
     else:
         print_results(report, args.verbose)
 
