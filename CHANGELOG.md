@@ -2,6 +2,32 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.3] - 2026-03-07
+
+### Bug Fixes
+
+- Remove --no-verify from git_push(), enforce ship script for all pushes
+
+### Features
+
+- Read version from external VERSION file at runtime
+- Show suggested skills to user as bright green stderr line
+
+### Styling
+
+- Highlight skill names in bold bright green in PSS stderr line
+- Change PSS label to 'Pss...' whisper style
+- Use parentheses instead of brackets for type labels
+- Wrap PSS line in guillemets «« ... »»
+- Move thunder emoji outside guillemets
+- Single guillemets, no space after thunder
+- Use 'Pss\!' instead of 'Pss...'
+- Use 'Pss\!...' with both exclamation and ellipsis
+- Make thunder and Pss!... bold bright green like skill names
+- Make guillemets bold bright green
+- Change label to 'Pss\!... use:' for clarity
+- Dim green colon after 'use'
+
 ## [2.3.2] - 2026-03-07
 
 ### Bug Fixes
@@ -55,6 +81,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Bump
 
 - Version 2.2.4 → 2.2.5
+
+### Release
+
+- V2.3.2
 
 ## [2.2.4] - 2026-03-01
 
