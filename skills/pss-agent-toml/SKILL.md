@@ -7,7 +7,13 @@ user-invocable: false
 
 # PSS Agent TOML Profile Builder
 
+## Overview
+
 An `.agent.toml` defines the complete configuration profile for a Claude Code agent: skills, sub-agents, slash commands, rules, MCP servers, and LSP servers. An AI agent evaluates scored candidates from the Rust binary, resolves conflicts, prunes redundancy, and assembles a validated profile.
+
+## Instructions
+
+Run `/pss-setup-agent <agent-path>` to invoke the full 6-phase pipeline. See [Workflow Phases](references/workflow-phases.md) for detailed phase instructions and [Setup Command](references/pss-setup-command.md) for CLI usage.
 
 ## Prerequisites
 
@@ -41,6 +47,14 @@ An `.agent.toml` defines the complete configuration profile for a Claude Code ag
 - [Setup Command](references/pss-setup-command.md) -- Using `/pss-setup-agent` to invoke the full pipeline
 - [Example and Scoring](references/example-and-scoring.md) -- Scoring weights, tier thresholds, complete React example, troubleshooting
 - [Error Handling](references/error-handling.md) -- Binary not found, missing index, validation failures
+
+## Error Handling
+
+See [Error Handling Reference](references/error-handling.md) for retry logic, binary-not-found recovery, missing index handling, and validation failure modes.
+
+## Examples
+
+See [Example and Scoring Reference](references/example-and-scoring.md) for a complete React agent example, scoring weights, tier thresholds, and troubleshooting.
 
 ## Output
 

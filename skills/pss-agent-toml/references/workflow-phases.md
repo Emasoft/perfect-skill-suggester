@@ -1,5 +1,25 @@
 # Workflow Phases 1-3: Context, Candidates, Evaluation
 
+## Table of Contents
+
+- [Phase 1: Gather Context](#phase-1-gather-context)
+  - [1.1 Read the agent definition file](#11-read-the-agent-definition-file)
+  - [1.2 Read requirements documents](#12-read-requirements-documents)
+  - [1.3 Detect project languages from cwd](#13-detect-project-languages-from-cwd)
+- [Phase 2: Get Candidates from the Index](#phase-2-get-candidates-from-the-index)
+  - [2.1 Invoke the Rust binary](#21-invoke-the-rust-binary-for-scored-candidates)
+  - [2.2 Search for additional candidates](#22-search-for-additional-candidates-using-cli-query-commands)
+- [Phase 3: Evaluate Each Candidate](#phase-3-evaluate-each-candidate-ai-reasoning-required)
+  - [3.1 Read the candidate's source file](#31-read-the-candidates-source-file)
+  - [3.2 Evaluate relevance](#32-evaluate-relevance-to-the-agents-role)
+  - [3.3 Detect mutual exclusivity](#33-detect-mutual-exclusivity)
+  - [3.4 Check for obsolescence](#34-check-for-obsolescence)
+  - [3.5 Verify stack compatibility](#35-verify-stack-compatibility)
+  - [3.6 Identify gaps](#36-identify-gaps-and-search-for-missing-elements)
+  - [3.7 Prune redundancy](#37-prune-redundancy)
+
+---
+
 ## Phase 1: Gather Context
 
 **1.1 Read the agent definition file**

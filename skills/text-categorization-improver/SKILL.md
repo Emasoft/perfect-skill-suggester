@@ -35,6 +35,18 @@ Copy this checklist and track your progress through the protocol:
 - [ ] Phase 4: Benchmark & Merge Testing
 - [ ] Phase 5: Next Iteration or Completion
 
+## Output
+See [Output, Error Handling, Examples & Resources](references/output-errors-examples.md) for expected output formats.
+
+## Error Handling
+See [Output, Error Handling, Examples & Resources](references/output-errors-examples.md) for error handling details.
+
+## Examples
+See [Output, Error Handling, Examples & Resources](references/output-errors-examples.md) for usage examples.
+
+## Resources
+See [Output, Error Handling, Examples & Resources](references/output-errors-examples.md) for additional resources.
+
 ## Reference Documentation
 
 - [Model Requirements](references/model-requirements.md)

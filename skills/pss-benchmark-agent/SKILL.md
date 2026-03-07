@@ -50,3 +50,20 @@ All detailed protocol documentation is in the `references/` directory. Read each
 - `docs_dev/worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections
 - `docs_dev/worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only)
 - Modified `rust/skill-suggester/src/main.rs` -- with improvements to the scoring engine
+
+## Error Handling
+
+If the benchmark script fails or produces unexpected output, check `docs_dev/methodology-improvement-history.md` for known issues and prior workarounds. See also [Examples and Resources](references/examples-and-resources.md) for error handling guidance.
+
+## Examples
+
+See [Examples and Resources](references/examples-and-resources.md) for sample benchmark commands, change documentation format, and example reports.
+
+## Resources
+
+- [Report Format](references/report-format.md) -- mandatory report sections
+- [Anti-Patterns](references/anti-patterns.md) -- mistakes to avoid
+- [Sacred Parameters](references/sacred-parameters.md) -- do-not-change parameters
+- [Benchmark Tracking](references/benchmark-tracking.md) -- how to run and log benchmarks
+- [Work Tracking Checklist](references/work-tracking-checklist.md) -- completion checklist
+- [Examples and Resources](references/examples-and-resources.md) -- commands and examples

@@ -1,5 +1,21 @@
 # Mandatory Report Sections
 
+## Table of Contents
+
+- [Section 1: Score Progression Table](#section-1-score-progression-table)
+- [Section 2: Change Details](#section-2-change-details-for-each-change)
+  - [2a. Exact Code Diff](#2a-exact-code-diff)
+  - [2b. Formula / Algorithm Description](#2b-formula--algorithm-description)
+  - [2c. Why This Change (Hypothesis)](#2c-why-this-change-hypothesis)
+  - [2d. Per-Prompt Impact](#2d-per-prompt-impact-detailed)
+  - [2e. Rejected Approach Details](#2e-rejected-approach-details)
+- [Section 3: Structural Analysis](#section-3-structural-analysis)
+- [Section 4: Synonym Expansions Inventory](#section-4-synonym-expansions-inventory)
+- [Section 5: Near-Miss Analysis](#section-5-near-miss-analysis)
+- [Section 6: Generalizability Self-Assessment](#section-6-generalizability-self-assessment)
+
+---
+
 ## Section 1: Score Progression Table
 
 Every change you make MUST be benchmarked BEFORE the next change. Record each measurement:
