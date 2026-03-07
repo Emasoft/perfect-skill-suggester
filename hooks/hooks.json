@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\"",
+            "command": "unset VIRTUAL_ENV; python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\"",
             "timeout": 5000,
             "statusMessage": "Analyzing skill triggers..."
           }

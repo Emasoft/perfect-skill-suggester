@@ -738,6 +738,8 @@ def main() -> None:
         # Call the binary with --format hook, --top to limit count,
         # --min-score to filter low quality matches.
         # Timeout MUST be less than hooks.json timeout (5s) to avoid zombie processes.
+        # Unset VIRTUAL_ENV to prevent stale venv from interfering with the binary
+        clean_env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
         result = subprocess.run(
             [
                 str(binary_path),
@@ -752,6 +754,7 @@ def main() -> None:
             capture_output=True,
             text=True,
             timeout=SUBPROCESS_TIMEOUT,
+            env=clean_env,
         )
 
         # Output the result (binary already limits to MAX_SUGGESTIONS)
