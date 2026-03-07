@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.4] - 2026-03-07
+
+### Bug Fixes
+
+- Unset VIRTUAL_ENV before hook execution
+
 ## [2.3.3] - 2026-03-07
 
 ### Bug Fixes
@@ -27,6 +33,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 - Make guillemets bold bright green
 - Change label to 'Pss\!... use:' for clarity
 - Dim green colon after 'use'
+
+### Bump
+
+- Version 2.3.2 → 2.3.3
 
 ## [2.3.2] - 2026-03-07
 
