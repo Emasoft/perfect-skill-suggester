@@ -767,7 +767,7 @@ def main() -> None:
                         # Names in bold bright green, brackets/type in dim green
                         parts = [f"\033[1;92m{n}\033[0;32m [{t}]" for n, t in names]
                         label = "\033[0;32m, ".join(parts)
-                        print(f"\033[32m⚡ PSS → {label}\033[0m", file=sys.stderr)
+                        print(f"\033[32m⚡ Pss... {label}\033[0m", file=sys.stderr)
             except (json.JSONDecodeError, KeyError):
                 pass  # Don't block on display errors
             print(result.stdout, end="")
