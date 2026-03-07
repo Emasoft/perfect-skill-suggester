@@ -244,7 +244,7 @@ enum Commands {
     },
 
     /// List all distinct values for a field (the "menu" of available options).
-    /// Valid fields: languages, frameworks, tools, domains, keywords, intents,
+    /// Valid fields: languages, frameworks, tools, services, domains, keywords, intents,
     /// platforms, file-types, categories, types
     Vocab {
         /// Field name to enumerate
@@ -386,11 +386,13 @@ struct MatchWeights {
     first_match: i32,
     /// Keyword in original prompt, not just expanded synonym (phrase tier)
     original_bonus: i32,
-    /// Tool name exact match (tool tier)
+    /// Tool name exact match (tool tier, T3: 1K-9K)
     tool_match: i32,
-    /// Framework name exact match (framework tier)
+    /// Framework name exact match (framework tier, T4: 10K-90K)
     framework_match: i32,
-    /// Maximum capped score (framework tier max)
+    /// Service/API name exact match (service tier, T5: 100K-900K)
+    service_match: i32,
+    /// Maximum capped score (service tier max)
     capped_max: i32,
 }
 
@@ -412,9 +414,10 @@ impl Default for MatchWeights {
             keyword: 100,         // Phrase tier (low-signal: 100/10 = 10)
             first_match: 300,     // Phrase tier (low-signal: 300/10 = 30)
             original_bonus: 100,  // Phrase tier (low-signal: 100/10 = 10)
-            tool_match: 2000,     // Tool tier
-            framework_match: 20000, // Framework tier
-            capped_max: 90000,    // Framework tier max
+            tool_match: 2000,       // Tool tier (T3: 1K-9K)
+            framework_match: 20000, // Framework tier (T4: 10K-90K)
+            service_match: 200000,  // Service/API tier (T5: 100K-900K)
+            capped_max: 900000,     // Service tier max
         }
     }
 }
@@ -2705,6 +2708,10 @@ pub struct SkillEntry {
     /// Specific tools the skill uses: ["ffmpeg", "imagemagick", "pandoc", "stable-diffusion", "whisper"]
     #[serde(default)]
     pub tools: Vec<String>,
+
+    /// External services/APIs the skill integrates with: ["aws", "openai", "stripe", "github"]
+    #[serde(default)]
+    pub services: Vec<String>,
 
     /// File formats the skill handles: ["xlsx", "docx", "pdf", "epub", "mp4", "svg", "png"]
     #[serde(default)]
@@ -5810,6 +5817,28 @@ struct MatchedSkill {
 ///
 /// # Arguments
 /// * `original_prompt` - The original user prompt
+/// Calculate position-based multiplier for a term in a skill's metadata.
+/// Scores by WHERE the term appears: name (2x), description (1.5x), body/keywords (1x, capped 4x).
+/// Returns total multiplier; defaults to 1.0 if term not found anywhere.
+fn position_multiplier(term: &str, skill_name: &str, skill_desc: &str, skill_keywords: &[String]) -> f64 {
+    let term_lower = term.to_lowercase();
+    // Count occurrences in name (each worth 2x)
+    let name_lower = skill_name.to_lowercase();
+    let name_count = name_lower.matches(&term_lower).count();
+    // Count occurrences in description (each worth 1.5x)
+    let desc_lower = skill_desc.to_lowercase();
+    let desc_count = desc_lower.matches(&term_lower).count();
+    // Count keyword matches as proxy for body occurrences (each worth 1x, capped at 4)
+    let body_count = skill_keywords.iter()
+        .filter(|k| k.to_lowercase().contains(&term_lower))
+        .count()
+        .min(4);
+
+    let multiplier = (name_count as f64 * 2.0) + (desc_count as f64 * 1.5) + (body_count as f64);
+    // Default to 1.0 if term not found anywhere (shouldn't happen since we matched it)
+    if multiplier < 1.0 { 1.0 } else { multiplier }
+}
+
 /// * `expanded_prompt` - The prompt after synonym expansion
 /// * `index` - The skill index to search
 /// * `cwd` - Current working directory for directory context matching
@@ -5951,8 +5980,6 @@ fn find_matches(
         let mut score: i32 = 0;
         let mut evidence: Vec<String> = Vec::new();
         let mut keyword_matches = 0;
-        // W7 soft domain gate penalty: 1.0 = no penalty, <1.0 = gate failed
-        let mut gate_penalty_factor: f64 = 1.0;
         // Track if ANY keyword/intent match was non-low-signal.
         // When ALL matches came from generic words like "test", "skill", "code",
         // the total score should be capped below HIGH threshold.
@@ -6011,18 +6038,19 @@ fn find_matches(
                     reg,
                 );
                 if !passes {
-                    // W7 SOFT DOMAIN GATES: Instead of hard-blocking gate-failing
-                    // skills, apply a severe score penalty. This allows genuinely
-                    // relevant skills to appear when they have strong keyword/name
-                    // evidence, but ranks them below gate-passing skills.
-                    // The penalty factor (0.15) means gate-failing skills need ~7x
-                    // more raw score to compete with gate-passing skills.
-                    gate_penalty_factor = 0.80;
+                    // Domain gates are BINARY EXCLUSION: if a skill has a domain
+                    // gate (e.g. geography) and the prompt doesn't match that domain,
+                    // the skill is excluded entirely. A soft penalty would let
+                    // high-tier matches (T5 services) overshadow domain-correct
+                    // lower-tier skills. Example: geography+openai (80K after 20%
+                    // penalty) would beat medicine+bun (11K) even though the prompt
+                    // mentions medicine, not geography.
                     debug!(
-                        "Skill '{}': soft gate penalty for '{}' failure (factor=0.80)",
+                        "Skill '{}': EXCLUDED by domain gate '{}' (binary filter)",
                         name,
                         failed_gate.unwrap_or_default()
                     );
+                    return None;
                 }
             } else {
                 debug!(
@@ -6140,14 +6168,18 @@ fn find_matches(
                 static ULTRA_COMMON: &[&str] = &["github"];
                 let is_ultra_common = ULTRA_COMMON.iter().any(|u| fw_lower == *u);
                 let is_common_lang = COMMON_LANGS.iter().any(|lang| fw_lower == *lang);
-                let fw_score = if is_ultra_common {
+                let base_fw = if is_ultra_common {
                     weights.framework_match / 20  // 5% for ultra-common (github)
                 } else if is_common_lang {
                     weights.framework_match / 5  // 20% of normal score for common languages
                 } else {
                     weights.framework_match
                 };
-                score += fw_score;
+                // Position-based multiplier: name 2x, desc 1.5x, body 1x (cap 4x)
+                let multiplier = position_multiplier(&fw_lower, name, &entry.description, &entry.keywords);
+                let fw_score = ((base_fw as f64) * multiplier) as i32;
+                // Cap at T4 ceiling (90000)
+                score += fw_score.min(90000);
                 has_non_low_signal_match = true;
                 evidence.push(format!("framework:{}", fw));
             }
@@ -6181,16 +6213,63 @@ fn find_matches(
                 static ULTRA_COMMON_TOOLS: &[&str] = &["github"];
                 let is_ultra_common_tool = ULTRA_COMMON_TOOLS.iter().any(|u| tool_lower == *u);
                 let is_common_tool = COMMON_TOOLS.iter().any(|t| tool_lower == *t);
-                let tool_score = if is_ultra_common_tool {
+                let base_tool = if is_ultra_common_tool {
                     weights.tool_match / 20  // 5% for ultra-common tools
                 } else if is_common_tool {
                     weights.tool_match / 5  // 20% for common tools
                 } else {
                     weights.tool_match
                 };
-                score += tool_score;
+                // Position-based multiplier: name 2x, desc 1.5x, body 1x (cap 4x)
+                let multiplier = position_multiplier(&tool_lower, name, &entry.description, &entry.keywords);
+                let tool_score = ((base_tool as f64) * multiplier) as i32;
+                // Cap at T3 ceiling (9000)
+                score += tool_score.min(9000);
                 has_non_low_signal_match = true;
                 evidence.push(format!("tool:{}", tool));
+            }
+        }
+
+        // Service/API matching (Tier 5: 100K-900K)
+        // Services are external platforms and hosted APIs (aws, openai, stripe, etc.)
+        for service in &entry.services {
+            let svc_lower = service.to_lowercase();
+            // Skip low-signal service names
+            if LOW_SIGNAL_WORDS.contains(svc_lower.trim())
+                || LOW_SIGNAL_WORDS.contains(stem_word(svc_lower.trim()).as_str())
+            {
+                continue;
+            }
+            // Word-boundary + substring matching (same as frameworks/tools)
+            let svc_matched = if svc_lower.contains(' ') {
+                original_lower.contains(&svc_lower)
+                    || original_lower.contains(&svc_lower.replace(' ', "-"))
+            } else if svc_lower.contains('-') {
+                original_words.iter().any(|w| *w == svc_lower.as_str())
+                    || original_lower.contains(&svc_lower.replace('-', " "))
+            } else {
+                original_words.iter().any(|w| *w == svc_lower.as_str())
+            };
+            if svc_matched {
+                // Common services that appear in hundreds of skills get dampened
+                static ULTRA_COMMON_SVCS: &[&str] = &["github"];
+                static COMMON_SVCS: &[&str] = &["npm", "git", "node"];
+                let is_ultra = ULTRA_COMMON_SVCS.iter().any(|u| svc_lower == *u);
+                let is_common = COMMON_SVCS.iter().any(|c| svc_lower == *c);
+                let base_svc = if is_ultra {
+                    weights.service_match / 20  // 5% for ultra-common
+                } else if is_common {
+                    weights.service_match / 5  // 20% for common services
+                } else {
+                    weights.service_match
+                };
+                // Position-based multiplier: name 2x, desc 1.5x, body 1x (cap 4x)
+                let multiplier = position_multiplier(&svc_lower, name, &entry.description, &entry.keywords);
+                let svc_score = ((base_svc as f64) * multiplier) as i32;
+                // Cap at T5 ceiling (900000)
+                score += svc_score.min(900000);
+                has_non_low_signal_match = true;
+                evidence.push(format!("service:{}", service));
             }
         }
 
@@ -6606,17 +6685,10 @@ fn find_matches(
             score = ALL_LOW_SIGNAL_CAP;
         }
 
-        // W7 SOFT DOMAIN GATE PENALTY: Apply after all scoring but before
-        // confidence assignment. Gate-failing skills get their score reduced
-        // by the penalty factor, pushing them below gate-passing skills.
-        if gate_penalty_factor < 1.0 {
-            score = ((score as f64) * gate_penalty_factor) as i32;
-            evidence.push(format!("gate_penalty:{:.2}", gate_penalty_factor));
-        }
-
         // LANGUAGE CONFLICT GATE: When the prompt explicitly mentions a language,
-        // entries locked to a DIFFERENT language get a 95% penalty.
-        // e.g., prompt "Write Go unit tests" → python-test-writer gets nuked.
+        // entries locked to a DIFFERENT language are EXCLUDED (binary filter).
+        // e.g., prompt "Write Go unit tests" → python-test-writer gets excluded.
+        // Language-agnostic skills (empty languages, "any", "universal") pass through.
         if !expanded_prompt_langs.is_empty() {
             if !entry.languages.is_empty()
                 && !entry.languages.contains(&"any".to_string())
@@ -6627,9 +6699,8 @@ fn find_matches(
                     expanded_prompt_langs.contains(&el.to_lowercase())
                 });
                 if !has_lang_overlap {
-                    // Hard gate: entry's language conflicts with prompt's language
-                    score = (score as f64 * 0.05) as i32;
-                    evidence.push("lang_conflict".to_string());
+                    // Binary exclusion: language mismatch = skip entirely
+                    return None;
                 }
             } else if entry.languages.is_empty() {
                 // Entry has no explicit languages — infer from name/keywords/description
@@ -6649,9 +6720,8 @@ fn find_matches(
                 }
                 if let Some(lang) = inferred_lang {
                     if !expanded_prompt_langs.contains(lang) {
-                        // Softer 90% penalty for inferred conflicts (less certain)
-                        score = (score as f64 * 0.10) as i32;
-                        evidence.push("lang_conflict_inferred".to_string());
+                        // Binary exclusion for inferred language conflict too
+                        return None;
                     }
                 }
             }
@@ -7062,6 +7132,7 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
             languages: vec![],
             domains: vec![],
             tools: vec![],
+            services: vec![],
             file_types: vec![],
             // Domain gates (empty for PSS files - populated by reindex)
             domain_gates: HashMap::new(),
@@ -9508,7 +9579,7 @@ fn score_entry_against_activity(
     // Tool-tier matching (2000 pts) — high confidence cue
     // Same common-tool dampening as hook mode (COMMON_TOOLS at line ~6067)
     static INDEXER_COMMON_TOOLS: &[&str] = &[
-        "python", "python3", "bash", "git", "npm", "pip", "node", "bun",
+        "python", "python3", "bash", "git", "npm", "pip", "node",
     ];
     for tool in activity.tools {
         if cue_matches(tool, entry_words) {
@@ -9784,12 +9855,44 @@ fn extract_pass1_languages(keywords: &[String]) -> Vec<String> {
 
 /// Extract frameworks mentioned in keywords.
 fn extract_pass1_frameworks(keywords: &[String]) -> Vec<String> {
+    // Tier 4 (10K-90K): Comprehensive development frameworks and platforms
     let fw_set: &[&str] = &[
+        // JS/TS frameworks
         "react", "vue", "angular", "svelte", "nextjs", "next", "nuxt", "express",
-        "django", "flask", "fastapi", "rails", "spring", "laravel", "nest",
-        "tailwind", "bootstrap", "electron", "tauri", "unity", "unreal",
-        "tensorflow", "pytorch", "keras", "langchain", "playwright", "cypress",
-        "jest", "pytest", "docker", "kubernetes", "terraform",
+        "remix", "gatsby", "astro", "sveltekit", "solidjs", "qwik", "hono", "elysia",
+        "fresh", "ember", "backbone", "preact",
+        // Python frameworks
+        "django", "flask", "fastapi", "starlette", "tornado", "sanic", "litestar",
+        // Ruby frameworks
+        "rails", "sinatra",
+        // Java/JVM frameworks
+        "spring", "quarkus", "micronaut",
+        // PHP frameworks
+        "laravel", "symfony",
+        // Go frameworks
+        "gin", "echo", "fiber",
+        // Rust frameworks
+        "axum", "actix", "rocket",
+        // CSS/UI frameworks
+        "tailwind", "bootstrap",
+        // Desktop/native frameworks
+        "electron", "tauri",
+        // Game engines (framework-tier platforms)
+        "unity", "unreal", "godot",
+        // ML/AI frameworks
+        "tensorflow", "pytorch", "keras", "langchain", "llamaindex",
+        // Mobile frameworks
+        "flutter", "swiftui", "jetpack", "compose", "xamarin",
+        // Backend/API frameworks
+        "nest", "nestjs", "graphql", "trpc",
+        // ORM/DB frameworks
+        "prisma", "drizzle", "typeorm", "sequelize", "sqlalchemy", "diesel",
+        // Testing frameworks
+        "playwright", "cypress", "jest", "pytest", "vitest", "mocha",
+        // DevOps/infra frameworks (framework-tier platforms)
+        "docker", "kubernetes", "terraform",
+        // Other
+        "storybook",
     ];
 
     keywords
@@ -9819,6 +9922,87 @@ fn extract_pass1_platforms(keywords: &[String]) -> Vec<String> {
         }
     }
     platforms
+}
+
+/// Extract tool signals from keywords (Tier 3: 1K-9K).
+/// Tools are specific named software: build tools, package managers, runtimes,
+/// linters, CLI utilities, database clients, editors.
+fn extract_pass1_tools(keywords: &[String]) -> Vec<String> {
+    let tool_set: &[&str] = &[
+        // Build tools
+        "webpack", "vite", "esbuild", "rollup", "parcel", "turbopack", "swc",
+        "tsup", "unbuild", "gulp", "grunt", "make", "cmake", "bazel",
+        // Package managers
+        "npm", "yarn", "pnpm", "pip", "cargo", "brew", "homebrew", "cocoapods",
+        "maven", "gradle", "nuget", "composer",
+        // Runtimes
+        "bun", "deno", "node", "nodejs",
+        // DevOps tools
+        "docker", "terraform", "ansible", "vagrant", "helm", "pulumi",
+        "nginx", "caddy", "traefik",
+        // Testing tools
+        "jest", "vitest", "mocha", "karma", "selenium", "puppeteer",
+        "playwright", "cypress", "pytest",
+        // Linters & formatters
+        "eslint", "prettier", "ruff", "black", "mypy", "pyright", "clippy",
+        "rubocop", "stylelint", "biome", "oxlint", "tslint",
+        // CLI tools
+        "git", "gh", "curl", "wget", "ffmpeg", "imagemagick", "pandoc",
+        "jq", "ripgrep", "fd", "fzf", "tmux",
+        // Database tools
+        "redis", "sqlite", "postgres", "postgresql", "mysql", "mongodb",
+        "dynamodb", "couchdb", "cassandra",
+        // Editors/IDEs
+        "vim", "neovim", "vscode", "emacs", "xcode",
+        // Container/orchestration tools
+        "kubernetes", "k8s", "minikube", "skaffold",
+    ];
+
+    keywords
+        .iter()
+        .filter(|kw| tool_set.contains(&kw.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// Extract service/API signals from keywords (Tier 5: 100K-900K).
+/// Services are external platforms, cloud providers, SaaS APIs, and hosted services.
+fn extract_pass1_services(keywords: &[String]) -> Vec<String> {
+    let svc_set: &[&str] = &[
+        // Cloud providers
+        "aws", "azure", "gcp", "digitalocean", "heroku", "vercel", "netlify",
+        "cloudflare", "fly", "railway", "render",
+        // AI/ML APIs
+        "openai", "anthropic", "claude", "gemini", "huggingface", "replicate",
+        "ollama", "cohere", "mistral", "groq",
+        // Dev platforms
+        "github", "gitlab", "bitbucket", "jira", "confluence", "linear", "notion",
+        // Data services (BaaS)
+        "supabase", "firebase", "planetscale", "neon", "upstash", "convex",
+        "appwrite", "pocketbase",
+        // Auth services
+        "auth0", "clerk", "okta", "keycloak", "cognito",
+        // Communication services
+        "slack", "discord", "twilio", "sendgrid", "resend", "postmark",
+        // Payment services
+        "stripe", "paypal", "square", "braintree",
+        // Monitoring services
+        "datadog", "sentry", "grafana", "prometheus", "newrelic",
+        // CDN/Storage services
+        "cloudinary", "s3", "r2", "minio", "uploadthing",
+        // Search services
+        "elasticsearch", "algolia", "meilisearch", "typesense",
+        // CMS services
+        "sanity", "contentful", "strapi", "wordpress",
+        // CI/CD services
+        "circleci", "travisci", "jenkins",
+    ];
+
+    keywords
+        .iter()
+        .filter(|kw| svc_set.contains(&kw.as_str()))
+        .cloned()
+        .collect()
 }
 
 /// Detect negation patterns in text and split words into positive/negative buckets.
@@ -9977,6 +10161,8 @@ fn run_pass1_batch() -> Result<(), SuggesterError> {
         let languages = extract_pass1_languages(&keywords);
         let frameworks = extract_pass1_frameworks(&keywords);
         let platforms = extract_pass1_platforms(&keywords);
+        let tools = extract_pass1_tools(&keywords);
+        let services = extract_pass1_services(&keywords);
 
         // Negation-aware extraction from description + use_context
         // Words near negation markers ("not compatible with X") go to negative_keywords
@@ -10058,7 +10244,8 @@ fn run_pass1_batch() -> Result<(), SuggesterError> {
             "frameworks": frameworks,
             "languages": languages,
             "domains": [],
-            "tools": [],
+            "tools": tools,
+            "services": services,
             "file_types": [],
             "patterns": [],
             "directories": [],
@@ -10208,6 +10395,8 @@ fn run_index_file(path: &str) -> Result<(), SuggesterError> {
     let languages = extract_pass1_languages(&keywords);
     let frameworks = extract_pass1_frameworks(&keywords);
     let platforms = extract_pass1_platforms(&keywords);
+    let tools = extract_pass1_tools(&keywords);
+    let services = extract_pass1_services(&keywords);
 
     let (extra_positive, negative_keywords) = extract_negation_keywords(&combined_text);
 
@@ -10284,7 +10473,8 @@ fn run_index_file(path: &str) -> Result<(), SuggesterError> {
         "frameworks": frameworks,
         "languages": languages,
         "domains": [],
-        "tools": [],
+        "tools": tools,
+        "services": services,
         "file_types": [],
         "patterns": [],
         "directories": [],
@@ -10426,6 +10616,7 @@ fn create_db_schema(db: &DbInstance) -> Result<(), SuggesterError> {
             keywords_json: String,
             intents_json: String,
             tools_json: String,
+            services_json: String,
             frameworks_json: String,
             languages_json: String,
             platforms_json: String,
@@ -10438,8 +10629,9 @@ fn create_db_schema(db: &DbInstance) -> Result<(), SuggesterError> {
 
     // Pre-filter relations: normalized for Datalog joins during candidate selection
     let relations = [
-        "skill_keywords", "skill_intents", "skill_tools", "skill_frameworks",
-        "skill_languages", "skill_platforms", "skill_domains", "skill_file_types",
+        "skill_keywords", "skill_intents", "skill_tools", "skill_services",
+        "skill_frameworks", "skill_languages", "skill_platforms", "skill_domains",
+        "skill_file_types",
     ];
     for rel in &relations {
         let script = format!(
@@ -10526,6 +10718,7 @@ fn insert_skills_batch(
     let mut kw_pairs: Vec<(String, String)> = Vec::new();
     let mut intent_pairs: Vec<(String, String)> = Vec::new();
     let mut tool_pairs: Vec<(String, String)> = Vec::new();
+    let mut svc_pairs: Vec<(String, String)> = Vec::new();
     let mut fw_pairs: Vec<(String, String)> = Vec::new();
     let mut lang_pairs: Vec<(String, String)> = Vec::new();
     let mut plat_pairs: Vec<(String, String)> = Vec::new();
@@ -10601,6 +10794,8 @@ fn insert_skills_batch(
                 serde_json::to_string(&entry.intents).unwrap_or_default().into()));
             params.insert("tools_json".into(), DataValue::Str(
                 serde_json::to_string(&entry.tools).unwrap_or_default().into()));
+            params.insert("services_json".into(), DataValue::Str(
+                serde_json::to_string(&entry.services).unwrap_or_default().into()));
             params.insert("frameworks_json".into(), DataValue::Str(
                 serde_json::to_string(&entry.frameworks).unwrap_or_default().into()));
             params.insert("languages_json".into(), DataValue::Str(
@@ -10615,17 +10810,17 @@ fn insert_skills_batch(
                  server_type, server_command, server_args_json, language_ids_json, \
                  negative_kw_json, patterns_json, directories_json, path_patterns_json, \
                  use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
-                 keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json] <- \
+                 keywords_json, intents_json, tools_json, services_json, frameworks_json, languages_json, platforms_json, domains_json] <- \
                  [[$name, $id, $path, $skill_type, $source, $description, $tier, $boost, $category, \
                    $server_type, $server_command, $server_args_json, $language_ids_json, \
                    $negative_kw_json, $patterns_json, $directories_json, $path_patterns_json, \
                    $use_cases_json, $co_usage_json, $alternatives_json, $domain_gates_json, $file_types_json, \
-                   $keywords_json, $intents_json, $tools_json, $frameworks_json, $languages_json, $platforms_json, $domains_json]] \
+                   $keywords_json, $intents_json, $tools_json, $services_json, $frameworks_json, $languages_json, $platforms_json, $domains_json]] \
                  :put skills { name => id, path, skill_type, source, description, tier, boost, category, \
                               server_type, server_command, server_args_json, language_ids_json, \
                               negative_kw_json, patterns_json, directories_json, path_patterns_json, \
                               use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
-                              keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json }",
+                              keywords_json, intents_json, tools_json, services_json, frameworks_json, languages_json, platforms_json, domains_json }",
                 params,
                 ScriptMutability::Mutable,
             ).map_err(|e| SuggesterError::IndexParse(
@@ -10641,6 +10836,9 @@ fn insert_skills_batch(
             }
             for tool in &entry.tools {
                 tool_pairs.push(((*name).clone(), tool.clone()));
+            }
+            for svc in &entry.services {
+                svc_pairs.push(((*name).clone(), svc.clone()));
             }
             for fw in &entry.frameworks {
                 fw_pairs.push(((*name).clone(), fw.clone()));
@@ -10684,6 +10882,7 @@ fn insert_skills_batch(
     batch_insert("skill_keywords", &kw_pairs)?;
     batch_insert("skill_intents", &intent_pairs)?;
     batch_insert("skill_tools", &tool_pairs)?;
+    batch_insert("skill_services", &svc_pairs)?;
     batch_insert("skill_frameworks", &fw_pairs)?;
     batch_insert("skill_languages", &lang_pairs)?;
     batch_insert("skill_platforms", &plat_pairs)?;
@@ -11002,12 +11201,12 @@ fn load_index_from_db(db: &DbInstance) -> Result<SkillIndex, SuggesterError> {
          server_type, server_command, server_args_json, language_ids_json, \
          negative_kw_json, patterns_json, directories_json, path_patterns_json, \
          use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
-         keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json] := \
+         keywords_json, intents_json, tools_json, services_json, frameworks_json, languages_json, platforms_json, domains_json] := \
          *skills{ name, path, skill_type, source, description, tier, boost, category, \
                   server_type, server_command, server_args_json, language_ids_json, \
                   negative_kw_json, patterns_json, directories_json, path_patterns_json, \
                   use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
-                  keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json }",
+                  keywords_json, intents_json, tools_json, services_json, frameworks_json, languages_json, platforms_json, domains_json }",
         Default::default(),
         ScriptMutability::Immutable,
     ).map_err(|e| SuggesterError::IndexParse(format!("Load all skills from DB failed: {}", e)))?;
@@ -11029,7 +11228,7 @@ fn load_index_from_db(db: &DbInstance) -> Result<SkillIndex, SuggesterError> {
 
     let mut skills: HashMap<String, SkillEntry> = HashMap::new();
     for row in &main_result.rows {
-        if row.len() < 28 { continue; }
+        if row.len() < 29 { continue; }
         let name = dv_str(&row[0]);
         let entry = SkillEntry {
             path: dv_str(&row[1]),
@@ -11055,10 +11254,11 @@ fn load_index_from_db(db: &DbInstance) -> Result<SkillIndex, SuggesterError> {
             keywords: serde_json::from_str(&dv_str(&row[21])).unwrap_or_default(),
             intents: serde_json::from_str(&dv_str(&row[22])).unwrap_or_default(),
             tools: serde_json::from_str(&dv_str(&row[23])).unwrap_or_default(),
-            frameworks: serde_json::from_str(&dv_str(&row[24])).unwrap_or_default(),
-            languages: serde_json::from_str(&dv_str(&row[25])).unwrap_or_default(),
-            platforms: serde_json::from_str(&dv_str(&row[26])).unwrap_or_default(),
-            domains: serde_json::from_str(&dv_str(&row[27])).unwrap_or_default(),
+            services: serde_json::from_str(&dv_str(&row[24])).unwrap_or_default(),
+            frameworks: serde_json::from_str(&dv_str(&row[25])).unwrap_or_default(),
+            languages: serde_json::from_str(&dv_str(&row[26])).unwrap_or_default(),
+            platforms: serde_json::from_str(&dv_str(&row[27])).unwrap_or_default(),
+            domains: serde_json::from_str(&dv_str(&row[28])).unwrap_or_default(),
         };
         skills.insert(name, entry);
     }
@@ -11290,6 +11490,7 @@ fn cmd_stats(db: &DbInstance, format: &str) -> Result<(), SuggesterError> {
     let by_framework = agg_query("skill_frameworks");
     let by_platform = agg_query("skill_platforms");
     let by_tool = agg_query("skill_tools");
+    let by_service = agg_query("skill_services");
 
     if format == "json" {
         let mut stats = serde_json::Map::new();
@@ -11308,6 +11509,7 @@ fn cmd_stats(db: &DbInstance, format: &str) -> Result<(), SuggesterError> {
         stats.insert("by_framework".into(), to_obj(&by_framework));
         stats.insert("by_platform".into(), to_obj(&by_platform));
         stats.insert("by_tool".into(), to_obj(&by_tool));
+        stats.insert("by_service".into(), to_obj(&by_service));
         println!("{}", serde_json::to_string_pretty(&serde_json::Value::Object(stats))
             .unwrap_or_default());
     } else {
@@ -11326,6 +11528,7 @@ fn cmd_stats(db: &DbInstance, format: &str) -> Result<(), SuggesterError> {
         print_section("BY FRAMEWORK", &by_framework);
         print_section("BY PLATFORM", &by_platform);
         print_section("BY TOOL", &by_tool);
+        print_section("BY SERVICE", &by_service);
     }
     Ok(())
 }
@@ -11342,6 +11545,7 @@ fn cmd_vocab(db: &DbInstance, field: &str, type_filter: Option<&str>, top: usize
         "languages" => build_vocab_query("skill_languages", type_filter, top),
         "frameworks" => build_vocab_query("skill_frameworks", type_filter, top),
         "tools" => build_vocab_query("skill_tools", type_filter, top),
+        "services" => build_vocab_query("skill_services", type_filter, top),
         "domains" => build_vocab_query("skill_domains", type_filter, top),
         "keywords" => build_vocab_query("skill_keywords", type_filter, top),
         "intents" => build_vocab_query("skill_intents", type_filter, top),
@@ -11363,7 +11567,7 @@ fn cmd_vocab(db: &DbInstance, field: &str, type_filter: Option<&str>, top: usize
             )
         }
         _ => return Err(SuggesterError::IndexParse(
-            format!("Unknown vocab field '{}'. Valid: languages, frameworks, tools, domains, keywords, intents, platforms, file-types, categories, types", field)
+            format!("Unknown vocab field '{}'. Valid: languages, frameworks, tools, services, domains, keywords, intents, platforms, file-types, categories, types", field)
         )),
     };
 
@@ -11625,12 +11829,12 @@ fn cmd_inspect(db: &DbInstance, name_or_id: &str, format: &str) -> Result<(), Su
          server_type, server_command, server_args_json, language_ids_json, \
          negative_kw_json, patterns_json, directories_json, path_patterns_json, \
          use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
-         keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json] := \
+         keywords_json, intents_json, tools_json, services_json, frameworks_json, languages_json, platforms_json, domains_json] := \
          *skills{ name, id, path, skill_type, source, description, tier, boost, category, \
                   server_type, server_command, server_args_json, language_ids_json, \
                   negative_kw_json, patterns_json, directories_json, path_patterns_json, \
                   use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
-                  keywords_json, intents_json, tools_json, frameworks_json, languages_json, platforms_json, domains_json }, name = $name",
+                  keywords_json, intents_json, tools_json, services_json, frameworks_json, languages_json, platforms_json, domains_json }, name = $name",
         params,
         ScriptMutability::Immutable,
     ).map_err(|e| SuggesterError::IndexParse(format!("inspect query failed: {}", e)))?;
@@ -11680,10 +11884,11 @@ fn cmd_inspect(db: &DbInstance, name_or_id: &str, format: &str) -> Result<(), Su
         entry.insert("keywords".into(), serde_json::json!(parse_vec(22)));
         entry.insert("intents".into(), serde_json::json!(parse_vec(23)));
         entry.insert("tools".into(), serde_json::json!(parse_vec(24)));
-        entry.insert("frameworks".into(), serde_json::json!(parse_vec(25)));
-        entry.insert("languages".into(), serde_json::json!(parse_vec(26)));
-        entry.insert("platforms".into(), serde_json::json!(parse_vec(27)));
-        entry.insert("domains".into(), serde_json::json!(parse_vec(28)));
+        entry.insert("services".into(), serde_json::json!(parse_vec(25)));
+        entry.insert("frameworks".into(), serde_json::json!(parse_vec(26)));
+        entry.insert("languages".into(), serde_json::json!(parse_vec(27)));
+        entry.insert("platforms".into(), serde_json::json!(parse_vec(28)));
+        entry.insert("domains".into(), serde_json::json!(parse_vec(29)));
 
         println!("{}", serde_json::to_string_pretty(&serde_json::Value::Object(entry)).unwrap_or_default());
     } else {
@@ -11704,11 +11909,12 @@ fn cmd_inspect(db: &DbInstance, name_or_id: &str, format: &str) -> Result<(), Su
         };
         print_vec("Keywords", 22);
         print_vec("Intents", 23);
-        print_vec("Languages", 26);
-        print_vec("Frameworks", 25);
-        print_vec("Platforms", 27);
-        print_vec("Domains", 28);
+        print_vec("Languages", 27);
+        print_vec("Frameworks", 26);
+        print_vec("Platforms", 28);
+        print_vec("Domains", 29);
         print_vec("Tools", 24);
+        print_vec("Services", 25);
         print_vec("File types", 21);
         print_vec("Use cases", 17);
         print_vec("Alternatives", 19);
@@ -11735,7 +11941,8 @@ fn cmd_compare(db: &DbInstance, ref1: &str, ref2: &str, format: &str) -> Result<
         let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
         let tables = [
             ("keywords", "skill_keywords"), ("intents", "skill_intents"),
-            ("tools", "skill_tools"), ("frameworks", "skill_frameworks"),
+            ("tools", "skill_tools"), ("services", "skill_services"),
+            ("frameworks", "skill_frameworks"),
             ("languages", "skill_languages"), ("platforms", "skill_platforms"),
             ("domains", "skill_domains"), ("file_types", "skill_file_types"),
         ];
@@ -11897,6 +12104,7 @@ fn cmd_coverage(db: &DbInstance, type_filter: Option<&str>, format: &str) -> Res
     let frameworks = coverage_query("skill_frameworks");
     let domains = coverage_query("skill_domains");
     let tools = coverage_query("skill_tools");
+    let services = coverage_query("skill_services");
     let platforms = coverage_query("skill_platforms");
 
     if format == "json" {
@@ -11913,6 +12121,7 @@ fn cmd_coverage(db: &DbInstance, type_filter: Option<&str>, format: &str) -> Res
             "frameworks": to_obj(&frameworks),
             "domains": to_obj(&domains),
             "tools": to_obj(&tools),
+            "services": to_obj(&services),
             "platforms": to_obj(&platforms),
             "language_count": languages.len(),
             "framework_count": frameworks.len(),
@@ -11933,6 +12142,7 @@ fn cmd_coverage(db: &DbInstance, type_filter: Option<&str>, format: &str) -> Res
         print_coverage("FRAMEWORKS", &frameworks);
         print_coverage("DOMAINS", &domains);
         print_coverage("TOOLS", &tools);
+        print_coverage("SERVICES", &services);
         print_coverage("PLATFORMS", &platforms);
     }
     Ok(())

@@ -37,21 +37,19 @@ User prompts are expanded with synonyms before matching. For example:
 - `"db"` → `"database"`
 - `"ci"` → `"cicd deployment automation"`
 
-### Weighted Scoring System
-Different match types contribute different point values:
-- **Directory match**: +5 points (skill is in a directory mentioned in prompt)
-- **Path match**: +4 points (file paths in prompt match skill patterns)
-- **Intent match**: +4 points (action verbs like "deploy", "test", "build")
-- **Pattern match**: +3 points (regex patterns in skill config)
-- **Keyword match**: +2 points (simple keyword matches)
-- **First match bonus**: +10 points (first keyword hit gets extra weight)
-- **Original bonus**: +3 points (keyword in original prompt, not from expansion)
+### 5-Tier Logarithmic Scoring
+Each match signal occupies a tier that is **10x more powerful** than the one below it. A single tool match always outranks any number of generic keyword matches. See [How It Works](#how-it-works) for the full rationale.
 
-### Three-Tier Confidence Routing
-Match scores determine how suggestions are presented:
-- **HIGH (≥12)**: Auto-suggest with commitment reminder
-- **MEDIUM (6-11)**: Show with match evidence explaining why
-- **LOW (<6)**: Include as alternatives for user consideration
+| Tier | Range | Examples |
+|------|-------|----------|
+| T1 | 10-90 | Common words: "test", "build", "debug" |
+| T2 | 100-900 | Specific keywords/phrases |
+| T3 | 1,000-9,000 | Tool names: bun, webpack, docker |
+| T4 | 10,000-90,000 | Frameworks: react, django, flutter |
+| T5 | 100,000-900,000 | Services/APIs: aws, openai, stripe |
+
+### Binary Filters (Languages, Platforms, Domains)
+When the prompt mentions a language, platform, or domain, skills locked to a different value are **excluded entirely** (not penalized). A Rust-only skill never appears for a Python prompt, regardless of other matches.
 
 ### Commitment Mechanism
 For HIGH confidence matches, output includes an evaluation reminder prompting Claude to pause and assess whether the skill truly fits the user's needs before blindly following instructions.
@@ -228,60 +226,90 @@ Just type your requests naturally. PSS will suggest relevant skills based on wei
 
 ## How It Works
 
-### Three-Phase Pipeline
+### Pipeline
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     USER PROMPT                              │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  PHASE 1: SYNONYM EXPANSION (70+ patterns)                  │
-│                                                             │
-│  "pr" → "github pull request"                               │
-│  "403" → "oauth2 authentication"                            │
-│  "db" → "database"                                          │
-│  "ci" → "cicd deployment automation"                        │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  PHASE 2: WEIGHTED SCORING                                  │
-│                                                             │
-│  • directory match    +5 points                             │
-│  • path match         +4 points                             │
-│  • intent match       +4 points                             │
-│  • pattern match      +3 points                             │
-│  • keyword match      +2 points                             │
-│  • first match bonus  +10 points                            │
-│  • original bonus     +3 points (not from expansion)        │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  PHASE 3: CONFIDENCE CLASSIFICATION                         │
-│                                                             │
-│  HIGH (≥12):   Auto-suggest with commitment reminder        │
-│  MEDIUM (6-11): Show with match evidence                    │
-│  LOW (<6):      Include alternatives                        │
-└─────────────────────────────────────────────────────────────┘
+User prompt
+  |
+  v
+Phase 1: Synonym Expansion (70+ rules)
+  "pr" -> "github pull request"
+  "db" -> "database"
+  |
+  v
+Phase 2: 5-Tier Logarithmic Scoring + Binary Filters
+  Score each skill using tool/framework/service/keyword matches.
+  Exclude skills that fail language/platform/domain filters.
+  |
+  v
+Phase 3: Confidence Classification
+  HIGH (>= 1000) / MEDIUM (>= 100) / LOW (< 100)
 ```
 
-### Commitment Mechanism
+### 5-Tier Logarithmic Scoring
 
-For HIGH confidence matches, the output includes a commitment reminder:
+The scoring system is built around a simple idea: **not all matches are equal**. A skill that matches "bun" as a tool name is far more relevant to a bun-related prompt than a skill that happens to contain the generic word "build". The 5-tier system enforces this with a logarithmic scale where each tier is **10x more powerful** than the one below it.
 
-```json
-{
-  "name": "devops-expert",
-  "score": 0.95,
-  "confidence": "HIGH",
-  "commitment": "Before implementing: Evaluate YES/NO - Will this skill solve the user's actual problem?"
-}
+| Tier | Score Range | What Matches | Examples |
+|------|-------------|--------------|----------|
+| **T1** | 10 - 90 | Common/generic words | "test", "build", "debug", "run", "fix" |
+| **T2** | 100 - 900 | Specific keywords and phrases | "lint the script", "trace this function" |
+| **T3** | 1,000 - 9,000 | Tool names | bun, webpack, vite, eslint, docker, jest |
+| **T4** | 10,000 - 90,000 | Frameworks | react, nextjs, django, fastapi, flutter |
+| **T5** | 100,000 - 900,000 | Services and APIs | aws, openai, vercel, supabase, stripe |
+
+**Why logarithmic?** A single tool match (T3: 2,000 points) always outranks any number of generic keyword matches (T1: 10-90 each). You can stack 20 generic matches and still not beat one tool match. This prevents noise from drowning out signal.
+
+#### Cumulative Scoring
+
+If a term belongs to multiple tiers, the scores **add up**. For example, "bun" is both a tool (T3) and a framework (T4), so a bun-related skill gets points from both tiers. This rewards skills that are deeply connected to a technology across multiple dimensions.
+
+#### Position-Based Multipliers
+
+Within each tier, a term's score scales based on **where** it appears in the skill's metadata:
+
+| Position | Multiplier |
+|----------|-----------|
+| In skill name/title | 2x per occurrence |
+| In skill description | 1.5x per occurrence |
+| In skill body (keywords) | 1x per occurrence (max 4x) |
+
+A skill named "building-with-bun" gets a higher tool score for "bun" than a skill that merely lists "bun" among 20 other keywords. The more prominently a technology appears in a skill, the higher it scores.
+
+### Binary Filters (Languages, Platforms, Domains)
+
+Filters are fundamentally different from scoring tiers. **They don't add points -- they exclude entirely.**
+
+When the prompt mentions a specific language, platform, or domain, skills locked to a *different* value get a score of zero and are removed from results. There is no partial penalty.
+
+| Filter | When Prompt Says... | Skills That Are... | Result |
+|--------|--------------------|--------------------|--------|
+| Language | "python" | Locked to JavaScript-only | **Excluded** |
+| Platform | "ios" | Locked to Android-only | **Excluded** |
+| Domain | "medicine" | Gated to geography | **Excluded** |
+
+**Why binary exclusion instead of a percentage penalty?**
+
+Consider what happens with a soft 20% penalty:
+
+```
+Prompt: "use OpenAI for medical data analysis with bun"
+
+Skill A: domain=geography, service=openai
+  score = 200,000 (openai) x 80% penalty = 160,000
+
+Skill B: domain=medicine, tool=bun, framework=bun
+  score = 2,000 (bun as tool) + 20,000 (bun as framework) = 22,000
 ```
 
-This helps Claude pause and evaluate before blindly following skill instructions.
+Skill A wins despite being about the **wrong domain**. A geography skill has no business ranking above a medicine skill when the user asked about medicine. With binary exclusion, Skill A is eliminated and Skill B correctly wins.
+
+The same logic applies to languages and platforms. A Rust-only skill should never appear when the user asks about Python, no matter how many other high-tier matches it has. The math makes any soft penalty insufficient -- the 10x gaps between tiers mean even a 90% penalty on a T5 match (100K) still leaves it at 10K, which beats most T3 matches outright.
+
+**Exemptions from filtering:**
+- Skills with no language/platform/domain specified (universal skills) always pass through
+- Compatible language groups are respected (TypeScript <-> JavaScript, Kotlin <-> Java)
+- When a skill's tool or framework name appears explicitly in the prompt, domain gates are bypassed (e.g., "use bun" matches bun skills even without saying "javascript")
 
 ## Commands
 
@@ -340,27 +368,26 @@ View current status and test matching.
 
 ### Scoring Weights
 
-Modify weights in the Rust source at `rust/skill-suggester/src/main.rs`:
+Weights are defined in `rust/skill-suggester/src/main.rs` in the `MatchWeights` struct. Key values:
 
-```rust
-const WEIGHTS: MatchWeights = MatchWeights {
-    directory: 5,
-    path: 4,
-    intent: 4,
-    pattern: 3,
-    keyword: 2,
-    first_match: 10,
-    original_bonus: 3,
-    capped_max: 10,
-};
-```
+| Weight | Value | Tier |
+|--------|-------|------|
+| `keyword` | 100 (10 if low-signal) | T1/T2 |
+| `first_match` | 300 (30 if low-signal) | T2 |
+| `tool_match` | 2,000 | T3 |
+| `framework_match` | 20,000 | T4 |
+| `service_match` | 200,000 | T5 |
+| `capped_max` | 900,000 | T5 ceiling |
+
+Common tools/languages are dampened (divided by 5 or 20) to stay within their tier range.
 
 ### Confidence Thresholds
 
-```rust
-const HIGH_THRESHOLD: i32 = 12;
-const MEDIUM_THRESHOLD: i32 = 6;
-```
+| Level | Threshold | Typical trigger |
+|-------|-----------|-----------------|
+| HIGH | >= 1,000 | One tool match or many specific keywords |
+| MEDIUM | >= 100 | One specific keyword match |
+| LOW | < 100 | Generic words only |
 
 ## Element Index Format (v3.0)
 
@@ -385,6 +412,7 @@ const MEDIUM_THRESHOLD: i32 = 6;
       "frameworks": [],
       "languages": ["yaml"],
       "tools": ["github-actions"],
+      "services": ["github"],
       "description": "CI/CD pipeline configuration"
     }
   }

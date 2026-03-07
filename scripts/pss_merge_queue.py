@@ -50,6 +50,7 @@ PASS1_FIELDS: list[str] = [
     "languages",
     "domains",
     "tools",
+    "services",
     "file_types",
     "domain_gates",
     "tier",
