@@ -380,8 +380,8 @@ cargo clippy --all-targets
 Before releasing a new version manually:
 
 1. ✅ Update version in ALL 4 files:
-   - `rust/skill-suggester/Cargo.toml` → `version = "X.Y.Z"`
-   - `rust/skill-suggester/src/main.rs` → `#[command(version = "X.Y.Z")]`
+   - `VERSION` (project root) — single line, source of truth for display version
+   - `rust/skill-suggester/Cargo.toml` → `version = "X.Y.Z"` (metadata only, no recompile)
    - `.claude-plugin/plugin.json` → `"version": "X.Y.Z"`
    - `pyproject.toml` → `version = "X.Y.Z"`
 2. ✅ Run full test suite: `cargo test`

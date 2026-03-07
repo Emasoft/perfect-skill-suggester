@@ -17,7 +17,7 @@
 //! - O(n*k) matching where n=skills, k=keywords per skill
 
 use chrono::Utc;
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches, Parser};
 use colored::Colorize;
 use cozo::{DataValue, DbInstance, ScriptMutability};
 use lazy_static::lazy_static;
@@ -39,7 +39,6 @@ use tracing::{debug, error, info, warn};
 /// Perfect Skill Suggester (PSS) - High-accuracy skill activation for Claude Code
 #[derive(Parser, Debug)]
 #[command(name = "pss")]
-#[command(version = "2.3.2")]
 #[command(about = "High-accuracy skill suggester for Claude Code")]
 struct Cli {
     /// Run in incomplete mode for Pass 2 co-usage analysis.
@@ -11940,6 +11939,40 @@ fn cmd_coverage(db: &DbInstance, type_filter: Option<&str>, format: &str) -> Res
 }
 
 // ============================================================================
+// Runtime Version
+// ============================================================================
+
+/// Read version from external VERSION file at runtime, avoiding recompilation on version bumps.
+/// Search order: CLAUDE_PLUGIN_ROOT/VERSION, exe_dir/../VERSION, exe_dir/../../VERSION, Cargo.toml fallback.
+fn read_version() -> String {
+    // Try CLAUDE_PLUGIN_ROOT/VERSION (set by Claude Code plugin system)
+    if let Ok(root) = std::env::var("CLAUDE_PLUGIN_ROOT") {
+        let path = std::path::Path::new(&root).join("VERSION");
+        if let Ok(v) = std::fs::read_to_string(&path) {
+            let trimmed = v.trim().to_string();
+            if !trimmed.is_empty() {
+                return trimmed;
+            }
+        }
+    }
+    // Try relative to executable: exe_dir/../VERSION, exe_dir/../../VERSION
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for ancestor in [dir.join("../VERSION"), dir.join("../../VERSION")] {
+                if let Ok(v) = std::fs::read_to_string(&ancestor) {
+                    let trimmed = v.trim().to_string();
+                    if !trimmed.is_empty() {
+                        return trimmed;
+                    }
+                }
+            }
+        }
+    }
+    // Fallback to compile-time Cargo.toml version
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+// ============================================================================
 // Main Entry Point
 // ============================================================================
 
@@ -11950,8 +11983,11 @@ fn main() {
         .with_writer(std::io::stderr)
         .init();
 
-    // Parse CLI arguments
-    let cli = Cli::parse();
+    // Parse CLI arguments with runtime version injected from VERSION file
+    // Box::leak converts String to &'static str, which clap's .version() requires
+    let version: &'static str = Box::leak(read_version().into_boxed_str());
+    let matches = Cli::command().version(version).get_matches();
+    let cli = Cli::from_arg_matches(&matches).expect("Failed to parse CLI arguments");
 
     if cli.incomplete_mode {
         info!("Running in INCOMPLETE MODE - co_usage data will be ignored");

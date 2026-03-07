@@ -31,10 +31,12 @@ from typing import NoReturn
 ROOT = Path(__file__).resolve().parent.parent
 
 # -- File paths relative to project root --
+VERSION_FILE = ROOT / "VERSION"
 CARGO_TOML = ROOT / "rust" / "skill-suggester" / "Cargo.toml"
 MAIN_RS = ROOT / "rust" / "skill-suggester" / "src" / "main.rs"
 PLUGIN_JSON = ROOT / ".claude-plugin" / "plugin.json"
 PYPROJECT_TOML = ROOT / "pyproject.toml"
+RUST_SRC_DIR = ROOT / "rust" / "skill-suggester" / "src"
 README_MD = ROOT / "README.md"
 CHANGELOG_MD = ROOT / "CHANGELOG.md"
 BUILD_SCRIPT = ROOT / "scripts" / "pss_build.py"
@@ -323,12 +325,12 @@ def preflight_checks(skip_build: bool, dry_run: bool = False) -> None:
 
 
 def read_current_version() -> str:
-    """Parse current version from Cargo.toml (single source of truth)."""
-    content = CARGO_TOML.read_text(encoding="utf-8")
-    match = re.search(r'^version\s*=\s*"(\d+\.\d+\.\d+)"', content, re.MULTILINE)
-    if not match:
-        fatal(f"Could not parse version from {CARGO_TOML}")
-    version = match.group(1)
+    """Read current version from VERSION file (single source of truth)."""
+    if not VERSION_FILE.exists():
+        fatal(f"VERSION file not found at {VERSION_FILE}")
+    version = VERSION_FILE.read_text(encoding="utf-8").strip()
+    if not re.match(r"^\d+\.\d+\.\d+$", version):
+        fatal(f"Invalid version format in VERSION file: '{version}'")
     info(f"Current version: {BOLD}{version}{RESET}")
     return version
 
@@ -387,9 +389,16 @@ def bump_file(
 
 
 def bump_versions(old: str, new: str, dry_run: bool) -> None:
-    """Bump version string in all 4 source files."""
+    """Bump version string in all 4 source files (VERSION, Cargo.toml, plugin.json, pyproject.toml)."""
     info("Bumping versions...")
     old_re = re.escape(old)
+
+    # VERSION file — simple overwrite (source of truth for display version)
+    if dry_run:
+        info(f"  [DRY-RUN] Would update VERSION ({old} -> {new})")
+    else:
+        VERSION_FILE.write_text(f"{new}\n", encoding="utf-8")
+        success(f"  Updated VERSION ({old} -> {new})")
 
     bump_file(
         CARGO_TOML,
@@ -397,13 +406,6 @@ def bump_versions(old: str, new: str, dry_run: bool) -> None:
         rf"\g<1>{new}\2",
         dry_run,
         label="Cargo.toml [package].version",
-    )
-    bump_file(
-        MAIN_RS,
-        rf'(#\[command\(version\s*=\s*"){old_re}("\)\])',
-        rf"\g<1>{new}\2",
-        dry_run,
-        label='main.rs #[command(version = "...")]',
     )
     bump_file(
         PLUGIN_JSON,
@@ -460,9 +462,28 @@ def generate_changelog(new: str, dry_run: bool) -> None:
         success("  CHANGELOG.md generated.")
 
 
-def build_binaries(dry_run: bool) -> None:
-    """Run pss_build.py --all. Warn on failure but do not abort."""
+def rust_source_changed() -> bool:
+    """Check if any .rs files changed since the last git tag."""
+    result = run(["git", "describe", "--tags", "--abbrev=0"])
+    last_tag = result.stdout.strip() if result.returncode == 0 else ""
+    if not last_tag:
+        # No tags exist yet — assume source changed
+        return True
+    # Only check .rs files — Cargo.toml version changes don't trigger recompilation
+    diff_result = run(
+        ["git", "diff", "--name-only", last_tag, "HEAD", "--", str(RUST_SRC_DIR)],
+    )
+    return bool(diff_result.stdout.strip())
+
+
+def build_binaries(dry_run: bool, force_build: bool = False) -> None:
+    """Run pss_build.py --all. Skip if no .rs source changes (unless forced)."""
     info("Building binaries...")
+
+    if not force_build and not rust_source_changed():
+        info("  No Rust source changes since last tag, skipping build.")
+        info("  Use --force-build to override.")
+        return
 
     if dry_run:
         info("  [DRY-RUN] Would run: pss_build.py --all")
@@ -483,8 +504,8 @@ def git_commit(old: str, new: str) -> None:
     info("Committing changes...")
 
     files_to_add = [
+        str(VERSION_FILE),
         str(CARGO_TOML),
-        str(MAIN_RS),
         str(PLUGIN_JSON),
         str(PYPROJECT_TOML),
         str(README_MD),
@@ -690,9 +711,9 @@ def release_pipeline(args: argparse.Namespace) -> None:
     # Step 9: Generate changelog
     generate_changelog(new_version, args.dry_run)
 
-    # Step 10: Build binaries
+    # Step 10: Build binaries (skipped automatically if no .rs changes, unless --force-build)
     if not args.skip_build and not args.version_only:
-        build_binaries(args.dry_run)
+        build_binaries(args.dry_run, force_build=args.force_build)
     elif args.skip_build:
         warn("Build skipped (--skip-build).")
     elif args.version_only:
@@ -724,7 +745,7 @@ def print_summary(old: str, new: str, args: argparse.Namespace) -> None:
     print(f"  Tests:         {'skipped' if args.skip_tests else 'passed'}")
     print(f"  Lint:          {'skipped' if args.skip_validate else 'passed'}")
     print(f"  Validation:    {'skipped' if args.skip_validate else 'passed'}")
-    print("  Files bumped:  4 (Cargo.toml, main.rs, plugin.json, pyproject.toml)")
+    print("  Files bumped:  4 (VERSION, Cargo.toml, plugin.json, pyproject.toml)")
     print("  README badge:  updated")
     changelog_status = (
         "generated"
@@ -790,6 +811,11 @@ def main() -> None:
         "--skip-build",
         action="store_true",
         help="Skip binary compilation step.",
+    )
+    parser.add_argument(
+        "--force-build",
+        action="store_true",
+        help="Force binary rebuild even if no .rs source files changed.",
     )
     parser.add_argument(
         "--skip-tests",
