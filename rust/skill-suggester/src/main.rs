@@ -2604,11 +2604,11 @@ pub struct SkillIndex {
     pub generated: String,
 
     /// Generation method (ai-analyzed, heuristic, etc.)
-    #[serde(default)]
+    #[serde(default, alias = "generator")]
     pub method: String,
 
     /// Number of skills in index
-    #[serde(default)]
+    #[serde(default, alias = "skill_count")]
     pub skills_count: usize,
 
     /// Map of skill name to skill entry

@@ -369,7 +369,7 @@ const MEDIUM_THRESHOLD: i32 = 6;
   "version": "3.0",
   "generated": "2026-02-27T06:00:00Z",
   "method": "ai-analyzed",
-  "skills_count": 874,
+  "skill_count": 874,
   "skills": {
     "devops-expert": {
       "source": "user",
@@ -428,13 +428,19 @@ Full pipeline: test → lint → bump → changelog → build → commit → pus
 
 ```bash
 # Full release
-uv run python scripts/pss_release.py --bump patch
+uv run python scripts/pss_ship.py --bump patch
 
 # Preview (no changes)
-uv run python scripts/pss_release.py --bump minor --dry-run
+uv run python scripts/pss_ship.py --bump minor --dry-run
 
 # Version bump only (no builds)
-uv run python scripts/pss_release.py --bump patch --skip-build
+uv run python scripts/pss_ship.py --bump patch --skip-build
+
+# Run pre-release gates (lint, test, validate) without releasing
+uv run python scripts/pss_ship.py --gate
+
+# Sync CPV validation scripts from upstream before release
+uv run python scripts/pss_ship.py --sync-cpv
 ```
 
 Version is updated in 4 files: Cargo.toml, main.rs, plugin.json, pyproject.toml.

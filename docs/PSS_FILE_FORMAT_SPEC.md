@@ -483,7 +483,7 @@ https://agentskills.org/schemas/pss-v1.json
 Local validation:
 ```bash
 # Using ajv-cli
-ajv validate -s pss-v1.schema.json -d docker-helper.pss
+ajv validate -s pss-schema.json -d docker-helper.pss
 ```
 
 ---

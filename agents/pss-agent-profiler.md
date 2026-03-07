@@ -154,7 +154,7 @@ The Rust binary produces raw candidates. YOU must now apply intelligent filterin
 "${BINARY_PATH}" vocab languages --type skill
 ```
 
-For each candidate, read its SKILL.md (use `pss resolve <id>` to get the path) and evaluate:
+For each candidate, read its SKILL.md (use `"${BINARY_PATH}" resolve <id>` to get the path) and evaluate:
 
 #### 4a. Mutual Exclusivity Detection
 Identify skills that are **alternatives to each other** and should NOT both be recommended:

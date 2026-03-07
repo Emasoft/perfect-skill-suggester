@@ -375,7 +375,9 @@ cargo clippy --all-targets
 
 ## Release Checklist
 
-Before releasing a new version:
+> **Automated release:** `uv run python scripts/pss_ship.py --bump patch` handles the full pipeline (version bump, build, validate, commit, tag).
+
+Before releasing a new version manually:
 
 1. ✅ Update version in ALL 4 files:
    - `rust/skill-suggester/Cargo.toml` → `version = "X.Y.Z"`
@@ -383,13 +385,13 @@ Before releasing a new version:
    - `.claude-plugin/plugin.json` → `"version": "X.Y.Z"`
    - `pyproject.toml` → `version = "X.Y.Z"`
 2. ✅ Run full test suite: `cargo test`
-4. ✅ Run linter: `cargo clippy --all-targets`
-5. ✅ Build all platform binaries
-6. ✅ Copy binaries to `bin/` with correct names
-7. ✅ Validate plugin: `uv run python scripts/validate_plugin.py . --verbose`
-8. ✅ Test with Claude Code: `claude --plugin-dir .`
-9. ✅ Update CHANGELOG.md
-10. ✅ Commit and tag: `git tag v1.0.0`
+3. ✅ Run linter: `cargo clippy --all-targets`
+4. ✅ Build all platform binaries
+5. ✅ Copy binaries to `bin/` with correct names
+6. ✅ Validate plugin: `uv run python scripts/validate_plugin.py . --verbose`
+7. ✅ Test with Claude Code: `claude --plugin-dir .`
+8. ✅ Update CHANGELOG.md
+9. ✅ Commit and tag: `git tag v1.0.0`
 
 ---
 
