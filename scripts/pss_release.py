@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """
-PSS Release Pipeline - Unified release automation for Perfect Skill Suggester.
+DEPRECATED: Use pss_ship.py instead.
 
-Handles: test -> lint -> bump -> changelog -> build -> commit -> tag -> push.
+This script has been superseded by pss_ship.py which combines release pipeline,
+pre-push hook gate, CPV sync, and hook installation in a single script.
 
-Usage:
+Usage (new):
+    pss_ship.py --bump patch           # release mode
+    pss_ship.py --gate                 # pre-push hook mode
+    pss_ship.py --sync-cpv             # sync CPV scripts from GitHub
+    pss_ship.py --install-hook         # install pre-push hook
+
+Old usage (still works for backward compat):
     pss_release.py                    # Interactive: prompts for bump type
     pss_release.py --bump patch       # 2.2.1 -> 2.2.2
     pss_release.py --bump minor       # 2.2.1 -> 2.3.0
