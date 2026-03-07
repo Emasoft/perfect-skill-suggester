@@ -42,11 +42,25 @@ See [Workflow Phases](references/workflow-phases.md) for detailed phase instruct
 5. **Cross-Type Coherence** -- Validate no overlaps between skills, MCP, agents, commands, rules, LSP
 6. **Write and Validate** -- Assemble `.agent.toml`, run validator, fix errors until exit code 0
 
+### Checklist
+
+Copy this checklist and track your progress:
+
+- [ ] Gather agent context (role, duties, tools, domains)
+- [ ] Get scored candidates from Rust binary
+- [ ] Evaluate each candidate with AI reasoning
+- [ ] Search for external elements (marketplace, GitHub)
+- [ ] Cross-type coherence check (no overlaps)
+- [ ] Write and validate `.agent.toml`
+
 ## Reference Documentation
 
 - [AI Agent Principle](references/ai-agent-principle.md) -- Why AI reasoning is mandatory for element selection
 - [TOML Format](references/toml-format.md) -- Complete `.agent.toml` template with all sections
 - [Workflow Phases 1-3](references/workflow-phases.md) -- Context gathering, candidate retrieval, AI evaluation with checklists
+  - Phase 1: Gather Context (1.1 Read agent definition, 1.2 Read requirements, 1.3 Detect project languages)
+  - Phase 2: Get Candidates (2.1 Invoke Rust binary, 2.2 Search for additional candidates)
+  - Phase 3: Evaluate Each Candidate (3.1 Read source, 3.2 Evaluate relevance, 3.3 Mutual exclusivity, 3.4 Obsolescence, 3.5 Stack compatibility, 3.6 Identify gaps, 3.7 Prune redundancy)
 - [External Sources (Phase 4)](references/external-sources.md) -- Adding elements from local paths, plugins, GitHub, network
 - [Cross-Type Coherence (Phase 5)](references/cross-type-coherence.md) -- Overlap detection, coherence checklist, resolution strategies
 - [Validation Protocol (Phase 6)](references/validation-protocol.md) -- Writing, validating, and finalizing the `.agent.toml`

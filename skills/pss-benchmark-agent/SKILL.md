@@ -55,7 +55,21 @@ All detailed protocol documentation is in the `references/` directory. Read each
 
 If the benchmark script fails or produces unexpected output, check `docs_dev/methodology-improvement-history.md` for known issues and prior workarounds. See also [Examples and Resources](references/examples-and-resources.md) for error handling guidance.
 
+### Checklist
+
+Copy this checklist and track your progress:
+
+- [ ] Read methodology history and current main.rs
+- [ ] Run baseline benchmark and record score
+- [ ] Make changes one at a time, benchmark after each
+- [ ] Write report with all mandatory sections
+- [ ] Write per-prompt benchmark log
+- [ ] Run cargo test and cargo build --release
+
 ## Examples
+
+Input: Agent runs `cargo run --release -- --benchmark docs_dev/benchmark-v2-prompts-100.jsonl`
+Output: Score table showing precision, recall, F1 per prompt category.
 
 See [Examples and Resources](references/examples-and-resources.md) for sample benchmark commands, change documentation format, and example reports.
 

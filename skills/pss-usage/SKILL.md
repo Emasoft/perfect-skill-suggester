@@ -35,6 +35,15 @@ Perfect Skill Suggester (PSS) automatically suggests relevant Claude Code elemen
 
 **Do NOT activate for:** general skill activation, writing skill content, or plugin development.
 
+### Checklist
+
+Copy this checklist and track your progress:
+
+- [ ] Plugin installed and enabled (`/plugin list`)
+- [ ] Index built (`/pss-reindex-skills`)
+- [ ] Status verified (`/pss-status`)
+- [ ] Test prompt produces suggestions
+
 ## Quick Reference
 
 | Task | Command |
@@ -55,6 +64,9 @@ Perfect Skill Suggester (PSS) automatically suggests relevant Claude Code elemen
 PSS outputs a suggestion table with columns: Element Name, Type, Confidence (HIGH/MEDIUM/LOW), Evidence. Suggestions appear as a `systemMessage` notification: `⚡« Pss!... use: skill-name (type) »`.
 
 ## Examples
+
+Input: User prompt "I need to set up Docker containers for my app"
+Output: `⚡« Pss!... use: docker (skill), devops (skill) »`
 
 - `/pss-status` -- displays index health, element count, last reindex time
 - `/pss-reindex-skills` -- full regeneration of skill index from all sources

@@ -42,7 +42,11 @@ See [Output, Error Handling, Examples & Resources](references/output-errors-exam
 See [Output, Error Handling, Examples & Resources](references/output-errors-examples.md) for error handling details.
 
 ## Examples
-See [Output, Error Handling, Examples & Resources](references/output-errors-examples.md) for usage examples.
+
+Input: Scoring algorithm achieving 65% accuracy on benchmark dataset
+Output: After 3 improvement cycles, accuracy reaches 82%+ with documented changes per iteration
+
+See [Output, Error Handling, Examples & Resources](references/output-errors-examples.md) for detailed usage examples.
 
 ## Resources
 See [Output, Error Handling, Examples & Resources](references/output-errors-examples.md) for additional resources.

@@ -1,5 +1,11 @@
 # Common PSS Workflows
 
+## Table of Contents
+
+- Workflow 1: First-Time PSS Setup
+- Workflow 2: Adding New Skills
+- Workflow 3: Debugging Missing Suggestions
+
 ## Workflow 1: First-Time PSS Setup
 
 **Scenario**: You just installed PSS and want to verify it works.
