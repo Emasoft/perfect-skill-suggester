@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.8] - 2026-03-07
+
+### Features
+
+- Implement 5-tier logarithmic scoring system with binary filters
+
+### Miscellaneous Tasks
+
+- Backup v2.3.7 binary before tier system rewrite
+
 ## [2.3.7] - 2026-03-07
 
 ### Miscellaneous Tasks
@@ -12,6 +22,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Refactor
 
 - Rewrite pss-reindex-skills to use Rust pipeline
+
+### Bump
+
+- Version 2.3.6 → 2.3.7
 
 ## [2.3.6] - 2026-03-07
 
