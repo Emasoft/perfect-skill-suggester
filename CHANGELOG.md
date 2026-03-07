@@ -2,60 +2,59 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
-## [2.3.1] - 2026-03-07
-
-### Features
-
-- Add `--index-file` flag for single-file indexing without full reindex
-- Add language/framework conflict hard gates to hook mode scorer
-- Add activity classification system for prompt intent detection
-- Add `--agent` flag with `.agent.toml` output generation
-- Add 8 CLI query/inspect subcommands (search, list, inspect, compare, stats, vocab, coverage, resolve)
-- CozoDB integration for fast indexed queries
-- FM-W1 synonym expansion + qualitative benchmark + text-categorization skill
-- Add `/pss-add-to-index` command for incremental single-element indexing
+## [2.3.2] - 2026-03-07
 
 ### Bug Fixes
 
-- Fix co-usage deserialization dead code + stale type filter test
-- Fix agent-profile structural bugs (complementary_agents always empty, scarce type injection)
-- Fix co-usage injection confidence hardcoded to Medium (now derives from score thresholds)
-- Fix UTF-8 panic in `truncate_prompt` on multi-byte characters
-- Fix race condition in `--batch-stdin` mode missing file locking
-- Fix wrong binary name in release fallback path
-- Fix wrong field name `method` → `generator` in status check
-- Fix schema property mismatch `subagents` → `agents`
-- Fix duplicate `documentation` domain key in pss-domains.json
-- Fix polyglot project detection (was breaking on first marker instead of collecting all)
+- Resolve 28 code errors from 4-review audit (sections A-E)
+- Add required Nixtla sections to pss-benchmark-agent SKILL.md
+- Agent-profile structural bugs — complementary_agents always empty, scarce type injection
+- Co_usage deserialization dead code + stale type filter test
 - Resolve 8 MAJOR CPV validation issues
+- Add --quiet to pss_merge_queue.py calls in prompt templates and commands
+- Comprehensive plugin audit — fix 25+ issues across all domains
+- Resolve all CPV validation issues — 0 CRITICAL, 0 MAJOR, 0 MINOR
+- Resolve all deep audit findings across docs and Rust schema
 
-### Performance
+### Documentation
 
-- Reduce token consumption across PSS plugin scripts and commands
-- Add `--quiet` flag to scripts for sub-agent invocations
-
-### Maintenance
-
-- Sync validation scripts from CPV v1.7.5 through v1.8.0
-- Switch indexer agents from haiku to sonnet for better accuracy
-- Sync domain lookup table in pass1-sonnet.md with pss-domains.json (31 → 59 entries)
-- Update cross-compilation docs (musl targets, cross tool, Homebrew warning)
-
-## [2.3.0] - 2026-03-03
+- Update documentation for v2.3.0 MCP indexing pipeline
 
 ### Features
 
-- Auto-discover marketplace MCP servers in indexing pipeline
-- Enhance Pass 1 MCP extraction template for deep inspection
-- pss-benchmark-agent documentation protocol skill
-
-### Benchmark Improvements
-
-- Merge W20 cycle 6 winner (674/1000 on 200-prompt benchmark)
-- Merge W18 cycle 5 winner (610/1000)
-- Merge W11 cycle 4 winner (537/1000)
-- Merge W8 cycle 3 winner (312/500, +100% benchmark accuracy)
+- Merge W3 methodology improvements (+4.3% benchmark accuracy)
 - Merge W5 cycle 2 winner (+57.6% benchmark accuracy)
+- Merge W8 cycle 3 winner (312/500, +100% benchmark accuracy)
+- Merge W11 cycle 4 winner (537/1000 on 200-prompt benchmark)
+- Merge W18 cycle 5 winner (610/1000 on 200-prompt benchmark)
+- Add pss-benchmark-agent documentation protocol skill
+- Merge W20 cycle 6 winner (674/1000 on 200-prompt benchmark)
+- Add /pss-add-to-index command for incremental single-element indexing
+- Enhance Pass 1 MCP extraction template for deep inspection
+- Auto-discover marketplace MCP servers in indexing pipeline
+- Merge FM-W1 synonym expansion + add qualitative benchmark + text-categorization skill
+- Add 8 CLI query/inspect subcommands + CozoDB integration + security hardening
+- Add --agent flag with .agent.toml output + language-agnostic penalty + max-10 limits
+- Add activity classification system + precision benchmark + plugin.json fixes
+- Add language/framework conflict hard gates to hook mode scorer
+- Add --index-file flag for single-file indexing
+- Reduce token consumption across PSS plugin scripts and commands
+- Add unified ship script (pss_ship.py) replacing separate release/hook scripts
+
+### Miscellaneous Tasks
+
+- Sync validation scripts from CPV v1.7.5
+- Sync validation scripts from CPV v1.7.9, bump to v2.3.1
+- Sync validation scripts from CPV v1.8.0
+- Sync validation scripts from CPV v1.8.5
+
+### Refactor
+
+- Switch indexer agents from haiku to sonnet
+
+### Bump
+
+- Version 2.2.4 → 2.2.5
 
 ## [2.2.4] - 2026-03-01
 
@@ -66,6 +65,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Sync uv.lock to match pyproject.toml v2.2.3
+
+### Bump
+
+- Version 2.2.3 → 2.2.4
 
 ## [2.2.3] - 2026-03-01
 
