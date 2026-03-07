@@ -764,8 +764,10 @@ def main() -> None:
                     # Extract "name [type]" pairs from SUGGESTED lines
                     names = re.findall(r"SUGGESTED:\s+(.+?)\s+\[(\w+)\]", ctx)
                     if names:
-                        label = ", ".join(f"{n} [{t}]" for n, t in names)
-                        print(f"\033[92m⚡ PSS → {label}\033[0m", file=sys.stderr)
+                        # Names in bold bright green, brackets/type in dim green
+                        parts = [f"\033[1;92m{n}\033[0;32m [{t}]" for n, t in names]
+                        label = "\033[0;32m, ".join(parts)
+                        print(f"\033[32m⚡ PSS → {label}\033[0m", file=sys.stderr)
             except (json.JSONDecodeError, KeyError):
                 pass  # Don't block on display errors
             print(result.stdout, end="")
