@@ -103,35 +103,9 @@ jobs:
           name: ${{ matrix.binary }}
           path: ${{ env.BIN_DIR }}/${{ matrix.binary }}
 
-  # WASM build
-  build-wasm:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip1
-
-      - name: Build WASM binary
-        working-directory: ${{ env.RUST_SOURCE }}
-        run: cargo build --release --target wasm32-wasip1
-
-      - name: Copy binary to bin/
-        run: |
-          cp "${{ env.RUST_SOURCE }}/target/wasm32-wasip1/release/pss.wasm" \
-             "${{ env.BIN_DIR }}/pss-wasm32.wasm"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pss-wasm32.wasm
-          path: ${{ env.BIN_DIR }}/pss-wasm32.wasm
-
   # Commit all built binaries back to the repo
   commit-binaries:
-    needs: [build-macos, build-cross, build-wasm]
+    needs: [build-macos, build-cross]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -161,6 +135,6 @@ jobs:
 
           Built from: ${{ github.sha }}
           Targets: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64,
-                   windows-x86_64, wasm32"
+                   windows-x86_64"
             git push || echo "::warning::Push blocked by branch protection. Binaries are available as workflow artifacts."
           fi

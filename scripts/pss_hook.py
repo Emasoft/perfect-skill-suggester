@@ -759,9 +759,9 @@ def main() -> None:
 
         # Output the result (binary already limits to MAX_SUGGESTIONS)
         if result.returncode == 0:
-            # Print compact user-visible summary to stderr (bright green)
+            # Build user-visible summary via systemMessage (like token-reporter)
+            hook_out = json.loads(result.stdout)
             try:
-                hook_out = json.loads(result.stdout)
                 ctx = (hook_out.get("hookSpecificOutput") or {}).get("additionalContext", "")
                 if ctx:
                     # Extract "name [type]" pairs from SUGGESTED lines
@@ -770,10 +770,12 @@ def main() -> None:
                         # Names in bold bright green, types in dim green, wrapped in guillemets
                         parts = [f"\033[1;92m{n}\033[0;32m ({t})" for n, t in names]
                         label = "\033[0;32m, ".join(parts)
-                        print(f"\033[1;92m⚡\u00ab Pss!... use\033[0;32m:\033[0;32m {label} \033[1;92m\u00bb\033[0m", file=sys.stderr)
-            except (json.JSONDecodeError, KeyError):
+                        notification = f"\033[1;92m⚡\u00ab Pss!... use\033[0;32m:\033[0;32m {label} \033[1;92m\u00bb\033[0m"
+                        # Inject systemMessage into hook output for user-visible display
+                        hook_out["systemMessage"] = notification
+            except KeyError:
                 pass  # Don't block on display errors
-            print(result.stdout, end="")
+            print(json.dumps(hook_out))
         else:
             build_script = Path(__file__).parent / "pss_build.py"
             _exit_warning(

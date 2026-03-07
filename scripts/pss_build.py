@@ -23,7 +23,6 @@ TARGETS = {
     "linux-arm64": "aarch64-unknown-linux-musl",
     "linux-x86_64": "x86_64-unknown-linux-musl",
     "windows-x86_64": "x86_64-pc-windows-gnu",
-    "wasm32": "wasm32-wasip1",
 }
 
 # Darwin targets must use cargo directly (cross has no macOS Docker images)
@@ -99,8 +98,6 @@ def detect_platform() -> tuple[str, str]:
 
 def get_binary_name(system: str, machine: str) -> str:
     """Get the binary filename for a platform."""
-    if system == "wasm32":
-        return "pss-wasm32.wasm"
     ext = ".exe" if system == "windows" else ""
     return f"pss-{system}-{machine}{ext}"
 
@@ -275,80 +272,6 @@ def build_native(release: bool = True) -> bool:
     return False
 
 
-def build_wasm(release: bool = True) -> bool:
-    """Build for WASM target (does not require cross or Docker)."""
-    rust_dir = get_rust_dir()
-    bin_dir = get_bin_dir()
-    rust_target = TARGETS["wasm32"]
-
-    # Check if wasm target is installed
-    try:
-        check_result = subprocess.run(
-            ["rustup", "target", "list", "--installed"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if rust_target not in check_result.stdout:
-            print(
-                f"Error: Rust target '{rust_target}' is not installed.", file=sys.stderr
-            )
-            print("", file=sys.stderr)
-            print("Install with:", file=sys.stderr)
-            print(f"  rustup target add {rust_target}", file=sys.stderr)
-            return False
-    except FileNotFoundError:
-        print(
-            "Error: 'rustup' not found."
-            " WASM builds require rustup (not Homebrew Rust).",
-            file=sys.stderr,
-        )
-        print(
-            "Install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh",
-            file=sys.stderr,
-        )
-        return False
-
-    bin_dir.mkdir(parents=True, exist_ok=True)
-
-    # Use rustup's cargo for WASM builds (Homebrew cargo may lack targets)
-    cargo = resolve_cargo()
-    cmd = [cargo, "build", "--target", rust_target]
-    if release:
-        cmd.append("--release")
-
-    print(f"Building WASM binary ({rust_target})...")
-    print(f"  Directory: {rust_dir}")
-    print(f"  Command: {' '.join(cmd)}")
-
-    build_result = subprocess.run(cmd, cwd=rust_dir, timeout=300)
-
-    if build_result.returncode != 0:
-        print("Error: WASM build failed.", file=sys.stderr)
-        print("", file=sys.stderr)
-        print("Common causes:", file=sys.stderr)
-        print(
-            "  1. Missing wasm target: rustup target add wasm32-wasip1", file=sys.stderr
-        )
-        print(
-            "  2. Code uses platform-specific APIs"
-            ' not gated with #[cfg(not(target_arch = "wasm32"))]',
-            file=sys.stderr,
-        )
-        return False
-
-    target_subdir = "release" if release else "debug"
-    source = rust_dir / "target" / rust_target / target_subdir / "pss.wasm"
-    dest = bin_dir / "pss-wasm32.wasm"
-
-    if source.exists():
-        shutil.copy2(source, dest)
-        print(f"WASM binary installed: {dest}")
-        return True
-    print(f"Error: Built WASM binary not found at {source}", file=sys.stderr)
-    return False
-
-
 def build_darwin_cross(target_key: str, release: bool = True) -> bool:
     """Build for a darwin target using cargo directly (cross can't do macOS)."""
     if target_key not in DARWIN_TARGETS:
@@ -509,8 +432,6 @@ def build_cross(target_key: str, release: bool = True) -> bool:
     source = rust_dir / "target" / rust_target / target_subdir / "pss"
     if "windows" in target_key:
         source = source.with_suffix(".exe")
-    elif target_key == "wasm32":
-        source = source.with_suffix(".wasm")
 
     dest = bin_dir / binary_name
 
@@ -598,14 +519,14 @@ def main() -> int:
 
     release = not args.debug
 
-    # Handle --all (darwin via cargo, linux/windows via cross, wasm via cargo)
+    # Handle --all (darwin via cargo, linux/windows via cross)
     if args.all:
         system, machine = detect_platform()
         native_target = f"{system}-{machine}"
 
         # cross is needed for linux/windows targets
-        non_darwin_non_wasm = [t for t in TARGETS if t not in DARWIN_TARGETS and t != "wasm32"]
-        if non_darwin_non_wasm and not check_cross_installed():
+        non_darwin = [t for t in TARGETS if t not in DARWIN_TARGETS]
+        if non_darwin and not check_cross_installed():
             print(
                 "Error: 'cross' is required for linux/windows targets.", file=sys.stderr
             )
@@ -613,10 +534,7 @@ def main() -> int:
 
         success = True
         for target in TARGETS:
-            if target == "wasm32":
-                if not build_wasm(release):
-                    success = False
-            elif target in DARWIN_TARGETS:
+            if target in DARWIN_TARGETS:
                 # Native target uses cargo build, cross-darwin uses cargo --target
                 if target == native_target:
                     if not build_native(release):
@@ -631,11 +549,8 @@ def main() -> int:
 
         return 0 if success else 1
 
-    # Handle --target (WASM via cargo, darwin via cargo, linux/windows via cross)
+    # Handle --target (darwin via cargo, linux/windows via cross)
     if args.target:
-        if args.target == "wasm32":
-            return 0 if build_wasm(release) else 1
-
         system, machine = detect_platform()
         native_target = f"{system}-{machine}"
 
