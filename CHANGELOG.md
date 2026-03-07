@@ -2,6 +2,17 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.7] - 2026-03-07
+
+### Miscellaneous Tasks
+
+- Move obsolete agent-swarm reindex docs to docs_dev
+- Update lock files
+
+### Refactor
+
+- Rewrite pss-reindex-skills to use Rust pipeline
+
 ## [2.3.6] - 2026-03-07
 
 ### Bug Fixes
@@ -13,6 +24,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Refactor
 
 - Externalize skill/command docs into reference files
+
+### Bump
+
+- Version 2.3.5 → 2.3.6
 
 ## [2.3.5] - 2026-03-07
 
