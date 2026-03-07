@@ -12,6 +12,7 @@ Now with context-awareness:
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -755,6 +756,18 @@ def main() -> None:
 
         # Output the result (binary already limits to MAX_SUGGESTIONS)
         if result.returncode == 0:
+            # Print compact user-visible summary to stderr (bright green)
+            try:
+                hook_out = json.loads(result.stdout)
+                ctx = (hook_out.get("hookSpecificOutput") or {}).get("additionalContext", "")
+                if ctx:
+                    # Extract "name [type]" pairs from SUGGESTED lines
+                    names = re.findall(r"SUGGESTED:\s+(.+?)\s+\[(\w+)\]", ctx)
+                    if names:
+                        label = ", ".join(f"{n} [{t}]" for n, t in names)
+                        print(f"\033[92m⚡ PSS → {label}\033[0m", file=sys.stderr)
+            except (json.JSONDecodeError, KeyError):
+                pass  # Don't block on display errors
             print(result.stdout, end="")
         else:
             build_script = Path(__file__).parent / "pss_build.py"
