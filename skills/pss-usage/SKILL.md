@@ -17,7 +17,7 @@ Before using PSS, ensure:
 - **PSS plugin is installed and enabled** - Verify with `/plugin list`
 - **Skills are available** - At least one skill directory exists in `~/.claude/skills/` or project `.claude/skills/`
 - **Index has been built** - Run `/pss-reindex-skills` at least once after installation
-- **Write permissions** - PSS needs to write `skill-index.json` to `~/.claude/` directory
+- **Write permissions** - PSS needs to write `skill-index.json` to `~/.claude/cache/` directory
 
 If index has never been built, PSS will show "Index file missing" error when trying to suggest skills.
 

@@ -55,4 +55,4 @@ node_modules/
 
 # Rust
 target/
-Cargo.lock
+# Note: Cargo.lock is tracked (binary crate needs reproducible builds)

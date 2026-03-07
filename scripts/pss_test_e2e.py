@@ -294,7 +294,7 @@ def phase1_setup(plugin_root: Path, verbose: bool) -> tuple[TestResult, dict[str
             "generated": datetime.now(tz=timezone.utc).isoformat(),
             "method": "ai-analyzed",
             "pass": 0,
-            "skills_count": 0,
+            "skill_count": 0,
             "skills": {},
         }
         index_path = cache_dir / "skill-index.json"

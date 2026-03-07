@@ -434,26 +434,24 @@ def extract_context_metadata(cwd: str) -> dict[str, list[str]]:
     if not cwd_path.exists():
         return result
 
-    detected_type = None
+    detected_types: set[str] = set()
 
-    # Check for project marker files
+    # Check for project marker files — collect ALL matches for polyglot projects
     for marker, (project_type, _) in PROJECT_MARKERS.items():
         if (cwd_path / marker).exists():
-            detected_type = project_type
-            break
+            detected_types.add(project_type)
 
     # If no marker found, check parent directories
-    if not detected_type:
+    if not detected_types:
         for parent in list(cwd_path.parents)[:3]:
             for marker, (project_type, _) in PROJECT_MARKERS.items():
                 if (parent / marker).exists():
-                    detected_type = project_type
-                    break
-            if detected_type:
+                    detected_types.add(project_type)
+            if detected_types:
                 break
 
     # If no marker found, check file extensions
-    if not detected_type:
+    if not detected_types:
         ext_to_type = {
             ".rs": "rust",
             ".py": "python",
@@ -470,15 +468,21 @@ def extract_context_metadata(cwd: str) -> dict[str, list[str]]:
         }
         for ext, proj_type in ext_to_type.items():
             if list(cwd_path.glob(f"*{ext}"))[:1]:
-                detected_type = proj_type
-                break
+                detected_types.add(proj_type)
 
-    # Get metadata for detected project type
-    if detected_type and detected_type in PROJECT_CONTEXT_METADATA:
-        meta: dict[str, list[str]] = PROJECT_CONTEXT_METADATA[detected_type]
-        result["platforms"] = meta.get("platforms", [])
-        result["frameworks"] = meta.get("frameworks", [])
-        result["languages"] = meta.get("languages", [])
+    # Get metadata for all detected project types (polyglot support)
+    for detected_type in detected_types:
+        if detected_type in PROJECT_CONTEXT_METADATA:
+            meta: dict[str, list[str]] = PROJECT_CONTEXT_METADATA[detected_type]
+            for p in meta.get("platforms", []):
+                if p not in result["platforms"]:
+                    result["platforms"].append(p)
+            for f in meta.get("frameworks", []):
+                if f not in result["frameworks"]:
+                    result["frameworks"].append(f)
+            for lang in meta.get("languages", []):
+                if lang not in result["languages"]:
+                    result["languages"].append(lang)
 
     return result
 

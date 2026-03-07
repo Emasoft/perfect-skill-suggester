@@ -99,7 +99,7 @@ For EACH element, a dedicated agent:
 12. LSP servers: `~/.claude/settings.json` enabled plugins
 
 **With `--all-projects`**, it ALSO scans:
-11. ALL projects registered in `~/.claude.json`:
+13. ALL projects registered in `~/.claude.json`:
    - `<project>/.claude/skills/`
    - `<project>/.claude/plugins/*/skills/`
 
@@ -124,10 +124,10 @@ This creates a **superset index** containing ALL elements across all your projec
 5. [Phase 0.5] Run pss_cleanup.py --all-projects to remove stale .pss files
 6. [Phase 1] Run discovery script to generate element checklist
 7. [Phase 1] Spawn Pass 1 batch agents for keyword analysis
-8. [Phase 1] Validate Pass 1 index (run CPV plugin validator: uv run --with pyyaml python scripts/validate_plugin.py . --verbose)
+8. [Phase 1] Validate Pass 1 index (run CPV plugin validator: uv run --with pyyaml python3 scripts/validate_plugin.py . --verbose)
 9. [Phase 1] Check agent tracking files for missed elements, re-run if needed
 10. [Phase 2] Spawn Pass 2 batch agents for co-usage analysis
-11. [Phase 2] Validate final index (run CPV plugin validator: uv run --with pyyaml python scripts/validate_plugin.py . --verbose)
+11. [Phase 2] Validate final index (run CPV plugin validator: uv run --with pyyaml python3 scripts/validate_plugin.py . --verbose)
 12. [Phase 2] Check agent tracking files for missed elements, re-run if needed
 13. [Verify] Confirm index has pass:2 and all elements have co_usage
 14. [Report] Report final statistics to user
@@ -237,7 +237,8 @@ echo "$BACKUP_DIR" > ${PSS_TMPDIR}/pss-queue/backup-dir.txt
 
 ```bash
 # Clean ALL stale .pss files system-wide (element dirs + ${PSS_TMPDIR}/pss-queue/)
-python3 "${PLUGIN_ROOT}/scripts/pss_cleanup.py" --all-projects --verbose
+# NOTE: CLAUDE_PLUGIN_ROOT is used here because PLUGIN_ROOT is not yet defined at this phase
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_cleanup.py" --all-projects --verbose
 ```
 
 **What this does:**
@@ -423,7 +424,7 @@ See `docs/PSS-ARCHITECTURE.md` for the full rationale.
 After ALL Pass 1 agents have completed, run the CPV plugin validator to ensure the index is structurally sound:
 
 ```bash
-cd "${PLUGIN_ROOT}" && uv run --with pyyaml python scripts/validate_plugin.py . --verbose
+cd "${PLUGIN_ROOT}" && uv run --with pyyaml python3 scripts/validate_plugin.py . --verbose
 ```
 
 **If validation FAILS (non-zero exit code):**
@@ -630,7 +631,7 @@ Pass 2 agents merge their results directly into skill-index.json via pss_merge_q
 After ALL Pass 2 agents have completed, run the CPV plugin validator to ensure the final index is sound:
 
 ```bash
-cd "${PLUGIN_ROOT}" && uv run --with pyyaml python scripts/validate_plugin.py . --verbose
+cd "${PLUGIN_ROOT}" && uv run --with pyyaml python3 scripts/validate_plugin.py . --verbose
 ```
 
 **What this does:**

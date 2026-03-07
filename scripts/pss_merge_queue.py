@@ -20,15 +20,12 @@ try:
 except ImportError:
     fcntl = None  # type: ignore[assignment]  # Windows has no fcntl
 import json
-import logging
 import os
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-log = logging.getLogger("pss_merge")
 
 # Default paths for index and lock files
 DEFAULT_INDEX_PATH = Path.home() / ".claude" / "cache" / "skill-index.json"
@@ -399,24 +396,35 @@ def main() -> None:
     # --batch-stdin mode: read JSONL from stdin and merge each line as pass-1
     if args.batch_stdin:
         index_path = Path(args.index)
-        if index_path.exists():
-            index = read_json_file(index_path)
-        else:
-            index = create_skeleton_index()
-        count = 0
-        for line in sys.stdin:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                pss_data = json.loads(line)
-                merge_pass1(index, pss_data)
-                count += 1
-            except json.JSONDecodeError as e:
-                print(f"Warning: Skipping invalid JSON line: {e}", file=sys.stderr)
-        index["skill_count"] = len(index.get("skills", {}))
-        atomic_write_json(index_path, index)
-        print(f"Merged {count} elements into {index_path}", file=sys.stderr)
+        # Acquire exclusive file lock (same as single-file mode) to prevent races
+        lock_path = DEFAULT_LOCK_PATH
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_fd = open(lock_path, "w")  # noqa: SIM115
+        try:
+            if fcntl is not None:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+            if index_path.exists():
+                index = read_json_file(index_path)
+            else:
+                index = create_skeleton_index()
+            count = 0
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    pss_data = json.loads(line)
+                    merge_pass1(index, pss_data)
+                    count += 1
+                except json.JSONDecodeError as e:
+                    print(f"Warning: Skipping invalid JSON line: {e}", file=sys.stderr)
+            index["skill_count"] = len(index.get("skills", {}))
+            atomic_write_json(index_path, index)
+            print(f"Merged {count} elements into {index_path}", file=sys.stderr)
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+            lock_fd.close()
         sys.exit(0)
 
     # Normal single-file mode requires pss_file argument

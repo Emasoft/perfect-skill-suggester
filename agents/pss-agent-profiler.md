@@ -9,6 +9,8 @@ tools:
   - Edit
   - Glob
   - Grep
+  - WebSearch
+  - WebFetch
 ---
 
 # PSS Agent Profiler
@@ -131,25 +133,25 @@ Use these pre-scored results as your starting candidates for each .agent.toml se
 
 The Rust binary produces raw candidates. YOU must now apply intelligent filtering that only an AI can do.
 
-**IMPORTANT — Use Entry IDs**: Every element has a unique 13-character ID (base36). Names collide frequently (11 "setup" entries, 5 "debug" entries). Always use the 13-char ID when inspecting, comparing, or resolving entries. Use `pss inspect <id>` to get full details and `pss resolve <id>` to get the file path for reading the actual content.
+**IMPORTANT — Use Entry IDs**: Every element has a unique 13-character ID (base36). Names collide frequently (11 "setup" entries, 5 "debug" entries). Always use the 13-char ID when inspecting, comparing, or resolving entries. Use `"${BINARY_PATH}" inspect <id>` to get full details and `"${BINARY_PATH}" resolve <id>` to get the file path for reading the actual content.
 
 **CLI tools for this phase:**
 ```bash
 # Inspect a candidate's full metadata
-pss inspect <13-char-id> --format json
+"${BINARY_PATH}" inspect <13-char-id> --format json
 
 # Compare two competing candidates (shared/unique keywords, frameworks, etc.)
-pss compare <id1> <id2> --format json
+"${BINARY_PATH}" compare <id1> <id2> --format json
 
 # Get file paths to read actual SKILL.md content for final decision
-pss resolve <id1> <id2> <id3>
+"${BINARY_PATH}" resolve <id1> <id2> <id3>
 
 # Search for additional candidates not in binary output
-pss search "websocket" --type skill --language typescript
+"${BINARY_PATH}" search "websocket" --type skill --language typescript
 
 # Check coverage gaps
-pss coverage --type skill
-pss vocab languages --type skill
+"${BINARY_PATH}" coverage --type skill
+"${BINARY_PATH}" vocab languages --type skill
 ```
 
 For each candidate, read its SKILL.md (use `pss resolve <id>` to get the path) and evaluate:
@@ -185,13 +187,13 @@ Verify each candidate is compatible with the project's actual stack:
 #### 4d. Requirements-Driven Promotion
 If requirements mention specific needs not covered by high-scoring candidates, use `pss search` to find relevant skills:
 ```bash
-pss search "websocket" --type skill       # Requirements mention "real-time"
-pss search "i18n" --type skill            # Requirements mention internationalization
-pss search "compliance" --type skill --category security  # HIPAA/PCI needs
-pss search "pdf" --type skill             # PDF generation needs
-pss search "accessibility" --type skill   # WCAG/a11y needs
+"${BINARY_PATH}" search "websocket" --type skill       # Requirements mention "real-time"
+"${BINARY_PATH}" search "i18n" --type skill            # Requirements mention internationalization
+"${BINARY_PATH}" search "compliance" --type skill --category security  # HIPAA/PCI needs
+"${BINARY_PATH}" search "pdf" --type skill             # PDF generation needs
+"${BINARY_PATH}" search "accessibility" --type skill   # WCAG/a11y needs
 ```
-Also check coverage gaps: `pss coverage --type skill` shows what languages/frameworks are covered.
+Also check coverage gaps: `"${BINARY_PATH}" coverage --type skill` shows what languages/frameworks are covered.
 
 #### 4e. Redundancy Pruning
 Remove skills that are strict subsets of other recommended skills. If skill A covers everything skill B does plus more, remove skill B.

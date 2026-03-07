@@ -28,8 +28,9 @@ This document provides instructions for building, testing, and developing the Pe
    rustup target add x86_64-apple-darwin     # macOS Intel
 
    # Linux targets
-   rustup target add x86_64-unknown-linux-gnu    # Linux x64
-   rustup target add aarch64-unknown-linux-gnu   # Linux ARM
+   rustup target add x86_64-unknown-linux-musl    # Linux x64
+   rustup target add aarch64-unknown-linux-musl   # Linux ARM
+   rustup target add wasm32-wasip1                # WebAssembly
 
    # Windows target
    rustup target add x86_64-pc-windows-gnu       # Windows x64
@@ -37,7 +38,15 @@ This document provides instructions for building, testing, and developing the Pe
 
 3. **Additional Dependencies (for cross-compilation)**
 
-   On macOS, you may need:
+   ```bash
+   cargo install cross    # Docker-based cross-compilation (preferred for Linux/Windows)
+   cargo install cargo-zigbuild  # Fallback cross-compiler using Zig
+   brew install zig        # Required for cargo-zigbuild
+   ```
+
+   **CRITICAL: Homebrew Rust Conflict** — If `brew install rust` is installed alongside `rustup`, it shadows rustup's cargo/rustc in PATH. Symptoms: `can't find crate for std` on cross-compilation. Fix: `brew uninstall rust`.
+
+   On macOS, you may also need:
    ```bash
    brew install mingw-w64  # For Windows cross-compilation
    ```
@@ -72,7 +81,17 @@ The binary will be located at:
 
 ## Cross-Compilation for All Platforms
 
-### Build for Specific Target
+### Preferred Method: Build Script
+
+The build script handles platform detection, toolchain selection, and binary placement:
+
+```bash
+uv run scripts/pss_build.py --all          # All 6 targets
+uv run scripts/pss_build.py                # Native only (darwin-arm64)
+uv run scripts/pss_build.py --target linux-x86_64  # Specific target
+```
+
+### Manual Build for Specific Target
 
 ```bash
 cd rust/skill-suggester
@@ -83,14 +102,17 @@ cargo build --release --target aarch64-apple-darwin
 # macOS Intel
 cargo build --release --target x86_64-apple-darwin
 
-# Linux x64
-cargo build --release --target x86_64-unknown-linux-gnu
+# Linux x64 (requires cross or cargo-zigbuild — plain cargo will fail on macOS)
+cross build --release --target x86_64-unknown-linux-musl
 
-# Linux ARM
-cargo build --release --target aarch64-unknown-linux-gnu
+# Linux ARM (requires cross or cargo-zigbuild)
+cross build --release --target aarch64-unknown-linux-musl
 
-# Windows x64
-cargo build --release --target x86_64-pc-windows-gnu
+# WebAssembly
+cargo build --release --target wasm32-wasip1
+
+# Windows x64 (requires cross or cargo-zigbuild)
+cross build --release --target x86_64-pc-windows-gnu
 ```
 
 ### Build All Platforms at Once
@@ -102,9 +124,10 @@ cd rust/skill-suggester
 for target in \
   aarch64-apple-darwin \
   x86_64-apple-darwin \
-  x86_64-unknown-linux-gnu \
-  aarch64-unknown-linux-gnu \
-  x86_64-pc-windows-gnu
+  x86_64-unknown-linux-musl \
+  aarch64-unknown-linux-musl \
+  x86_64-pc-windows-gnu \
+  wasm32-wasip1
 do
   echo "Building for $target..."
   cargo build --release --target $target
@@ -126,6 +149,7 @@ PSS binaries follow this naming pattern: `pss-{os}-{arch}[.exe]`
 | Linux x64 | `pss-linux-x86_64` |
 | Linux ARM | `pss-linux-arm64` |
 | Windows x64 | `pss-windows-x86_64.exe` |
+| WebAssembly | `pss-wasm32.wasm` |
 
 ### Installing Binaries to Plugin
 
@@ -140,8 +164,9 @@ mkdir -p bin
 # Copy and rename binaries
 cp target/aarch64-apple-darwin/release/pss bin/pss-darwin-arm64
 cp target/x86_64-apple-darwin/release/pss bin/pss-darwin-x86_64
-cp target/x86_64-unknown-linux-gnu/release/pss bin/pss-linux-x86_64
-cp target/aarch64-unknown-linux-gnu/release/pss bin/pss-linux-arm64
+cp target/x86_64-unknown-linux-musl/release/pss bin/pss-linux-x86_64
+cp target/aarch64-unknown-linux-musl/release/pss bin/pss-linux-arm64
+cp target/wasm32-wasip1/release/pss.wasm bin/pss-wasm32.wasm
 cp target/x86_64-pc-windows-gnu/release/pss.exe bin/pss-windows-x86_64.exe
 
 # Make binaries executable (Unix-like systems)
@@ -352,9 +377,12 @@ cargo clippy --all-targets
 
 Before releasing a new version:
 
-1. ✅ Update version in `Cargo.toml`
-2. ✅ Update version in `.claude-plugin/plugin.json`
-3. ✅ Run full test suite: `cargo test`
+1. ✅ Update version in ALL 4 files:
+   - `rust/skill-suggester/Cargo.toml` → `version = "X.Y.Z"`
+   - `rust/skill-suggester/src/main.rs` → `#[command(version = "X.Y.Z")]`
+   - `.claude-plugin/plugin.json` → `"version": "X.Y.Z"`
+   - `pyproject.toml` → `version = "X.Y.Z"`
+2. ✅ Run full test suite: `cargo test`
 4. ✅ Run linter: `cargo clippy --all-targets`
 5. ✅ Build all platform binaries
 6. ✅ Copy binaries to `bin/` with correct names

@@ -176,7 +176,7 @@ def check_skill_index() -> bool:
         data = json.loads(index_path.read_text())
         skills_count = len(data.get("skills", {}))
         version = data.get("version", "unknown")
-        method = data.get("method", "unknown")
+        method = data.get("generator", "unknown")
         pass_num = data.get("pass", "unknown")
         print_ok(
             f"Skill index: {skills_count} skills"

@@ -274,7 +274,7 @@ Score: {score}/500 (delta: {+/-N} from previous)
 
 ```bash
 # Run the benchmark and save per-prompt results
-python3 -c "
+uv run python3 -c "
 import subprocess, json, sys
 BINARY = './target/release/skill-suggester'
 PROMPTS = 'docs_dev/benchmark-v2-prompts-100.jsonl'

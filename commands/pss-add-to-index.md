@@ -112,7 +112,7 @@ After the sonnet agent completes, merge the `.pss` file into the index:
 
 ```bash
 PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" --quiet
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "${PSS_TMPDIR}/pss-queue/${ELEMENT_NAME}.pss" --pass 1 --quiet
 ```
 
 ### Step 6: Verify
@@ -159,5 +159,5 @@ If `--pass2` is specified, also run co-usage analysis:
 
 - This command does NOT delete or reindex existing entries — it only adds new or updates existing
 - For a full clean reindex, use `/pss-reindex-skills` instead
-- The index `skills_count` field is automatically updated after merge
+- The index `skill_count` field is automatically updated after merge
 - Plugin elements are identified by their `plugin.json` manifest

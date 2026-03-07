@@ -1,6 +1,6 @@
 # Perfect Skill Suggester (PSS)
 
-![Version](https://img.shields.io/badge/version-2.3.0-blue)
+![Version](https://img.shields.io/badge/version-2.3.1-blue)
 ![Platforms](https://img.shields.io/badge/platforms-6-green)
 ![Accuracy](https://img.shields.io/badge/accuracy-88%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
@@ -314,6 +314,14 @@ Analyze an agent definition and generate a `.agent.toml` configuration with AI-r
 
 Uses the Rust binary for fast candidate scoring + an AI agent for intelligent post-filtering (mutual exclusivity, stack compatibility, redundancy pruning).
 
+### /pss-add-to-index
+
+Index a single skill/agent/command element incrementally without full reindex.
+
+```
+/pss-add-to-index /path/to/element
+```
+
 ### /pss-status
 
 View current status and test matching.
@@ -394,6 +402,7 @@ Pre-built binaries included for:
 | Linux x86_64 | `bin/pss-linux-x86_64` |
 | Linux ARM64 | `bin/pss-linux-arm64` |
 | Windows x86_64 | `bin/pss-windows-x86_64.exe` |
+| wasm32 | `bin/pss-wasm32.wasm` |
 
 ## Building from Source
 
@@ -446,6 +455,12 @@ Pushing triggers the marketplace notification workflow automatically.
 |----------|-------------|
 | [PSS-ARCHITECTURE.md](docs/PSS-ARCHITECTURE.md) | Core architecture: two-pass generation, index as superset, categories vs keywords |
 | [PLUGIN-VALIDATION.md](docs/PLUGIN-VALIDATION.md) | Guide for writing plugin validation scripts |
+| [pss-cli-reference.md](docs/pss-cli-reference.md) | CLI subcommands reference |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Development guide |
+| [FEATURE_COMPARISON.md](docs/FEATURE_COMPARISON.md) | Feature comparison |
+| [PSS_FILE_FORMAT_SPEC.md](docs/PSS_FILE_FORMAT_SPEC.md) | PSS file format spec |
+| [pss-reindex-reference.md](docs/pss-reindex-reference.md) | Reindex reference |
+| [ANTHROPIC-COMPLIANCE-REPORT.md](docs/ANTHROPIC-COMPLIANCE-REPORT.md) | Anthropic compliance report |
 
 ### Key Architecture Concepts
 

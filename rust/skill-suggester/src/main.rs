@@ -2815,11 +2815,11 @@ pub struct DomainRegistryEntry {
 /// Confidence level for skill activation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Confidence {
-    /// Score >= 12: Auto-suggest, minimal context needed
+    /// Score >= 1000: Auto-suggest, minimal context needed
     High,
-    /// Score 6-11: Show evidence, require YES/NO evaluation
+    /// Score 100-999: Show evidence, require YES/NO evaluation
     Medium,
-    /// Score < 6: Full evaluation with alternatives
+    /// Score < 100: Full evaluation with alternatives
     Low,
 }
 
@@ -6020,7 +6020,7 @@ fn find_matches(
                     // more raw score to compete with gate-passing skills.
                     gate_penalty_factor = 0.80;
                     debug!(
-                        "Skill '{}': soft gate penalty for '{}' failure (factor=0.35)",
+                        "Skill '{}': soft gate penalty for '{}' failure (factor=0.80)",
                         name,
                         failed_gate.unwrap_or_default()
                     );
@@ -6380,9 +6380,7 @@ fn find_matches(
         // W20: Replace both hyphens and colons with spaces for whole-name matching
         let name_as_spaces = name.replace('-', " ").replace(':', " ");
         let name_lower = name.to_lowercase();
-        let mut _whole_name_match = false;
         if name_as_spaces.len() >= 5 && (expanded_lower.contains(&name_as_spaces) || expanded_lower.contains(&name_lower)) {
-            _whole_name_match = true;
             // Massive bonus for whole-name match, scaled by name length.
             // Longer names are more specific, so they deserve a bigger bonus.
             // "profiler" (1 part) gets 2000, "test-failure-analyzer" (3 parts) gets 4000.
@@ -6768,7 +6766,14 @@ fn find_matches(
                     skill_type: entry.skill_type.clone(),
                     description: entry.description.clone(),
                     score,
-                    confidence: Confidence::Medium,
+                    // Derive confidence from score thresholds (not hardcoded)
+                    confidence: if score >= thresholds.high {
+                        Confidence::High
+                    } else if score >= thresholds.medium {
+                        Confidence::Medium
+                    } else {
+                        Confidence::Low
+                    },
                     evidence,
                 });
             }
@@ -7177,8 +7182,13 @@ fn truncate_prompt(prompt: &str, max_len: usize) -> String {
     if prompt.len() <= max_len {
         prompt.to_string()
     } else {
-        // Find a word boundary near max_len
-        let truncated = &prompt[..max_len];
+        // Find the largest valid char boundary at or before max_len
+        // to avoid panicking on multi-byte UTF-8 characters (emoji, CJK, etc.)
+        let mut end = max_len;
+        while end > 0 && !prompt.is_char_boundary(end) {
+            end -= 1;
+        }
+        let truncated = &prompt[..end];
         if let Some(last_space) = truncated.rfind(' ') {
             format!("{}...", &truncated[..last_space])
         } else {
@@ -7342,8 +7352,10 @@ fn parse_frontmatter(content: &str) -> HashMap<String, String> {
                 let key = line[..colon_pos].trim().to_string();
                 let val = line[colon_pos + 1..].trim().to_string();
                 // Strip surrounding quotes if present
-                let val = if (val.starts_with('"') && val.ends_with('"'))
-                    || (val.starts_with('\'') && val.ends_with('\''))
+                // Strip surrounding quotes if value is at least 2 chars (avoid panic on single-quote)
+                let val = if val.len() >= 2
+                    && ((val.starts_with('"') && val.ends_with('"'))
+                        || (val.starts_with('\'') && val.ends_with('\'')))
                 {
                     val[1..val.len() - 1].to_string()
                 } else {
@@ -10023,7 +10035,7 @@ fn run_pass1_batch() -> Result<(), SuggesterError> {
         // Determine tier from source: marketplace → community, user/project → built-in
         let tier = if source.starts_with("marketplace:") {
             "community"
-        } else if source.starts_with("project:") {
+        } else if source == "project" || source.starts_with("project:") {
             "project"
         } else {
             "built-in"
@@ -10249,7 +10261,7 @@ fn run_index_file(path: &str) -> Result<(), SuggesterError> {
     // Determine tier from source
     let tier = if source.starts_with("marketplace:") {
         "community"
-    } else if source.starts_with("project:") {
+    } else if source == "project" || source.starts_with("project:") {
         "project"
     } else {
         "built-in"

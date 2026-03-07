@@ -203,13 +203,13 @@ You MUST deeply inspect each MCP to understand what it actually does — its too
   MUST include multi-word phrases that users would naturally type. 10-20 keywords.
   Example for chrome-devtools: `["chrome devtools", "browser automation", "take screenshot", "evaluate javascript", "inspect network requests", "chrome debugging protocol", "cdp", "web scraping", "page navigation", "dom inspection"]`
 
-- **category**: Infer from the MCP's primary purpose and tools:
-  - Browser/web tools → "web-frontend" or "web-scraping"
-  - Database tools → "data-management"
-  - DevOps/cloud tools → "devops-cicd" or "cloud-infra"
-  - Communication (Slack, Discord, email) → "communication"
-  - File/storage tools → "file-management"
-  - AI/ML tools → "ai-ml"
+- **category**: Infer from the MCP's primary purpose and tools (MUST be from VALID CATEGORIES list):
+  - Browser/web tools → "web-frontend"
+  - Database tools → "data-ml"
+  - DevOps/cloud tools → "devops-cicd" or "infrastructure"
+  - Communication (Slack, Discord, email) → "project-mgmt"
+  - File/storage tools → "cli-tools"
+  - AI/ML tools → "data-ml"
   - Security tools → "security"
 
 - **intents**: Extract from the tool names — what ACTIONS can the user perform?
@@ -784,38 +784,67 @@ but nothing else, set languages to ["python", "javascript"] — NOT ["any"].
 
 Match keywords from the element file to domain codes. Pick 1-3 codes.
 
-| If the element is about... | Domain code |
-|-------------------------|-------------|
-| Documentation, READMEs, technical writing | "010" or "510" |
-| Planning, architecture design | "020" |
-| Workflow, organization | "030" |
-| Git, version control | "050" |
-| Frontend, React, Vue, CSS, HTML | "110" |
-| Backend, APIs, servers | "120" |
-| Mobile, iOS, Android | "130" |
-| Systems programming, embedded | "140" |
-| Testing, QA | "150" |
-| Code quality, refactoring, linting | "160" |
-| Data science, analysis, pandas | "210" |
-| Machine learning, AI models, LLMs | "220" |
-| Data visualization, charts, dashboards | "230" |
-| Databases, SQL, MongoDB | "240" |
-| ETL, data pipelines | "250" |
-| CI/CD, GitHub Actions, automation | "310" |
-| Cloud, AWS, GCP, Azure | "320" |
-| Docker, Kubernetes, containers | "330" |
-| Monitoring, logging, observability | "340" |
-| Terraform, Ansible, IaC | "350" |
-| Security auditing, penetration testing | "410" |
-| Authentication, OAuth, JWT | "420" |
-| Encryption, cryptography | "430" |
-| SVG, icons, graphic design | "610" |
-| Video editing, transcoding | "620" |
-| Audio, podcasting, music | "630" |
-| Animation, motion graphics, GIF | "640" |
-| 3D modeling, rendering | "650" |
-| Project management, Agile | "710" |
-| Academic research, arXiv, papers | "810" |
+| Code | Domain |
+|------|--------|
+| 010 | Documentation & Technical Writing |
+| 020 | Planning & Architecture |
+| 030 | Organization & Workflow |
+| 040 | Communication & Collaboration |
+| 050 | Version Control & History |
+| 110 | Frontend Development (Web UI, CSS, HTML) |
+| 120 | Backend Development (APIs, Servers, Databases) |
+| 130 | Mobile Development (iOS, Android, Cross-platform) |
+| 140 | Systems Programming (OS, Embedded, Low-level) |
+| 150 | Testing & QA (Unit, Integration, E2E) |
+| 160 | Code Quality (Refactoring, Linting, Review) |
+| 210 | Data Science & Analysis |
+| 220 | Machine Learning & AI Models |
+| 230 | Data Visualization & Dashboards |
+| 240 | Databases & Data Storage |
+| 250 | ETL & Data Pipelines |
+| 260 | Business Intelligence |
+| 310 | CI/CD & Automation |
+| 320 | Cloud Services (AWS, GCP, Azure) |
+| 330 | Containers & Orchestration (Docker, K8s) |
+| 340 | Monitoring & Observability |
+| 350 | Configuration & IaC |
+| 360 | Networking & DNS |
+| 410 | Security Auditing & Penetration Testing |
+| 420 | Authentication & Authorization |
+| 430 | Encryption & Cryptography |
+| 440 | Compliance & Regulations |
+| 450 | Vulnerability Management |
+| 510 | Technical Writing & Documentation |
+| 520 | Copywriting & Marketing Content |
+| 530 | Presentation & Public Speaking |
+| 540 | Social Media & Community |
+| 550 | Translation & Localization |
+| 560 | Editing & Proofreading |
+| 610 | Graphic Design & Illustration |
+| 620 | Video Production & Editing |
+| 630 | Audio Production & Podcasting |
+| 640 | Animation & Motion Graphics |
+| 650 | 3D Modeling & Rendering |
+| 660 | Photography & Image Processing |
+| 710 | Project Management & Agile |
+| 720 | Finance & Accounting |
+| 730 | Legal & Contracts |
+| 740 | Marketing & Sales |
+| 750 | Human Resources & Recruiting |
+| 760 | Customer Support |
+| 810 | Academic Research & Papers |
+| 820 | Bioinformatics & Genomics |
+| 830 | Chemistry & Materials |
+| 840 | Physics & Engineering |
+| 850 | Mathematics & Statistics |
+| 860 | Environmental Science |
+| 910 | Health & Fitness |
+| 920 | Travel & Transportation |
+| 930 | Education & Learning |
+| 940 | DIY & Home Improvement |
+| 950 | Events & Entertainment |
+| 960 | Publishing & Self-Publishing |
+| 970 | Food & Nutrition |
 
 ---
 

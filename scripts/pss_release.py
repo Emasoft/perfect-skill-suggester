@@ -119,7 +119,7 @@ def run_tests() -> None:
 def run_linter() -> None:
     """Run ruff check on scripts/ and abort on failure."""
     info("Running linter...")
-    result = run(["uv", "run", "ruff", "check", "scripts/"])
+    result = run(["uv", "run", "ruff", "check", "scripts/", "tests/"])
     if result.returncode != 0:
         error(result.stdout.strip() if result.stdout else "")
         error(result.stderr.strip() if result.stderr else "")

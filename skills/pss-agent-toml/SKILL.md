@@ -428,12 +428,12 @@ See [references/example-and-scoring.md](references/example-and-scoring.md) — c
 
 ## Instructions
 
-1. **Phase 1 — Gather Requirements**: Read agent `.md` file, identify target domain, languages, frameworks, platforms, and constraints. Complete the Phase 1 checklist.
-2. **Phase 2 — Search & Score**: Run the Rust binary in `--agent-profile` mode to score all indexed elements. Use the multi-field index search to find additional candidates. Complete the Phase 2 checklist.
-3. **Phase 3 — AI Post-Filtering**: Apply mutual exclusivity, stack compatibility, and redundancy pruning. Remove conflicting, redundant, or off-stack elements. Complete the Phase 3 checklist.
-4. **Phase 4 — Cross-Type Coherence**: Verify skill-MCP overlap, agent-command alignment, and rule-agent compatibility. Complete the Phase 4 checklist.
-5. **Phase 5 — TOML Assembly**: Assemble the `.agent.toml` with all sections populated, tier assignments justified, and exclusion comments documented. Complete the Phase 5 checklist.
-6. **Phase 6 — Validation & Delivery**: Run `pss_validate_agent_toml.py`, fix all errors, deliver the validated file. Complete the Phase 6 checklist.
+1. **Phase 1 — Gather Context**: Read agent `.md` file, identify target domain, languages, frameworks, platforms, and constraints. Complete the Phase 1 checklist.
+2. **Phase 2 — Get Candidates from the Index**: Run the Rust binary in `--agent-profile` mode to score all indexed elements. Use the multi-field index search to find additional candidates. Complete the Phase 2 checklist.
+3. **Phase 3 — Evaluate Each Candidate (AI Reasoning Required)**: Apply mutual exclusivity, stack compatibility, and redundancy pruning. Remove conflicting, redundant, or off-stack elements. Complete the Phase 3 checklist.
+4. **Phase 4 — Add Elements from External Sources**: Search for additional elements not in the index that the agent may need. Complete the Phase 4 checklist.
+5. **Phase 5 — Cross-Type Coherence Validation**: Verify skill-MCP overlap, agent-command alignment, and rule-agent compatibility. Complete the Phase 5 checklist.
+6. **Phase 6 — Write and Validate**: Assemble the `.agent.toml`, run `pss_validate_agent_toml.py`, fix all errors, deliver the validated file. Complete the Phase 6 checklist.
 
 ## Output
 

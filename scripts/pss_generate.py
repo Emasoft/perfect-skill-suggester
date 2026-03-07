@@ -256,7 +256,6 @@ def generate_pss(
     tier: str = "secondary",
     category: str | None = None,
     source: str | None = None,
-    force: bool = False,
 ) -> dict[str, Any]:
     """
     Generate a .pss file for a skill.
@@ -266,12 +265,10 @@ def generate_pss(
         tier: Skill tier (primary, secondary, utility)
         category: Optional category
         source: Optional source (user, project, plugin)
-        force: Overwrite existing .pss file
 
     Returns:
         Generated PSS data as dictionary
     """
-    _ = force  # Unused but kept for API compatibility
     if not skill_path.exists():
         raise FileNotFoundError(f"Skill file not found: {skill_path}")
 
@@ -453,7 +450,7 @@ def generate_for_directory(
             continue
 
         try:
-            pss_data = generate_pss(skill_md, tier, category, source, force)
+            pss_data = generate_pss(skill_md, tier, category, source)
             save_pss(pss_data, pss_path)
             count += 1
         except Exception as e:
@@ -482,7 +479,7 @@ def generate_for_directory(
                 continue
 
             try:
-                pss_data = generate_pss(md_file, tier, category, source, force)
+                pss_data = generate_pss(md_file, tier, category, source)
                 save_pss(pss_data, pss_path)
                 count += 1
             except Exception as e:
@@ -638,7 +635,7 @@ def main() -> int:
 
         try:
             pss_data = generate_pss(
-                skill_path, args.tier, args.category, args.source, args.force
+                skill_path, args.tier, args.category, args.source
             )
 
             # Determine output path — default to system temp pss-queue to avoid
