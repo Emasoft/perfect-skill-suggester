@@ -1,14 +1,31 @@
 ---
 name: text-categorization-improver
-description: "Systematic methodology for iteratively improving text categorization, scoring, or matching algorithms using parallel experimentation, qualitative LLM-as-judge evaluation, and merge testing."
+description: "Iterative algorithm improvement via parallel experimentation and LLM-as-judge evaluation. Use when improving categorization, scoring, or matching accuracy. Trigger with /text-categorization-improver."
 user-invocable: false
 ---
 
 # Text Categorization Algorithm Improvement Protocol
 
-> Systematic methodology for iteratively improving text categorization, scoring, or matching algorithms using parallel experimentation, qualitative LLM-as-judge evaluation, and merge testing.
+## Overview
 
-## Checklist
+Systematic methodology for iteratively improving text categorization, scoring, or matching algorithms. Uses a 5-phase cycle: baseline measurement, qualitative LLM-as-judge evaluation, parallel experimentation across 3 git worktrees, benchmark-driven merge testing, and iteration until the target score is reached. Designed for algorithms with measurable output and a benchmark dataset.
+
+## Prerequisites
+
+- A text categorization/scoring algorithm with measurable output
+- A benchmark dataset (gold standard or ground truth)
+- A quantitative scoring script
+- Git repository with worktree support
+
+## Instructions
+
+1. **Phase 1**: Run quantitative benchmark to establish baseline score
+2. **Phase 2**: Run qualitative LLM-as-judge evaluation on failure cases
+3. **Phase 3**: Spawn 3 parallel researcher agents in separate git worktrees
+4. **Phase 4**: Benchmark each worktree, merge the winner, verify no regressions
+5. **Phase 5**: Repeat from Phase 1 until target score is reached
+
+### Checklist
 
 Copy this checklist and track your progress through the protocol:
 
@@ -18,14 +35,7 @@ Copy this checklist and track your progress through the protocol:
 - [ ] Phase 4: Benchmark & Merge Testing
 - [ ] Phase 5: Next Iteration or Completion
 
-## Prerequisites
-
-- A text categorization/scoring algorithm with measurable output
-- A benchmark dataset (gold standard or ground truth)
-- A quantitative scoring script
-- Git repository with worktree support
-
-## Model Requirements
+### Model Requirements
 
 This protocol uses a tiered model strategy for cost efficiency:
 
@@ -39,16 +49,16 @@ This protocol uses a tiered model strategy for cost efficiency:
 | Verification & comparison | **Sonnet** | Comparing outputs against gold standard |
 | Code formatting & linting | **Sonnet** | Automated cleanup |
 
-## Phase 1: Baseline Measurement
+### Phase 1: Baseline Measurement
 
-### Step 1.1: Run Quantitative Benchmark
+#### Step 1.1: Run Quantitative Benchmark
 Run your scoring benchmark against the current algorithm version to establish a baseline score.
 
 ```
 Record: baseline_score, per-category breakdown, timestamp
 ```
 
-### Step 1.2: Initialize Progress Ledger
+#### Step 1.2: Initialize Progress Ledger
 Create a markdown file to track the history of all iterations:
 
 ```markdown
@@ -66,9 +76,9 @@ The orchestrator (Opus) maintains this ledger across all iterations, documenting
 - Every wrong turn (so researchers don't repeat mistakes)
 - Structural limitations discovered
 
-## Phase 2: Qualitative Evaluation (LLM-as-Judge)
+### Phase 2: Qualitative Evaluation (LLM-as-Judge)
 
-### Step 2.1: Generate Evaluation Samples
+#### Step 2.1: Generate Evaluation Samples
 Sample 15-25 random inputs from your dataset. For each:
 1. Run the algorithm to produce its output
 2. Write an evaluation task file containing:
@@ -76,7 +86,7 @@ Sample 15-25 random inputs from your dataset. For each:
    - The algorithm's output (what it produced)
    - Evaluation instructions (grade quality, identify errors, suggest fixes)
 
-### Step 2.2: Spawn Evaluator Agents (Opus)
+#### Step 2.2: Spawn Evaluator Agents (Opus)
 Launch 3-5 batch evaluator agents (Opus), each reviewing 5 samples:
 
 Each evaluator grades each output on:
@@ -86,7 +96,7 @@ Each evaluator grades each output on:
 - **Ranking issues** — are top items actually best?
 - **Root cause hypothesis** — WHY is the algorithm making this mistake?
 
-### Step 2.3: Aggregate Findings (Opus)
+#### Step 2.3: Aggregate Findings (Opus)
 Spawn an aggregation agent to synthesize all evaluator reports:
 - Grade distribution across all samples
 - Top 10 prioritized improvements with specific code changes
@@ -94,19 +104,19 @@ Spawn an aggregation agent to synthesize all evaluator reports:
 - Structural limitations that can't be fixed with parameter tuning
 - Data quality issues in the training/index data
 
-### Step 2.4: Update Progress Ledger
+#### Step 2.4: Update Progress Ledger
 Record the qualitative findings, grade distribution, and identified improvements.
 
-## Phase 3: Parallel Experimentation (3 Worktrees)
+### Phase 3: Parallel Experimentation (3 Worktrees)
 
-### Step 3.1: Create 3 Git Worktrees
+#### Step 3.1: Create 3 Git Worktrees
 ```bash
 git worktree add .claude/worktrees/exp-w1 -b improve/exp-w1
 git worktree add .claude/worktrees/exp-w2 -b improve/exp-w2
 git worktree add .claude/worktrees/exp-w3 -b improve/exp-w3
 ```
 
-### Step 3.2: Assign Experiment Focus
+#### Step 3.2: Assign Experiment Focus
 Based on the qualitative evaluation findings, assign each worktree a different improvement strategy:
 
 | Worktree | Focus | Example |
@@ -117,7 +127,7 @@ Based on the qualitative evaluation findings, assign each worktree a different i
 
 **Important:** Each worktree targets DIFFERENT aspects of the algorithm. Changes must be non-conflicting so they can be merged later.
 
-### Step 3.3: Launch Researcher Agents (Opus)
+#### Step 3.3: Launch Researcher Agents (Opus)
 Spawn 3 background researcher agents (one per worktree). Each agent:
 1. Reads the qualitative evaluation report for context
 2. Reads the specific improvement tasks assigned to their worktree
@@ -127,15 +137,15 @@ Spawn 3 background researcher agents (one per worktree). Each agent:
 6. Writes a report with: final score, all iterations tried, what worked and what didn't
 7. Commits their changes
 
-### Step 3.4: Collect Results
+#### Step 3.4: Collect Results
 Wait for all 3 agents to complete. Record each worktree's score in the progress ledger.
 
-## Phase 4: Benchmark & Merge Testing
+### Phase 4: Benchmark & Merge Testing
 
-### Step 4.1: Identify Best Performers
+#### Step 4.1: Identify Best Performers
 Rank worktrees by score improvement over baseline.
 
-### Step 4.2: Test Additivity
+#### Step 4.2: Test Additivity
 Create a merge worktree and cherry-pick changes from the best-performing worktrees:
 
 ```bash
@@ -150,31 +160,31 @@ Run the benchmark on the merged version. Compare:
 - If merged ≈ best individual → other changes are non-additive, keep only the best
 - If merged < best individual → changes conflict, investigate
 
-### Step 4.3: Verify No Regressions
+#### Step 4.3: Verify No Regressions
 Run ALL existing benchmarks (not just the one being optimized) to ensure no regressions in other algorithm modes.
 
-### Step 4.4: Update Progress Ledger
+#### Step 4.4: Update Progress Ledger
 Record merge results, additivity analysis, and final iteration score.
 
-## Phase 5: Next Iteration or Completion
+### Phase 5: Next Iteration or Completion
 
-### Decision Gate
+#### Decision Gate
 Compare current score to target:
 - **Score >= target:** Protocol complete. Merge winning changes to main.
 - **Score < target but improving:** Return to Phase 2 with the improved algorithm. The qualitative eval will find new issues to fix.
 - **Score < target and plateau:** The remaining gap may be structural. Document limitations and escalate to the user.
 
-### Iteration History
+#### Iteration History
 Each iteration through Phase 2-4 should show measurable progress. If 3 consecutive iterations show <5% improvement, the algorithm has likely hit a structural ceiling.
 
-### Final Merge
+#### Final Merge
 When target is reached:
 1. Cherry-pick winning worktree commits to main
 2. Rebuild and verify all benchmarks pass
 3. Clean up worktrees
 4. Update the progress ledger with final results
 
-## Anti-Patterns to Avoid
+### Anti-Patterns to Avoid
 
 1. **Non-additive optimization:** When W2/W3 optimize against the original baseline instead of W1's improved version, their gains may not stack. Always inform later worktrees of earlier discoveries.
 
@@ -185,3 +195,39 @@ When target is reached:
 4. **Ignoring structural limits:** No amount of parameter tuning can overcome missing data, wrong architecture, or fundamental algorithm limitations.
 
 5. **Non-reproducible experiments:** Always use git commits, fixed random seeds, and recorded configurations so any experiment can be reproduced.
+
+## Output
+
+- **Progress Ledger** (`progress-ledger.md`): Markdown file tracking every iteration's score, breakdown, qualitative findings, merge results, and failed approaches.
+- **Evaluator Reports**: Per-sample quality grades (A-F), identified issues, and root cause hypotheses from LLM-as-judge evaluation.
+- **Researcher Reports**: Per-worktree reports with final score, iterations tried, what worked and what failed.
+- **Final merged algorithm**: The improved algorithm committed to main with all benchmarks passing.
+
+## Error Handling
+
+- **Benchmark script fails**: Verify the scoring script runs against the current algorithm before starting. Do not proceed to Phase 2 without a valid baseline score.
+- **Worktree creation fails**: Ensure the git repository supports worktrees and no naming conflicts exist. Clean up stale worktrees with `git worktree prune`.
+- **Merge conflicts**: If cherry-picking between worktrees produces conflicts, resolve manually and re-run the benchmark. Do not auto-resolve conflicts in algorithm logic.
+- **Score regression after merge**: Revert to the best individual worktree result and investigate conflicting changes before retrying.
+- **3 consecutive iterations with <5% improvement**: Stop iterating. The algorithm has likely hit a structural ceiling. Document limitations and escalate to the user.
+
+## Examples
+
+**Example 1: Improving a keyword-based skill matcher**
+1. Baseline score: 62% accuracy on 200-entry benchmark
+2. Qualitative eval reveals: keyword overlap scoring ignores synonyms, category penalties too aggressive
+3. W1 fixes scoring bugs (+4%), W2 adds synonym expansion (+8%), W3 restructures normalization (+3%)
+4. Merged result: 74% accuracy (changes are additive)
+5. Second iteration targets remaining false positives, reaches 81%
+
+**Example 2: Improving a document classifier**
+1. Baseline F1 score: 0.71
+2. LLM-as-judge finds: short documents misclassified, ambiguous categories conflated
+3. W1 adds length normalization (+0.03), W2 refines category boundaries (+0.05), W3 tests ensemble approach (+0.02)
+4. Merged W1+W2: F1 = 0.79 (W3 conflicts with W2, excluded)
+
+## Resources
+
+- Git worktree documentation: `git worktree --help`
+- LLM-as-judge pattern: Use Opus-tier models for nuanced quality grading
+- Benchmark design: Ensure gold-standard datasets cover edge cases and category boundaries

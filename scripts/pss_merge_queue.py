@@ -395,7 +395,7 @@ def main() -> None:
 
     # --batch-stdin mode: read JSONL from stdin and merge each line as pass-1
     if args.batch_stdin:
-        index_path = Path(args.index)
+        batch_index_path = Path(args.index)
         # Acquire exclusive file lock (same as single-file mode) to prevent races
         lock_path = DEFAULT_LOCK_PATH
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -403,8 +403,8 @@ def main() -> None:
         try:
             if fcntl is not None:
                 fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
-            if index_path.exists():
-                index = read_json_file(index_path)
+            if batch_index_path.exists():
+                index = read_json_file(batch_index_path)
             else:
                 index = create_skeleton_index()
             count = 0
@@ -419,8 +419,8 @@ def main() -> None:
                 except json.JSONDecodeError as e:
                     print(f"Warning: Skipping invalid JSON line: {e}", file=sys.stderr)
             index["skill_count"] = len(index.get("skills", {}))
-            atomic_write_json(index_path, index)
-            print(f"Merged {count} elements into {index_path}", file=sys.stderr)
+            atomic_write_json(batch_index_path, index)
+            print(f"Merged {count} elements into {batch_index_path}", file=sys.stderr)
         finally:
             if fcntl is not None:
                 fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)

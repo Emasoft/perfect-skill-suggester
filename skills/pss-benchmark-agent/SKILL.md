@@ -1,6 +1,6 @@
 ---
 name: pss-benchmark-agent
-description: "Mandatory documentation protocol for Opus agents competing to improve the PSS scoring engine. Defines report structure, benchmark tracking format, sacred parameters, and anti-patterns."
+description: "PSS scoring engine benchmark protocol. Use when running benchmark competitions or improving scoring accuracy. Trigger with /pss-benchmark."
 user-invocable: false
 ---
 
