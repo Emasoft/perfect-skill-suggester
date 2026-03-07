@@ -21,19 +21,19 @@ Perfect Skill Suggester (PSS) automatically suggests relevant Claude Code elemen
 - Index built at least once via `/pss-reindex-skills`
 - Write permissions to `~/.claude/cache/` directory
 
+## Instructions
+
+1. Check PSS health with `/pss-status`
+2. Build or rebuild the skill index with `/pss-reindex-skills`
+3. Use prompts naturally -- PSS suggests relevant skills with confidence levels (HIGH/MEDIUM/LOW)
+4. Activate suggested skills with `/skill activate <skill-name>`
+5. Reindex after installing or modifying skills by running `/pss-reindex-skills`
+
 ## When to Use
 
 **Activate when:** user asks about skill suggestions, PSS functionality, reindexing, PSS status, or when suggestions appear empty/incorrect.
 
 **Do NOT activate for:** general skill activation, writing skill content, or plugin development.
-
-## Quick Start
-
-1. **Check status**: `/pss-status`
-2. **Build index**: `/pss-reindex-skills` (always performs full regeneration from scratch)
-3. **Use prompts naturally** -- PSS suggests relevant skills with confidence levels (HIGH/MEDIUM/LOW)
-4. **Activate suggested skills**: `/skill activate <skill-name>`
-5. **Reindex after changes**: Run `/pss-reindex-skills` after installing or modifying skills
 
 ## Quick Reference
 
@@ -43,16 +43,22 @@ Perfect Skill Suggester (PSS) automatically suggests relevant Claude Code elemen
 | Rebuild skill index | `/pss-reindex-skills` |
 | Profile an agent | `/pss-setup-agent <agent-name>.md` |
 
-## Error Handling (Quick Fixes)
+## Error Handling
 
 - **Commands not found**: Check plugin enabled with `/plugin list`
 - **Empty suggestions**: Run `/pss-reindex-skills`
 - **Index errors**: Delete `~/.claude/cache/skill-index.json` and reindex
 - **Reindex failures**: Verify skills directories exist, check error message
 
-## Summary
+## Output
 
-Commands: `/pss-status` (check health), `/pss-reindex-skills` (rebuild index). Confidence levels: HIGH (activate), MEDIUM (review evidence), LOW (skip unless recognized).
+PSS outputs a suggestion table with columns: Element Name, Type, Confidence (HIGH/MEDIUM/LOW), Evidence. Suggestions appear as a `systemMessage` notification: `⚡« Pss!... use: skill-name (type) »`.
+
+## Examples
+
+- `/pss-status` -- displays index health, element count, last reindex time
+- `/pss-reindex-skills` -- full regeneration of skill index from all sources
+- See [Examples Reference](references/examples.md) for testing workflow and debugging scenarios
 
 ## References
 

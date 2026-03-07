@@ -13,7 +13,13 @@ An `.agent.toml` defines the complete configuration profile for a Claude Code ag
 
 ## Instructions
 
-Run `/pss-setup-agent <agent-path>` to invoke the full 6-phase pipeline. See [Workflow Phases](references/workflow-phases.md) for detailed phase instructions and [Setup Command](references/pss-setup-command.md) for CLI usage.
+1. Prepare the agent definition file (`.md`) describing the agent's role, duties, and tools
+2. Ensure the skill index exists at `~/.claude/cache/skill-index.json` (run `/pss-reindex-skills` if missing)
+3. Run `/pss-setup-agent <agent-path>` to invoke the full 6-phase pipeline
+4. Review the generated `.agent.toml` at `~/.claude/agents/<agent-name>.agent.toml`
+5. Optionally pass `--requirements /path/to/prd.md` for additional context
+
+See [Workflow Phases](references/workflow-phases.md) for detailed phase instructions and [Setup Command](references/pss-setup-command.md) for CLI usage.
 
 ## Prerequisites
 
