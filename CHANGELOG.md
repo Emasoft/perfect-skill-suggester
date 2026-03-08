@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.9] - 2026-03-08
+
+### Bug Fixes
+
+- **security:** Harden scripts against path traversal, DoS, and symlink attacks
+
+### Miscellaneous Tasks
+
+- Remove obsolete shell/PowerShell hook wrappers
+
 ## [2.3.8] - 2026-03-07
 
 ### Features
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Backup v2.3.7 binary before tier system rewrite
+
+### Bump
+
+- Version 2.3.7 → 2.3.8
 
 ## [2.3.7] - 2026-03-07
 
