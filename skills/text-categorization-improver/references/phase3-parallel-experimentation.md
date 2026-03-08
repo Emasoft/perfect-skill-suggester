@@ -1,5 +1,12 @@
 # Phase 3: Parallel Experimentation (3 Worktrees)
 
+## Table of Contents
+
+- [Step 3.1: Create 3 Git Worktrees](#step-31-create-3-git-worktrees)
+- [Step 3.2: Assign Experiment Focus](#step-32-assign-experiment-focus)
+- [Step 3.3: Launch Researcher Agents (Opus)](#step-33-launch-researcher-agents-opus)
+- [Step 3.4: Collect Results](#step-34-collect-results)
+
 ## Step 3.1: Create 3 Git Worktrees
 
 ```bash

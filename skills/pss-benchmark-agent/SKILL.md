@@ -19,31 +19,42 @@ Mandatory documentation protocol for Opus agents competing to improve the PSS sc
 
 ## Instructions
 
-You are an Opus agent competing to improve the PSS scoring engine. This skill defines the MANDATORY documentation standards for your work. Your report is the TRAINING DATA for future agents -- its quality directly determines whether the next cycle succeeds or fails.
+Mandatory documentation protocol for Opus agents competing to improve the PSS scoring engine. Reports are training data for future cycles.
 
-1. Read `docs_dev/methodology-improvement-history.md` and the current `main.rs` to understand prior work
-2. Run the baseline benchmark BEFORE making any changes and record the score
-3. Make one change at a time, benchmark after each, and record in the Score Progression Table
-4. Revert any change that causes regression -- document rejected approaches with full detail
-5. Write your report to `docs_dev/worktree-{YOUR_ID}-report.md` with ALL mandatory sections
-6. Write per-prompt benchmark results to `docs_dev/worktree-{YOUR_ID}-benchmark-log.md`
-7. Run `cargo test` and `cargo build --release` to verify no regressions
-8. Complete the Work Tracking Checklist before reporting done
+1. Read `docs_dev/methodology-improvement-history.md` and current `main.rs`
+2. Run baseline benchmark BEFORE changes and record score
+3. Make one change at a time, benchmark after each
+4. Revert regressions -- document rejected approaches
+5. Write report to `docs_dev/worktree-{YOUR_ID}-report.md`
+6. Write benchmark log to `docs_dev/worktree-{YOUR_ID}-benchmark-log.md`
+7. Run `cargo test` and `cargo build --release`
+8. Complete the Work Tracking Checklist
 
-## Report File
+## References
 
-Write your report to: `docs_dev/worktree-{YOUR_ID}-report.md`
+- [Report Format](references/report-format.md) -- mandatory sections 1-6
+- [Anti-Patterns](references/anti-patterns.md) -- mistakes to avoid
+- [Sacred Parameters](references/sacred-parameters.md) -- do not change
+- [Benchmark Tracking](references/benchmark-tracking.md) -- log format and rules
+- [Work Tracking Checklist](references/work-tracking-checklist.md) -- 5-phase checklist
+- [Examples and Resources](references/examples-and-resources.md) -- commands and error handling
 
-## Reference Documentation
+### Checklist
 
-All detailed protocol documentation is in the `references/` directory. Read each file before starting work.
+Copy this checklist and track your progress:
 
-- [Mandatory Report Sections (1-6)](references/report-format.md) -- score progression table, change details (diffs, formulas, hypotheses, per-prompt impact), structural analysis, synonym inventory, near-miss analysis, generalizability assessment
-- [Anti-Patterns](references/anti-patterns.md) -- common mistakes that waste future agents' time
-- [Sacred Parameters](references/sacred-parameters.md) -- parameters proven across 5 cycles that must NOT be changed
-- [Benchmark Tracking](references/benchmark-tracking.md) -- separate benchmark log format, per-prompt result rules, how to run the benchmark script
-- [Work Tracking Checklist](references/work-tracking-checklist.md) -- 5-phase checklist to copy into your report (setup, implementation, testing, report writing, verification)
-- [Examples and Resources](references/examples-and-resources.md) -- example commands, change documentation format, error handling, resource file locations
+- [ ] Read history and current main.rs
+- [ ] Run baseline benchmark and record score
+- [ ] Make changes one at a time, benchmark each
+- [ ] Revert regressions and document rejected approaches
+- [ ] Write report and benchmark log
+- [ ] Run cargo test and cargo build --release
+
+## Examples
+
+```
+cargo build --release && uv run scripts/pss_benchmark.py --binary target/release/pss
+```
 
 ## Output
 
@@ -53,31 +64,11 @@ All detailed protocol documentation is in the `references/` directory. Read each
 
 ## Error Handling
 
-If the benchmark script fails or produces unexpected output, check `docs_dev/methodology-improvement-history.md` for known issues and prior workarounds. See also [Examples and Resources](references/examples-and-resources.md) for error handling guidance.
-
-### Checklist
-
-Copy this checklist and track your progress:
-
-- [ ] Read methodology history and current main.rs
-- [ ] Run baseline benchmark and record score
-- [ ] Make changes one at a time, benchmark after each
-- [ ] Write report with all mandatory sections
-- [ ] Write per-prompt benchmark log
-- [ ] Run cargo test and cargo build --release
-
-## Examples
-
-Input: Agent runs `cargo run --release -- --benchmark docs_dev/benchmark-v2-prompts-100.jsonl`
-Output: Score table showing precision, recall, F1 per prompt category.
-
-See [Examples and Resources](references/examples-and-resources.md) for sample benchmark commands, change documentation format, and example reports.
+If the benchmark script fails or produces unexpected output, check `docs_dev/methodology-improvement-history.md` for known issues. See [Examples and Resources](references/examples-and-resources.md) for error handling and sample commands.
 
 ## Resources
 
-- [Report Format](references/report-format.md) -- mandatory report sections
-- [Anti-Patterns](references/anti-patterns.md) -- mistakes to avoid
-- [Sacred Parameters](references/sacred-parameters.md) -- do-not-change parameters
-- [Benchmark Tracking](references/benchmark-tracking.md) -- how to run and log benchmarks
-- [Work Tracking Checklist](references/work-tracking-checklist.md) -- completion checklist
-- [Examples and Resources](references/examples-and-resources.md) -- commands and examples
+- **Scoring engine**: `rust/skill-suggester/src/main.rs`
+- **Benchmark prompts**: `docs_dev/benchmark-v2-prompts-100.jsonl`
+- **Gold standard**: `docs_dev/benchmark-v2-gold-100.json`
+- **History**: `docs_dev/methodology-improvement-history.md`

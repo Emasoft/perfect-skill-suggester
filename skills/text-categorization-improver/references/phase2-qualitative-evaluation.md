@@ -1,5 +1,12 @@
 # Phase 2: Qualitative Evaluation (LLM-as-Judge)
 
+## Table of Contents
+
+- [Step 2.1: Generate Evaluation Samples](#step-21-generate-evaluation-samples)
+- [Step 2.2: Spawn Evaluator Agents (Opus)](#step-22-spawn-evaluator-agents-opus)
+- [Step 2.3: Aggregate Findings (Opus)](#step-23-aggregate-findings-opus)
+- [Step 2.4: Update Progress Ledger](#step-24-update-progress-ledger)
+
 ## Step 2.1: Generate Evaluation Samples
 
 Sample 15-25 random inputs from your dataset. For each:

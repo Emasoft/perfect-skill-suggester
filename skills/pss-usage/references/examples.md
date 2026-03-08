@@ -1,5 +1,11 @@
 # PSS Usage Examples
 
+## Table of Contents
+
+- [Example 1: Testing Workflow](#example-1-testing-workflow)
+- [Example 2: First-Time Setup](#example-2-first-time-setup)
+- [Example 3: Debugging Missing Suggestions](#example-3-debugging-missing-suggestions)
+
 ## Example 1: Testing Workflow
 
 **User prompt:**

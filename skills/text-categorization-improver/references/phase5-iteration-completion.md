@@ -1,5 +1,11 @@
 # Phase 5: Next Iteration or Completion
 
+## Table of Contents
+
+- [Decision Gate](#decision-gate)
+- [Iteration History](#iteration-history)
+- [Final Merge](#final-merge)
+
 ## Decision Gate
 
 Compare current score to target:

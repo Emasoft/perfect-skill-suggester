@@ -1,5 +1,12 @@
 # Output, Error Handling, Examples & Resources
 
+## Table of Contents
+
+- [Output](#output)
+- [Error Handling](#error-handling)
+- [Examples](#examples)
+- [Resources](#resources)
+
 ## Output
 
 - **Progress Ledger** (`progress-ledger.md`): Markdown file tracking every iteration's score, breakdown, qualitative findings, merge results, and failed approaches.

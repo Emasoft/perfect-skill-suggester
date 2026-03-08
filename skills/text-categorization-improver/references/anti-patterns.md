@@ -1,5 +1,9 @@
 # Anti-Patterns to Avoid
 
+## Table of Contents
+
+This file contains a single numbered list of anti-patterns (no sub-headings).
+
 1. **Non-additive optimization:** When W2/W3 optimize against the original baseline instead of W1's improved version, their gains may not stack. Always inform later worktrees of earlier discoveries.
 
 2. **Score overfitting:** Optimizing solely for the benchmark score. Use qualitative eval to catch cases where score improves but actual quality doesn't.

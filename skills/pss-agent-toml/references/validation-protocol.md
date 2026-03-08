@@ -1,10 +1,17 @@
 # Phase 6: Write and Validate
 
-**6.1 Write the `.agent.toml` file**
+## Table of Contents
+
+- [Write the .agent.toml file](#write-the-agenttoml-file)
+- [Validate](#validate)
+- [Clean up](#clean-up)
+- [Completion Checklist](#completion-checklist)
+
+## Write the .agent.toml file
 
 Use the template from [toml-format.md](toml-format.md). Every field must be populated from the evaluation results. The `[skills.excluded]` section must document WHY each rejected candidate was excluded.
 
-**6.2 Validate**
+## Validate
 
 Run the validator:
 ```bash
@@ -19,11 +26,13 @@ If validation fails, fix the errors and re-validate. Common issues:
 - Tier size exceeded (primary > 7, secondary > 12, specialized > 8)
 - Agent name not kebab-case
 
-**6.3 Clean up**
+## Clean up
 
 Delete the temporary JSON descriptor file.
 
-**Phase 6 Completion Checklist** (profile is ONLY complete when ALL items are checked):
+## Completion Checklist
+
+Profile is ONLY complete when ALL items are checked:
 
 - [ ] `.agent.toml` file written to the correct output path
 - [ ] `[agent]` section has `name`, `source`, `path` — all correct

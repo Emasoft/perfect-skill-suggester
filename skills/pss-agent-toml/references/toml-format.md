@@ -1,5 +1,12 @@
 # The .agent.toml Format
 
+## Table of Contents
+
+- [Template](#template)
+- [Schema and Validator](#schema-and-validator)
+
+## Template
+
 Every `.agent.toml` has these sections:
 
 ```toml
@@ -45,5 +52,7 @@ recommended = []
 recommended = ["typescript-lsp", "pyright-lsp"]
 ```
 
-**Schema reference**: `$CLAUDE_PLUGIN_ROOT/schemas/pss-agent-toml-schema.json`
-**Validator**: `uv run scripts/pss_validate_agent_toml.py <file> --check-index --verbose`
+## Schema and Validator
+
+- **Schema**: `$CLAUDE_PLUGIN_ROOT/schemas/pss-agent-toml-schema.json`
+- **Validator**: `uv run scripts/pss_validate_agent_toml.py <file> --check-index --verbose`

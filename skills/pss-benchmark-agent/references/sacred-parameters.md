@@ -1,5 +1,9 @@
 # Sacred Parameters (DO NOT CHANGE -- PROVEN ACROSS 5 CYCLES)
 
+## Table of Contents
+
+- (No subsections -- this file is a single reference block.)
+
 These parameters have been independently validated by 3+ agents across multiple cycles. Changing them ALWAYS causes regression:
 
 ```rust

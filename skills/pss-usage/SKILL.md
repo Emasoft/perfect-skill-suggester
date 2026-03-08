@@ -9,25 +9,24 @@ user-invocable: false
 
 ## Overview
 
-Perfect Skill Suggester (PSS) automatically suggests relevant Claude Code elements (skills, agents, commands, rules, MCP servers, LSP servers) based on your prompts and agent profiles. PSS indexes 6 element types: skills, agents, commands, rules, MCP servers, and LSP servers.
+PSS automatically suggests relevant Claude Code elements (skills, agents, commands, rules, MCP servers, LSP servers) based on prompts and agent profiles.
 
-**Hook mode** (normal prompting): Suggests skills and agents only.
+**Hook mode**: Suggests skills and agents on normal prompts.
 **Agent-profile mode** (`/pss-setup-agent`): Recommends all 6 types in `.agent.toml` files.
 
 ## Prerequisites
 
-- PSS plugin installed and enabled (verify with `/plugin list`)
-- Skills available in `~/.claude/skills/` or project `.claude/skills/`
-- Index built at least once via `/pss-reindex-skills`
-- Write permissions to `~/.claude/cache/` directory
+- PSS plugin installed and enabled (`/plugin list`)
+- Skills in `~/.claude/skills/` or project `.claude/skills/`
+- Index built via `/pss-reindex-skills`
 
 ## Instructions
 
-1. Check PSS health with `/pss-status`
-2. Build or rebuild the skill index with `/pss-reindex-skills`
-3. Use prompts naturally -- PSS suggests relevant skills with confidence levels (HIGH/MEDIUM/LOW)
-4. Activate suggested skills with `/skill activate <skill-name>`
-5. Reindex after installing or modifying skills by running `/pss-reindex-skills`
+1. Check PSS health: `/pss-status`
+2. Build/rebuild skill index: `/pss-reindex-skills`
+3. Use prompts naturally -- PSS suggests skills with confidence (HIGH/MEDIUM/LOW)
+4. Activate suggestions: `/skill activate <skill-name>`
+5. Reindex after installing or modifying skills
 
 ## When to Use
 
@@ -54,14 +53,14 @@ Copy this checklist and track your progress:
 
 ## Error Handling
 
-- **Commands not found**: Check plugin enabled with `/plugin list`
+- **Commands not found**: Check plugin enabled (`/plugin list`)
 - **Empty suggestions**: Run `/pss-reindex-skills`
-- **Index errors**: Delete `~/.claude/cache/skill-index.json` and reindex
-- **Reindex failures**: Verify skills directories exist, check error message
+- **Index errors**: Delete `~/.claude/cache/skill-index.json`, reindex
+- **Reindex failures**: Verify skills directories exist
 
 ## Output
 
-PSS outputs a suggestion table with columns: Element Name, Type, Confidence (HIGH/MEDIUM/LOW), Evidence. Suggestions appear as a `systemMessage` notification: `⚡« Pss!... use: skill-name (type) »`.
+Suggestion table with: Element Name, Type, Confidence (HIGH/MEDIUM/LOW), Evidence. Notification: `⚡« Pss!... use: skill-name (type) »`.
 
 ## Examples
 

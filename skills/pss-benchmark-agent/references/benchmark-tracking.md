@@ -1,5 +1,11 @@
 # Benchmark Results Tracking
 
+## Table of Contents
+
+- [Benchmark Log Format](#benchmark-log-format)
+- [Rules](#rules)
+- [How to Run the Benchmark](#how-to-run-the-benchmark)
+
 **CRITICAL: Use a SEPARATE file for per-prompt benchmark results.** The per-prompt tracking can grow to thousands of lines. Your report file must stay concise. Write benchmark results to:
 
 `docs_dev/worktree-{AGENT_ID}-benchmark-log.md`

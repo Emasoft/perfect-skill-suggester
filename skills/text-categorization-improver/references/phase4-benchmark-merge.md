@@ -1,5 +1,12 @@
 # Phase 4: Benchmark & Merge Testing
 
+## Table of Contents
+
+- [Step 4.1: Identify Best Performers](#step-41-identify-best-performers)
+- [Step 4.2: Test Additivity](#step-42-test-additivity)
+- [Step 4.3: Verify No Regressions](#step-43-verify-no-regressions)
+- [Step 4.4: Update Progress Ledger](#step-44-update-progress-ledger)
+
 ## Step 4.1: Identify Best Performers
 
 Rank worktrees by score improvement over baseline.

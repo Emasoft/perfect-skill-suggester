@@ -1,5 +1,10 @@
 # Understanding PSS Suggestion Output
 
+## Table of Contents
+
+- [Reading This Table](#reading-this-table)
+- [Decision Framework](#decision-framework)
+
 When PSS suggests skills, you will see output like:
 
 ```

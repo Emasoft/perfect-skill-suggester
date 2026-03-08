@@ -1,5 +1,12 @@
 # Examples and Resources
 
+## Table of Contents
+
+- [Output Files](#output-files)
+- [Error Handling](#error-handling)
+- [Examples](#examples)
+- [Resources](#resources)
+
 ## Output Files
 
 - `docs_dev/worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections

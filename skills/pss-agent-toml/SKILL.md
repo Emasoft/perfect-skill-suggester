@@ -9,17 +9,16 @@ user-invocable: false
 
 ## Overview
 
-An `.agent.toml` defines the complete configuration profile for a Claude Code agent: skills, sub-agents, slash commands, rules, MCP servers, and LSP servers. An AI agent evaluates scored candidates from the Rust binary, resolves conflicts, prunes redundancy, and assembles a validated profile.
+Builds `.agent.toml` profiles for Claude Code agents. AI evaluates scored candidates from the Rust binary, resolves conflicts, prunes redundancy, and assembles a validated profile.
 
 ## Instructions
 
-1. Prepare the agent definition file (`.md`) describing the agent's role, duties, and tools
-2. Ensure the skill index exists at `~/.claude/cache/skill-index.json` (run `/pss-reindex-skills` if missing)
-3. Run `/pss-setup-agent <agent-path>` to invoke the full 6-phase pipeline
-4. Review the generated `.agent.toml` at `~/.claude/agents/<agent-name>.agent.toml`
-5. Optionally pass `--requirements /path/to/prd.md` for additional context
+1. Prepare the agent definition `.md` file
+2. Ensure skill index exists (run `/pss-reindex-skills` if missing)
+3. Run `/pss-setup-agent <agent-path>` for the full 6-phase pipeline
+4. Review the generated `.agent.toml`
 
-See [Workflow Phases](references/workflow-phases.md) for detailed phase instructions and [Setup Command](references/pss-setup-command.md) for CLI usage.
+See the References section for detailed workflow phases and CLI usage.
 
 ## Prerequisites
 
@@ -27,20 +26,14 @@ See [Workflow Phases](references/workflow-phases.md) for detailed phase instruct
 - **Rust binary**: `$CLAUDE_PLUGIN_ROOT/rust/skill-suggester/bin/<platform>`
 - **Agent definition**: The `.md` file describing the agent to profile
 
-## Quick Start
-
-```
-/pss-setup-agent /path/to/agent.md --requirements /path/to/prd.md
-```
-
 ## Workflow (6 Phases)
 
-1. **Gather Context** -- Read agent `.md`, extract role/duties/tools/domains, read requirements, detect project languages
-2. **Get Candidates** -- Invoke Rust binary (`--agent-profile`), search index for additional candidates
-3. **Evaluate Candidates** -- AI reads each candidate's source, checks mutual exclusivity, stack compatibility, obsolescence, gaps, redundancy
-4. **Add External Elements** -- Search for elements not in the index (local, marketplace, GitHub, network)
-5. **Cross-Type Coherence** -- Validate no overlaps between skills, MCP, agents, commands, rules, LSP
-6. **Write and Validate** -- Assemble `.agent.toml`, run validator, fix errors until exit code 0
+1. **Gather Context** -- Read agent `.md`, extract role/duties/tools/domains
+2. **Get Candidates** -- Invoke Rust binary (`--agent-profile`)
+3. **Evaluate Candidates** -- AI checks compatibility, redundancy, gaps
+4. **Add External Elements** -- Search marketplace, GitHub, network
+5. **Cross-Type Coherence** -- Validate no overlaps across 6 types
+6. **Write and Validate** -- Assemble `.agent.toml`, validate until clean
 
 ### Checklist
 
@@ -53,28 +46,30 @@ Copy this checklist and track your progress:
 - [ ] Cross-type coherence check (no overlaps)
 - [ ] Write and validate `.agent.toml`
 
-## Reference Documentation
+## References
 
-- [AI Agent Principle](references/ai-agent-principle.md) -- Why AI reasoning is mandatory for element selection
-- [TOML Format](references/toml-format.md) -- Complete `.agent.toml` template with all sections
-- [Workflow Phases 1-3](references/workflow-phases.md) -- Context gathering, candidate retrieval, AI evaluation with checklists
-  - Phase 1: Gather Context (1.1 Read agent definition, 1.2 Read requirements, 1.3 Detect project languages)
-  - Phase 2: Get Candidates (2.1 Invoke Rust binary, 2.2 Search for additional candidates)
-  - Phase 3: Evaluate Each Candidate (3.1 Read source, 3.2 Evaluate relevance, 3.3 Mutual exclusivity, 3.4 Obsolescence, 3.5 Stack compatibility, 3.6 Identify gaps, 3.7 Prune redundancy)
-- [External Sources (Phase 4)](references/external-sources.md) -- Adding elements from local paths, plugins, GitHub, network
-- [Cross-Type Coherence (Phase 5)](references/cross-type-coherence.md) -- Overlap detection, coherence checklist, resolution strategies
-- [Validation Protocol (Phase 6)](references/validation-protocol.md) -- Writing, validating, and finalizing the `.agent.toml`
-- [Setup Command](references/pss-setup-command.md) -- Using `/pss-setup-agent` to invoke the full pipeline
-- [Example and Scoring](references/example-and-scoring.md) -- Scoring weights, tier thresholds, complete React example, troubleshooting
-- [Error Handling](references/error-handling.md) -- Binary not found, missing index, validation failures
-
-## Error Handling
-
-See [Error Handling Reference](references/error-handling.md) for retry logic, binary-not-found recovery, missing index handling, and validation failure modes.
+- [AI Agent Principle](references/ai-agent-principle.md) -- Why AI reasoning is mandatory
+- [TOML Format](references/toml-format.md) -- `.agent.toml` template
+- [Workflow Phases 1-3](references/workflow-phases.md) -- Context, candidates, evaluation
+- [External Sources (Phase 4)](references/external-sources.md) -- Local, plugins, GitHub, network
+- [Cross-Type Coherence (Phase 5)](references/cross-type-coherence.md) -- Overlap detection
+- [Validation (Phase 6)](references/validation-protocol.md) -- Write, validate, finalize
+- [Setup Command](references/pss-setup-command.md) -- `/pss-setup-agent` CLI usage
+- [Example and Scoring](references/example-and-scoring.md) -- Weights, thresholds, examples
+- [Error Handling](references/error-handling.md) -- Recovery and failure modes
 
 ## Examples
 
-See [Example and Scoring Reference](references/example-and-scoring.md) for a complete React agent example, scoring weights, tier thresholds, and troubleshooting.
+```
+/pss-setup-agent agents/my-reviewer.md
+/pss-setup-agent agents/my-reviewer.md --requirements docs/prd.md
+```
+
+## Error Handling
+
+- Missing skill index: run `/pss-reindex-skills` first
+- Binary not found: rebuild with `uv run scripts/pss_build.py`
+- Validation fails: fix reported errors and re-run phase 6
 
 ## Output
 

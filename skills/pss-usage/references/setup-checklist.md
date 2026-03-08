@@ -1,5 +1,9 @@
 # PSS Setup and Verification Checklist
 
+## Table of Contents
+
+- (Single-section checklist -- no sub-headings)
+
 Use this checklist to verify your PSS workflow is complete:
 
 - [ ] PSS plugin is installed and enabled (`/plugin list` shows it)

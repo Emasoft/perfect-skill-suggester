@@ -1,5 +1,9 @@
 # Model Requirements
 
+## Table of Contents
+
+This file contains a single section with the model tier table below.
+
 This protocol uses a tiered model strategy for cost efficiency:
 
 | Role | Model | Rationale |

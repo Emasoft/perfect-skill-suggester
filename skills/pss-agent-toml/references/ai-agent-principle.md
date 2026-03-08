@@ -1,5 +1,13 @@
 # Fundamental Principle: AI Agent is ALWAYS Required
 
+## Table of Contents
+
+- [Why AI Reasoning is Required](#why-ai-reasoning-is-required)
+- [What This Skill Teaches](#what-this-skill-teaches)
+- [Default Mode](#default-mode)
+
+## Why AI Reasoning is Required
+
 **An AI agent MUST be the decision-maker for element selection.** No mechanical script or automated pipeline can produce a correct agent profile. Here is why:
 
 1. **Conflict detection requires reasoning**: A script cannot determine that "jest-testing" and "vitest-testing" are mutually exclusive, or that a "database-management" skill is redundant when a "postgres-mcp" server is already included.
@@ -12,6 +20,8 @@
 
 **The Rust binary provides scored candidates. The AI agent makes the decisions.** This is the same principle as the prompt hook: the binary suggests, Claude chooses.
 
+## What This Skill Teaches
+
 This skill teaches ANY agent or Claude model how to:
 1. **Search** the element index to find candidates for each section
 2. **Evaluate** candidates by reading their actual SKILL.md/agent.md content
@@ -19,5 +29,7 @@ This skill teaches ANY agent or Claude model how to:
 4. **Add** specific elements from any source (local, marketplace, GitHub, network)
 5. **Validate coherence** — ensure no overlapping, conflicting, or redundant elements across ALL types
 6. **Assemble** and validate the final `.agent.toml` file
+
+## Default Mode
 
 **Default mode is autonomous**: the agent executes the full pipeline, makes all decisions, produces the `.agent.toml`, and reports the result. Interactive collaboration with the user or orchestrator is optional — it only happens when explicitly requested or when truly unresolvable conflicts are detected.

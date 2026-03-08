@@ -1,5 +1,10 @@
 # Phase 1: Baseline Measurement
 
+## Table of Contents
+
+- [Step 1.1: Run Quantitative Benchmark](#step-11-run-quantitative-benchmark)
+- [Step 1.2: Initialize Progress Ledger](#step-12-initialize-progress-ledger)
+
 ## Step 1.1: Run Quantitative Benchmark
 
 Run your scoring benchmark against the current algorithm version to establish a baseline score.
