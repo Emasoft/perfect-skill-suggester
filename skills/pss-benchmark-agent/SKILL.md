@@ -33,11 +33,28 @@ Mandatory documentation protocol for Opus agents competing to improve the PSS sc
 ## References
 
 - [Report Format](references/report-format.md) -- mandatory sections 1-6
+  - Score Progression Table
+  - Change Details
+  - Structural Analysis
+  - Synonym Expansions Inventory
+  - Near-Miss Analysis
+  - Generalizability Self-Assessment
 - [Anti-Patterns](references/anti-patterns.md) -- mistakes to avoid
+  - Vague descriptions
+  - Skipping rejected approaches
+  - Prose-only algorithms
+  - Forgetting the baseline
 - [Sacred Parameters](references/sacred-parameters.md) -- do not change
 - [Benchmark Tracking](references/benchmark-tracking.md) -- log format and rules
+  - Benchmark Log Format
+  - Rules
+  - How to Run the Benchmark
 - [Work Tracking Checklist](references/work-tracking-checklist.md) -- 5-phase checklist
 - [Examples and Resources](references/examples-and-resources.md) -- commands and error handling
+  - Output Files
+  - Error Handling
+  - Examples
+  - Resources
 
 ### Checklist
 

@@ -73,13 +73,32 @@ Output: `⚡« Pss!... use: docker (skill), devops (skill) »`
 
 ## References
 
-- [Commands Reference](references/pss-commands.md) -- command structure, /pss-status usage, /pss-reindex-skills workflow, interpreting output, troubleshooting
-- [Suggestion Output and Decision Framework](references/suggestion-output.md) -- reading suggestion tables, confidence levels, evidence types, activation decisions
-- [Common Workflows](references/common-workflows.md) -- first-time setup, adding new skills, debugging missing suggestions
-- [Examples](references/examples.md) -- testing workflow, first-time setup, debugging missing suggestions
-- [Best Practices](references/pss-best-practices.md) -- when to reindex, interpreting suggestions, maintaining index health
-- [Skill Authoring Tips](references/pss-skill-authoring-tips.md) -- making skills discoverable, improving suggestion quality, standard categories
-- [Setup Checklist](references/setup-checklist.md) -- verify your PSS workflow is complete
+- [Commands Reference](references/pss-commands.md)
+  - Understanding PSS command structure
+  - Using /pss-status
+  - Using /pss-reindex-skills
+  - Interpreting suggestion output
+  - Troubleshooting common issues
+- [Suggestion Output](references/suggestion-output.md)
+  - Reading This Table
+  - Decision Framework
+- [Common Workflows](references/common-workflows.md)
+  - First-Time PSS Setup
+  - Adding New Skills
+  - Debugging Missing Suggestions
+- [Examples](references/examples.md)
+  - Testing Workflow
+  - First-Time Setup
+  - Debugging Missing Suggestions
+- [Best Practices](references/pss-best-practices.md)
+  - When to reindex
+  - Interpreting suggestions
+  - Maintaining index health
+- [Skill Authoring Tips](references/pss-skill-authoring-tips.md)
+  - Making skills discoverable
+  - Improving suggestion quality
+  - Standard categories list
+- [Setup Checklist](references/setup-checklist.md)
 
 ## Resources
 

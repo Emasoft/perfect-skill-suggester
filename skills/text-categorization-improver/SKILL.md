@@ -55,9 +55,31 @@ See [Output, Error Handling, Examples & Resources](references/output-errors-exam
 
 - [Model Requirements](references/model-requirements.md)
 - [Phase 1: Baseline Measurement](references/phase1-baseline.md)
-- [Phase 2: Qualitative Evaluation (LLM-as-Judge)](references/phase2-qualitative-evaluation.md)
-- [Phase 3: Parallel Experimentation (3 Worktrees)](references/phase3-parallel-experimentation.md)
-- [Phase 4: Benchmark & Merge Testing](references/phase4-benchmark-merge.md)
-- [Phase 5: Next Iteration or Completion](references/phase5-iteration-completion.md)
-- [Anti-Patterns to Avoid](references/anti-patterns.md)
-- [Output, Error Handling, Examples & Resources](references/output-errors-examples.md)
+  - Run Quantitative Benchmark
+  - Initialize Progress Ledger
+  - Iteration 0 (Baseline)
+- [Phase 2: Qualitative Evaluation](references/phase2-qualitative-evaluation.md)
+  - Generate Evaluation Samples
+  - Spawn Evaluator Agents
+  - Aggregate Findings
+  - Update Progress Ledger
+- [Phase 3: Parallel Experimentation](references/phase3-parallel-experimentation.md)
+  - Create 3 Git Worktrees
+  - Assign Experiment Focus
+  - Launch Researcher Agents
+  - Collect Results
+- [Phase 4: Benchmark & Merge](references/phase4-benchmark-merge.md)
+  - Identify Best Performers
+  - Test Additivity
+  - Verify No Regressions
+  - Update Progress Ledger
+- [Phase 5: Iteration or Completion](references/phase5-iteration-completion.md)
+  - Decision Gate
+  - Iteration History
+  - Final Merge
+- [Anti-Patterns](references/anti-patterns.md)
+- [Output, Errors, Examples & Resources](references/output-errors-examples.md)
+  - Output
+  - Error Handling
+  - Examples
+  - Resources
