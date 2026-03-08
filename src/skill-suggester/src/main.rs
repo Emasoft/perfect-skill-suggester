@@ -6163,66 +6163,175 @@ fn find_matches(
             }
         }
 
-        // NON-PROGRAMMING DOMAIN INFERENCE FILTER
-        // When the prompt has no detected domain signals (or only "programming"),
-        // skills whose name or description contains non-programming domain keywords
-        // are excluded — even if they lack explicit domain_gates.
-        // This prevents "video editing", "music production", "copywriting" etc. skills
-        // from appearing in generic programming prompts.
-        // Skills with domain_gates already handled above; this catches ungated ones.
+        // DOMAIN INFERENCE FILTER (for skills without explicit domain_gates)
+        //
+        // Each domain is defined by strict synonyms (same meaning, not subsets or
+        // related concepts). A skill's domain is inferred from its name + description.
+        // The prompt's domain is inferred from its text.
+        //
+        // Rules:
+        // 1. If skill has a non-programming domain AND that domain is NOT mentioned
+        //    in the prompt → EXCLUDE
+        // 2. If skill has ONLY programming domain (or no inferable domain) → passes
+        //    when no domain is in the prompt (fallback)
+        // 3. "programming" is NOT added to a skill if it has other specific domains
+        // 4. Domain synonyms are strict: only true synonyms, not related or subsets
+        //
+        // Domain taxonomy: (domain_name, &[strict_synonyms_for_detection])
+        // Synonyms are used to detect BOTH skill domain and prompt domain.
         if entry.domain_gates.is_empty() {
-            let non_programming_domain_signals: &[&str] = &[
-                // Creative / Media
-                "video editing", "video production", "music production", "audio editing",
-                "photo editing", "image editing", "graphic design", "animation",
-                "3d modeling", "3d rendering", "motion graphics", "vfx",
-                "film", "cinema", "photography", "illustration",
-                // Writing / Content
-                "copywriting", "content writing", "blog writing", "creative writing",
-                "technical writing", "journalism", "screenplay", "poetry",
-                "ghostwriting", "proofreading", "translation",
-                // Marketing / Business
-                "social media marketing", "seo optimization", "email marketing",
-                "digital marketing", "advertising", "branding", "public relations",
-                "market research", "sales funnel", "lead generation",
-                // Education / Training
-                "lesson plan", "curriculum", "tutoring", "e-learning",
-                "course creation", "educational content",
-                // Science / Research (non-CS)
-                "chemistry", "biology", "physics", "geology", "astronomy",
-                "clinical trial", "pharmaceutical", "medical research",
-                "genomics", "proteomics", "bioinformatics",
-                // Legal / Finance (non-fintech)
-                "legal writing", "contract drafting", "patent writing",
-                "tax preparation", "bookkeeping", "accounting",
-                // Other non-programming
-                "recipe", "cooking", "nutrition", "fitness", "meditation",
-                "real estate", "interior design", "architecture design",
-                "event planning", "wedding",
+            let domain_taxonomy: &[(&str, &[&str])] = &[
+                // Programming is the default/fallback — detected by these synonyms
+                ("programming", &[
+                    "programming", "coding", "software development", "computer science",
+                    "software engineering",
+                ]),
+                // --- Non-programming domains below ---
+                ("video-production", &[
+                    "video editing", "video production", "video processing",
+                    "film editing", "film production", "filmmaking",
+                ]),
+                ("audio-production", &[
+                    "music production", "audio editing", "audio production",
+                    "sound design", "sound editing", "music composition",
+                ]),
+                ("photography", &[
+                    "photo editing", "photography", "image editing",
+                    "photo retouching", "photo manipulation",
+                ]),
+                ("graphic-design", &[
+                    "graphic design", "visual design", "illustration",
+                    "digital illustration",
+                ]),
+                ("3d-graphics", &[
+                    "3d modeling", "3d rendering", "3d animation",
+                    "3d design",
+                ]),
+                ("motion-graphics", &[
+                    "motion graphics", "motion design", "vfx",
+                    "visual effects",
+                ]),
+                ("copywriting", &[
+                    "copywriting", "content writing", "blog writing",
+                    "article writing",
+                ]),
+                ("creative-writing", &[
+                    "creative writing", "fiction writing", "screenplay",
+                    "screenwriting", "poetry", "novel writing",
+                    "ghostwriting", "storytelling",
+                ]),
+                ("journalism", &[
+                    "journalism", "news writing", "investigative reporting",
+                ]),
+                ("translation", &[
+                    "translation", "localization", "l10n",
+                    "language translation",
+                ]),
+                ("marketing", &[
+                    "digital marketing", "social media marketing",
+                    "email marketing", "advertising", "branding",
+                    "marketing strategy",
+                ]),
+                ("seo", &[
+                    "seo", "search engine optimization",
+                ]),
+                ("education", &[
+                    "lesson plan", "curriculum design", "tutoring",
+                    "e-learning", "course creation", "educational content",
+                    "teaching",
+                ]),
+                ("chemistry", &["chemistry", "chemical analysis"]),
+                ("biology", &["biology", "biological research", "microbiology"]),
+                ("physics", &["physics", "quantum mechanics", "astrophysics"]),
+                ("geology", &["geology", "geological survey", "mineralogy"]),
+                ("astronomy", &["astronomy", "astrophotography"]),
+                ("medicine", &[
+                    "medical research", "clinical trial", "pharmaceutical",
+                    "clinical research", "medical diagnosis",
+                ]),
+                ("genomics", &[
+                    "genomics", "proteomics", "bioinformatics",
+                    "gene sequencing",
+                ]),
+                ("legal", &[
+                    "legal writing", "contract drafting", "patent writing",
+                    "legal research", "legal analysis",
+                ]),
+                ("accounting", &[
+                    "bookkeeping", "accounting", "tax preparation",
+                    "financial accounting",
+                ]),
+                ("cooking", &["recipe", "cooking", "culinary"]),
+                ("nutrition", &["nutrition", "dietetics", "meal planning"]),
+                ("fitness", &["fitness training", "workout", "exercise"]),
+                ("real-estate", &["real estate", "property management"]),
+                ("interior-design", &[
+                    "interior design", "space planning",
+                ]),
+                ("architecture", &[
+                    "architecture design", "architectural design",
+                    "building design",
+                ]),
+                ("event-planning", &["event planning", "event management"]),
+                ("geography", &[
+                    "geography", "cartography", "geospatial",
+                    "geographic analysis",
+                ]),
+                ("linguistics", &[
+                    "linguistics", "linguistic analysis", "phonetics",
+                    "morphology", "syntax analysis",
+                ]),
+                ("music-theory", &[
+                    "music theory", "harmony", "counterpoint",
+                ]),
+                ("art", &[
+                    "fine art", "art history", "painting",
+                    "sculpture", "ceramics",
+                ]),
             ];
 
             let entry_name_lower = name.to_lowercase();
             let entry_desc_lower = entry.description.to_lowercase();
             let entry_text = format!("{} {}", entry_name_lower, entry_desc_lower);
 
-            let has_non_prog_domain = non_programming_domain_signals.iter().any(|signal| {
-                entry_text.contains(signal)
-            });
+            // Step 1: Infer the skill's domain(s) from its name + description
+            let mut skill_domains: Vec<&str> = Vec::new();
+            for &(domain_name, synonyms) in domain_taxonomy {
+                let matches_domain = synonyms.iter().any(|syn| entry_text.contains(syn));
+                if matches_domain {
+                    skill_domains.push(domain_name);
+                }
+            }
 
-            if has_non_prog_domain {
-                // Check if the prompt mentions ANY of the matching domain signals
-                let prompt_mentions_domain = non_programming_domain_signals.iter().any(|signal| {
-                    entry_text.contains(signal) && expanded_lower.contains(signal)
-                });
-                if !prompt_mentions_domain {
-                    // Skill is in a non-programming domain not mentioned in the prompt
+            // Step 2: Determine effective domain
+            // If skill has specific non-programming domains, do NOT add "programming"
+            // as a fallback — the skill belongs to its detected domain(s).
+            // If no domain detected → implicitly "programming" (passes through).
+            let has_non_programming = skill_domains.iter().any(|d| *d != "programming");
+
+            if has_non_programming {
+                // Skill has at least one non-programming domain.
+                // Check if the prompt mentions ANY of those domains.
+                let prompt_mentions_skill_domain = skill_domains.iter()
+                    .filter(|d| **d != "programming")
+                    .any(|domain_name| {
+                        // Find this domain's synonyms and check if prompt contains any
+                        domain_taxonomy.iter()
+                            .find(|(name, _)| *name == *domain_name)
+                            .map_or(false, |(_, synonyms)| {
+                                synonyms.iter().any(|syn| expanded_lower.contains(syn))
+                            })
+                    });
+
+                if !prompt_mentions_skill_domain {
                     debug!(
-                        "Skill '{}': EXCLUDED by non-programming domain inference filter",
-                        name
+                        "Skill '{}': EXCLUDED by domain inference (skill domains: {:?}, not in prompt)",
+                        name, skill_domains
                     );
                     return None;
                 }
             }
+            // If skill has no detected domain or only "programming" → passes through
         }
 
         // Project context matching (platform/framework/language)
