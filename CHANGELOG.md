@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.10] - 2026-03-08
+
+### Bug Fixes
+
+- **skills:** Resolve all CPV validation issues (MAJOR+MINOR+NIT → 0)
+
 ## [2.3.9] - 2026-03-08
 
 ### Bug Fixes
@@ -11,6 +17,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Remove obsolete shell/PowerShell hook wrappers
+
+### Bump
+
+- Version 2.3.8 → 2.3.9
 
 ## [2.3.8] - 2026-03-07
 
