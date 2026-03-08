@@ -1918,6 +1918,29 @@ fn scan_project_context(cwd: &str) -> ProjectScanResult {
     }
 
     // ====================================================================
+    // HOST OS / PLATFORM DETECTION
+    // ====================================================================
+    // Detect the current operating system so that skills targeting THIS platform
+    // pass through the binary platform gate. Without this, running pss on macOS
+    // with no platform-mentioning prompt would exclude all macos-specific skills
+    // even though the user IS on macOS.
+    #[cfg(target_os = "macos")]
+    {
+        result.platforms.push("macos".into());
+        result.platforms.push("desktop".into());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        result.platforms.push("linux".into());
+        result.platforms.push("desktop".into());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        result.platforms.push("windows".into());
+        result.platforms.push("desktop".into());
+    }
+
+    // ====================================================================
     // FILE TYPE DETECTION & CLEANUP
     // ====================================================================
 
@@ -6137,6 +6160,68 @@ fn find_matches(
                     "Skill '{}': framework/tool name found in prompt, bypassing domain gates",
                     name
                 );
+            }
+        }
+
+        // NON-PROGRAMMING DOMAIN INFERENCE FILTER
+        // When the prompt has no detected domain signals (or only "programming"),
+        // skills whose name or description contains non-programming domain keywords
+        // are excluded — even if they lack explicit domain_gates.
+        // This prevents "video editing", "music production", "copywriting" etc. skills
+        // from appearing in generic programming prompts.
+        // Skills with domain_gates already handled above; this catches ungated ones.
+        if entry.domain_gates.is_empty() {
+            let non_programming_domain_signals: &[&str] = &[
+                // Creative / Media
+                "video editing", "video production", "music production", "audio editing",
+                "photo editing", "image editing", "graphic design", "animation",
+                "3d modeling", "3d rendering", "motion graphics", "vfx",
+                "film", "cinema", "photography", "illustration",
+                // Writing / Content
+                "copywriting", "content writing", "blog writing", "creative writing",
+                "technical writing", "journalism", "screenplay", "poetry",
+                "ghostwriting", "proofreading", "translation",
+                // Marketing / Business
+                "social media marketing", "seo optimization", "email marketing",
+                "digital marketing", "advertising", "branding", "public relations",
+                "market research", "sales funnel", "lead generation",
+                // Education / Training
+                "lesson plan", "curriculum", "tutoring", "e-learning",
+                "course creation", "educational content",
+                // Science / Research (non-CS)
+                "chemistry", "biology", "physics", "geology", "astronomy",
+                "clinical trial", "pharmaceutical", "medical research",
+                "genomics", "proteomics", "bioinformatics",
+                // Legal / Finance (non-fintech)
+                "legal writing", "contract drafting", "patent writing",
+                "tax preparation", "bookkeeping", "accounting",
+                // Other non-programming
+                "recipe", "cooking", "nutrition", "fitness", "meditation",
+                "real estate", "interior design", "architecture design",
+                "event planning", "wedding",
+            ];
+
+            let entry_name_lower = name.to_lowercase();
+            let entry_desc_lower = entry.description.to_lowercase();
+            let entry_text = format!("{} {}", entry_name_lower, entry_desc_lower);
+
+            let has_non_prog_domain = non_programming_domain_signals.iter().any(|signal| {
+                entry_text.contains(signal)
+            });
+
+            if has_non_prog_domain {
+                // Check if the prompt mentions ANY of the matching domain signals
+                let prompt_mentions_domain = non_programming_domain_signals.iter().any(|signal| {
+                    entry_text.contains(signal) && expanded_lower.contains(signal)
+                });
+                if !prompt_mentions_domain {
+                    // Skill is in a non-programming domain not mentioned in the prompt
+                    debug!(
+                        "Skill '{}': EXCLUDED by non-programming domain inference filter",
+                        name
+                    );
+                    return None;
+                }
             }
         }
 
