@@ -32,11 +32,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # -- File paths relative to project root --
 VERSION_FILE = ROOT / "VERSION"
-CARGO_TOML = ROOT / "rust" / "skill-suggester" / "Cargo.toml"
-MAIN_RS = ROOT / "rust" / "skill-suggester" / "src" / "main.rs"
+CARGO_TOML = ROOT / "src" / "skill-suggester" / "Cargo.toml"
+MAIN_RS = ROOT / "src" / "skill-suggester" / "src" / "main.rs"
 PLUGIN_JSON = ROOT / ".claude-plugin" / "plugin.json"
 PYPROJECT_TOML = ROOT / "pyproject.toml"
-RUST_SRC_DIR = ROOT / "rust" / "skill-suggester" / "src"
+RUST_SRC_DIR = ROOT / "src" / "skill-suggester" / "src"
 README_MD = ROOT / "README.md"
 CHANGELOG_MD = ROOT / "CHANGELOG.md"
 BUILD_SCRIPT = ROOT / "scripts" / "pss_build.py"
