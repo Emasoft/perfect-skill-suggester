@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.16] - 2026-03-08
+
+### Features
+
+- Replace blocklist domain filter with bidirectional domain taxonomy
+
+### Miscellaneous Tasks
+
+- Sync uv.lock with v2.3.15 version bump
+
 ## [2.3.15] - 2026-03-08
 
 ### Features
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update lockfiles (Cargo.lock, uv.lock)
+
+### Bump
+
+- Version 2.3.14 → 2.3.15
 
 ## [2.3.14] - 2026-03-08
 
