@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.14] - 2026-03-08
+
+### Features
+
+- Add binary platform gate and strict language gate for skill filtering
+
 ## [2.3.13] - 2026-03-08
 
 ### Bug Fixes
@@ -11,6 +17,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Commit updated Cargo.lock, cross-compiled binaries, and uv.lock
+
+### Bump
+
+- Version 2.3.12 → 2.3.13
 
 ## [2.3.12] - 2026-03-08
 
