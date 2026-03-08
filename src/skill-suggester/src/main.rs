@@ -5932,6 +5932,86 @@ fn find_matches(
         }
     }
 
+    // PLATFORM SIGNAL DETECTION — detect platform mentions from prompt text
+    // Maps tool/framework/keyword signals to platform identifiers.
+    // Used for binary exclusion of platform-locked skills when prompt has no matching signal.
+    let platform_signal_patterns: &[(&str, &str)] = &[
+        // iOS / Apple
+        ("swiftui", "ios"), ("uikit", "ios"), ("xcode", "ios"),
+        ("xctest", "ios"), ("storekit", "ios"), ("spritekit", "ios"),
+        ("realitykit", "ios"), ("arkit", "ios"), ("mapkit", "ios"),
+        ("cloudkit", "ios"), ("widgetkit", "ios"), ("appkit", "macos"),
+        ("core-data", "ios"), ("swiftdata", "ios"), ("app-store", "ios"),
+        ("cocoapods", "ios"), ("testflight", "ios"), ("app store", "ios"),
+        ("ios-", "ios"), ("ios ", "ios"), ("iphone", "ios"), ("ipad", "ios"),
+        ("watchos", "ios"), ("tvos", "ios"), ("visionos", "ios"),
+        ("apple", "ios"), ("macos", "macos"), ("mac os", "macos"),
+        ("swift package", "ios"), ("spm", "ios"),
+        // Android
+        ("android", "android"), ("jetpack", "android"), ("kotlin-", "android"),
+        ("gradle", "android"), ("android-studio", "android"),
+        ("google-play", "android"), ("play store", "android"),
+        ("compose-multiplatform", "android"), ("material-design", "android"),
+        // Web (universal — not a filter, just detection)
+        ("web-app", "web"), ("webapp", "web"), ("browser", "web"),
+        ("pwa", "web"), ("service-worker", "web"),
+        // Desktop
+        ("electron", "desktop"), ("tauri", "desktop"),
+        ("qt", "desktop"), ("gtk", "desktop"), ("wxwidgets", "desktop"),
+        // Linux
+        ("systemd", "linux"), ("systemctl", "linux"),
+        ("apt-get", "linux"), ("dpkg", "linux"), ("yum", "linux"),
+        ("pacman", "linux"), ("snap", "linux"), ("flatpak", "linux"),
+        // Windows
+        ("powershell", "windows"), ("winforms", "windows"),
+        ("wpf", "windows"), ("uwp", "windows"), ("winui", "windows"),
+        ("msvc", "windows"), (".net-framework", "windows"),
+        ("windows-service", "windows"), ("registry", "windows"),
+    ];
+
+    // Compatible platform groups (don't conflict with each other)
+    let compatible_platform_groups: &[&[&str]] = &[
+        &["ios", "macos"],           // Apple ecosystem
+        &["web", "desktop"],         // Web apps run on desktop too
+        &["linux", "macos"],         // Unix-like
+    ];
+
+    // Detect platforms from prompt words (exact word match for platform names)
+    let mut prompt_platforms: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let direct_platform_names: &[&str] = &[
+        "ios", "android", "macos", "linux", "windows", "web",
+        "desktop", "mobile", "watchos", "tvos", "visionos",
+    ];
+    for &plat in direct_platform_names {
+        if prompt_words_for_lang.iter().any(|w| *w == plat) {
+            prompt_platforms.insert(plat.to_string());
+        }
+    }
+    // Tool/framework-implied platforms from prompt
+    for &(signal, plat) in platform_signal_patterns {
+        if original_lower.contains(signal) {
+            prompt_platforms.insert(plat.to_string());
+        }
+    }
+    // Include project-context platforms
+    for plat in &context.platforms {
+        prompt_platforms.insert(plat.to_lowercase());
+    }
+    // Expand with compatible platforms (e.g., ios ↔ macos)
+    let mut expanded_prompt_platforms: std::collections::HashSet<String> = prompt_platforms.clone();
+    for &group in compatible_platform_groups {
+        if group.iter().any(|g| prompt_platforms.contains(*g)) {
+            for &member in group {
+                expanded_prompt_platforms.insert(member.to_string());
+            }
+        }
+    }
+    // "mobile" expands to ios + android
+    if prompt_platforms.contains("mobile") {
+        expanded_prompt_platforms.insert("ios".to_string());
+        expanded_prompt_platforms.insert("android".to_string());
+    }
+
     // Detect competing frameworks from prompt for framework conflict gating
     let competing_fw_groups: &[&[&str]] = &[
         &["react", "vue", "angular", "svelte"],
@@ -6685,45 +6765,78 @@ fn find_matches(
             score = ALL_LOW_SIGNAL_CAP;
         }
 
-        // LANGUAGE CONFLICT GATE: When the prompt explicitly mentions a language,
-        // entries locked to a DIFFERENT language are EXCLUDED (binary filter).
-        // e.g., prompt "Write Go unit tests" → python-test-writer gets excluded.
-        // Language-agnostic skills (empty languages, "any", "universal") pass through.
-        if !expanded_prompt_langs.is_empty() {
-            if !entry.languages.is_empty()
-                && !entry.languages.contains(&"any".to_string())
-                && !entry.languages.contains(&"universal".to_string())
-            {
-                // Entry has explicit languages — check for conflict
-                let has_lang_overlap = entry.languages.iter().any(|el| {
-                    expanded_prompt_langs.contains(&el.to_lowercase())
-                });
-                if !has_lang_overlap {
-                    // Binary exclusion: language mismatch = skip entirely
+        // LANGUAGE CONFLICT GATE: Binary exclusion for language-specific skills.
+        // - Skill with explicit languages (non-empty, non-"any", non-"universal"):
+        //   - If prompt has language signals → exclude if no overlap
+        //   - If prompt has NO language signals → exclude (language-specific skill
+        //     in a language-agnostic prompt)
+        // - Skill with no languages or "any"/"universal" → pass through always
+        // - Skill with empty languages but inferable language from name/keywords:
+        //   same gating as explicit languages
+        // Note: expanded_prompt_langs includes project-context languages, so a Python
+        // project will have "python" even if the prompt doesn't mention it explicitly.
+        if !entry.languages.is_empty()
+            && !entry.languages.contains(&"any".to_string())
+            && !entry.languages.contains(&"universal".to_string())
+        {
+            if expanded_prompt_langs.is_empty() {
+                // No language signal at all — exclude language-specific skills
+                return None;
+            }
+            let has_lang_overlap = entry.languages.iter().any(|el| {
+                expanded_prompt_langs.contains(&el.to_lowercase())
+            });
+            if !has_lang_overlap {
+                // Language mismatch — binary exclusion
+                return None;
+            }
+        } else if entry.languages.is_empty() && !expanded_prompt_langs.is_empty() {
+            // Entry has no explicit languages — infer from name/keywords/description
+            // Only check when prompt HAS language signals (to catch hidden mismatches)
+            let entry_name_lower = name.to_lowercase();
+            let kw_text: String = entry.keywords.iter()
+                .map(|k| k.to_lowercase())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let desc_lower = entry.description.to_lowercase();
+            let search_text = format!("{} {} {}", entry_name_lower, kw_text, desc_lower);
+            let mut inferred_lang: Option<&str> = None;
+            for &(signal, lang) in lang_signal_patterns {
+                if search_text.contains(signal) {
+                    inferred_lang = Some(lang);
+                    break;
+                }
+            }
+            if let Some(lang) = inferred_lang {
+                if !expanded_prompt_langs.contains(lang) {
+                    // Binary exclusion for inferred language conflict
                     return None;
                 }
-            } else if entry.languages.is_empty() {
-                // Entry has no explicit languages — infer from name/keywords/description
-                let entry_name_lower = name.to_lowercase();
-                let kw_text: String = entry.keywords.iter()
-                    .map(|k| k.to_lowercase())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let desc_lower = entry.description.to_lowercase();
-                let search_text = format!("{} {} {}", entry_name_lower, kw_text, desc_lower);
-                let mut inferred_lang: Option<&str> = None;
-                for &(signal, lang) in lang_signal_patterns {
-                    if search_text.contains(signal) {
-                        inferred_lang = Some(lang);
-                        break;
-                    }
-                }
-                if let Some(lang) = inferred_lang {
-                    if !expanded_prompt_langs.contains(lang) {
-                        // Binary exclusion for inferred language conflict too
-                        return None;
-                    }
-                }
+            }
+        }
+
+        // PLATFORM CONFLICT GATE: Platform-specific skills are binary-excluded
+        // when the prompt has NO matching platform signal.
+        // Unlike languages (where no signal = pass through), platforms use strict gating:
+        // - If skill has platforms (non-empty, non-universal) AND prompt has platform signals
+        //   that don't overlap → EXCLUDE (wrong platform)
+        // - If skill has platforms (non-empty, non-universal) AND prompt has NO platform signals
+        //   → EXCLUDE (platform-specific skill in a platform-agnostic prompt)
+        // - If skill has no platforms or "universal" → PASS (platform-agnostic skill)
+        if !entry.platforms.is_empty()
+            && !entry.platforms.contains(&"universal".to_string())
+            && !entry.platforms.contains(&"any".to_string())
+        {
+            if expanded_prompt_platforms.is_empty() {
+                // Prompt mentions no platform at all — exclude platform-specific skills
+                return None;
+            }
+            let has_platform_overlap = entry.platforms.iter().any(|ep| {
+                expanded_prompt_platforms.contains(&ep.to_lowercase())
+            });
+            if !has_platform_overlap {
+                // Platform mismatch — binary exclusion
+                return None;
             }
         }
 
