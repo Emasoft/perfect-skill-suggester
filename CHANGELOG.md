@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.17] - 2026-03-08
+
+### Miscellaneous Tasks
+
+- Update lock files
+
+### Refactor
+
+- Hoist domain inference out of per-skill loop + add word-boundary matching
+
 ## [2.3.16] - 2026-03-08
 
 ### Features
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Sync uv.lock with v2.3.15 version bump
+
+### Bump
+
+- Version 2.3.15 → 2.3.16
 
 ## [2.3.15] - 2026-03-08
 
