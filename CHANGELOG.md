@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.13] - 2026-03-08
+
+### Bug Fixes
+
+- **tests:** Add missing services field to 11 SkillEntry test initializers
+
+### Miscellaneous Tasks
+
+- Commit updated Cargo.lock, cross-compiled binaries, and uv.lock
+
 ## [2.3.12] - 2026-03-08
 
 ### Bug Fixes
@@ -12,6 +22,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Add cpv_token_cost.py synced from upstream CPV
+
+### Bump
+
+- Version 2.3.11 → 2.3.12
 
 ## [2.3.11] - 2026-03-08
 
