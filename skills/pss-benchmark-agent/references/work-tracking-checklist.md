@@ -2,7 +2,9 @@
 
 ## Table of Contents
 
-- (No subsections -- this file contains a single checklist template to copy into your report.)
+- Work tracker template for benchmark agents
+
+## Checklist Template
 
 **Copy this checklist and track your progress.** Copy this entire block to the TOP of your report file immediately when you start working. Update it as you go. This is your task tracker -- it ensures you never skip documentation.
 

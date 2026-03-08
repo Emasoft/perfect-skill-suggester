@@ -64,7 +64,7 @@ This document provides instructions for building, testing, and developing the Pe
 ### Basic Build (Current Platform)
 
 ```bash
-cd rust/skill-suggester
+cd src/skill-suggester
 
 # Debug build (faster compilation, slower execution)
 cargo build
@@ -94,7 +94,7 @@ uv run scripts/pss_build.py --target linux-x86_64  # Specific target
 ### Manual Build for Specific Target
 
 ```bash
-cd rust/skill-suggester
+cd src/skill-suggester
 
 # macOS ARM (M1/M2/M3)
 cargo build --release --target aarch64-apple-darwin
@@ -118,7 +118,7 @@ cross build --release --target x86_64-pc-windows-gnu
 ### Build All Platforms at Once
 
 ```bash
-cd rust/skill-suggester
+cd src/skill-suggester
 
 # Build script for all platforms
 for target in \
@@ -156,7 +156,7 @@ PSS binaries follow this naming pattern: `pss-{os}-{arch}[.exe]`
 After building, copy binaries to the plugin's `bin/` directory:
 
 ```bash
-cd rust/skill-suggester
+cd src/skill-suggester
 
 # Create bin directory if it doesn't exist
 mkdir -p bin
@@ -180,7 +180,7 @@ chmod +x bin/pss-*
 ### Unit Tests
 
 ```bash
-cd rust/skill-suggester
+cd src/skill-suggester
 
 # Run all tests
 cargo test
@@ -221,7 +221,7 @@ cargo check --all-features
 
 ### 1. Make Code Changes
 
-Edit files in `rust/skill-suggester/src/`
+Edit files in `src/skill-suggester/src/`
 
 ### 2. Build and Test
 
@@ -359,7 +359,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin \
   x86_64-pc-windows-gnu
 
 # Build all platforms
-cd rust/skill-suggester
+cd src/skill-suggester
 cargo build --release --target aarch64-apple-darwin
 cargo build --release --target x86_64-apple-darwin
 cargo build --release --target x86_64-unknown-linux-gnu
@@ -381,7 +381,7 @@ Before releasing a new version manually:
 
 1. ✅ Update version in ALL 4 files:
    - `VERSION` (project root) — single line, source of truth for display version
-   - `rust/skill-suggester/Cargo.toml` → `version = "X.Y.Z"` (metadata only, no recompile)
+   - `src/skill-suggester/Cargo.toml` → `version = "X.Y.Z"` (metadata only, no recompile)
    - `.claude-plugin/plugin.json` → `"version": "X.Y.Z"`
    - `pyproject.toml` → `version = "X.Y.Z"`
 2. ✅ Run full test suite: `cargo test`

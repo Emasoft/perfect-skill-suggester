@@ -21,27 +21,15 @@ Builds `.agent.toml` profiles for Claude Code agents. AI evaluates scored candid
 ## Prerequisites
 
 - **Skill index**: `~/.claude/cache/skill-index.json` -- run `/pss-reindex-skills` if missing
-- **Rust binary**: `$CLAUDE_PLUGIN_ROOT/rust/skill-suggester/bin/<platform>`
+- **Rust binary**: `$CLAUDE_PLUGIN_ROOT/src/skill-suggester/bin/<platform>`
 - **Agent definition**: The `.md` file describing the agent to profile
-
-## Workflow (6 Phases)
-
-1. **Gather Context** -- Read agent `.md`, extract role/duties/tools/domains
-2. **Get Candidates** -- Invoke Rust binary (`--agent-profile`)
-3. **Evaluate Candidates** -- AI checks compatibility, redundancy, gaps
-4. **Add External Elements** -- Search marketplace, GitHub, network
-5. **Cross-Type Coherence** -- Validate no overlaps across 6 types
-6. **Write and Validate** -- Assemble `.agent.toml`, validate until clean
 
 ### Checklist
 
 Copy this checklist and track your progress:
 
-- [ ] Gather agent context (role, duties, tools, domains)
-- [ ] Get scored candidates from Rust binary
-- [ ] Evaluate each candidate with AI reasoning
-- [ ] Search for external elements
-- [ ] Cross-type coherence check
+- [ ] Gather context, get candidates, evaluate each
+- [ ] Add external elements, cross-type coherence check
 - [ ] Write and validate `.agent.toml`
 
 ## References
@@ -55,14 +43,33 @@ Copy this checklist and track your progress:
   - Schema and Validator
 - [Workflow Phases 1-3](references/workflow-phases.md)
   - Phase 1: Gather Context
+    - Read the agent definition file
+    - Read requirements documents
+    - Detect project languages from cwd
   - Phase 2: Get Candidates from the Index
+    - Invoke the Rust binary
+    - Search for additional candidates
   - Phase 3: Evaluate Each Candidate
+    - Read the candidate's source file
+    - Evaluate relevance
+    - Detect mutual exclusivity
+    - Check for obsolescence
+    - Verify stack compatibility
+    - Identify gaps
+    - Prune redundancy
 - [External Sources (Phase 4)](references/external-sources.md)
+  - From a local file or folder
+  - From an installed plugin
+  - From a marketplace plugin (not installed)
+  - From a GitHub/git repository URL
+  - From a network shared folder
+  - From a URL to a raw file
+  - Phase 4 Completion Checklist
 - [Cross-Type Coherence (Phase 5)](references/cross-type-coherence.md)
-  - Cross-type overlap detection
-  - Coherence checklist
-  - Resolution strategy
-  - Autonomous vs Interactive mode
+  - 5.1 Cross-type overlap detection
+  - 5.2 Coherence checklist
+  - 5.3 Resolution strategy
+  - 5.4 Autonomous vs Interactive mode
 - [Validation (Phase 6)](references/validation-protocol.md)
   - Write the .agent.toml file
   - Validate
@@ -104,4 +111,4 @@ Validated `.agent.toml` written to `~/.claude/agents/<agent-name>.agent.toml`. C
 - **Validator**: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`
 - **Categories**: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-categories.json`
 - **Skill Index**: `~/.claude/cache/skill-index.json`
-- **Rust Binary**: `${CLAUDE_PLUGIN_ROOT}/rust/skill-suggester/bin/pss-<platform>`
+- **Rust Binary**: `${CLAUDE_PLUGIN_ROOT}/src/skill-suggester/bin/pss-<platform>`

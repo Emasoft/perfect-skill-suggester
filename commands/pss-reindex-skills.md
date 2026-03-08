@@ -31,13 +31,13 @@ SCRIPTS="$PLUGIN_ROOT/scripts"
 ARCH=$(uname -m)
 OS=$(uname -s)
 if [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then
-    BINARY="$PLUGIN_ROOT/rust/skill-suggester/bin/pss-darwin-arm64"
+    BINARY="$PLUGIN_ROOT/src/skill-suggester/bin/pss-darwin-arm64"
 elif [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
-    BINARY="$PLUGIN_ROOT/rust/skill-suggester/bin/pss-darwin-x86_64"
+    BINARY="$PLUGIN_ROOT/src/skill-suggester/bin/pss-darwin-x86_64"
 elif [ "$OS" = "Linux" ] && [ "$ARCH" = "x86_64" ]; then
-    BINARY="$PLUGIN_ROOT/rust/skill-suggester/bin/pss-linux-x86_64"
+    BINARY="$PLUGIN_ROOT/src/skill-suggester/bin/pss-linux-x86_64"
 elif [ "$OS" = "Linux" ] && [ "$ARCH" = "aarch64" ]; then
-    BINARY="$PLUGIN_ROOT/rust/skill-suggester/bin/pss-linux-arm64"
+    BINARY="$PLUGIN_ROOT/src/skill-suggester/bin/pss-linux-arm64"
 else
     echo "ERROR: Unsupported platform: $OS/$ARCH"; exit 1
 fi
@@ -84,7 +84,7 @@ echo "Backup: $BACKUP_DIR"
 
 ## Error Handling
 
-- **Binary not found**: Run `cargo build --release` in `$PLUGIN_ROOT/rust/skill-suggester/` or check platform detection
+- **Binary not found**: Run `cargo build --release` in `$PLUGIN_ROOT/src/skill-suggester/` or check platform detection
 - **Discovery warnings**: Check `/tmp/pss-discover-warnings.txt` for non-existent project paths
 - **Merge errors**: Check that `~/.claude/cache/` directory exists and is writable
 - **Restore from backup**: `cp $BACKUP_DIR/skill-index.json ~/.claude/cache/`
@@ -105,7 +105,7 @@ Output: `PSS Reindex Complete — Elements: 9275, Index: 12M, 7 seconds`
 
 ## Resources
 
-- **Rust binary**: `$PLUGIN_ROOT/rust/skill-suggester/bin/pss-<platform>`
+- **Rust binary**: `$PLUGIN_ROOT/src/skill-suggester/bin/pss-<platform>`
 - **Discovery script**: `$PLUGIN_ROOT/scripts/pss_discover.py`
 - **Merge script**: `$PLUGIN_ROOT/scripts/pss_merge_queue.py`
 - **Architecture**: `docs/PSS-ARCHITECTURE.md`

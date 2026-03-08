@@ -1839,29 +1839,29 @@ def scan_directory_for_private_info(
     files_checked = 0
     total_issues = 0
 
-    # Combine skip dirs (includes gitignored dirs if respect_gitignore=True)
+    # Use GitignoreFilter when respect_gitignore is True — it fully respects
+    # .gitignore syntax (wildcards, negations, directory-only rules, etc.)
+    from gitignore_filter import GitignoreFilter
+
+    extra_skip = skip_dirs or set()
     if respect_gitignore:
-        dirs_to_skip = get_skip_dirs_with_gitignore(root_path, skip_dirs)
-        gitignore_patterns = parse_gitignore(root_path / ".gitignore") if (root_path / ".gitignore").exists() else []
+        gi = GitignoreFilter(root_path)
+        walker = gi.walk(root_path, skip_dirs=extra_skip)
     else:
-        dirs_to_skip = set(PRIVATE_INFO_SKIP_DIRS)
-        if skip_dirs:
-            dirs_to_skip.update(skip_dirs)
-        gitignore_patterns = []
+        # Fallback: raw os.walk with SKIP_DIRS (uses should_skip_directory for wildcards)
+        def _raw_walk():  # type: ignore[return]
+            for dirpath, dirnames, filenames in os.walk(root_path):
+                dirnames[:] = [d for d in dirnames if not should_skip_directory(d) and d not in extra_skip]
+                yield dirpath, dirnames, filenames
 
-    for dirpath, dirnames, filenames in os.walk(root_path):
-        # Skip excluded directories
-        dirnames[:] = [d for d in dirnames if d not in dirs_to_skip]
+        walker = _raw_walk()
 
+    for dirpath, dirnames, filenames in walker:
         rel_dir = Path(dirpath).relative_to(root_path)
 
         for filename in filenames:
             filepath = Path(dirpath) / filename
             rel_path = str(rel_dir / filename) if str(rel_dir) != "." else filename
-
-            # Skip gitignored files
-            if respect_gitignore and gitignore_patterns and is_path_gitignored(rel_path, gitignore_patterns):
-                continue
 
             # Check only relevant file types
             if filepath.suffix.lower() not in SCANNABLE_EXTENSIONS:
@@ -2004,29 +2004,28 @@ def validate_no_absolute_paths(
     files_checked = 0
     total_issues = 0
 
-    # Combine skip dirs (includes gitignored dirs if respect_gitignore=True)
+    # Use GitignoreFilter when respect_gitignore is True — it fully respects
+    # .gitignore syntax (wildcards, negations, directory-only rules, etc.)
+    from gitignore_filter import GitignoreFilter
+
+    extra_skip = skip_dirs or set()
     if respect_gitignore:
-        dirs_to_skip = get_skip_dirs_with_gitignore(root_path, skip_dirs)
-        gitignore_patterns = parse_gitignore(root_path / ".gitignore") if (root_path / ".gitignore").exists() else []
+        gi = GitignoreFilter(root_path)
+        walker = gi.walk(root_path, skip_dirs=extra_skip)
     else:
-        dirs_to_skip = set(PRIVATE_INFO_SKIP_DIRS)
-        if skip_dirs:
-            dirs_to_skip.update(skip_dirs)
-        gitignore_patterns = []
+        def _raw_walk():  # type: ignore[return]
+            for dirpath, dirnames, filenames in os.walk(root_path):
+                dirnames[:] = [d for d in dirnames if not should_skip_directory(d) and d not in extra_skip]
+                yield dirpath, dirnames, filenames
 
-    for dirpath, dirnames, filenames in os.walk(root_path):
-        # Skip excluded directories (including gitignored)
-        dirnames[:] = [d for d in dirnames if d not in dirs_to_skip]
+        walker = _raw_walk()
 
+    for dirpath, dirnames, filenames in walker:
         rel_dir = Path(dirpath).relative_to(root_path)
 
         for filename in filenames:
             filepath = Path(dirpath) / filename
             rel_path = str(rel_dir / filename) if str(rel_dir) != "." else filename
-
-            # Skip gitignored files
-            if respect_gitignore and gitignore_patterns and is_path_gitignored(rel_path, gitignore_patterns):
-                continue
 
             # Check only relevant file types
             if filepath.suffix.lower() not in SCANNABLE_EXTENSIONS:
@@ -2058,8 +2057,9 @@ _TOC_SECTION_RE = re.compile(
     re.DOTALL,
 )
 
-# Regex to extract individual TOC heading titles (strip numbering, links, bullets)
-_TOC_ENTRY_RE = re.compile(r"(?m)^[\s]*[-*]?\s*(?:\d+\.?\s*)?(?:\[([^\]]+)\]\([^)]*\)|(.+))")
+# Regex to extract individual TOC heading titles from list items only.
+# Must start with a list marker (-, *, +, or digit.) to avoid matching prose paragraphs.
+_TOC_ENTRY_RE = re.compile(r"(?m)^[\s]*(?:[-*+]|\d+\.)\s+(?:\[([^\]]+)\]\([^)]*\)|(.+))")
 
 # Regex to find markdown links pointing to .md files in references/
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(((?:references/)?[^\s)]+\.md)\)")
@@ -2204,8 +2204,8 @@ def validate_toc_embedding(
 
         embedded_count = sum(1 for heading in toc_headings if heading.lower() in nearby_text.lower())
 
-        min_required = min(2, len(toc_headings))
-        if embedded_count >= min_required:
+        # All TOC headings must be embedded — partial TOCs hide content from agents
+        if embedded_count == len(toc_headings):
             refs_with_toc += 1
         elif is_list_item:
             # Ambiguous: link in a list item could be a TOC title that
@@ -2213,20 +2213,26 @@ def validate_toc_embedding(
             # Report as WARNING since we cannot tell which it is.
             report.warning(
                 f"Link to '{ref_path.name}' in a list entry of {rel_file} "
-                f"points to a file with a TOC ({len(toc_headings)} sections) "
-                f"but the TOC is not embedded after the link. If this is a "
-                f"reference, embed the TOC so agents know what it contains. "
-                f"If this is an embedded TOC title, avoid using markdown "
-                f"links in TOC entries to prevent this ambiguity.",
+                f"has {embedded_count}/{len(toc_headings)} TOC headings "
+                f"embedded. SKILL.md must copy the COMPLETE TOC of each "
+                f"referenced .md file immediately after its link. Any missing "
+                f"TOC entry will never be discovered by the progressive "
+                f"discovery algorithm — that content becomes invisible to "
+                f"agents. If this is a reference, embed all "
+                f"{len(toc_headings)} headings. If this is a TOC title, "
+                f"avoid using markdown links to prevent this ambiguity.",
                 rel_file,
             )
         else:
-            # Clear standalone reference — TOC must be embedded
+            # Clear standalone reference — full TOC must be embedded
             report.minor(
-                f"Reference to '{ref_path.name}' in {rel_file} does not "
-                f"include the file's Table of Contents ({len(toc_headings)} "
-                f"sections). Embed the TOC inline so agents can see what "
-                f"content is available before navigating to it.",
+                f"Reference to '{ref_path.name}' in {rel_file} has "
+                f"{embedded_count}/{len(toc_headings)} TOC headings embedded. "
+                f"SKILL.md must copy the COMPLETE TOC of each referenced .md "
+                f"file immediately after its link. Any missing TOC entry will "
+                f"never be discovered by the progressive discovery algorithm "
+                f"— that content becomes invisible to agents. Embed all "
+                f"{len(toc_headings)} headings.",
                 rel_file,
             )
 

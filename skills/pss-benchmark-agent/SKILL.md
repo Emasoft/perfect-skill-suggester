@@ -12,10 +12,10 @@ Mandatory documentation protocol for Opus agents competing to improve the PSS sc
 
 ## Prerequisites
 
-- Access to the PSS scoring engine source: `rust/skill-suggester/src/main.rs`
+- Access to the PSS scoring engine source: `src/skill-suggester/src/main.rs`
 - Benchmark files: `docs_dev/benchmark-v2-prompts-100.jsonl` and `docs_dev/benchmark-v2-gold-100.json`
 - History file: `docs_dev/methodology-improvement-history.md`
-- Built binary: `cargo build --release` in `rust/skill-suggester/`
+- Built binary: `cargo build --release` in `src/skill-suggester/`
 
 ## Instructions
 
@@ -33,23 +33,30 @@ Mandatory documentation protocol for Opus agents competing to improve the PSS sc
 ## References
 
 - [Report Format](references/report-format.md) -- mandatory sections 1-6
-  - Score Progression Table
-  - Change Details
-  - Structural Analysis
-  - Synonym Expansions Inventory
-  - Near-Miss Analysis
-  - Generalizability Self-Assessment
+  - Section 1: Score Progression Table
+  - Section 2: Change Details
+    - Exact Code Diff
+    - Formula / Algorithm Description
+    - Why This Change (Hypothesis)
+    - Per-Prompt Impact
+    - Rejected Approach Details
+  - Section 3: Structural Analysis
+  - Section 4: Synonym Expansions Inventory
+  - Section 5: Near-Miss Analysis
+  - Section 6: Generalizability Self-Assessment
 - [Anti-Patterns](references/anti-patterns.md) -- mistakes to avoid
-  - Vague descriptions
-  - Skipping rejected approaches
-  - Prose-only algorithms
-  - Forgetting the baseline
+  - DO NOT write vague descriptions
+  - DO NOT skip rejected approaches
+  - DO NOT describe algorithms in prose only
+  - DO NOT forget the baseline
 - [Sacred Parameters](references/sacred-parameters.md) -- do not change
+  - Validated scoring parameters and regression history
 - [Benchmark Tracking](references/benchmark-tracking.md) -- log format and rules
   - Benchmark Log Format
   - Rules
   - How to Run the Benchmark
 - [Work Tracking Checklist](references/work-tracking-checklist.md) -- 5-phase checklist
+  - Work tracker template for benchmark agents
 - [Examples and Resources](references/examples-and-resources.md) -- commands and error handling
   - Output Files
   - Error Handling
@@ -77,15 +84,15 @@ cargo build --release && uv run scripts/pss_benchmark.py --binary target/release
 
 - `docs_dev/worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections
 - `docs_dev/worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only)
-- Modified `rust/skill-suggester/src/main.rs` -- with improvements to the scoring engine
+- Modified `src/skill-suggester/src/main.rs` -- with improvements to the scoring engine
 
 ## Error Handling
 
-If the benchmark script fails or produces unexpected output, check `docs_dev/methodology-improvement-history.md` for known issues. See [Examples and Resources](references/examples-and-resources.md) for error handling and sample commands.
+If the benchmark script fails or produces unexpected output, check `docs_dev/methodology-improvement-history.md` for known issues. See the Examples and Resources reference above for error handling and sample commands.
 
 ## Resources
 
-- **Scoring engine**: `rust/skill-suggester/src/main.rs`
+- **Scoring engine**: `src/skill-suggester/src/main.rs`
 - **Benchmark prompts**: `docs_dev/benchmark-v2-prompts-100.jsonl`
 - **Gold standard**: `docs_dev/benchmark-v2-gold-100.json`
 - **History**: `docs_dev/methodology-improvement-history.md`

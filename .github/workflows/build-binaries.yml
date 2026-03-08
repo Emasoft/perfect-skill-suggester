@@ -7,9 +7,9 @@ on:
   push:
     branches: [main, master]
     paths:
-      - 'rust/skill-suggester/src/**'
-      - 'rust/skill-suggester/Cargo.toml'
-      - 'rust/skill-suggester/Cargo.lock'
+      - 'src/skill-suggester/src/**'
+      - 'src/skill-suggester/Cargo.toml'
+      - 'src/skill-suggester/Cargo.lock'
       - '.github/workflows/build-binaries.yml'
   workflow_dispatch:
 
@@ -18,8 +18,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_SOURCE: rust/skill-suggester
-  BIN_DIR: rust/skill-suggester/bin
+  RUST_SOURCE: src/skill-suggester
+  BIN_DIR: src/skill-suggester/bin
 
 jobs:
   # Native macOS builds (cannot use cross for macOS)

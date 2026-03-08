@@ -1,18 +1,16 @@
 # PSS Skill Authoring Tips
 
-## Contents
+## Table of Contents
 
-- 1.0 Making your skills discoverable by PSS
-  - 1.1 Essential frontmatter fields for PSS indexing
-  - 1.2 Choosing effective keywords that match user prompts
-  - 1.3 Selecting accurate categories from the 16 standard options
-- 2.0 Improving suggestion quality for your skills
-  - 2.1 Writing descriptions that help PSS match intent
-  - 2.2 Including tool and action keywords
-  - 2.3 Leveraging co-usage relationships automatically
-- 3.0 Reference: Standard categories list
-
----
+- Making your skills discoverable by PSS
+  - Essential frontmatter fields for PSS indexing
+  - Choosing effective keywords that match user prompts
+  - Selecting accurate categories from the 16 standard options
+- Improving suggestion quality for your skills
+  - Writing descriptions that help PSS match intent
+  - Including tool and action keywords
+  - Leveraging co-usage relationships automatically
+- Reference: Standard categories list
 
 ## 1.0 Making your skills discoverable by PSS
 

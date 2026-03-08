@@ -14,8 +14,6 @@
 - [Section 5: Near-Miss Analysis](#section-5-near-miss-analysis)
 - [Section 6: Generalizability Self-Assessment](#section-6-generalizability-self-assessment)
 
----
-
 ## Section 1: Score Progression Table
 
 Every change you make MUST be benchmarked BEFORE the next change. Record each measurement:

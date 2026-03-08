@@ -74,7 +74,7 @@ def get_script_root() -> Path:
 
 def get_rust_dir() -> Path:
     """Get the Rust project directory."""
-    return get_script_root() / "rust" / "skill-suggester"
+    return get_script_root() / "src" / "skill-suggester"
 
 
 def get_bin_dir() -> Path:

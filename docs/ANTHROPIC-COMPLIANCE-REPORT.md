@@ -43,7 +43,7 @@ perfect-skill-suggester/
 ├── scripts/                  ✅ Utility scripts
 ├── schemas/                  ✅ JSON schemas
 ├── docs/                     ✅ Documentation
-├── rust/                     ✅ Native binary
+├── src/                     ✅ Native binary
 ├── README.md                 ✅ Present
 └── LICENSE                   ✅ Present
 ```

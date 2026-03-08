@@ -7,11 +7,9 @@
 - [5.3 Resolution strategy](#53-resolution-strategy)
 - [5.4 Autonomous vs Interactive mode](#54-autonomous-vs-interactive-mode)
 
----
+## 5.1 Cross-type overlap detection
 
 **This is the most critical phase.** The Rust binary scores candidates within each type independently. It does NOT check for overlaps or conflicts BETWEEN types. You MUST validate coherence across ALL sections before finalizing.
-
-## 5.1 Cross-type overlap detection
 
 Compare every element in the profile against every other element across ALL types:
 

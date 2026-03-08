@@ -37,7 +37,7 @@ Read `skill-index.json` and check if an entry with the same name already exists.
 
 ### Step 4: Spawn Sonnet Agent for Metadata Extraction
 
-For EACH element to process, spawn a sonnet agent with the Pass 1 template from `${CLAUDE_PLUGIN_ROOT}/prompts/pass1-sonnet.md`.
+For EACH element to process, spawn a sonnet agent with the Pass 1 template from `${CLAUDE_PLUGIN_ROOT}/templates/pass1-sonnet.md`.
 
 **IMPORTANT**: When spawning the sonnet agent:
 - Use `model: sonnet` for accurate extraction
@@ -73,6 +73,6 @@ else:
 ### Step 7 (Optional): Pass 2
 
 If `--pass2` is specified, also run co-usage analysis:
-1. Read the Pass 2 template from `${CLAUDE_PLUGIN_ROOT}/prompts/pass2-sonnet.md`
+1. Read the Pass 2 template from `${CLAUDE_PLUGIN_ROOT}/templates/pass2-sonnet.md`
 2. Spawn a sonnet agent to analyze co-usage relationships
 3. Merge the co-usage data into the index

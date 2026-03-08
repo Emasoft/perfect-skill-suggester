@@ -2,7 +2,9 @@
 
 ## Table of Contents
 
-- (Single-section checklist -- no sub-headings)
+- PSS setup and verification checklist items
+
+## Checklist
 
 Use this checklist to verify your PSS workflow is complete:
 

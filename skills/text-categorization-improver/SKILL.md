@@ -54,30 +54,31 @@ See [Output, Error Handling, Examples & Resources](references/output-errors-exam
 ## Reference Documentation
 
 - [Model Requirements](references/model-requirements.md)
+  - Model tier table for cost-efficient agent roles
 - [Phase 1: Baseline Measurement](references/phase1-baseline.md)
-  - Run Quantitative Benchmark
-  - Initialize Progress Ledger
-  - Iteration 0 (Baseline)
+  - Step 1.1: Run Quantitative Benchmark
+  - Step 1.2: Initialize Progress Ledger
 - [Phase 2: Qualitative Evaluation](references/phase2-qualitative-evaluation.md)
-  - Generate Evaluation Samples
-  - Spawn Evaluator Agents
-  - Aggregate Findings
-  - Update Progress Ledger
+  - Step 2.1: Generate Evaluation Samples
+  - Step 2.2: Spawn Evaluator Agents (Opus)
+  - Step 2.3: Aggregate Findings (Opus)
+  - Step 2.4: Update Progress Ledger
 - [Phase 3: Parallel Experimentation](references/phase3-parallel-experimentation.md)
-  - Create 3 Git Worktrees
-  - Assign Experiment Focus
-  - Launch Researcher Agents
-  - Collect Results
+  - Step 3.1: Create 3 Git Worktrees
+  - Step 3.2: Assign Experiment Focus
+  - Step 3.3: Launch Researcher Agents (Opus)
+  - Step 3.4: Collect Results
 - [Phase 4: Benchmark & Merge](references/phase4-benchmark-merge.md)
-  - Identify Best Performers
-  - Test Additivity
-  - Verify No Regressions
-  - Update Progress Ledger
+  - Step 4.1: Identify Best Performers
+  - Step 4.2: Test Additivity
+  - Step 4.3: Verify No Regressions
+  - Step 4.4: Update Progress Ledger
 - [Phase 5: Iteration or Completion](references/phase5-iteration-completion.md)
   - Decision Gate
   - Iteration History
   - Final Merge
 - [Anti-Patterns](references/anti-patterns.md)
+  - Common experimental anti-patterns to avoid
 - [Output, Errors, Examples & Resources](references/output-errors-examples.md)
   - Output
   - Error Handling

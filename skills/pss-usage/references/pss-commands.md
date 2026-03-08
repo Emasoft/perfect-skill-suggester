@@ -2,33 +2,31 @@
 
 This document provides detailed information about Perfect Skill Suggester (PSS) commands, their usage, output interpretation, and troubleshooting.
 
-## Contents
+## Table of Contents
 
-- 1.0 Understanding PSS command structure and invocation
-  - 1.1 Command naming conventions
-  - 1.2 Command invocation from Claude Code chat
-- 2.0 Using /pss-status to check PSS configuration and index health
-  - 2.1 Basic /pss-status usage without arguments
-  - 2.2 Understanding /pss-status output: index statistics
-  - 2.3 Understanding /pss-status output: skill counts and categories
-  - 2.4 Interpreting /pss-status warnings and errors
-- 3.0 Using /pss-reindex-skills to rebuild the skill index
-  - 3.1 When to reindex: detecting stale skill data
-  - 3.2 Running /pss-reindex-skills workflow step-by-step
-  - 3.3 Understanding reindex progress and completion messages
-  - 3.4 Verifying successful reindexing with /pss-status
-- 4.0 Interpreting PSS skill suggestion output
-  - 4.1 Understanding confidence levels: HIGH, MEDIUM, LOW
-  - 4.2 Understanding evidence types: intent, keyword, co_usage
-  - 4.3 Reading the skill suggestion table format
-  - 4.4 Deciding when to activate suggested skills
-- 5.0 Troubleshooting common PSS issues
-  - 5.1 PSS commands not found or not responding
-  - 5.2 Empty or missing skill suggestions
-  - 5.3 Index file errors or corruption
-  - 5.4 Reindexing failures and recovery
-
----
+- Understanding PSS command structure and invocation
+  - Command naming conventions
+  - Command invocation from Claude Code chat
+- Using /pss-status to check PSS configuration and index health
+  - Basic /pss-status usage without arguments
+  - Understanding /pss-status output: index statistics
+  - Understanding /pss-status output: skill counts and categories
+  - Interpreting /pss-status warnings and errors
+- Using /pss-reindex-skills to rebuild the skill index
+  - When to reindex: detecting stale skill data
+  - Running /pss-reindex-skills workflow step-by-step
+  - Understanding reindex progress and completion messages
+  - Verifying successful reindexing with /pss-status
+- Interpreting PSS skill suggestion output
+  - Understanding confidence levels: HIGH, MEDIUM, LOW
+  - Understanding evidence types: intent, keyword, co_usage
+  - Reading the skill suggestion table format
+  - Deciding when to activate suggested skills
+- Troubleshooting common PSS issues
+  - PSS commands not found or not responding
+  - Empty or missing skill suggestions
+  - Index file errors or corruption
+  - Reindexing failures and recovery
 
 ## 1.0 Understanding PSS command structure and invocation
 

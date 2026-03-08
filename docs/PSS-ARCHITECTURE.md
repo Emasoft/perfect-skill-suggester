@@ -347,7 +347,7 @@ The Rust binary operates in two modes:
 | `schemas/pss-categories.json` | Category definitions + CxC matrix |
 | `schemas/pss-schema.json` | JSON schema for .pss files |
 | `schemas/pss-skill-index-schema.json` | JSON schema for skill-index.json |
-| `rust/skill-suggester/bin/pss-<platform>` | Pre-compiled skill-suggester binaries |
+| `src/skill-suggester/bin/pss-<platform>` | Pre-compiled skill-suggester binaries |
 
 ---
 

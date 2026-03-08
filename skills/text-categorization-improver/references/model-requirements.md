@@ -2,7 +2,9 @@
 
 ## Table of Contents
 
-This file contains a single section with the model tier table below.
+- Model tier table for cost-efficient agent roles
+
+## Model Tiers
 
 This protocol uses a tiered model strategy for cost efficiency:
 

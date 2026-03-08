@@ -2,7 +2,9 @@
 
 ## Table of Contents
 
-This file contains a single numbered list of anti-patterns (no sub-headings).
+- Common experimental anti-patterns to avoid
+
+## Anti-Patterns
 
 1. **Non-additive optimization:** When W2/W3 optimize against the original baseline instead of W1's improved version, their gains may not stack. Always inform later worktrees of earlier discoveries.
 

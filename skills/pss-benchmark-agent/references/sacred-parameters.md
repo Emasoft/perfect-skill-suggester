@@ -2,7 +2,9 @@
 
 ## Table of Contents
 
-- (No subsections -- this file is a single reference block.)
+- Validated scoring parameters and regression history
+
+## Parameters
 
 These parameters have been independently validated by 3+ agents across multiple cycles. Changing them ALWAYS causes regression:
 

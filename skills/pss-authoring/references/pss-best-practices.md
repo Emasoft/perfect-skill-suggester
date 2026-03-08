@@ -1,20 +1,18 @@
 # PSS Best Practices
 
-## Contents
+## Table of Contents
 
-- **1.0 When to reindex your skill index**
-  - 1.1 Events that always require reindexing
-  - 1.2 Events that may not require reindexing
-- **2.0 Interpreting PSS skill suggestions accurately**
-  - 2.1 Trusting confidence levels: HIGH, MEDIUM, LOW
-  - 2.2 Reading evidence types: intent, keyword, co_usage
-  - 2.3 Evaluating suggestions with multiple evidence types
-- **3.0 Maintaining index health over time**
-  - 3.1 Regular health checks with /pss-status
-  - 3.2 Keeping skill metadata current
-  - 3.3 Periodic clean rebuilds of the index
-
----
+- When to reindex your skill index
+  - Events that always require reindexing
+  - Events that may not require reindexing
+- Interpreting PSS skill suggestions accurately
+  - Trusting confidence levels: HIGH, MEDIUM, LOW
+  - Reading evidence types: intent, keyword, co_usage
+  - Evaluating suggestions with multiple evidence types
+- Maintaining index health over time
+  - Regular health checks with /pss-status
+  - Keeping skill metadata current
+  - Periodic clean rebuilds of the index
 
 ## 1.0 When to reindex your skill index
 

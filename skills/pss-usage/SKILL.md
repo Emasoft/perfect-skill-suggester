@@ -28,12 +28,6 @@ PSS automatically suggests relevant Claude Code elements (skills, agents, comman
 4. Activate suggestions: `/skill activate <skill-name>`
 5. Reindex after installing or modifying skills
 
-## When to Use
-
-**Activate when:** user asks about skill suggestions, PSS functionality, reindexing, PSS status, or when suggestions appear empty/incorrect.
-
-**Do NOT activate for:** general skill activation, writing skill content, or plugin development.
-
 ### Checklist
 
 Copy this checklist and track your progress:
@@ -42,14 +36,6 @@ Copy this checklist and track your progress:
 - [ ] Index built (`/pss-reindex-skills`)
 - [ ] Status verified (`/pss-status`)
 - [ ] Test prompt produces suggestions
-
-## Quick Reference
-
-| Task | Command |
-|------|---------|
-| Check PSS health | `/pss-status` |
-| Rebuild skill index | `/pss-reindex-skills` |
-| Profile an agent | `/pss-setup-agent <agent-name>.md` |
 
 ## Error Handling
 
@@ -69,40 +55,48 @@ Output: `⚡« Pss!... use: docker (skill), devops (skill) »`
 
 - `/pss-status` -- displays index health, element count, last reindex time
 - `/pss-reindex-skills` -- full regeneration of skill index from all sources
-- See [Examples Reference](references/examples.md) for testing workflow and debugging scenarios
 
 ## References
 
 - [Commands Reference](references/pss-commands.md)
-  - Understanding PSS command structure
-  - Using /pss-status
-  - Using /pss-reindex-skills
-  - Interpreting suggestion output
-  - Troubleshooting common issues
+  - Understanding PSS command structure and invocation
+    - Command naming conventions
+    - Command invocation from Claude Code chat
+  - Using /pss-status to check PSS configuration and index health
+    - Basic /pss-status usage without arguments
+    - Understanding /pss-status output: index statistics
+    - Understanding /pss-status output: skill counts and categories
+    - Interpreting /pss-status warnings and errors
+  - Using /pss-reindex-skills to rebuild the skill index
+    - When to reindex: detecting stale skill data
+    - Running /pss-reindex-skills workflow step-by-step
+    - Understanding reindex progress and completion messages
+    - Verifying successful reindexing with /pss-status
+  - Interpreting PSS skill suggestion output
+    - Understanding confidence levels: HIGH, MEDIUM, LOW
+    - Understanding evidence types: intent, keyword, co_usage
+    - Reading the skill suggestion table format
+    - Deciding when to activate suggested skills
+  - Troubleshooting common PSS issues
+    - PSS commands not found or not responding
+    - Empty or missing skill suggestions
+    - Index file errors or corruption
+    - Reindexing failures and recovery
 - [Suggestion Output](references/suggestion-output.md)
   - Reading This Table
   - Decision Framework
 - [Common Workflows](references/common-workflows.md)
-  - First-Time PSS Setup
-  - Adding New Skills
-  - Debugging Missing Suggestions
+  - Workflow 1: First-Time PSS Setup
+  - Workflow 2: Adding New Skills
+  - Workflow 3: Debugging Missing Suggestions
 - [Examples](references/examples.md)
-  - Testing Workflow
-  - First-Time Setup
-  - Debugging Missing Suggestions
-- [Best Practices](references/pss-best-practices.md)
-  - When to reindex
-  - Interpreting suggestions
-  - Maintaining index health
-- [Skill Authoring Tips](references/pss-skill-authoring-tips.md)
-  - Making skills discoverable
-  - Improving suggestion quality
-  - Standard categories list
+  - Example 1: Testing Workflow
+  - Example 2: First-Time Setup
+  - Example 3: Debugging Missing Suggestions
 - [Setup Checklist](references/setup-checklist.md)
+  - PSS setup and verification checklist items
 
 ## Resources
 
-- **PSS Architecture**: See `docs/PSS-ARCHITECTURE.md` in PSS plugin directory
-- **Plugin Validation**: See `docs/PLUGIN-VALIDATION.md` for validation procedures
-- **Agent Skills Open Standard**: https://github.com/agentskills/agentskills
-- **Claude Code Documentation**: https://platform.claude.com/llms.txt
+- **Architecture**: `docs/PSS-ARCHITECTURE.md`
+- **Companion skill**: pss-authoring (best practices and skill authoring tips)
