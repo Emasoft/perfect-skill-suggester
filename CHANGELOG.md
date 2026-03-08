@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.11] - 2026-03-08
+
+### Bug Fixes
+
+- **skills:** Embed reference TOCs inline for progressive discovery
+
 ## [2.3.10] - 2026-03-08
 
 ### Bug Fixes
 
 - **skills:** Resolve all CPV validation issues (MAJOR+MINOR+NIT → 0)
+
+### Bump
+
+- Version 2.3.9 → 2.3.10
 
 ## [2.3.9] - 2026-03-08
 
