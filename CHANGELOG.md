@@ -2,11 +2,25 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.15] - 2026-03-08
+
+### Features
+
+- Add host OS detection and non-programming domain inference filter
+
+### Miscellaneous Tasks
+
+- Update lockfiles (Cargo.lock, uv.lock)
+
 ## [2.3.14] - 2026-03-08
 
 ### Features
 
 - Add binary platform gate and strict language gate for skill filtering
+
+### Bump
+
+- Version 2.3.13 → 2.3.14
 
 ## [2.3.13] - 2026-03-08
 
