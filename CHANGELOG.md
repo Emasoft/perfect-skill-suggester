@@ -2,11 +2,26 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.12] - 2026-03-08
+
+### Bug Fixes
+
+- Resolve all CPV validation issues and restructure directories
+- **ship:** Update Cargo.toml path from rust/ to src/
+
+### Miscellaneous Tasks
+
+- Add cpv_token_cost.py synced from upstream CPV
+
 ## [2.3.11] - 2026-03-08
 
 ### Bug Fixes
 
 - **skills:** Embed reference TOCs inline for progressive discovery
+
+### Bump
+
+- Version 2.3.10 → 2.3.11
 
 ## [2.3.10] - 2026-03-08
 
