@@ -324,7 +324,7 @@ def _find_tool_names_in_source(plugin_dir: Path) -> list[str]:
     tools_found: set[str] = set()
     skip_dirs = {"node_modules", ".git", "dist", "build", "__pycache__", ".next"}
 
-    for root, dirs, files in os.walk(plugin_dir):
+    for root, dirs, files in os.walk(plugin_dir, followlinks=False):
         dirs[:] = [d for d in dirs if d not in skip_dirs]
         for fname in files:
             if not fname.endswith((".ts", ".py", ".js")):
@@ -348,13 +348,14 @@ def _build_mcp_descriptor(
     config_path: Path,
     plugin_dir: Path,
     marketplace: str,
+    descriptor_dir: Path,
 ) -> Path:
     """Build a markdown descriptor file for an MCP server for indexer agent consumption.
 
-    Returns path to the descriptor .md file in the system temp directory.
+    Returns path to the descriptor .md file in the provided descriptor directory.
+    The caller must create descriptor_dir using tempfile.mkdtemp() to avoid
+    predictable temp paths (security: unpredictable per-run directory).
     """
-    descriptor_dir = Path(tempfile.gettempdir()) / "pss-mcp-descriptors"
-    descriptor_dir.mkdir(parents=True, exist_ok=True)
 
     command = config.get("command", "unknown")
     args = config.get("args", [])
@@ -416,10 +417,13 @@ def _discover_marketplace_mcps(seen_names: set[str]) -> list[dict[str, Any]]:
     if not marketplaces_dir.exists():
         return servers
 
+    # Security: use unpredictable temp directory per run instead of fixed path
+    descriptor_dir = Path(tempfile.mkdtemp(prefix="pss-mcp-"))
+
     skip_dirs = {"node_modules", ".git", "dist", "build", "__pycache__"}
     config_filenames = {".mcp.json", "mcp.json", "plugin.json"}
 
-    for root, dirs, files in os.walk(marketplaces_dir):
+    for root, dirs, files in os.walk(marketplaces_dir, followlinks=False):
         dirs[:] = [d for d in dirs if d not in skip_dirs]
         for fname in files:
             if fname not in config_filenames:
@@ -448,7 +452,7 @@ def _discover_marketplace_mcps(seen_names: set[str]) -> list[dict[str, Any]]:
 
                     # Build descriptor file for indexer agent consumption
                     descriptor_path = _build_mcp_descriptor(
-                        mcp_name, config, fpath, Path(root), marketplace
+                        mcp_name, config, fpath, Path(root), marketplace, descriptor_dir
                     )
 
                     # Extract basic description from README

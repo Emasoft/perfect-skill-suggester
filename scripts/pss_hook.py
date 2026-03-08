@@ -679,7 +679,7 @@ def main() -> None:
     """Main entry point - read stdin, call binary, output result."""
     try:
         # Read JSON input from stdin
-        stdin_data = sys.stdin.read()
+        stdin_data = sys.stdin.read(1_048_576)  # 1MB cap to prevent memory exhaustion from oversized input
 
         # Parse input to check if we should skip
         input_json: dict[str, Any] = {}
@@ -688,6 +688,13 @@ def main() -> None:
             prompt = input_json.get("prompt", "")
             cwd = input_json.get("cwd", "")
             transcript_path = input_json.get("transcriptPath", "")
+
+            # Validate paths are under home dir to prevent path traversal
+            home = str(Path.home())
+            if cwd and not str(Path(cwd).resolve()).startswith(home):
+                cwd = ""
+            if transcript_path and not str(Path(transcript_path).resolve()).startswith(home):
+                transcript_path = ""
         except json.JSONDecodeError:
             _exit_empty()
             return  # unreachable but satisfies type checker
