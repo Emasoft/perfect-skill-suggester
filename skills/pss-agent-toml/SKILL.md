@@ -9,14 +9,13 @@ user-invocable: false
 
 ## Overview
 
-Builds `.agent.toml` profiles via 6-phase pipeline: gather context, score candidates (Rust binary), resolve conflicts, validate.
+Builds `.agent.toml` profiles via 7-phase pipeline: gather context, score candidates (Rust binary), resolve conflicts, validate, review.
 
 ## Instructions
 
-1. Prepare the agent definition `.md` file
-2. Ensure skill index exists (run `/pss-reindex-skills` if missing)
-3. Run `/pss-setup-agent <agent-path>` for the full pipeline
-4. Review the generated `.agent.toml`
+1. Ensure skill index exists (run `/pss-reindex-skills` if missing)
+2. Run `/pss-setup-agent <agent-path>` for the full pipeline
+3. Review the generated `.agent.toml`
 
 ## Critical Rules
 
@@ -85,9 +84,20 @@ Copy this checklist and track your progress:
   - Completion Checklist
 - [Review Protocol (Phase 7)](references/review-protocol.md)
   - Self-Review Checklist
+    - Check 1: Name Integrity
+    - Check 2: Auto-Skills Pinning
+    - Check 3: Non-Coding Agent Filter
+    - Check 4: Coverage Analysis
+    - Check 5: Exclusion Quality
+    - Self-Review Fix Cycle
   - Interactive Review Protocol
-  - Directive Reference
+    - Activation Conditions
+    - Review Summary Format
+    - User Directives
   - Search Integration
+    - Finding Alternatives
+    - Comparing Candidates
+    - Adding from Search Results
   - Re-validation Loop
   - Completion Checklist
 - [Setup Command](references/pss-setup-command.md)
@@ -108,6 +118,7 @@ Copy this checklist and track your progress:
 ```
 /pss-setup-agent agents/my-reviewer.md
 /pss-setup-agent agents/my-reviewer.md --requirements docs/prd.md
+/pss-setup-agent agents/my-reviewer.md --interactive
 ```
 
 ## Error Handling
@@ -119,9 +130,3 @@ Copy this checklist and track your progress:
 ## Output
 
 Validated `.agent.toml` at `~/.claude/agents/<agent-name>.agent.toml`.
-
-## Resources
-
-- **Schema**: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`
-- **Validator**: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`
-- **Skill Index**: `~/.claude/cache/skill-index.json`
