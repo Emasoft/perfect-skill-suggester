@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.19] - 2026-03-09
+
+### Bug Fixes
+
+- Profiler name preservation, auto_skills pinning, non-coding agent detection
+
 ## [2.3.18] - 2026-03-09
 
 ### Features
 
 - Add NLP-based negation detection via pss-nlp binary
+
+### Bump
+
+- Version 2.3.17 → 2.3.18
 
 ## [2.3.17] - 2026-03-08
 
