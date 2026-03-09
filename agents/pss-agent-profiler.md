@@ -41,8 +41,45 @@ You receive these from the command:
 - `INDEX_PATH` — absolute path to skill-index.json (usually `~/.claude/cache/skill-index.json`)
 - `BINARY_PATH` — absolute path to the platform-specific Rust binary
 - `OUTPUT_PATH` — absolute path where the .agent.toml should be written
+- `INTERACTIVE` — whether interactive review mode is enabled (true/false)
+- `INCLUDE_ELEMENTS` — list of element names to force-include (may be empty)
+- `EXCLUDE_ELEMENTS` — list of element names to force-exclude (may be empty)
+- `MAX_PRIMARY` — override for primary tier limit (default: 7)
+- `MAX_SECONDARY` — override for secondary tier limit (default: 12)
+- `MAX_SPECIALIZED` — override for specialized tier limit (default: 8)
+- `DOMAIN_CONSTRAINTS` — list of allowed domains (empty = no constraint)
+- `LANGUAGE_CONSTRAINTS` — list of allowed languages (empty = no constraint)
+- `PLATFORM_CONSTRAINTS` — list of allowed platforms (empty = no constraint)
 
 ## Workflow
+
+### Debug Output
+
+When running under `claude --debug`, emit verbose status messages at each phase boundary. Use `stderr` (print to console) for debug output — it does not affect the orchestrator's token budget.
+
+**Debug message format**: `[PSS-PROFILER] Step <N>: <status> — <details>`
+
+Example debug trace:
+```
+[PSS-PROFILER] Step 1: Reading agent definition — /path/to/agent.md
+[PSS-PROFILER] Step 1: Extracted: name=my-agent, role=developer, writes_code=true, auto_skills=3, sub_agents=5
+[PSS-PROFILER] Step 2: Reading 2 requirements files
+[PSS-PROFILER] Step 2: Detected tech_stack=[typescript, react, postgresql], project_type=web-app
+[PSS-PROFILER] Step 3: Invoking binary with 8-field descriptor (requirements_summary: 1847 chars)
+[PSS-PROFILER] Step 3: Binary returned 28 candidates: skills=18, agents=4, commands=3, rules=2, mcp=1
+[PSS-PROFILER] Step 4a: Mutual exclusivity — removed vue-frontend (conflicts with react)
+[PSS-PROFILER] Step 4b: Obsolescence — removed moment-js (superseded by date-fns)
+[PSS-PROFILER] Step 4c: Stack filter — removed 3 python-only skills
+[PSS-PROFILER] Step 4f: Force-include: websocket-handler; Force-exclude: jest-testing
+[PSS-PROFILER] Step 5: Classified — P=6 S=10 Sp=4 excluded=8
+[PSS-PROFILER] Step 7: Writing .agent.toml to /output/path.agent.toml
+[PSS-PROFILER] Step 8: Validation PASSED (exit code 0)
+[PSS-PROFILER] Step 8b-i: Self-review — 5/5 checks passed, 0 fixes needed
+[PSS-PROFILER] Step 8b-ii: Interactive review — SKIPPED (autonomous mode)
+[PSS-PROFILER] Step 9: Done — P=6 S=10 Sp=4 excluded=8
+```
+
+To check if debug mode is active, test whether the `CLAUDE_DEBUG` environment variable is set. If not set, suppress all `[PSS-PROFILER]` messages.
 
 ### Step 1: Read and Analyze the Agent
 
@@ -192,6 +229,12 @@ Verify each candidate is compatible with the project's actual stack:
 - A React skill should not be recommended if the requirements specify Vue
 - A skill requiring a specific cloud provider should match the requirements
 
+**Constraint Filtering** (if `DOMAIN_CONSTRAINTS`, `LANGUAGE_CONSTRAINTS`, or `PLATFORM_CONSTRAINTS` are provided):
+- Remove candidates whose domain doesn't match any in `DOMAIN_CONSTRAINTS`
+- Remove candidates whose language doesn't match any in `LANGUAGE_CONSTRAINTS`
+- Remove candidates whose platform doesn't match any in `PLATFORM_CONSTRAINTS`
+- Language-agnostic or domain-agnostic candidates pass through (empty field = compatible with all)
+
 #### 4c-bis. Non-Coding Agent Filter
 If the agent does NOT write code (orchestrators, coordinators, managers, gatekeepers):
 - **REMOVE** all language-specific linting/formatting skills (eslint, ruff, prettier, etc.)
@@ -216,12 +259,24 @@ Also check coverage gaps: `"${BINARY_PATH}" coverage --type skill` shows what la
 #### 4e. Redundancy Pruning
 Remove skills that are strict subsets of other recommended skills. If skill A covers everything skill B does plus more, remove skill B.
 
+#### 4f. Apply Force-Include/Exclude Directives
+
+If `INCLUDE_ELEMENTS` is non-empty:
+- For each name in the list, search the index: `"${BINARY_PATH}" search "<name>" --top 5`
+- Add found elements to the candidate pool (skip if already present)
+- Force-included elements go to primary tier by default (user can move them via interactive review)
+
+If `EXCLUDE_ELEMENTS` is non-empty:
+- Remove every matching element from all candidate pools
+- Add to `[skills.excluded]` with reason "Excluded by user directive"
+- Force-exclusions cannot be overridden by scoring or auto_skills (but user can re-include via interactive review)
+
 ### Step 5: Classify into Final Tiers
 
 After post-filtering, classify the surviving skills:
-- **primary** (max 7): Core skills the agent needs for its daily work on this project
-- **secondary** (max 12): Useful skills that will help with common tasks
-- **specialized** (max 8): Niche skills for specific situations that may arise
+- **primary** (max `MAX_PRIMARY`, default 7): Core skills the agent needs for its daily work
+- **secondary** (max `MAX_SECONDARY`, default 12): Useful skills for common tasks
+- **specialized** (max `MAX_SPECIALIZED`, default 8): Niche skills for specific situations
 
 **Auto-Skills Override**: If the agent's frontmatter has an `auto_skills:` list, ALL those skills MUST be placed in `primary` first. If this exceeds the max 7 limit, the primary limit is extended to accommodate all auto_skills (they are author-declared requirements and take absolute priority). Only the REMAINING primary slots (if any) are filled from scored candidates.
 
@@ -358,6 +413,13 @@ recommended = []
 [lsp]
 # LSP servers relevant to this agent (assigned by language detection)
 recommended = ["pyright-lsp"]
+
+[dependencies]
+# External requirements for this agent to function
+plugins = []
+skills = []
+mcp_servers = []
+tools = []
 ```
 
 IMPORTANT: Use proper TOML syntax. String arrays use `["a", "b"]`. All string values in double quotes. Comments with `#`. The `[skills.excluded]` section uses commented-out key-value pairs to document exclusion reasons without breaking TOML parsing.
@@ -443,6 +505,7 @@ Present a profile review summary to the user showing all sections, tier assignme
 - `move <name> to <tier>` — move skill between primary/secondary/specialized
 - `search <query>` — search the index, show results (no TOML modification)
 - `approve` / `done` — accept profile and proceed to Step 9
+- `depend <type> <name>` — add a dependency (type: plugin/skill/mcp/tool)
 
 After each directive: edit TOML → re-validate (Step 8) → show updated summary. Loop until user approves.
 

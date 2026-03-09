@@ -1,7 +1,7 @@
 ---
 name: pss-setup-agent
 description: "Profile an agent with best-fit skills"
-argument-hint: "<agent-path-or-name> [--requirements PATH...] [--output PATH]"
+argument-hint: "<agent-path-or-name> [--requirements PATH...] [--output PATH] [--interactive] [--include NAME...] [--exclude NAME...] [--max-primary N] [--max-secondary N] [--max-specialized N] [--domains D...] [--languages L...] [--platforms P...]"
 allowed-tools: ["Task", "Read", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
 ---
 
@@ -19,6 +19,10 @@ Analyze an agent definition file and recommend best-fit skills from the PSS skil
 /pss-setup-agent /path/to/<agent-name>.md --requirements /path/to/prd.md
 /pss-setup-agent /path/to/<agent-name>.md --requirements /path/to/prd.md /path/to/tech-spec.md /path/to/arch.md
 /pss-setup-agent /path/to/<agent-name>.md --requirements /path/to/prd.md --output /custom/output.agent.toml
+/pss-setup-agent /path/to/<agent-name>.md --interactive
+/pss-setup-agent /path/to/<agent-name>.md --include websocket-handler --exclude jest-testing
+/pss-setup-agent /path/to/<agent-name>.md --max-primary 5 --max-secondary 8
+/pss-setup-agent /path/to/<agent-name>.md --domains security backend --languages python rust
 ```
 
 ## Argument Parsing
@@ -42,6 +46,32 @@ Analyze an agent definition file and recommend best-fit skills from the PSS skil
    - If provided → use as the output .agent.toml path
    - If not provided → default to `team/agents-cfg/<agent-name>.agent.toml` relative to cwd
    - Create the output directory if it doesn't exist
+
+4. **`--interactive`** (optional, boolean flag):
+   - If present → activate interactive review mode after profile generation
+   - Profiler presents a review summary and accepts user directives (include/exclude/swap/move/search)
+   - User must type `approve` or `done` to finalize the profile
+   - Without this flag → profile is auto-approved after self-review
+
+5. **`--include NAME...`** (optional, one or more element names):
+   - Elements that MUST be included in the final profile
+   - Profiler adds them to the appropriate section/tier regardless of binary scoring
+   - Takes precedence over binary exclusion decisions
+
+6. **`--exclude NAME...`** (optional, one or more element names):
+   - Elements that MUST NOT appear in the final profile
+   - Profiler removes them even if the binary scores them highly
+   - Documented in `[skills.excluded]` with reason "Excluded by user directive"
+
+7. **`--max-primary N`**, **`--max-secondary N`**, **`--max-specialized N`** (optional, integers):
+   - Override default tier size limits (default: primary=7, secondary=12, specialized=8)
+   - Auto-skills from frontmatter still take priority and can extend primary beyond the max
+
+8. **`--domains D...`**, **`--languages L...`**, **`--platforms P...`** (optional, one or more strings):
+   - Constrain profiling to specific domains (security, frontend, backend, devops, data)
+   - Constrain to specific languages (python, typescript, rust, go, etc.)
+   - Constrain to specific platforms (linux, macos, windows, ios, android, web)
+   - Elements outside these constraints are excluded from consideration
 
 ## Execution
 

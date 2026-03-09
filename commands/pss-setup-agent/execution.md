@@ -41,7 +41,17 @@
        raise RuntimeError(f"Unsupported platform: {system}/{machine}")
    BINARY = os.path.join(plugin_root, "rust", "skill-suggester", "bin", binary_name)
    ```
-7. Spawn the `pss-agent-profiler` agent using the Task tool
+7. Extract optional flags from command arguments:
+   - `--interactive`: boolean (present or absent) → pass as `INTERACTIVE=true/false`
+   - `--include NAME...`: list of element names to force-include → pass as `INCLUDE_ELEMENTS`
+   - `--exclude NAME...`: list of element names to force-exclude → pass as `EXCLUDE_ELEMENTS`
+   - `--max-primary N`: integer override for primary tier limit → pass as `MAX_PRIMARY`
+   - `--max-secondary N`: integer override for secondary tier limit → pass as `MAX_SECONDARY`
+   - `--max-specialized N`: integer override for specialized tier limit → pass as `MAX_SPECIALIZED`
+   - `--domains D...`: domain constraints → pass as `DOMAIN_CONSTRAINTS`
+   - `--languages L...`: language constraints → pass as `LANGUAGE_CONSTRAINTS`
+   - `--platforms P...`: platform constraints → pass as `PLATFORM_CONSTRAINTS`
+8. Spawn the `pss-agent-profiler` agent using the Task tool
 
    The profiler agent is MANDATORY — it applies AI reasoning (conflict detection, mutual exclusivity, cross-type coherence, stack compatibility) that no script can replicate. Do NOT attempt to generate `.agent.toml` without an AI agent.
 
@@ -52,9 +62,14 @@ The prompt to the agent MUST include:
 - The absolute path to the Rust binary (resolved in step 6)
 - The desired output path for the .agent.toml file
 - Instructions to follow the workflow defined in `${CLAUDE_PLUGIN_ROOT}/agents/pss-agent-profiler.md`
+- Whether interactive mode is enabled (`INTERACTIVE=true/false`)
+- List of elements to force-include (from `--include`, may be empty)
+- List of elements to force-exclude (from `--exclude`, may be empty)
+- Tier size overrides if specified (`MAX_PRIMARY`, `MAX_SECONDARY`, `MAX_SPECIALIZED`)
+- Domain/language/platform constraints if specified
 
 **CRITICAL**: Resolve `${CLAUDE_PLUGIN_ROOT}` to an absolute path BEFORE passing to the agent.
 
-8. Report the result:
+9. Report the result:
    - On success: `[DONE] Agent profile written to: <output-path>`
    - On failure: `[FAILED] <reason>`

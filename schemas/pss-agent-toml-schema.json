@@ -165,6 +165,37 @@
         }
       },
       "additionalProperties": false
+    },
+    "dependencies": {
+      "type": "object",
+      "description": "External plugins, skills, or tools required for this agent to function. Used to validate that prerequisites are installed before creating the agent from the TOML.",
+      "properties": {
+        "plugins": {
+          "type": "array",
+          "description": "Plugin names that must be installed (e.g., 'ai-maestro-integrator-agent', 'claude-ecosystem')",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "skills": {
+          "type": "array",
+          "description": "Skill names from external plugins that must be available globally",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "mcp_servers": {
+          "type": "array",
+          "description": "MCP server names that must be configured in settings",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "tools": {
+          "type": "array",
+          "description": "CLI tools that must be on PATH (e.g., 'gh', 'docker', 'terraform')",
+          "items": { "type": "string" },
+          "default": []
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,
@@ -194,7 +225,8 @@
       "rules": { "recommended": ["claim-verification"] },
       "mcp": { "recommended": ["chrome-devtools"] },
       "hooks": { "recommended": [] },
-      "lsp": { "recommended": ["pyright-lsp"] }
+      "lsp": { "recommended": ["pyright-lsp"] },
+      "dependencies": { "plugins": [], "skills": [], "mcp_servers": ["chrome-devtools"], "tools": ["gh"] }
     },
     {
       "agent": {
@@ -223,7 +255,8 @@
       "rules": { "recommended": ["claim-verification", "observe-before-editing"] },
       "mcp": { "recommended": ["chrome-devtools"] },
       "hooks": { "recommended": [] },
-      "lsp": { "recommended": ["typescript-lsp"] }
+      "lsp": { "recommended": ["typescript-lsp"] },
+      "dependencies": { "plugins": [], "skills": [], "mcp_servers": ["chrome-devtools"], "tools": ["bun", "gh"] }
     }
   ]
 }

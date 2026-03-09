@@ -3051,6 +3051,11 @@ lazy_static! {
         m.insert("dokcer", "docker");
         m.insert("dcoker", "docker");
         m.insert("doker", "docker");
+        m.insert("tf", "terraform");
+        m.insert("k8s", "kubernetes");
+        m.insert("pg", "postgres");
+        m.insert("mongo", "mongodb");
+        m.insert("gh", "github");
         m.insert("containr", "container");
         m.insert("contaner", "container");
 
@@ -4001,6 +4006,43 @@ fn expand_synonyms(prompt: &str) -> String {
     }
     if msg.contains("merge") {
         expanded.push_str(" pr-merge validation github");
+    }
+
+    // Abbreviation expansions (common shorthand)
+    if msg.contains("k8s") {
+        expanded.push_str(" kubernetes container orchestration");
+    }
+    if msg.contains(" tf ") || msg.starts_with("tf ") || msg.ends_with(" tf") {
+        expanded.push_str(" terraform infrastructure iac");
+    }
+    if msg.contains(" db ") || msg.starts_with("db ") || msg.ends_with(" db") {
+        expanded.push_str(" database");
+    }
+
+    // Refactoring / code quality
+    if msg.contains("refactor") {
+        expanded.push_str(" refactoring code-quality restructure cleanup");
+    }
+    if msg.contains("lint") || msg.contains("linting") {
+        expanded.push_str(" linting code-quality formatting eslint ruff");
+    }
+    if msg.contains("format") && !msg.contains("--format") {
+        expanded.push_str(" formatting code-quality prettier");
+    }
+
+    // Migration
+    if msg.contains("migrat") {
+        expanded.push_str(" migration upgrade data-migration schema");
+    }
+
+    // Monitoring
+    if msg.contains("monitor") || msg.contains("observab") {
+        expanded.push_str(" monitoring observability metrics alerting logging");
+    }
+
+    // Documentation
+    if msg.contains("document") || msg.contains(" docs ") || msg.contains(" doc ") {
+        expanded.push_str(" documentation readme api-docs");
     }
 
     // Troubleshooting
@@ -6773,6 +6815,7 @@ fn find_matches(
                 static COMMON_TOOLS: &[&str] = &[
                     "python", "python3", "bash", "git", "npm", "pip",
                     "read", "write", "edit", "grep", "node",
+                    "pnpm", "yarn", "cargo", "docker", "make", "rust", "go",
                 ];
                 // Ultra-common tools need even stronger dampening
                 static ULTRA_COMMON_TOOLS: &[&str] = &["github"];
@@ -10178,6 +10221,7 @@ fn score_entry_against_activity(
     // Same common-tool dampening as hook mode (COMMON_TOOLS at line ~6067)
     static INDEXER_COMMON_TOOLS: &[&str] = &[
         "python", "python3", "bash", "git", "npm", "pip", "node",
+        "pnpm", "yarn", "cargo", "docker", "make", "rust", "go",
     ];
     for tool in activity.tools {
         if cue_matches(tool, entry_words) {

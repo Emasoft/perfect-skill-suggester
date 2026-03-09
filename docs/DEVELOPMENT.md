@@ -395,6 +395,47 @@ Before releasing a new version manually:
 
 ---
 
+## Agent Configuration Profiling
+
+The `/pss-setup-agent` command profiles agent definitions and generates `.agent.toml` configuration files with recommended skills, sub-agents, commands, rules, MCP servers, LSP servers, hooks, and dependencies.
+
+### Workflow
+
+1. **Context Gathering**: Reads agent `.md` definition + optional requirements documents
+2. **Binary Scoring**: Rust binary scores ~30 candidates from the skill index
+3. **AI Post-Filtering**: Profiler agent applies mutual exclusivity, stack compatibility, non-coding detection, redundancy pruning
+4. **Force Include/Exclude**: User-specified `--include`/`--exclude` directives applied
+5. **Tier Classification**: Skills sorted into primary/secondary/specialized tiers
+6. **Cross-Type Coherence**: Validates no overlaps between skills, agents, MCP, commands
+7. **Write & Validate**: Generates `.agent.toml`, validates against schema
+8. **Self-Review**: Checks name integrity, auto_skills pinning, non-coding filter, coverage, exclusion quality
+9. **Interactive Review** (optional): User reviews profile, issues directives to modify
+
+### Key Files
+
+- `agents/pss-agent-profiler.md` — Profiler agent definition (9-step workflow)
+- `skills/pss-agent-toml/SKILL.md` — Profiler skill with 7-phase reference documentation
+- `schemas/pss-agent-toml-schema.json` — JSON Schema for `.agent.toml` format
+- `scripts/pss_validate_agent_toml.py` — Validator script
+- `commands/pss-setup-agent.md` — Command definition with argument parsing
+
+### `.agent.toml` Sections
+
+| Section | Purpose |
+|---------|---------|
+| `[agent]` | Agent name, source, path |
+| `[requirements]` | Project type, tech stack |
+| `[skills]` | Primary, secondary, specialized tiers + excluded |
+| `[agents]` | Complementary/sub-agents |
+| `[commands]` | Recommended slash commands |
+| `[rules]` | Active rules |
+| `[mcp]` | MCP server recommendations |
+| `[hooks]` | Hook configurations |
+| `[lsp]` | Language server assignments |
+| `[dependencies]` | Required plugins, skills, MCP servers, CLI tools |
+
+---
+
 ## Additional Resources
 
 - [Rust Book](https://doc.rust-lang.org/book/)

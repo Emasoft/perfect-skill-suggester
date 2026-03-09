@@ -332,15 +332,35 @@ Always performs a full clean-slate regeneration. Two-pass architecture: Pass 1 e
 
 ### /pss-setup-agent
 
-Analyze an agent definition and generate a `.agent.toml` configuration with AI-recommended skills, commands, rules, MCP servers, and LSP servers.
+Analyze an agent definition and generate a `.agent.toml` configuration with AI-recommended skills, commands, rules, MCP servers, and LSP servers. Includes automatic self-review (quality checks before reporting) and a dependencies section in the generated `.agent.toml`.
 
 ```
 /pss-setup-agent /path/to/agent.md
 /pss-setup-agent /path/to/agent.md --requirements /path/to/prd.md /path/to/tech-spec.md
 /pss-setup-agent /path/to/agent.md --output /custom/output.agent.toml
+/pss-setup-agent agents/my-agent.md --interactive
 ```
 
 Uses the Rust binary for fast candidate scoring + an AI agent for intelligent post-filtering (mutual exclusivity, stack compatibility, redundancy pruning).
+
+| Flag | Description |
+|------|-------------|
+| `--interactive` | Interactive review mode: pause after each tier for manual include/exclude decisions |
+| `--include <name>` | Force-include a specific element in the final profile |
+| `--exclude <name>` | Force-exclude a specific element from the final profile |
+| `--max-primary N` | Override the maximum number of primary tier elements |
+| `--max-secondary N` | Override the maximum number of secondary tier elements |
+| `--max-specialized N` | Override the maximum number of specialized tier elements |
+| `--requirements <files>` | Additional context files (PRDs, tech specs) for better recommendations |
+| `--output <path>` | Custom output path for the generated `.agent.toml` |
+
+**Constraint flags** narrow the candidate pool before scoring:
+
+| Flag | Description |
+|------|-------------|
+| `--domain <name>` | Restrict candidates to a specific domain (e.g., `devops`, `frontend`) |
+| `--language <name>` | Restrict candidates to a specific language (e.g., `python`, `typescript`) |
+| `--platform <name>` | Restrict candidates to a specific platform (e.g., `linux`, `macos`) |
 
 ### /pss-add-to-index
 

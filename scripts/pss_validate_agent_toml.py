@@ -27,7 +27,7 @@ from typing import Any
 
 # Schema constraints matching schemas/pss-agent-toml-schema.json
 REQUIRED_SECTIONS = ["agent", "skills"]
-OPTIONAL_SECTIONS = ["requirements", "agents", "commands", "rules", "mcp", "hooks", "lsp"]
+OPTIONAL_SECTIONS = ["requirements", "agents", "commands", "rules", "mcp", "hooks", "lsp", "dependencies"]
 ALL_KNOWN_SECTIONS = REQUIRED_SECTIONS + OPTIONAL_SECTIONS
 
 AGENT_REQUIRED_FIELDS = ["name", "path"]
@@ -303,6 +303,41 @@ def validate_recommendation_section(
             result.warn(f"[{section}] has unknown field: '{field}'")
 
 
+DEPENDENCIES_FIELDS = ["plugins", "skills", "mcp_servers", "tools"]
+
+
+def validate_dependencies_section(
+    data: dict[str, Any], result: ValidationResult
+) -> None:
+    """Validate the [dependencies] section (optional)."""
+    deps = data.get("dependencies")
+    if deps is None:
+        return
+
+    if not isinstance(deps, dict):
+        result.error(
+            f"[dependencies] must be a table/dict, got: {type(deps).__name__}"
+        )
+        return
+
+    for field in deps:
+        if field not in DEPENDENCIES_FIELDS:
+            result.warn(f"[dependencies] has unknown field: '{field}'")
+
+    for field in DEPENDENCIES_FIELDS:
+        val = deps.get(field)
+        if val is not None:
+            if not isinstance(val, list):
+                result.error(
+                    f"[dependencies].{field} must be an array, "
+                    f"got: {type(val).__name__}"
+                )
+            elif not all(isinstance(v, str) for v in val):
+                result.error(
+                    f"[dependencies].{field} must contain only strings"
+                )
+
+
 def validate_toml(
     data: dict[str, Any],
     result: ValidationResult,
@@ -319,6 +354,7 @@ def validate_toml(
     validate_skills_section(data, result, index_skills)
     for section in ("agents", "commands", "rules", "mcp", "hooks", "lsp"):
         validate_recommendation_section(data, section, result)
+    validate_dependencies_section(data, result)
 
 
 def load_index_skills(index_path: Path) -> set[str] | None:

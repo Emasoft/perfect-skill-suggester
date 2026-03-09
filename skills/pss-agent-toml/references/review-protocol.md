@@ -200,6 +200,12 @@ Accept the current profile. The profiler:
 1. Performs one final validation
 2. Proceeds to Step 9 (cleanup and report)
 
+**`depend <type> <name>`**
+Add a dependency to `[dependencies]`. The profiler:
+1. Validates the type is one of: `plugin`, `skill`, `mcp`, `tool`
+2. Adds `<name>` to the corresponding array in `[dependencies]` (plugins, skills, mcp_servers, tools)
+3. Re-validates
+
 ---
 
 ## Search Integration
