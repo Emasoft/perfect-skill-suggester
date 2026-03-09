@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.21] - 2026-03-09
+
+### Features
+
+- Comprehensive audit — add profiler args, dependencies section, synonym fixes, debug output
+
 ## [2.3.20] - 2026-03-09
 
 ### Features
@@ -9,6 +15,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 - Add interactive review & refinement to agent profiler (Step 8b)
 - Add interactive review & refinement to agent profiler
 - Add interactive review & refinement to agent profiler
+
+### Bump
+
+- Version 2.3.19 → 2.3.20
 
 ## [2.3.19] - 2026-03-09
 
