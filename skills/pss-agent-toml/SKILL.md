@@ -32,61 +32,23 @@ Builds `.agent.toml` profiles for Claude Code agents. AI evaluates scored candid
 - Rust binary: `$CLAUDE_PLUGIN_ROOT/src/skill-suggester/bin/<platform>`
 - Agent definition `.md` file
 
+### Checklist
+
+- [ ] Gather context, get candidates, evaluate each
+- [ ] Add external elements, cross-type coherence check
+- [ ] Write and validate `.agent.toml`
+
 ## References
 
-- [AI Agent Principle](references/ai-agent-principle.md)
-  - Why AI Reasoning is Required
-  - What This Skill Teaches
-  - Default Mode
-- [TOML Format](references/toml-format.md)
-  - Template
-  - Schema and Validator
-- [Workflow Phases 1-3](references/workflow-phases.md)
-  - Phase 1: Gather Context
-    - Read the agent definition file
-    - Read requirements documents
-    - Detect project languages from cwd
-  - Phase 2: Get Candidates from the Index
-    - Invoke the Rust binary
-    - Search for additional candidates
-  - Phase 3: Evaluate Each Candidate
-    - Read the candidate's source file
-    - Evaluate relevance
-    - Detect mutual exclusivity
-    - Check for obsolescence
-    - Verify stack compatibility
-    - Identify gaps
-    - Prune redundancy
-- [External Sources (Phase 4)](references/external-sources.md)
-  - From a local file or folder
-  - From an installed plugin
-  - From a marketplace plugin (not installed)
-  - From a GitHub/git repository URL
-  - From a network shared folder
-  - From a URL to a raw file
-  - Phase 4 Completion Checklist
-- [Cross-Type Coherence (Phase 5)](references/cross-type-coherence.md)
-  - 5.1 Cross-type overlap detection
-  - 5.2 Coherence checklist
-  - 5.3 Resolution strategy
-  - 5.4 Autonomous vs Interactive mode
-- [Validation (Phase 6)](references/validation-protocol.md)
-  - Write the .agent.toml file
-  - Validate
-  - Clean up
-  - Completion Checklist
-- [Setup Command](references/pss-setup-command.md)
-  - Usage Examples
-  - How It Works
-- [Example and Scoring](references/example-and-scoring.md)
-  - Scoring Reference
-  - Troubleshooting
-  - Complete Example
-- [Error Handling](references/error-handling.md)
-  - Binary Not Found
-  - Missing Skill Index
-  - Validation Failure
-  - Missing Environment Variable
+- [AI Agent Principle](references/ai-agent-principle.md) -- Why AI reasoning is required
+- [TOML Format](references/toml-format.md) -- Template, schema, validator
+- [Workflow Phases 1-3](references/workflow-phases.md) -- Gather context, get candidates, evaluate
+- [External Sources (Phase 4)](references/external-sources.md) -- Add elements from outside the index
+- [Cross-Type Coherence (Phase 5)](references/cross-type-coherence.md) -- Overlap detection, resolution
+- [Validation (Phase 6)](references/validation-protocol.md) -- Write, validate, clean up
+- [Setup Command](references/pss-setup-command.md) -- Usage examples
+- [Example and Scoring](references/example-and-scoring.md) -- Scoring reference, full example
+- [Error Handling](references/error-handling.md) -- Binary not found, missing index, validation failure
 
 ## Examples
 
@@ -95,12 +57,12 @@ Builds `.agent.toml` profiles for Claude Code agents. AI evaluates scored candid
 /pss-setup-agent agents/my-reviewer.md --requirements docs/prd.md
 ```
 
+## Error Handling
+
+- Missing skill index: run `/pss-reindex-skills` first
+- Binary not found: rebuild with `uv run scripts/pss_build.py`
+- Validation fails: fix errors and re-run phase 6
+
 ## Output
 
 Validated `.agent.toml` at `~/.claude/agents/<agent-name>.agent.toml`.
-
-## Resources
-
-- **Schema**: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`
-- **Validator**: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`
-- **Skill Index**: `~/.claude/cache/skill-index.json`
