@@ -40,6 +40,7 @@ import math
 import os
 import re
 import sys
+import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -211,8 +212,16 @@ def get_all_element_locations(
     # This is essential for agent profiling which needs ALL available elements,
     # not just the ones currently active in the user's Claude Code instance.
     _SKIP_DIRS = {
-        ".git", "node_modules", "__pycache__", ".venv", "venv",
-        "dist", "build", ".cache", ".tox", ".mypy_cache",
+        ".git",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "dist",
+        "build",
+        ".cache",
+        ".tox",
+        ".mypy_cache",
     }
     marketplace_root = home / ".claude" / "plugins" / "marketplaces"
     if marketplace_root.exists():
@@ -224,13 +233,10 @@ def get_all_element_locations(
             # Walk the marketplace directory tree to find element subdirectories
             # at any depth (structure varies: some have skills/ at depth 1,
             # others nest inside plugin-name/skills/ or plugin/version/skills/)
-            for dirpath, dirnames, _ in os.walk(
-                marketplace_dir, followlinks=False
-            ):
+            for dirpath, dirnames, _ in os.walk(marketplace_dir, followlinks=False):
                 # Prune directories we should never descend into
                 dirnames[:] = [
-                    d for d in dirnames
-                    if d not in _SKIP_DIRS and not d.startswith(".")
+                    d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")
                 ]
                 dp = Path(dirpath)
                 dir_name = dp.name
@@ -344,7 +350,7 @@ def _find_tool_names_in_source(plugin_dir: Path) -> list[str]:
 
 def _build_mcp_descriptor(
     name: str,
-    config: dict,
+    config: dict[str, Any],
     config_path: Path,
     plugin_dir: Path,
     marketplace: str,
@@ -417,8 +423,11 @@ def _discover_marketplace_mcps(seen_names: set[str]) -> list[dict[str, Any]]:
     if not marketplaces_dir.exists():
         return servers
 
-    # Security: use unpredictable temp directory per run instead of fixed path
-    descriptor_dir = Path(tempfile.mkdtemp(prefix="pss-mcp-"))
+    # Use a deterministic temp path, cleaned at start of each run to prevent leak
+    descriptor_dir = Path(tempfile.gettempdir()) / "pss-mcp-descriptors"
+    if descriptor_dir.exists():
+        shutil.rmtree(descriptor_dir)
+    descriptor_dir.mkdir(parents=True, exist_ok=True)
 
     skip_dirs = {"node_modules", ".git", "dist", "build", "__pycache__"}
     config_filenames = {".mcp.json", "mcp.json", "plugin.json"}
