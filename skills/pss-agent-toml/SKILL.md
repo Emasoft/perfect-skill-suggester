@@ -49,39 +49,16 @@ Copy this checklist and track your progress:
   - Template
   - Schema and Validator
 - [Workflow Phases 1-3](references/workflow-phases.md)
-  - Phase 1: Gather Context
-    - Read the agent definition file
-    - Read requirements documents
-    - Detect project languages from cwd
-  - Phase 2: Get Candidates from the Index
-    - Invoke the Rust binary
-    - Search for additional candidates
-  - Phase 3: Evaluate Each Candidate
-    - Read the candidate's source file
-    - Evaluate relevance
-    - Detect mutual exclusivity
-    - Check for obsolescence
-    - Verify stack compatibility
-    - Identify gaps
-    - Prune redundancy
+  - Phase 1: Gather Context (read agent def, requirements, detect languages)
+  - Phase 2: Get Candidates (invoke Rust binary, search for additional)
+  - Phase 3: Evaluate Each Candidate (relevance, mutual exclusivity, obsolescence, stack compatibility, gaps, redundancy)
 - [External Sources (Phase 4)](references/external-sources.md)
-  - From a local file or folder
-  - From an installed plugin
-  - From a marketplace plugin (not installed)
-  - From a GitHub/git repository URL
-  - From a network shared folder
-  - From a URL to a raw file
+  - From local file/folder, installed plugin, marketplace plugin, GitHub URL, network folder, raw URL
   - Phase 4 Completion Checklist
 - [Cross-Type Coherence (Phase 5)](references/cross-type-coherence.md)
-  - 5.1 Cross-type overlap detection
-  - 5.2 Coherence checklist
-  - 5.3 Resolution strategy
-  - 5.4 Autonomous vs Interactive mode
+  - Overlap detection, coherence checklist, resolution strategy, autonomous vs interactive mode
 - [Validation (Phase 6)](references/validation-protocol.md)
-  - Write the .agent.toml file
-  - Validate
-  - Clean up
-  - Completion Checklist
+  - Write .agent.toml, validate, clean up, completion checklist
 - [Review Protocol (Phase 7)](references/review-protocol.md)
   - Self-Review Checklist
     - Check 1: Name Integrity
@@ -123,10 +100,15 @@ Copy this checklist and track your progress:
 
 ## Error Handling
 
-- Missing skill index: run `/pss-reindex-skills` first
-- Binary not found: rebuild with `uv run scripts/pss_build.py`
-- Validation fails: fix errors, re-run phase 6
+- Missing index: run `/pss-reindex-skills`
+- Binary not found: `uv run scripts/pss_build.py`
+- Validation fails: fix errors, re-run
 
 ## Output
 
-Validated `.agent.toml` at `~/.claude/agents/<agent-name>.agent.toml`.
+`.agent.toml` at `~/.claude/agents/<agent-name>.agent.toml`.
+
+## Resources
+
+- **Schema**: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`
+- **Validator**: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`

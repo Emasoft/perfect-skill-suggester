@@ -403,9 +403,21 @@ uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH
 After validation passes, perform a mandatory self-review before reporting. If `--interactive` was requested or self-review finds issues, enter the interactive review loop.
 
 **Full specification: [Review Protocol](../skills/pss-agent-toml/references/review-protocol.md)**
-- Self-Review Checklist (Name Integrity, Auto-Skills Pinning, Non-Coding Filter, Coverage, Exclusion Quality, Fix Cycle)
-- Interactive Review Protocol (Activation Conditions, Review Summary Format, User Directives)
-- Search Integration (Finding Alternatives, Comparing Candidates, Adding from Search Results)
+- Self-Review Checklist
+  - Check 1: Name Integrity
+  - Check 2: Auto-Skills Pinning
+  - Check 3: Non-Coding Agent Filter
+  - Check 4: Coverage Analysis
+  - Check 5: Exclusion Quality
+  - Self-Review Fix Cycle
+- Interactive Review Protocol
+  - Activation Conditions
+  - Review Summary Format
+  - User Directives
+- Search Integration
+  - Finding Alternatives
+  - Comparing Candidates
+  - Adding from Search Results
 - Re-validation Loop
 - Completion Checklist
 
