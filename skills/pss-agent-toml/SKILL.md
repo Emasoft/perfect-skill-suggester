@@ -28,17 +28,9 @@ Builds `.agent.toml` profiles for Claude Code agents. AI evaluates scored candid
 
 ## Prerequisites
 
-- **Skill index**: `~/.claude/cache/skill-index.json` -- run `/pss-reindex-skills` if missing
-- **Rust binary**: `$CLAUDE_PLUGIN_ROOT/src/skill-suggester/bin/<platform>`
-- **Agent definition**: The `.md` file describing the agent to profile
-
-### Checklist
-
-Copy this checklist and track your progress:
-
-- [ ] Gather context, get candidates, evaluate each
-- [ ] Add external elements, cross-type coherence check
-- [ ] Write and validate `.agent.toml`
+- Skill index: `~/.claude/cache/skill-index.json` (run `/pss-reindex-skills` if missing)
+- Rust binary: `$CLAUDE_PLUGIN_ROOT/src/skill-suggester/bin/<platform>`
+- Agent definition `.md` file
 
 ## References
 
@@ -103,20 +95,12 @@ Copy this checklist and track your progress:
 /pss-setup-agent agents/my-reviewer.md --requirements docs/prd.md
 ```
 
-## Error Handling
-
-- Missing skill index: run `/pss-reindex-skills` first
-- Binary not found: rebuild with `uv run scripts/pss_build.py`
-- Validation fails: fix reported errors and re-run phase 6
-
 ## Output
 
-Validated `.agent.toml` written to `~/.claude/agents/<agent-name>.agent.toml`. Conforms to `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json` and passes `pss_validate_agent_toml.py` with exit code 0.
+Validated `.agent.toml` at `~/.claude/agents/<agent-name>.agent.toml`.
 
 ## Resources
 
 - **Schema**: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`
 - **Validator**: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`
-- **Categories**: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-categories.json`
 - **Skill Index**: `~/.claude/cache/skill-index.json`
-- **Rust Binary**: `${CLAUDE_PLUGIN_ROOT}/src/skill-suggester/bin/pss-<platform>`
