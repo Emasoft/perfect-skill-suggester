@@ -62,11 +62,15 @@ When an overlap or conflict is found:
 
 ## 5.4 Autonomous vs Interactive mode
 
-**Autonomous (default)**: Execute the full pipeline, apply all evaluation and coherence validation, resolve conflicts using the rules above, produce the final `.agent.toml`, and report the result. Only surface truly unresolvable conflicts to the user.
+**Autonomous (default)**: Execute the full pipeline, apply all evaluation and coherence validation, resolve conflicts using the rules above, produce the final `.agent.toml`, and report the result. After validation, a mandatory self-review checks for naming errors, auto_skills demotion, non-coding filter violations, coverage gaps, and exclusion quality. Auto-fixes are applied (max 2 cycles). Only surface truly unresolvable conflicts to the user.
 
-**Interactive (when requested)**: Present the draft profile with a comparison table, accept modifications (add/remove/move/replace elements), re-validate after each change, and confirm before writing.
+**Interactive (when requested)**: After autonomous generation and self-review, present the draft profile with a comparison table. Accept user directives to modify the profile: include/exclude elements, swap alternatives, move skills between tiers, search the index for better options. Re-validate after each change. Confirm before finalizing.
 
-Interactive mode activates only when:
+Interactive mode activates when:
+- The user passes `--interactive` to `/pss-setup-agent`
 - The user explicitly asks for review ("let me review the profile first")
 - An orchestrator requests collaboration ("present options for approval")
+- Self-review finds issues that cannot be auto-fixed after 2 cycles
 - Truly unresolvable conflicts are detected (equal alternatives with no deciding factor)
+
+**See [Review Protocol](review-protocol.md) for the full interactive review specification**, including the review summary format, directive syntax, search integration, and re-validation loop.

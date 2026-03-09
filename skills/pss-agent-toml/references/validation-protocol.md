@@ -26,6 +26,8 @@ If validation fails, fix the errors and re-validate. Common issues:
 - Tier size exceeded (primary > 7, secondary > 12, specialized > 8)
 - Agent name not kebab-case
 
+**After validation passes**: Proceed to the Review phase. The profiler performs a mandatory self-review (checks name integrity, auto_skills pinning, non-coding filter, coverage, exclusion quality) and optionally enters interactive review if `--interactive` was requested or self-review finds unfixable issues. See [Review Protocol](review-protocol.md) for the full specification.
+
 ## Clean up
 
 Delete the temporary JSON descriptor file.

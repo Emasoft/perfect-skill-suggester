@@ -398,11 +398,50 @@ uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH
 - Re-generate the file from scratch, paying attention to TOML escaping rules
 - Common issues: unescaped quotes inside strings, missing closing brackets, inline tables vs standard tables
 
+### Step 8b: Self-Review and Interactive Refinement
+
+After validation passes, perform a mandatory self-review before reporting. If `--interactive` was requested or self-review finds issues, enter the interactive review loop.
+
+**See [Review Protocol](../skills/pss-agent-toml/references/review-protocol.md) for the full specification.**
+
+#### 8b-i: Self-Review (ALWAYS runs)
+
+Re-read the generated `.agent.toml` AND the original agent definition. Check:
+
+1. **Name Integrity**: Every skill/agent name in TOML that appears in the agent definition matches EXACTLY (no prefix changes, no renaming to local index names)
+2. **Auto-Skills Pinning**: ALL frontmatter `auto_skills` are in `[skills].primary` (none demoted)
+3. **Non-Coding Filter**: If `writes_code=false`, verify: LSP is `[]`, no linting/formatting skills, no code-fixing agents, no test-writing agents
+4. **Coverage**: Every duty/domain from the agent definition has at least one supporting element
+5. **Exclusion Quality**: Every `[skills.excluded]` entry has a specific reason (not generic)
+
+If ANY check fails: fix the TOML in-place, re-validate (Step 8), re-check. Max 2 fix cycles. If still failing → activate interactive review.
+
+#### 8b-ii: Interactive Review (when `--interactive` OR self-review flagged issues)
+
+Present a profile review summary to the user showing all sections, tier assignments, exclusions, and any remaining issues. Accept user directives:
+
+- `include <name>` — search index, add element to appropriate section/tier
+- `exclude <name>` — remove element, add to excluded with reason
+- `swap <old> <new>` — replace element, show `pss compare` results first
+- `move <name> to <tier>` — move skill between primary/secondary/specialized
+- `search <query>` — search the index, show results (no TOML modification)
+- `approve` / `done` — accept profile and proceed to Step 9
+
+After each directive: edit TOML → re-validate (Step 8) → show updated summary. Loop until user approves.
+
+**CLI tools for interactive search:**
+```bash
+"${BINARY_PATH}" search "<query>" --type skill --top 10
+"${BINARY_PATH}" compare <id1> <id2>
+"${BINARY_PATH}" inspect <name-or-id> --format json
+"${BINARY_PATH}" list --type mcp --top 20
+```
+
 ### Step 9: Clean Up and Report
 
 - Delete the temporary `${PSS_INPUT}` file
 - **TOKEN BUDGET RULE**: Return ONLY a 1-2 line summary to the orchestrator. NEVER return verbose text, code blocks, TOML contents, candidate lists, or detailed reasoning. Write any detailed report to a file instead.
-- Output format: `[DONE] pss-agent-profiler - <agent-name>: P=<n> S=<n> Sp=<n> excluded=<n>. Output: <OUTPUT_PATH>`
+- Output format: `[DONE] pss-agent-profiler - <agent-name>: P=<n> S=<n> Sp=<n> excluded=<n> review-fixes=<n> user-changes=<n>. Output: <OUTPUT_PATH>`
 - If failed: `[FAILED] pss-agent-profiler - <error summary>`
 
 **Step 9 Completion Checklist** (MANDATORY before reporting DONE):
@@ -412,6 +451,8 @@ uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH
 - [ ] Output file exists at `${OUTPUT_PATH}` and is non-empty
 - [ ] Summary includes: primary count (P), secondary count (S), specialized count (Sp), excluded count
 - [ ] No validation errors remain
+- [ ] Self-review passed (all 5 checks green, or issues fixed within 2 cycles)
+- [ ] If `--interactive`: user explicitly typed `approve` or `done`
 - [ ] Response to orchestrator is MAX 2 lines — no verbose output
 
 ## Examples

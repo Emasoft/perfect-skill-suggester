@@ -38,7 +38,7 @@ Copy this checklist and track your progress:
 
 - [ ] Gather context, get candidates, evaluate each
 - [ ] Add external elements, cross-type coherence check
-- [ ] Write and validate `.agent.toml`
+- [ ] Write, validate, and review `.agent.toml`
 
 ## References
 
@@ -82,6 +82,13 @@ Copy this checklist and track your progress:
   - Write the .agent.toml file
   - Validate
   - Clean up
+  - Completion Checklist
+- [Review Protocol (Phase 7)](references/review-protocol.md)
+  - Self-Review Checklist
+  - Interactive Review Protocol
+  - Directive Reference
+  - Search Integration
+  - Re-validation Loop
   - Completion Checklist
 - [Setup Command](references/pss-setup-command.md)
   - Usage Examples
