@@ -2,11 +2,25 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.22] - 2026-03-09
+
+### Bug Fixes
+
+- Prevent temp directory leak in MCP descriptor discovery
+
+### Miscellaneous Tasks
+
+- Sync uv.lock with version 2.3.21
+
 ## [2.3.21] - 2026-03-09
 
 ### Features
 
 - Comprehensive audit — add profiler args, dependencies section, synonym fixes, debug output
+
+### Bump
+
+- Version 2.3.20 → 2.3.21
 
 ## [2.3.20] - 2026-03-09
 
