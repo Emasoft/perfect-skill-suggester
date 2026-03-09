@@ -1,6 +1,6 @@
 ---
 name: pss-agent-toml
-description: "Create .agent.toml profiles for Claude Code agents. AI selects elements, validates coherence, produces conflict-free profiles."
+description: "Use when creating .agent.toml profiles for agents. Trigger with /pss-setup-agent. AI selects elements, validates coherence, produces profiles."
 argument-hint: "<agent-path> [--requirements PATH...]"
 user-invocable: false
 ---
