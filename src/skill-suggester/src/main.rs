@@ -5873,6 +5873,128 @@ fn synonym_matches_in_text(synonym: &str, text: &str, words: &[&str]) -> bool {
     }
 }
 
+/// Locate the pss-nlp binary for NLP-based negation detection.
+/// Search order: same directory as pss binary, CLAUDE_PLUGIN_ROOT/bin/, PATH.
+fn find_pss_nlp_binary() -> Option<std::path::PathBuf> {
+    // 1. Same directory as the current pss binary
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join("pss-nlp");
+            if candidate.exists() {
+                return Some(candidate);
+            }
+            // Also check platform-specific names (bin/ directory layout)
+            #[cfg(target_os = "macos")]
+            {
+                let candidate = dir.join("pss-nlp-darwin-arm64");
+                if candidate.exists() { return Some(candidate); }
+                let candidate = dir.join("pss-nlp-darwin-x86_64");
+                if candidate.exists() { return Some(candidate); }
+            }
+            #[cfg(target_os = "linux")]
+            {
+                let candidate = dir.join("pss-nlp-linux-x86_64");
+                if candidate.exists() { return Some(candidate); }
+                let candidate = dir.join("pss-nlp-linux-arm64");
+                if candidate.exists() { return Some(candidate); }
+            }
+        }
+    }
+    // 2. CLAUDE_PLUGIN_ROOT/bin/
+    if let Ok(root) = std::env::var("CLAUDE_PLUGIN_ROOT") {
+        let bin_dir = std::path::Path::new(&root).join("bin");
+        let candidate = bin_dir.join("pss-nlp");
+        if candidate.exists() { return Some(candidate); }
+    }
+    // 3. Check PATH via which
+    if let Ok(output) = std::process::Command::new("which").arg("pss-nlp").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Some(std::path::PathBuf::from(path));
+            }
+        }
+    }
+    None
+}
+
+/// Call the pss-nlp binary to detect negated terms in a prompt.
+/// Returns a set of lowercase negated terms, or empty set if pss-nlp is unavailable.
+/// This is the key integration point between PSS scoring and NLP-based negation detection.
+fn detect_prompt_negations(prompt: &str) -> std::collections::HashSet<String> {
+    let mut result = std::collections::HashSet::new();
+
+    let binary = match find_pss_nlp_binary() {
+        Some(b) => b,
+        None => {
+            debug!("pss-nlp binary not found, skipping NLP negation detection");
+            return result;
+        }
+    };
+
+    // Build JSON request for prompt-mode negation detection
+    let request = serde_json::json!({
+        "mode": "prompt",
+        "text": prompt
+    });
+
+    // Call pss-nlp as subprocess with timeout (500ms max to keep prompt scoring fast)
+    let child = std::process::Command::new(&binary)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) => {
+            debug!("Failed to spawn pss-nlp: {}", e);
+            return result;
+        }
+    };
+
+    // Write request to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = writeln!(stdin, "{}", request);
+        // Drop stdin to signal EOF, which triggers pss-nlp to process and respond
+    }
+
+    // Read response from stdout with timeout
+    let output = match child.wait_with_output() {
+        Ok(o) => o,
+        Err(e) => {
+            debug!("pss-nlp wait failed: {}", e);
+            return result;
+        }
+    };
+
+    if !output.status.success() {
+        debug!("pss-nlp exited with non-zero status");
+        return result;
+    }
+
+    // Parse JSON response: {"negated_terms": ["react", "angular"], "patterns": [...]}
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(terms) = json.get("negated_terms").and_then(|v| v.as_array()) {
+                for term in terms {
+                    if let Some(s) = term.as_str() {
+                        result.insert(s.to_lowercase());
+                    }
+                }
+            }
+        }
+    }
+
+    if !result.is_empty() {
+        debug!("NLP negation detected terms: {:?}", result);
+    }
+
+    result
+}
+
 /// * `expanded_prompt` - The prompt after synonym expansion
 /// * `index` - The skill index to search
 /// * `cwd` - Current working directory for directory context matching
@@ -6331,6 +6453,12 @@ fn find_matches(
         debug!("Prompt inferred domains: {:?}", prompt_detected_domains);
     }
 
+    // NLP-based negation detection: call pss-nlp to identify negated terms in the prompt.
+    // E.g., "I don't want React" → negated_terms = {"react"}
+    // E.g., "avoid frameworks like Vue and Angular" → negated_terms = {"vue", "angular"}
+    // Called ONCE before the par_iter loop; result shared across all skill evaluations.
+    let prompt_negated_terms = detect_prompt_negations(original_prompt);
+
     // Parallel scoring: each skill scored independently across all CPU cores via rayon
     let mut matches: Vec<MatchedSkill> = index.skills.par_iter().filter_map(|(name, entry)| {
         let mut score: i32 = 0;
@@ -6349,6 +6477,42 @@ fn find_matches(
         if has_negative {
             debug!("Skipping skill '{}' due to negative keyword match", name);
             return None;
+        }
+
+        // NLP-based prompt negation gate: if the user explicitly negated a term that
+        // matches this skill's name, keywords, or frameworks, exclude the skill.
+        // E.g., "I don't want React" → exclude react-related skills.
+        // This uses pss-nlp for scope-aware negation detection (not simple string matching).
+        if !prompt_negated_terms.is_empty() {
+            let entry_name_lower = name.to_lowercase();
+            let is_skill_negated = prompt_negated_terms.iter().any(|neg_term| {
+                // Stem the negated term for fuzzy matching (e.g., "testing" → "test")
+                let neg_stem = stem_word(neg_term);
+                // Check skill name contains negated term (or its stem matches a name part)
+                entry_name_lower.contains(neg_term.as_str())
+                || entry_name_lower.split(|c: char| c == '-' || c == '_' || c == ' ')
+                    .any(|part| part == neg_stem || stem_word(part) == neg_stem)
+                // Check skill keywords match negated term (exact or stem)
+                || entry.keywords.iter().any(|kw| {
+                    let kl = kw.to_lowercase();
+                    kl == *neg_term || stem_word(&kl) == neg_stem
+                })
+                // Check skill frameworks match negated term (exact or stem)
+                || entry.frameworks.iter().any(|fw| {
+                    let fl = fw.to_lowercase();
+                    fl == *neg_term || stem_word(&fl) == neg_stem
+                })
+                // Check description starts with or prominently features negated term
+                || entry.description.to_lowercase().split_whitespace().take(5)
+                    .any(|w| {
+                        let clean = w.trim_matches(|c: char| !c.is_alphanumeric());
+                        clean == neg_term.as_str() || stem_word(clean) == neg_stem
+                    })
+            });
+            if is_skill_negated {
+                debug!("Skipping skill '{}' — matches NLP-negated term in prompt", name);
+                return None;
+            }
         }
 
         // Domain gate hard pre-filter: ALL gates must pass or skill is skipped entirely.
