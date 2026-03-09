@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.18] - 2026-03-09
+
+### Features
+
+- Add NLP-based negation detection via pss-nlp binary
+
 ## [2.3.17] - 2026-03-08
 
 ### Miscellaneous Tasks
@@ -11,6 +17,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Refactor
 
 - Hoist domain inference out of per-skill loop + add word-boundary matching
+
+### Bump
+
+- Version 2.3.16 → 2.3.17
 
 ## [2.3.16] - 2026-03-08
 
