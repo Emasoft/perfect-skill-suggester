@@ -49,12 +49,20 @@ You receive these from the command:
 Read the <agent-name>.md file completely. Extract:
 - **name**: The agent's name (from filename or content header)
 - **description**: What the agent does (from first paragraph or description field)
-- **role**: The agent's primary role (developer, tester, reviewer, deployer, etc.)
+- **role**: The agent's primary role (developer, tester, reviewer, deployer, orchestrator, etc.)
+- **agent_type**: From frontmatter `type:` field (e.g., "orchestrator", "specialist", "worker")
 - **domain**: The agent's domain (security, frontend, backend, devops, data, etc.)
 - **tools**: Tools the agent uses (from allowed-tools or tool mentions in the content)
 - **duties**: What the agent is responsible for (from bullet points, task descriptions, headers)
+- **auto_skills**: From frontmatter `auto_skills:` list — these are AUTHOR-DECLARED required skills
+- **sub_agents**: From routing tables, delegation sections — agents this agent delegates to
 - **examples**: Example use cases or trigger phrases mentioned in the file
 - **trigger_patterns**: Phrases that would invoke this agent
+- **writes_code**: Does this agent write/edit/analyze code directly, or only orchestrate?
+
+**CRITICAL — Name Preservation Rule**: The agent definition may reference skills, sub-agents, and commands from its OWN plugin (not installed locally). These names MUST be preserved EXACTLY as written in the agent definition, even if they don't exist in the local skill index. NEVER rename, re-prefix, or "correct" names from the agent definition to match locally installed elements. For example, if the agent references `amia-code-reviewer`, do NOT change it to `eia-code-reviewer` or any other prefix — use `amia-code-reviewer` exactly.
+
+**CRITICAL — Auto-Skills Pinning Rule**: Any skill listed in the frontmatter `auto_skills:` field is an AUTHOR-DECLARED requirement. These skills MUST always appear in `[skills].primary` — they may NEVER be demoted to secondary or specialized, regardless of scoring. The agent's author explicitly chose these skills; the profiler has no authority to override that decision.
 
 ### Step 2: Read Requirements Documents
 
@@ -184,6 +192,16 @@ Verify each candidate is compatible with the project's actual stack:
 - A React skill should not be recommended if the requirements specify Vue
 - A skill requiring a specific cloud provider should match the requirements
 
+#### 4c-bis. Non-Coding Agent Filter
+If the agent does NOT write code (orchestrators, coordinators, managers, gatekeepers):
+- **REMOVE** all language-specific linting/formatting skills (eslint, ruff, prettier, etc.)
+- **REMOVE** all code-fixing agents (python-code-fixer, js-code-fixer, etc.)
+- **REMOVE** all LSP-dependent skills
+- **REMOVE** all testing execution skills (python-test-writer, js-test-writer, etc.)
+- **KEEP** code review skills (the agent may review code without writing it)
+- **KEEP** quality gate skills (CI/CD, testing standards, coverage thresholds)
+- **KEEP** architecture/design skills (the agent may make architectural decisions)
+
 #### 4d. Requirements-Driven Promotion
 If requirements mention specific needs not covered by high-scoring candidates, use `pss search` to find relevant skills:
 ```bash
@@ -205,6 +223,10 @@ After post-filtering, classify the surviving skills:
 - **secondary** (max 12): Useful skills that will help with common tasks
 - **specialized** (max 8): Niche skills for specific situations that may arise
 
+**Auto-Skills Override**: If the agent's frontmatter has an `auto_skills:` list, ALL those skills MUST be placed in `primary` first. If this exceeds the max 7 limit, the primary limit is extended to accommodate all auto_skills (they are author-declared requirements and take absolute priority). Only the REMAINING primary slots (if any) are filled from scored candidates.
+
+**Name Integrity Check**: Before writing any skill/agent/command name to the TOML, verify it matches the exact name from the agent definition. Do NOT substitute names from the local index. If a name from the agent definition doesn't exist locally, include it anyway — the agent's plugin will provide it at runtime.
+
 ### Step 6: Identify Complementary Agents
 
 From the skill index's `co_usage` data and your understanding of the agent's role:
@@ -216,12 +238,15 @@ From the skill index's `co_usage` data and your understanding of the agent's rol
 
 Before identifying complementary elements, verify the skill tier assignments from Step 5:
 
-- [ ] `primary` contains 1-7 skills genuinely core to this agent's daily work
+- [ ] ALL `auto_skills` from frontmatter are in `primary` (NEVER demoted)
+- [ ] `primary` contains 1-7 skills genuinely core to this agent's daily work (limit extends if auto_skills > 7)
 - [ ] `secondary` contains useful-but-not-daily skills — max 12
 - [ ] `specialized` contains niche skills for specific situations — max 8
 - [ ] No skill appears in more than one tier
 - [ ] No empty skill names in any tier
 - [ ] Total primary + secondary + specialized ≤ 27
+- [ ] ALL names match exactly what appears in the agent definition (no prefix changes)
+- [ ] If agent is non-coding (orchestrator/coordinator): no LSP, linting, or code-fixing elements
 
 If any tier exceeds its limit or a skill appears in multiple tiers, re-classify before proceeding.
 
@@ -247,7 +272,16 @@ From the element index, find MCP servers that enhance this agent's capabilities:
 
 ### Step 6e: Assign LSP Servers (Language-Based)
 
-LSP assignment is language-based, NOT score-based:
+**FIRST: Check if this agent writes code.** If the agent's role is "orchestrator", or `agent_type` is "orchestrator", or the agent delegates ALL coding/analysis work to sub-agents (check `writes_code` from Step 1), then LSP servers are NOT needed. Set `recommended = []` and skip to Step 6f.
+
+**Non-coding agent indicators** (any of these → skip LSP):
+- `type: orchestrator` in frontmatter
+- Role is "orchestrator", "coordinator", "manager", or "gatekeeper"
+- Agent definition says "route to sub-agents", "delegate to", "does NOT write code"
+- Agent has a routing table of sub-agents for all code-related tasks
+- Agent's duties are exclusively: reviewing, routing, approving, reporting, coordinating
+
+**Only for code-writing agents**, LSP assignment is language-based:
 1. Detect project languages from cwd (look for package.json → TypeScript/JavaScript, pyproject.toml/setup.py → Python, Cargo.toml → Rust, go.mod → Go, *.swift → Swift, pom.xml/build.gradle → Java, *.cs/*.csproj → C#, CMakeLists.txt/Makefile → C/C++)
 2. Map detected languages to LSP names:
    - Python → pyright-lsp
@@ -258,7 +292,7 @@ LSP assignment is language-based, NOT score-based:
    - C/C++ → clangd-lsp
    - Swift → swift-lsp
    - C# → csharp-lsp
-3. If no software project detected, default to pyright-lsp (for writing scripts)
+3. If no software project detected in cwd, set `recommended = []` (do NOT default to any LSP)
 
 ### Step 6f: Identify Recommended Hooks
 

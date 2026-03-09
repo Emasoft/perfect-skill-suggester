@@ -27,10 +27,18 @@
 Read the agent's `.md` file completely. Extract:
 - **name**: From YAML frontmatter `name:` field or filename stem
 - **description**: From frontmatter `description:` or first non-heading paragraph
-- **role**: developer, tester, reviewer, deployer, designer, security, data-scientist
+- **role**: developer, tester, reviewer, deployer, designer, security, data-scientist, orchestrator
+- **agent_type**: From frontmatter `type:` field (e.g., "orchestrator", "specialist", "worker")
 - **duties**: From bullet lists under headings containing "responsibilities", "duties", "tasks"
 - **tools**: From frontmatter `tools:` / `allowed-tools:` or tool mentions in body
 - **domains**: From frontmatter or inferred (security, frontend, backend, devops, data, etc.)
+- **auto_skills**: From frontmatter `auto_skills:` list — author-declared required skills (MUST stay in primary)
+- **sub_agents**: From routing tables or delegation sections
+- **writes_code**: Does this agent write/edit/analyze code directly? (determines LSP and dev-skill filtering)
+
+**Name Preservation Rule**: Names referenced in the agent definition (skills, sub-agents, commands) MUST be preserved EXACTLY as written, even if they don't exist in the local index. NEVER rename or re-prefix them.
+
+**Auto-Skills Pinning Rule**: Any skill in `auto_skills:` frontmatter MUST appear in `[skills].primary` — never demoted.
 
 **1.2 Read requirements documents** (if available)
 
@@ -58,17 +66,21 @@ This determines LSP server assignment.
 - [ ] Agent `.md` file has been read in full (not just frontmatter)
 - [ ] `name` extracted (from frontmatter `name:` or filename stem)
 - [ ] `description` extracted (frontmatter or first non-heading paragraph)
-- [ ] `role` classified (developer/tester/reviewer/deployer/designer/security/data-scientist)
+- [ ] `role` classified (developer/tester/reviewer/deployer/designer/security/data-scientist/orchestrator)
+- [ ] `agent_type` extracted from frontmatter `type:` field (if present)
 - [ ] `duties` extracted (bullet lists under responsibilities/duties/tasks headings)
 - [ ] `tools` extracted (from frontmatter `tools:`/`allowed-tools:` or tool mentions in body)
 - [ ] `domains` extracted or inferred (security/frontend/backend/devops/data/etc.)
+- [ ] `auto_skills` extracted from frontmatter (these are PINNED to primary tier)
+- [ ] `sub_agents` extracted from routing tables or delegation sections
+- [ ] `writes_code` determined: does this agent write/edit/analyze code or only orchestrate?
 - [ ] All `--requirements` files have been read in full (or confirmed: no requirements provided)
 - [ ] `project_type` identified from requirements (web-app/cli-tool/mobile-app/library/api/microservice)
 - [ ] `tech_stack` extracted from requirements (specific frameworks, languages, databases)
 - [ ] `key_features` noted from requirements (features that drive skill selection)
 - [ ] `constraints` noted from requirements (performance, compliance, platform targets)
 - [ ] Project languages detected from cwd (presence of Cargo.toml/package.json/pyproject.toml/go.mod/etc.)
-- [ ] LSP server assignment pre-determined from detected languages
+- [ ] LSP server assignment pre-determined (SKIP for non-coding agents: orchestrators, coordinators, etc.)
 
 **If ANY item is unchecked: re-read the relevant file before proceeding.**
 
@@ -227,6 +239,17 @@ Use WebSearch to verify if unsure: "Is <library> deprecated in 2026?"
 - React skill when requirements specify Vue → REMOVE
 - AWS deployment skill when requirements specify Vercel → REMOVE
 
+**3.5b Non-coding agent filter** (applies when `writes_code` = false):
+
+If the agent is an orchestrator/coordinator/manager/gatekeeper that delegates all coding to sub-agents:
+- REMOVE language-specific linting/formatting skills (eslint, ruff, prettier, etc.)
+- REMOVE code-fixing agents (python-code-fixer, js-code-fixer, etc.)
+- REMOVE LSP-dependent skills
+- REMOVE test-writing agents (python-test-writer, js-test-writer, etc.)
+- KEEP code review skills (reviewing ≠ writing)
+- KEEP quality gate skills (CI/CD standards, coverage thresholds)
+- KEEP architecture/design skills
+
 **3.6 Identify gaps and search for missing elements**
 
 After reviewing candidates, check if requirements mention needs not covered:
@@ -253,5 +276,8 @@ If skill A covers everything skill B does plus more, remove skill B. Example: `e
 - [ ] Gap analysis done: every key requirement scanned for missing coverage
 - [ ] Redundancy pruning done: no strict-subset skills remain alongside their superset
 - [ ] Final candidates list assembled with intended tier assignment (primary/secondary/specialized)
+- [ ] All `auto_skills` from frontmatter are in the primary tier (NEVER demoted)
+- [ ] All names from agent definition preserved exactly (no prefix changes, no renaming)
+- [ ] Non-coding agent filter applied if agent is orchestrator/coordinator (no LSP, no linting/formatting skills)
 
 **If ANY candidate was NOT individually read: go back and read it before proceeding.**

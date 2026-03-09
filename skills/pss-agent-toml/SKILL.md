@@ -18,6 +18,14 @@ Builds `.agent.toml` profiles for Claude Code agents. AI evaluates scored candid
 3. Run `/pss-setup-agent <agent-path>` for the full 6-phase pipeline
 4. Review the generated `.agent.toml`
 
+## Critical Rules
+
+**Name Preservation**: NEVER rename skills, agents, or commands referenced in the agent definition. Preserve prefixes and names exactly as written (e.g., `amia-code-reviewer` stays `amia-code-reviewer`, never changed to match local index entries).
+
+**Auto-Skills Pinning**: Skills listed in the agent's `auto_skills:` frontmatter MUST always appear in `[skills].primary`. They may NEVER be demoted to secondary or specialized.
+
+**Non-Coding Agent Detection**: Orchestrators, coordinators, and managers that delegate all code work to sub-agents should NOT receive LSP servers, linting skills, code-fixing agents, or test-writing agents. Code REVIEW skills are fine (reviewing ≠ writing).
+
 ## Prerequisites
 
 - **Skill index**: `~/.claude/cache/skill-index.json` -- run `/pss-reindex-skills` if missing
