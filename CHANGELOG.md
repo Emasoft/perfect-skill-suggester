@@ -2,11 +2,30 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.20] - 2026-03-09
+
+### Features
+
+- Add interactive review & refinement to agent profiler (Step 8b)
+- Add interactive review & refinement to agent profiler
+- Add interactive review & refinement to agent profiler
+
 ## [2.3.19] - 2026-03-09
 
 ### Bug Fixes
 
 - Profiler name preservation, auto_skills pinning, non-coding agent detection
+- Restore 'Use when' and 'Trigger with' phrases in SKILL.md description
+
+### Miscellaneous Tasks
+
+- Trim SKILL.md under 4000 char validation limit
+- Condense SKILL.md to pass validation (add Error Handling, checklist, trim refs TOC)
+- Trim SKILL.md to 3868 chars (under 4000 limit) while keeping full refs TOC
+
+### Bump
+
+- Version 2.3.18 → 2.3.19
 
 ## [2.3.18] - 2026-03-09
 
