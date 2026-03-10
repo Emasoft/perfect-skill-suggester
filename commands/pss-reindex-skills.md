@@ -1,7 +1,7 @@
 ---
 name: pss-reindex-skills
 description: "Rebuild the PSS skill index from scratch using the Rust enrichment pipeline"
-argument-hint: "[--index-only-this-project]"
+argument-hint: "[--exclude-inactive-plugins]"
 allowed-tools: ["Bash", "Read"]
 ---
 
@@ -9,7 +9,7 @@ allowed-tools: ["Bash", "Read"]
 
 Rebuild the skill index using the deterministic Rust pipeline. Completes in under 10 seconds for 10K+ elements. No AI agents needed.
 
-By default, indexes **all registered projects** (every project in `~/.claude.json` plus user-scope elements). Use `--index-only-this-project` to restrict to the current project + user scope only.
+By default, indexes **all registered projects and all plugins** (every marketplace, every plugin). Use `--exclude-inactive-plugins` to skip plugins that the user has disabled in Claude Code settings.
 
 ## Instructions
 
@@ -28,11 +28,13 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(python3 -c "from pathlib import Path; dirs=
 uv run "$PLUGIN_ROOT/scripts/pss_reindex.py"
 ```
 
-To index only the current project + user scope:
+To exclude plugins the user has deactivated in Claude Code:
 
 ```bash
-uv run "$PLUGIN_ROOT/scripts/pss_reindex.py" --index-only-this-project
+uv run "$PLUGIN_ROOT/scripts/pss_reindex.py" --exclude-inactive-plugins
 ```
+
+This reads `enabledPlugins` from `~/.claude/settings.json` and skips any plugin where the value is `false`. Plugins not listed in `enabledPlugins` are included by default.
 
 ## Error Handling
 
@@ -50,8 +52,8 @@ uv run "$PLUGIN_ROOT/scripts/pss_reindex.py" --index-only-this-project
 ## Examples
 
 ```
-/pss-reindex-skills                        # All projects (default)
-/pss-reindex-skills --index-only-this-project  # Current project + user scope only
+/pss-reindex-skills                           # All projects, all plugins (default)
+/pss-reindex-skills --exclude-inactive-plugins  # Skip disabled plugins
 ```
 
 Output: `PSS Reindex Complete — Elements: 9275, Index: 12M, 7 seconds`

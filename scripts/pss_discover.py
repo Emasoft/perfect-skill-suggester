@@ -22,6 +22,7 @@ Usage:
     python3 pss_discover.py --checklist [--batch-size 10] [--output FILE]
     python3 pss_discover.py --all-projects
     python3 pss_discover.py --type skill,agent  # Filter to specific types
+    python3 pss_discover.py --exclude-inactive-plugins  # Skip disabled plugins
 
 Output Modes:
     Default: List of element paths with metadata (name, path, source, type)
@@ -63,6 +64,80 @@ def get_cwd() -> Path:
     if project_dir:
         return Path(project_dir)
     return Path.cwd()
+
+
+def _load_inactive_plugin_ids() -> tuple[set[str], set[str]]:
+    """Load inactive plugin identifiers from settings.json.
+
+    Returns:
+        (inactive_ids, disabled_marketplaces) where:
+        - inactive_ids: set of 'plugin@marketplace' strings explicitly disabled
+        - disabled_marketplaces: set of marketplace names where ALL plugins are disabled
+          (used as fallback for marketplaces without .claude-plugin/plugin.json)
+
+    Plugins not in enabledPlugins are considered active (included by default).
+    """
+    settings_path = get_claude_dir() / "settings.json"
+    if not settings_path.exists():
+        return set(), set()
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        enabled_map = data.get("enabledPlugins", {})
+        inactive_ids = {k for k, v in enabled_map.items() if v is False}
+
+        # Group by marketplace to find fully-disabled marketplaces
+        mp_statuses: dict[str, list[bool]] = {}
+        for plugin_id, is_active in enabled_map.items():
+            parts = plugin_id.split("@")
+            if len(parts) == 2:
+                mp_statuses.setdefault(parts[1], []).append(bool(is_active))
+        disabled_marketplaces = {
+            mp
+            for mp, statuses in mp_statuses.items()
+            if statuses and not any(statuses)
+        }
+
+        return inactive_ids, disabled_marketplaces
+    except (json.JSONDecodeError, OSError):
+        return set(), set()
+
+
+def _build_marketplace_plugin_map(marketplace_root: Path) -> dict[Path, str]:
+    """Build mapping from plugin directory to 'plugin-name@marketplace-name'.
+
+    Scans for .claude-plugin/plugin.json files to identify plugin boundaries.
+    Each plugin.json's parent dir (.claude-plugin/) parent is the plugin root.
+    """
+    plugin_map: dict[Path, str] = {}
+    if not marketplace_root.exists():
+        return plugin_map
+    for marketplace_dir in marketplace_root.iterdir():
+        if not marketplace_dir.is_dir() or marketplace_dir.name.startswith("."):
+            continue
+        mp_name = marketplace_dir.name
+        for plugin_json in marketplace_dir.rglob(".claude-plugin/plugin.json"):
+            try:
+                data = json.loads(plugin_json.read_text(encoding="utf-8"))
+                plugin_name = data.get("name", "")
+                if plugin_name:
+                    # Plugin dir is the parent of .claude-plugin/
+                    plugin_dir = plugin_json.parent.parent
+                    plugin_map[plugin_dir] = f"{plugin_name}@{mp_name}"
+            except (json.JSONDecodeError, OSError):
+                continue
+    return plugin_map
+
+
+def _get_plugin_id_for_path(
+    path: Path, plugin_map: dict[Path, str]
+) -> str | None:
+    """Find which plugin a given path belongs to by walking up the tree."""
+    current = path
+    while current != current.parent:
+        if current in plugin_map:
+            return plugin_map[current]
+        current = current.parent
+    return None
 
 
 def get_all_projects_from_claude_config() -> list[tuple[str, Path]]:
@@ -130,6 +205,7 @@ ELEMENT_SUBDIRS = {
 def get_all_element_locations(
     scan_all_projects: bool = False,
     element_types: list[str] | None = None,
+    exclude_inactive_plugins: bool = False,
 ) -> list[tuple[str, str, Path]]:
     """Get all locations where Claude Code elements can be found.
 
@@ -140,6 +216,8 @@ def get_all_element_locations(
         scan_all_projects: If True, scan all projects registered in ~/.claude.json
         element_types: If provided, only scan these types (e.g., ["skill", "agent"]).
                        None means scan all types.
+        exclude_inactive_plugins: If True, skip plugins disabled in settings.json
+                                  enabledPlugins map.
     """
     # Determine which subdirectories to scan
     if element_types:
@@ -148,6 +226,15 @@ def get_all_element_locations(
         subdirs_to_scan = {k: v for k, v in ELEMENT_SUBDIRS.items() if v in type_set}
     else:
         subdirs_to_scan = ELEMENT_SUBDIRS
+
+    # Load inactive plugin set when filtering is requested
+    inactive_ids: set[str] = set()
+    disabled_marketplaces: set[str] = set()
+    marketplace_plugin_map: dict[Path, str] = {}
+    if exclude_inactive_plugins:
+        inactive_ids, disabled_marketplaces = _load_inactive_plugin_ids()
+        marketplace_root = get_claude_dir() / "plugins" / "marketplaces"
+        marketplace_plugin_map = _build_marketplace_plugin_map(marketplace_root)
 
     locations: list[tuple[str, str, Path]] = []
     cwd = get_cwd()
@@ -179,6 +266,11 @@ def get_all_element_locations(
             for plugin in marketplace.iterdir():
                 if not plugin.is_dir():
                     continue
+                # Skip plugins disabled in settings.json
+                if inactive_ids:
+                    plugin_id = f"{plugin.name}@{marketplace.name}"
+                    if plugin_id in inactive_ids:
+                        continue
                 for version in plugin.iterdir():
                     if not version.is_dir():
                         continue
@@ -252,6 +344,20 @@ def get_all_element_locations(
                     # rel looks like: marketplace-name/subpath/skills
                     # source = "marketplace:<marketplace-name>"
                     mp_name = rel.parts[0]
+
+                    # Skip elements from inactive plugins
+                    if inactive_ids:
+                        pid = _get_plugin_id_for_path(dp, marketplace_plugin_map)
+                        if pid and pid in inactive_ids:
+                            dirnames.clear()
+                            continue
+                        # Fallback: if plugin can't be identified (no .claude-plugin/
+                        # plugin.json) but ALL plugins from this marketplace are
+                        # disabled, skip the entire marketplace
+                        if not pid and mp_name in disabled_marketplaces:
+                            dirnames.clear()
+                            continue
+
                     source_label = f"marketplace:{mp_name}"
                     locations.append((source_label, elem_type, dp))
                     # Do not descend into the element dir itself (no nested
@@ -412,7 +518,12 @@ def _build_mcp_descriptor(
     return out_file
 
 
-def _discover_marketplace_mcps(seen_names: set[str]) -> list[dict[str, Any]]:
+def _discover_marketplace_mcps(
+    seen_names: set[str],
+    inactive_plugin_ids: set[str] | None = None,
+    disabled_marketplaces: set[str] | None = None,
+    plugin_map: dict[Path, str] | None = None,
+) -> list[dict[str, Any]]:
     """Scan all marketplace plugins for MCP server configurations.
 
     Searches ~/.claude/plugins/marketplaces/ for:
@@ -421,6 +532,7 @@ def _discover_marketplace_mcps(seen_names: set[str]) -> list[dict[str, Any]]:
     - mcp.json files
 
     Deduplicates by server name. Builds descriptor files for each MCP.
+    Optionally filters out MCPs from inactive plugins.
     """
     servers: list[dict[str, Any]] = []
     marketplaces_dir = get_claude_dir() / "plugins" / "marketplaces"
@@ -443,6 +555,19 @@ def _discover_marketplace_mcps(seen_names: set[str]) -> list[dict[str, Any]]:
                 continue
             fpath = Path(root) / fname
             try:
+                # Skip MCPs from inactive plugins
+                if inactive_plugin_ids:
+                    root_path = Path(root)
+                    pid = _get_plugin_id_for_path(root_path, plugin_map) if plugin_map else None
+                    if pid and pid in inactive_plugin_ids:
+                        continue
+                    # Fallback: check if entire marketplace is disabled
+                    if not pid and disabled_marketplaces:
+                        rel = str(fpath).replace(str(marketplaces_dir) + "/", "")
+                        mp = rel.split("/")[0]
+                        if mp in disabled_marketplaces:
+                            continue
+
                 data = json.loads(fpath.read_text(encoding="utf-8"))
                 mcp_servers = data.get("mcpServers", data.get("mcp_servers", {}))
                 if not isinstance(mcp_servers, dict) or not mcp_servers:
@@ -516,13 +641,17 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
         return {}
 
 
-def discover_mcp_servers(scan_all_projects: bool = False) -> list[dict[str, Any]]:
+def discover_mcp_servers(
+    scan_all_projects: bool = False,
+    exclude_inactive_plugins: bool = False,
+) -> list[dict[str, Any]]:
     """Discover MCP servers from JSON config files.
 
     Sources:
     1. ~/.claude.json -> mcpServers key (user-level)
     2. .mcp.json in current project (project-level)
     3. (if scan_all_projects) Each project's .mcp.json
+    4. Marketplace plugins (optionally filtered by active status)
     """
     servers: list[dict[str, Any]] = []
     seen_names: set[str] = set()
@@ -605,7 +734,16 @@ def discover_mcp_servers(scan_all_projects: bool = False) -> list[dict[str, Any]
             _extract_servers(project_path / ".mcp.json", f"project:{project_path.name}")
 
     # 4. Marketplace plugins: ~/.claude/plugins/marketplaces/**/
-    marketplace_mcps = _discover_marketplace_mcps(seen_names)
+    mcp_inactive_ids: set[str] | None = None
+    mcp_disabled_mps: set[str] | None = None
+    mp_plugin_map: dict[Path, str] | None = None
+    if exclude_inactive_plugins:
+        mcp_inactive_ids, mcp_disabled_mps = _load_inactive_plugin_ids()
+        mp_root = get_claude_dir() / "plugins" / "marketplaces"
+        mp_plugin_map = _build_marketplace_plugin_map(mp_root)
+    marketplace_mcps = _discover_marketplace_mcps(
+        seen_names, mcp_inactive_ids, mcp_disabled_mps, mp_plugin_map
+    )
     servers.extend(marketplace_mcps)
 
     return servers
@@ -1124,6 +1262,12 @@ def main() -> int:
         action="store_true",
         help="Scan ALL projects registered in ~/.claude.json (comprehensive indexing)",
     )
+    # Inactive plugin filtering
+    parser.add_argument(
+        "--exclude-inactive-plugins",
+        action="store_true",
+        help="Skip plugins disabled in ~/.claude/settings.json enabledPlugins",
+    )
     parser.add_argument(
         "--type",
         type=str,
@@ -1180,6 +1324,7 @@ def main() -> int:
     all_locations = get_all_element_locations(
         scan_all_projects=scan_all_projects,
         element_types=element_types,
+        exclude_inactive_plugins=args.exclude_inactive_plugins,
     )
 
     if args.project_only:
@@ -1191,7 +1336,10 @@ def main() -> int:
 
     # Discover MCP servers (if type filter includes mcp or no filter)
     if not element_types or "mcp" in element_types:
-        mcp_servers = discover_mcp_servers(scan_all_projects=scan_all_projects)
+        mcp_servers = discover_mcp_servers(
+            scan_all_projects=scan_all_projects,
+            exclude_inactive_plugins=args.exclude_inactive_plugins,
+        )
         elements.extend(mcp_servers)
 
     # Discover LSP servers (if type filter includes lsp or no filter)

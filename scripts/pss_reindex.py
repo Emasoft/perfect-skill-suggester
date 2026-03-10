@@ -2,8 +2,8 @@
 """PSS Reindex — Rebuild the skill index using the deterministic Rust pipeline.
 
 Usage:
-    uv run scripts/pss_reindex.py                      # All projects (default)
-    uv run scripts/pss_reindex.py --index-only-this-project  # Current project + user scope only
+    uv run scripts/pss_reindex.py                           # All projects, all plugins
+    uv run scripts/pss_reindex.py --exclude-inactive-plugins  # Skip disabled plugins
 
 Steps:
     1. Back up old index
@@ -96,7 +96,11 @@ def backup_index(cache_dir: Path) -> Path:
 
 
 def run_pipeline(
-    scripts_dir: Path, binary: Path, staging_index: Path, *, all_projects: bool = True
+    scripts_dir: Path,
+    binary: Path,
+    staging_index: Path,
+    *,
+    exclude_inactive_plugins: bool = False,
 ) -> int:
     """Run the 3-stage pipeline: discover | enrich | merge.
 
@@ -104,13 +108,15 @@ def run_pipeline(
     Uses shell pipes so that discover's stderr warnings don't kill the pipeline.
 
     Args:
-        all_projects: If True (default), discover scans all registered projects.
-                      If False, only current project + user scope.
+        exclude_inactive_plugins: If True, pass --exclude-inactive-plugins to discover
+                                  to skip plugins disabled in settings.json.
     Returns the pipeline exit code.
     """
     warnings_file = Path(tempfile.gettempdir()) / "pss-discover-warnings.txt"
     stats_file = Path(tempfile.gettempdir()) / "pss-pass1-stats.txt"
-    discover_flags = "--jsonl --all-projects" if all_projects else "--jsonl"
+    discover_flags = "--jsonl --all-projects"
+    if exclude_inactive_plugins:
+        discover_flags += " --exclude-inactive-plugins"
     cmd = (
         f'python3 "{scripts_dir / "pss_discover.py"}" {discover_flags} 2>"{warnings_file}" '
         f'| "{binary}" --pass1-batch 2>"{stats_file}" '
@@ -176,12 +182,11 @@ def _cleanup_lockfile(cache_dir: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Rebuild the PSS skill index")
     parser.add_argument(
-        "--index-only-this-project",
+        "--exclude-inactive-plugins",
         action="store_true",
-        help="Index only current project + user scope (default: all projects)",
+        help="Skip plugins disabled in ~/.claude/settings.json enabledPlugins",
     )
     args = parser.parse_args()
-    all_projects = not args.index_only_this_project
 
     plugin_root = resolve_plugin_root()
     scripts_dir = plugin_root / "scripts"
@@ -198,7 +203,12 @@ def main() -> None:
     # Step 2: Pipeline writes to staging file (not the live index)
     # If crash/blackout happens here, old index is still intact and usable
     staging_index.unlink(missing_ok=True)
-    run_pipeline(scripts_dir, binary, staging_index, all_projects=all_projects)
+    run_pipeline(
+        scripts_dir,
+        binary,
+        staging_index,
+        exclude_inactive_plugins=args.exclude_inactive_plugins,
+    )
 
     # Verify the staging index
     element_count = verify_index_file(staging_index)
