@@ -1,28 +1,15 @@
 #!/usr/bin/env python3
-"""PSS Paths — Canonical path resolution for Claude config directory.
+"""PSS Paths — Canonical path resolution for Claude's user directory.
 
 All PSS scripts must use these functions instead of hardcoding ~/.claude.
-Respects CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME (matching Claude Code's behavior).
+Single source of truth: $HOME/.claude/
 """
 
-import os
 from pathlib import Path
 
 
 def get_claude_config_dir() -> Path:
-    """Resolve Claude's config directory.
-
-    Resolution order (matches Claude Code's own behavior):
-      1. CLAUDE_CONFIG_DIR env var (explicit override)
-      2. XDG_CONFIG_HOME/claude (XDG standard, mainly Linux)
-      3. ~/.claude (default)
-    """
-    env_dir = os.environ.get("CLAUDE_CONFIG_DIR")
-    if env_dir:
-        return Path(env_dir)
-    xdg_home = os.environ.get("XDG_CONFIG_HOME")
-    if xdg_home:
-        return Path(xdg_home) / "claude"
+    """Get Claude's config directory ($HOME/.claude)."""
     return Path.home() / ".claude"
 
 

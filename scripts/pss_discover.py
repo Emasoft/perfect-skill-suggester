@@ -53,12 +53,8 @@ def get_home_dir() -> Path:
 
 
 def get_claude_dir() -> Path:
-    """Get Claude's config directory, respecting CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME."""
-    try:
-        from pss_paths import get_claude_config_dir
-        return get_claude_config_dir()
-    except ImportError:
-        return get_claude_dir()
+    """Get Claude's user directory ($HOME/.claude)."""
+    return Path.home() / ".claude"
 
 
 def get_cwd() -> Path:
