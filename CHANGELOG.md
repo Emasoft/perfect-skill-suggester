@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.51] - 2026-03-10
+
+### Bug Fixes
+
+- Remove redundant 13MB JSON parse from Python hook
+
+### Miscellaneous Tasks
+
+- Update uv.lock
+
 ## [2.3.50] - 2026-03-10
 
 ### Bug Fixes
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update uv.lock
+
+### Bump
+
+- Version 2.3.49 → 2.3.50
 
 ## [2.3.49] - 2026-03-10
 
