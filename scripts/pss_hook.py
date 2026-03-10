@@ -676,10 +676,68 @@ def _exit_empty() -> None:
 
 
 def _exit_warning(msg: str) -> None:
-    """Exit with warning to stderr and valid empty hook output to stdout."""
-    print(f"PSS: {msg}", file=sys.stderr)
-    print(json.dumps(_EMPTY_HOOK_OUTPUT))
+    """Exit with warning as systemMessage (visible to user) and empty hook output."""
+    output: dict[str, Any] = dict(_EMPTY_HOOK_OUTPUT)
+    output["systemMessage"] = f"\033[0;33m⚡ PSS: {msg}\033[0m"
+    print(json.dumps(output))
     sys.exit(0)
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Check if a process with the given PID is still running."""
+    try:
+        os.kill(pid, 0)  # Signal 0 = existence check, no actual signal sent
+        return True
+    except OSError:
+        return False
+
+
+def _maybe_auto_reindex(index_path: Path) -> None:
+    """Auto-spawn a background reindex if no index exists, with PID lockfile guard.
+
+    - First call: spawns reindex, writes PID lockfile, notifies user
+    - Subsequent calls while reindex runs: detects live PID, just notifies
+    - After crash: detects dead PID, cleans up stale files, respawns
+    """
+    lock_path = index_path.with_suffix(".reindex.pid")
+    tmp_path = index_path.with_suffix(".json.tmp")
+
+    # Check if a reindex is already running
+    if lock_path.exists():
+        try:
+            pid = int(lock_path.read_text().strip())
+            if _is_pid_alive(pid):
+                # Reindex in progress — just notify and exit
+                _exit_warning("building skill index… suggestions available shortly")
+                return
+        except (ValueError, OSError):
+            pass
+        # PID is dead or lockfile corrupt — clean up stale artifacts
+        lock_path.unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)
+
+    # Spawn background reindex
+    script_dir = Path(__file__).parent.resolve()
+    reindex_script = script_dir / "pss_reindex.py"
+    if not reindex_script.exists():
+        _exit_warning(
+            f"skill-index.json not found and reindex script missing at {reindex_script} — "
+            f"run /pss-reindex-skills manually"
+        )
+        return
+
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, str(reindex_script)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,  # Detach from hook process group
+        )
+        # Write PID lockfile so subsequent hook calls know a reindex is running
+        lock_path.write_text(str(proc.pid))
+        _exit_warning("skill index not found — auto-reindex started, suggestions available shortly")
+    except OSError as e:
+        _exit_warning(f"skill-index.json not found, auto-reindex failed: {e}")
 
 
 def main() -> None:
@@ -715,13 +773,11 @@ def main() -> None:
             _exit_empty()
             return
 
-        # Check if skill index exists BEFORE doing any expensive work
+        # Check if skill index exists BEFORE doing any expensive work.
+        # If missing, auto-spawn a background reindex (once) and notify user.
         index_path = _get_cache_dir() / SKILL_INDEX_FILE
         if not index_path.exists():
-            _exit_warning(
-                f"skill-index.json not found at {index_path} — "
-                f"run /pss-reindex-skills in Claude Code to generate it"
-            )
+            _maybe_auto_reindex(index_path)
             return
 
         # Check if binary exists BEFORE doing any expensive work

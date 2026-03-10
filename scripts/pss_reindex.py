@@ -154,6 +154,15 @@ def human_size(path: Path) -> str:
     return f"{sz:.1f}T"
 
 
+def _cleanup_lockfile(cache_dir: Path) -> None:
+    """Remove the PID lockfile created by pss_hook.py's auto-reindex."""
+    lock_path = cache_dir / "skill-index.reindex.pid"
+    lock_path.unlink(missing_ok=True)
+    # Also remove any leftover .tmp from a prior crash
+    tmp_path = cache_dir / "skill-index.json.tmp"
+    tmp_path.unlink(missing_ok=True)
+
+
 def main() -> None:
     plugin_root = resolve_plugin_root()
     scripts_dir = plugin_root / "scripts"
@@ -176,6 +185,7 @@ def main() -> None:
             shutil.copy2(backup_index_file, cache_dir / "skill-index.json")
         warnings_file = Path(tempfile.gettempdir()) / "pss-discover-warnings.txt"
         print(f"Check {warnings_file} for details.")
+        _cleanup_lockfile(cache_dir)
         sys.exit(1)
 
     # Step 3: Build CozoDB
@@ -186,6 +196,9 @@ def main() -> None:
 
     # Step 5: Clean stale .pss files
     cleanup_stale(scripts_dir)
+
+    # Step 6: Clean up auto-reindex lockfile (if spawned by hook)
+    _cleanup_lockfile(cache_dir)
 
     # Report
     stats_file = Path(tempfile.gettempdir()) / "pss-pass1-stats.txt"
