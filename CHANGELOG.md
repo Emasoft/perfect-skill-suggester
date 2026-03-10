@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.29] - 2026-03-10
+
+### Bug Fixes
+
+- Version-aware sorting in plugin cache resolution
+
+### Miscellaneous Tasks
+
+- Sync uv.lock
+
 ## [2.3.28] - 2026-03-10
 
 ### Miscellaneous Tasks
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Styling
 
 - Ruff format pss_reindex.py
+
+### Bump
+
+- Version 2.3.27 → 2.3.28
 
 ## [2.3.27] - 2026-03-10
 
