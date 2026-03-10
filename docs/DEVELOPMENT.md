@@ -402,14 +402,16 @@ The `/pss-setup-agent` command profiles agent definitions and generates `.agent.
 ### Workflow
 
 1. **Context Gathering**: Reads agent `.md` definition + optional requirements documents
-2. **Binary Scoring**: Rust binary scores ~30 candidates from the skill index
+2. **Two-Pass Scoring**: Pass 1 scores agent-only descriptor; Pass 2 scores requirements-only descriptor (when `--requirements` provided)
 3. **AI Post-Filtering**: Profiler agent applies mutual exclusivity, stack compatibility, non-coding detection, redundancy pruning
-4. **Force Include/Exclude**: User-specified `--include`/`--exclude` directives applied
-5. **Tier Classification**: Skills sorted into primary/secondary/specialized tiers
-6. **Cross-Type Coherence**: Validates no overlaps between skills, agents, MCP, commands
-7. **Write & Validate**: Generates `.agent.toml`, validates against schema
-8. **Self-Review**: Checks name integrity, auto_skills pinning, non-coding filter, coverage, exclusion quality
-9. **Interactive Review** (optional): User reviews profile, issues directives to modify
+4. **Specialization Cherry-Pick**: Requirements candidates filtered by agent's domain/duties (pss-design-alignment skill)
+5. **Force Include/Exclude**: User-specified `--include`/`--exclude` directives applied
+6. **Tier Classification**: Skills sorted into primary/secondary/specialized tiers
+7. **Cross-Type Coherence**: Validates no overlaps between skills, agents, MCP, commands
+8. **Write & Validate**: Generates `.agent.toml`, validates against schema
+9. **Element Verification**: Anti-hallucination check — all names verified against skill index
+10. **Self-Review**: Checks name integrity, auto_skills pinning, non-coding filter, coverage, exclusion quality
+11. **Interactive Review** (optional): User reviews profile, issues directives to modify
 
 ### Key Files
 
@@ -418,6 +420,9 @@ The `/pss-setup-agent` command profiles agent definitions and generates `.agent.
 - `schemas/pss-agent-toml-schema.json` — JSON Schema for `.agent.toml` format
 - `scripts/pss_validate_agent_toml.py` — Validator script
 - `commands/pss-setup-agent.md` — Command definition with argument parsing
+- `scripts/pss_verify_profile.py` — Element verification script (anti-hallucination)
+- `skills/pss-design-alignment/SKILL.md` — Requirements alignment skill (two-pass scoring + cherry-pick)
+- `commands/pss-change-agent-profile.md` — Command for modifying existing profiles
 
 ### `.agent.toml` Sections
 
@@ -433,6 +438,17 @@ The `/pss-setup-agent` command profiles agent definitions and generates `.agent.
 | `[hooks]` | Hook configurations |
 | `[lsp]` | Language server assignments |
 | `[dependencies]` | Required plugins, skills, MCP servers, CLI tools |
+
+### Modifying Existing Profiles
+
+The `/pss-change-agent-profile` command modifies existing `.agent.toml` profiles with natural language instructions:
+
+```bash
+/pss-change-agent-profile /path/to/agent.agent.toml add websocket-handler to primary skills
+/pss-change-agent-profile /path/to/agent.agent.toml --requirements docs/prd.md align with project requirements
+```
+
+Changes are verified against the skill index and validated against the schema before writing.
 
 ---
 

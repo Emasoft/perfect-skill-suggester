@@ -10500,42 +10500,63 @@ fn extract_pass1_languages(keywords: &[String]) -> Vec<String> {
 fn extract_pass1_frameworks(keywords: &[String]) -> Vec<String> {
     // Tier 4 (10K-90K): Comprehensive development frameworks and platforms
     let fw_set: &[&str] = &[
-        // JS/TS frameworks
+        // JS/TS frontend frameworks
         "react", "vue", "angular", "svelte", "nextjs", "next", "nuxt", "express",
         "remix", "gatsby", "astro", "sveltekit", "solidjs", "qwik", "hono", "elysia",
-        "fresh", "ember", "backbone", "preact",
+        "fresh", "ember", "backbone", "preact", "htmx", "alpine",
+        // JS/TS backend frameworks
+        "koa", "fastify", "nest", "nestjs", "graphql", "trpc",
+        // JS/TS runtimes & bundlers
+        "bun", "deno", "vite", "turbopack", "rspack", "esbuild", "rollup", "webpack", "parcel",
         // Python frameworks
         "django", "flask", "fastapi", "starlette", "tornado", "sanic", "litestar",
         // Ruby frameworks
         "rails", "sinatra",
         // Java/JVM frameworks
-        "spring", "quarkus", "micronaut",
+        "spring", "spring-boot", "quarkus", "micronaut", "graalvm",
         // PHP frameworks
         "laravel", "symfony",
+        // Elixir/Erlang frameworks
+        "phoenix",
         // Go frameworks
         "gin", "echo", "fiber",
         // Rust frameworks
         "axum", "actix", "rocket",
-        // CSS/UI frameworks
-        "tailwind", "bootstrap",
+        // CSS/UI frameworks & component libraries
+        "tailwind", "bootstrap", "shadcn", "daisyui", "bulma", "chakra-ui", "mantine",
+        "radix", "headless-ui", "mui", "material-ui", "ant-design",
         // Desktop/native frameworks
-        "electron", "tauri",
-        // Game engines (framework-tier platforms)
-        "unity", "unreal", "godot",
+        "electron", "tauri", "maui", "avalonia", "qt",
+        // Game engines & frameworks
+        "unity", "unreal", "godot", "bevy", "phaser", "raylib", "love2d", "pygame",
+        "pixi", "babylonjs", "threejs",
+        // Graphics & rendering
+        "skia", "skia-sharp", "skia-graphite", "graphite", "vulkan", "metal", "opengl",
+        "directx", "webgpu", "wgpu", "sdl2", "sdl3", "dawn",
         // ML/AI frameworks
-        "tensorflow", "pytorch", "keras", "langchain", "llamaindex",
+        "tensorflow", "pytorch", "keras", "jax", "scikit-learn", "sklearn",
+        "huggingface", "transformers", "fastai", "onnx", "mlflow",
+        "langchain", "llamaindex", "wandb", "ray", "dask",
+        // AI image generation
+        "stable-diffusion", "diffusers", "comfyui",
         // Mobile frameworks
         "flutter", "swiftui", "jetpack", "compose", "xamarin",
-        // Backend/API frameworks
-        "nest", "nestjs", "graphql", "trpc",
+        "react-native", "kotlin-multiplatform", "ionic", "capacitor", "expo",
         // ORM/DB frameworks
         "prisma", "drizzle", "typeorm", "sequelize", "sqlalchemy", "diesel",
         // Testing frameworks
         "playwright", "cypress", "jest", "pytest", "vitest", "mocha",
-        // DevOps/infra frameworks (framework-tier platforms)
-        "docker", "kubernetes", "terraform",
-        // Other
-        "storybook",
+        "selenium", "rspec", "junit", "testng", "jasmine",
+        // Data engineering frameworks
+        "kafka", "spark", "flink", "airflow", "dbt", "snowflake",
+        "delta-lake", "iceberg", "polars",
+        // DevOps/infra frameworks
+        "docker", "kubernetes", "terraform", "pulumi", "ansible",
+        "cloudformation", "helm", "argocd",
+        // WebAssembly
+        "wasm", "webassembly", "wasmtime",
+        // Meta-frameworks & tools
+        "wasp", "storybook",
     ];
 
     keywords
@@ -10574,31 +10595,42 @@ fn extract_pass1_tools(keywords: &[String]) -> Vec<String> {
     let tool_set: &[&str] = &[
         // Build tools
         "webpack", "vite", "esbuild", "rollup", "parcel", "turbopack", "swc",
-        "tsup", "unbuild", "gulp", "grunt", "make", "cmake", "bazel",
+        "tsup", "unbuild", "gulp", "grunt", "make", "cmake", "bazel", "meson",
+        "rspack", "nx", "turborepo", "lerna",
         // Package managers
         "npm", "yarn", "pnpm", "pip", "cargo", "brew", "homebrew", "cocoapods",
-        "maven", "gradle", "nuget", "composer",
+        "maven", "gradle", "nuget", "composer", "uv", "rye", "poetry", "pipenv",
         // Runtimes
         "bun", "deno", "node", "nodejs",
         // DevOps tools
         "docker", "terraform", "ansible", "vagrant", "helm", "pulumi",
-        "nginx", "caddy", "traefik",
+        "nginx", "caddy", "traefik", "argocd", "kustomize", "istio",
+        "envoy", "consul", "vault",
         // Testing tools
         "jest", "vitest", "mocha", "karma", "selenium", "puppeteer",
-        "playwright", "cypress", "pytest",
+        "playwright", "cypress", "pytest", "junit", "rspec", "testng",
         // Linters & formatters
         "eslint", "prettier", "ruff", "black", "mypy", "pyright", "clippy",
-        "rubocop", "stylelint", "biome", "oxlint", "tslint",
+        "rubocop", "stylelint", "biome", "oxlint", "tslint", "shellcheck",
+        "flake8", "pylint", "isort",
         // CLI tools
         "git", "gh", "curl", "wget", "ffmpeg", "imagemagick", "pandoc",
-        "jq", "ripgrep", "fd", "fzf", "tmux",
+        "jq", "ripgrep", "fd", "fzf", "tmux", "wrangler",
         // Database tools
         "redis", "sqlite", "postgres", "postgresql", "mysql", "mongodb",
-        "dynamodb", "couchdb", "cassandra",
+        "dynamodb", "couchdb", "cassandra", "supabase", "neon", "planetscale",
+        // Data tools
+        "kafka", "spark", "flink", "airflow", "dbt", "snowflake",
+        "bigquery", "duckdb", "polars", "pandas", "clickhouse",
+        // Graphics & rendering tools
+        "skia", "skia-sharp", "skia-graphite", "graphite", "vulkan", "opengl", "metal",
+        "webgpu", "wgpu", "sdl2", "sdl3", "dawn", "directx",
+        // AI/ML tools
+        "mlflow", "wandb", "onnx", "tensorrt", "triton", "comfyui",
         // Editors/IDEs
         "vim", "neovim", "vscode", "emacs", "xcode",
         // Container/orchestration tools
-        "kubernetes", "k8s", "minikube", "skaffold",
+        "kubernetes", "k8s", "minikube", "skaffold", "podman",
     ];
 
     keywords

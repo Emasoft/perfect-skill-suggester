@@ -359,18 +359,41 @@ The Rust binary operates in two modes:
 4. **No hash-based change detection** - adds complexity without value
 5. **No cleanup scripts** - the index is a superset by design
 
-### Agent TOML Generation (v2.1.0)
+### Agent TOML Generation (v2.3.0)
 
 The `/pss-setup-agent` command + `pss-agent-profiler` agent generate `.agent.toml` configuration files:
 
 1. **Discovery**: Analyze agent definition (.md) + optional requirements docs
-2. **Scoring**: Rust binary scores ALL indexed elements against agent requirements
-3. **AI Post-filtering**: Profiler agent applies intelligent filters:
+2. **Two-Pass Scoring**:
+   - **Pass 1** (agent-only): Rust binary scores elements against agent descriptor → baseline candidates
+   - **Pass 2** (requirements-only): Rust binary scores elements against requirements descriptor → project-level candidates
+3. **Specialization Cherry-Pick**: For each requirements candidate, evaluate domain overlap + duty matching + practical usage test. Only elements matching the agent's specialization are accepted (pss-design-alignment skill).
+4. **AI Post-filtering**: Profiler agent applies intelligent filters:
    - Mutual exclusivity (e.g., Jest vs Vitest, React vs Vue)
    - Stack compatibility (language/framework alignment)
    - Redundancy pruning (overlapping capabilities)
-4. **Tier assignment**: Elements sorted into primary/secondary/specialized tiers
-5. **Validation**: `pss_validate_agent_toml.py` checks schema conformance + index cross-reference
+5. **Tier assignment**: Elements sorted into primary/secondary/specialized tiers
+6. **Validation**: `pss_validate_agent_toml.py` checks schema conformance + index cross-reference
+7. **Element Verification**: `pss_verify_profile.py` checks ALL element names against the skill index (anti-hallucination). Detects misspelled names, wrong-type placements, and missing elements with fuzzy correction suggestions.
+8. **Profile Modification**: `/pss-change-agent-profile` modifies existing profiles with natural language instructions, re-verifying after each change.
+
+### Element Verification (Anti-Hallucination)
+
+The `pss_verify_profile.py` script validates all element names in `.agent.toml` against the skill index:
+
+| Check | Description |
+|-------|-------------|
+| Index lookup | Every skill/agent/command/rule/MCP/LSP name must exist in `skill-index.json` |
+| Agent-defined names | Names from the agent's own plugin are marked as "agent-defined", not flagged |
+| Auto-skills pinning | Skills listed in frontmatter `auto_skills:` must be in primary tier |
+| Non-coding filter | Orchestrators/coordinators should not have LSP/linting/code-fixing elements |
+| Fuzzy correction | Misspelled names get closest-match suggestions with hyphen/underscore normalization |
+| Force include/exclude | User-specified restrictions are enforced |
+
+```bash
+uv run scripts/pss_verify_profile.py <file.agent.toml> --agent-def <agent.md> --verbose
+uv run scripts/pss_verify_profile.py <file.agent.toml> --auto-fix  # Auto-correct misspellings
+```
 
 ---
 
