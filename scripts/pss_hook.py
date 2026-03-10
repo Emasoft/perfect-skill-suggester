@@ -559,23 +559,17 @@ def detect_prompt_context(
 
 
 def augment_prompt_with_context(prompt: str, _cwd: str, transcript_path: str) -> str:
-    """Augment short prompts by prepending the previous user message.
+    """Concatenate previous user message + current prompt in full.
 
-    Users often write follow-up prompts that refer to what they just said
-    (e.g., "now do it with bun" after "migrate the project"). Concatenating
-    the previous message gives the scorer the full conversational context.
-
-    Only augments short prompts (<=80 chars) to avoid noise on already-specific ones.
+    Users often write follow-up prompts referring to what they just said.
+    Always concatenate both messages so the scorer sees the full intent.
     Note: _cwd is unused — project context is passed separately via extract_context_metadata.
     """
     prompt_stripped = prompt.strip()
-    if len(prompt_stripped) > 80:
-        return prompt  # Already specific enough
 
-    # Get the previous user message for conversational continuity
+    # Always concatenate previous message + current prompt, no truncation, no caps
     prev_msg = extract_previous_user_message(transcript_path)
     if prev_msg:
-        # Concatenate previous message + current prompt so the scorer sees the full intent
         return f"{prev_msg} {prompt_stripped}"
 
     return prompt
