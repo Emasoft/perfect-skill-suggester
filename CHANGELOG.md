@@ -2,11 +2,25 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.46] - 2026-03-10
+
+### Bug Fixes
+
+- Add --exclude-inactive-plugins flag to discovery and reindex
+
+### Miscellaneous Tasks
+
+- Sync uv.lock with current version 2.3.45
+
 ## [2.3.45] - 2026-03-10
 
 ### Bug Fixes
 
 - Add --index-only-this-project flag to pss-reindex-skills command
+
+### Bump
+
+- Version 2.3.44 → 2.3.45
 
 ## [2.3.44] - 2026-03-10
 
