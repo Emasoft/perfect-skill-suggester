@@ -124,6 +124,10 @@ Copy this checklist and track your progress:
 - Binary not found: `uv run scripts/pss_build.py`
 - Validation: fix errors, re-run
 
+## Output
+
+`.agent.toml` in `~/.claude/agents/`.
+
 ## Resources
 
 - `schemas/pss-agent-toml-schema.json`
