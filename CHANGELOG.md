@@ -2,6 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.27] - 2026-03-10
+
+### Bug Fixes
+
+- Remove pipefail from reindex script — discover stderr warnings killed pipeline
+- Resolve mypy type error in pss_reindex.py (int/float assignment)
+
+### Miscellaneous Tasks
+
+- Sync lock files (Cargo.lock, uv.lock)
+
+### Refactor
+
+- Convert reindex command from bash to Python script
+
 ## [2.3.26] - 2026-03-10
 
 ### Bug Fixes
@@ -15,6 +30,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Build
 
 - Rebuild PSS binaries for all platforms
+
+### Bump
+
+- Version 2.3.25 → 2.3.26
 
 ## [2.3.25] - 2026-03-10
 
