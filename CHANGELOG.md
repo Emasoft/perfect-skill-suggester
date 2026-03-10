@@ -2,6 +2,19 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.35] - 2026-03-10
+
+### Bug Fixes
+
+- Embed TOC headings in profiler refs, add Use when/Trigger with to design-alignment
+- Match workflow-phases TOC headings exactly, trim SKILL.md under 4000 chars
+- Add numbered workflow steps, trim to 3872 chars
+- Restore required Resources section (3965 chars)
+
+### Features
+
+- Two-pass scoring architecture + pss-design-alignment skill
+
 ## [2.3.34] - 2026-03-10
 
 ### Bug Fixes
@@ -15,6 +28,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Add agent profile change command, verify script, and update profiler docs
+
+### Bump
+
+- Version 2.3.33 → 2.3.34
 
 ## [2.3.33] - 2026-03-10
 
