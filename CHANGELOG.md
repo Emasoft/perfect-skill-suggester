@@ -2,6 +2,20 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.34] - 2026-03-10
+
+### Bug Fixes
+
+- Embed complete TOC headings in SKILL.md references and trim to <4000 chars
+- Restore required SKILL.md sections and fix description for validator
+- Add checklist back to SKILL.md, compact review-protocol TOC to stay under 4000 chars
+- Expand all TOC entries in SKILL.md references, add checklist phrase
+- Restore required ## Output section in SKILL.md (3984 chars)
+
+### Miscellaneous Tasks
+
+- Add agent profile change command, verify script, and update profiler docs
+
 ## [2.3.33] - 2026-03-10
 
 ### Bug Fixes
@@ -11,6 +25,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Sync uv.lock
+
+### Bump
+
+- Version 2.3.32 → 2.3.33
 
 ## [2.3.32] - 2026-03-10
 
