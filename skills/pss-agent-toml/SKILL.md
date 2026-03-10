@@ -127,3 +127,8 @@ Copy this checklist and track your progress:
 ## Output
 
 `.agent.toml` in `~/.claude/agents/`.
+
+## Resources
+
+- `schemas/pss-agent-toml-schema.json`
+- `scripts/pss_validate_agent_toml.py`
