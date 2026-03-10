@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.45] - 2026-03-10
+
+### Bug Fixes
+
+- Add --index-only-this-project flag to pss-reindex-skills command
+
 ## [2.3.44] - 2026-03-10
 
 ### Bug Fixes
 
 - Crash-safe reindex with atomic index swap and corrupt detection
+
+### Bump
+
+- Version 2.3.43 → 2.3.44
 
 ## [2.3.43] - 2026-03-10
 
