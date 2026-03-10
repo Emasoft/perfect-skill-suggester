@@ -10547,9 +10547,13 @@ fn extract_pass1_frameworks(keywords: &[String]) -> Vec<String> {
         // Testing frameworks
         "playwright", "cypress", "jest", "pytest", "vitest", "mocha",
         "selenium", "rspec", "junit", "testng", "jasmine",
-        // Data engineering frameworks
+        // Data engineering & orchestration frameworks
         "kafka", "spark", "flink", "airflow", "dbt", "snowflake",
         "delta-lake", "iceberg", "polars",
+        "prefect", "temporal", "dagster", "kestra", "zenml", "kubeflow", "mage",
+        "windmill",
+        // Task queue & message broker frameworks
+        "celery", "dramatiq", "taskiq", "rabbitmq", "redis",
         // DevOps/infra frameworks
         "docker", "kubernetes", "terraform", "pulumi", "ansible",
         "cloudformation", "helm", "argocd",
@@ -10619,9 +10623,13 @@ fn extract_pass1_tools(keywords: &[String]) -> Vec<String> {
         // Database tools
         "redis", "sqlite", "postgres", "postgresql", "mysql", "mongodb",
         "dynamodb", "couchdb", "cassandra", "supabase", "neon", "planetscale",
-        // Data tools
+        // Data & orchestration tools
         "kafka", "spark", "flink", "airflow", "dbt", "snowflake",
         "bigquery", "duckdb", "polars", "pandas", "clickhouse",
+        "prefect", "temporal", "dagster", "kestra", "zenml", "kubeflow", "mage",
+        "windmill",
+        // Task queue & message broker tools
+        "celery", "dramatiq", "taskiq", "rabbitmq",
         // Graphics & rendering tools
         "skia", "skia-sharp", "skia-graphite", "graphite", "vulkan", "opengl", "metal",
         "webgpu", "wgpu", "sdl2", "sdl3", "dawn", "directx",
@@ -10671,6 +10679,8 @@ fn extract_pass1_services(keywords: &[String]) -> Vec<String> {
         "sanity", "contentful", "strapi", "wordpress",
         // CI/CD services
         "circleci", "travisci", "jenkins",
+        // Managed orchestration services
+        "composer", "mwaa", "sagemaker",
     ];
 
     keywords
