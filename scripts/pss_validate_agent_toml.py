@@ -27,7 +27,7 @@ try:
     import tomllib
 except ImportError:
     try:
-        import tomli as tomllib  # type: ignore[no-redefine]
+        import tomli as tomllib  # type: ignore[no-redef]
     except ImportError:
         sys.exit("ERROR: Python 3.11+ or 'tomli' package required for TOML parsing.")
 
