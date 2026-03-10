@@ -1,6 +1,6 @@
 ---
 name: pss-agent-toml
-description: "Creates .agent.toml profiles. Trigger: /pss-setup-agent. AI selects elements, validates coherence, produces profiles."
+description: "Use when creating .agent.toml profiles. Trigger with /pss-setup-agent. AI selects elements, validates coherence."
 argument-hint: "<agent-path> [--requirements PATH...]"
 user-invocable: false
 ---
@@ -9,36 +9,25 @@ user-invocable: false
 
 ## Overview
 
-Builds `.agent.toml` profiles via 7-phase pipeline: gather context, score candidates (Rust binary), resolve conflicts, validate, review.
+7-phase pipeline: gather context, score candidates (Rust binary), resolve conflicts, validate, review.
 
 ## Instructions
 
-1. Ensure skill index exists (run `/pss-reindex-skills` if missing)
-2. Run `/pss-setup-agent <agent-path>` for the full pipeline (creates new profile)
-3. Run `/pss-change-agent-profile <profile-path> <instructions>` to modify an existing profile
-4. Review the generated `.agent.toml`
+1. Run `/pss-setup-agent <agent-path>` (creates new profile)
+2. Run `/pss-change-agent-profile <profile-path> <instructions>` (modify existing)
+3. Review the generated `.agent.toml`
 
 ## Critical Rules
 
-**Name Preservation**: NEVER rename skills/agents/commands from the agent definition.
-
-**Auto-Skills Pinning**: `auto_skills:` frontmatter entries MUST stay in `[skills].primary`, never demoted.
-
-**Non-Coding Agent Detection**: Orchestrators that delegate code work should NOT receive LSP, linting, or code-fixing elements. Code REVIEW skills are fine.
+- NEVER rename skills/agents/commands from the agent definition
+- `auto_skills:` frontmatter entries MUST stay in `[skills].primary`
+- Non-coding agents: no LSP/linting/code-fix elements (code REVIEW is fine)
 
 ## Prerequisites
 
-- **Skill index**: `~/.claude/cache/skill-index.json` -- run `/pss-reindex-skills` if missing
-- **Rust binary**: `$CLAUDE_PLUGIN_ROOT/src/skill-suggester/bin/<platform>`
-- **Agent definition**: The `.md` file to profile
-
-### Checklist
-
-Copy this checklist and track your progress:
-
-- [ ] Gather context, get candidates, evaluate each
-- [ ] Add external elements, cross-type coherence check
-- [ ] Write, validate, verify elements (anti-hallucination), and review `.agent.toml`
+- Skill index at `~/.claude/cache/skill-index.json` (run `/pss-reindex-skills`)
+- Rust binary at `$CLAUDE_PLUGIN_ROOT/src/skill-suggester/bin/<platform>`
+- Agent `.md` file to profile
 
 ## References
 
@@ -114,6 +103,26 @@ Copy this checklist and track your progress:
   - Validation Failure
   - Missing Environment Variable
 
+## Examples
+
+```
+/pss-setup-agent agents/my-agent.md
+/pss-setup-agent agents/my-agent.md --requirements docs/prd.md
+/pss-change-agent-profile my-agent.agent.toml add websocket-handler
+```
+
+## Error Handling
+
+- Missing index: run `/pss-reindex-skills`
+- Binary not found: `uv run scripts/pss_build.py`
+- Validation fails: fix errors, re-run
+
 ## Output
 
 `.agent.toml` in `~/.claude/agents/`.
+
+## Resources
+
+- Schema: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`
+- Validator: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`
+- Verifier: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_verify_profile.py`
