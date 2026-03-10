@@ -374,50 +374,77 @@ def detect_project_type(cwd: str) -> list[str]:
     return list(set(context_keywords))  # Dedupe
 
 
-def extract_conversation_context(transcript_path: str) -> list[str]:
-    """Read recent conversation from transcript and extract context keywords."""
+def extract_previous_user_message(transcript_path: str) -> str:
+    """Extract the text of the previous user message from the transcript.
+
+    Only reads the LAST user message (not the entire transcript). Users often
+    refer to what they just said, so the previous message provides continuity.
+    Reading the whole transcript injects thousands of irrelevant terms.
+    """
     if not transcript_path:
-        return []
+        return ""
 
     transcript_file = Path(transcript_path)
     if not transcript_file.exists():
-        return []
-
-    context_keywords = []
+        return ""
 
     try:
-        # Read last N lines of transcript
+        # Read last N lines — enough to find the previous user message
         with open(transcript_file, "r", encoding="utf-8") as f:
             lines = f.readlines()[-MAX_TRANSCRIPT_LINES:]
 
-        # Combine all text content
-        text_content = ""
-        for line in lines:
+        # Walk backwards to find the most recent "human" role message
+        for line in reversed(lines):
             try:
                 entry = json.loads(line.strip())
-                # Extract message content
-                if "message" in entry:
-                    msg = entry["message"]
-                    if isinstance(msg, dict) and "content" in msg:
-                        text_content += " " + str(msg["content"])
-                # Also check hook content
-                if "content" in entry and isinstance(entry["content"], list):
-                    for c in entry["content"]:
-                        if isinstance(c, str):
-                            text_content += " " + c
+                if "message" not in entry:
+                    continue
+                msg = entry["message"]
+                if not isinstance(msg, dict):
+                    continue
+                # Only extract human/user messages
+                role = msg.get("role", "")
+                if role not in ("human", "user"):
+                    continue
+                content = msg.get("content", "")
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
+                # content can be a list of content blocks
+                if isinstance(content, list):
+                    parts = []
+                    for block in content:
+                        if isinstance(block, str):
+                            parts.append(block)
+                        elif isinstance(block, dict) and block.get("type") == "text":
+                            parts.append(block.get("text", ""))
+                    text = " ".join(parts).strip()
+                    if text:
+                        return text
             except (json.JSONDecodeError, KeyError, TypeError):
                 continue
-
-        # Search for context keywords in the text
-        text_lower = text_content.lower()
-        for keyword, context in CONVERSATION_KEYWORDS.items():
-            if keyword in text_lower:
-                context_keywords.extend(context)
-
     except (IOError, OSError):
-        pass  # File read error, return empty
+        pass
 
-    return list(set(context_keywords))  # Dedupe
+    return ""
+
+
+def extract_conversation_context(transcript_path: str) -> list[str]:
+    """Extract context keywords from the previous user message only.
+
+    Only checks the previous user message (not the entire transcript) to avoid
+    injecting thousands of irrelevant terms from the conversation history.
+    """
+    prev_msg = extract_previous_user_message(transcript_path)
+    if not prev_msg:
+        return []
+
+    context_keywords = []
+    text_lower = prev_msg.lower()
+    for keyword, context in CONVERSATION_KEYWORDS.items():
+        if keyword in text_lower:
+            context_keywords.extend(context)
+
+    return list(set(context_keywords))
 
 
 def extract_context_metadata(cwd: str) -> dict[str, list[str]]:
@@ -491,40 +518,26 @@ def extract_context_metadata(cwd: str) -> dict[str, list[str]]:
 def detect_prompt_context(
     prompt: str, transcript_path: str = ""
 ) -> dict[str, list[str]]:
-    """Detect domains, tools, and file types from prompt and conversation context."""
+    """Detect domains, tools, and file types from current prompt + previous user message.
+
+    Only uses the current prompt and the immediately preceding user message — NOT the
+    entire transcript. Scanning thousands of transcript lines injects irrelevant tools
+    and domains from unrelated earlier discussion.
+    """
     result: dict[str, list[str]] = {"domains": [], "tools": [], "file_types": []}
 
-    # Combine prompt with recent conversation for context detection
+    # Combine current prompt with previous user message only
     text_to_analyze = prompt.lower()
-
-    # Also add transcript content if available
-    if transcript_path:
-        transcript_file = Path(transcript_path)
-        if transcript_file.exists():
-            try:
-                with open(transcript_file, "r", encoding="utf-8") as f:
-                    lines = f.readlines()[-MAX_TRANSCRIPT_LINES:]
-                for line in lines:
-                    try:
-                        entry = json.loads(line.strip())
-                        if "message" in entry:
-                            msg = entry["message"]
-                            if isinstance(msg, dict) and "content" in msg:
-                                text_to_analyze += " " + str(msg["content"]).lower()
-                    except (json.JSONDecodeError, KeyError, TypeError):
-                        continue
-            except (IOError, OSError):
-                pass
+    prev_msg = extract_previous_user_message(transcript_path)
+    if prev_msg:
+        text_to_analyze += " " + prev_msg.lower()
 
     # Detect domains using Dewey classification from pss-domains.json
-    # DOMAIN_KEYWORD_MAP maps keywords to domain codes (e.g., "docker" -> "330")
     for keyword, domain_code in DOMAIN_KEYWORD_MAP.items():
         if keyword in text_to_analyze:
             result["domains"].append(domain_code)
 
     # Detect tools from dynamic catalog extracted from skill-index.json
-    # TOOL_CATALOG contains ALL tool names mentioned in indexed skills
-    # We do exact substring matching against the prompt
     for tool in TOOL_CATALOG:
         if tool in text_to_analyze:
             result["tools"].append(tool)
@@ -542,30 +555,29 @@ def detect_prompt_context(
     return result
 
 
-def augment_prompt_with_context(prompt: str, cwd: str, transcript_path: str) -> str:
-    """Add context keywords to generic prompts for better skill matching."""
-    # Collect context from project type and conversation
-    context_keywords = []
-    context_keywords.extend(detect_project_type(cwd))
-    context_keywords.extend(extract_conversation_context(transcript_path))
+def augment_prompt_with_context(prompt: str, _cwd: str, transcript_path: str) -> str:
+    """Augment short prompts by prepending the previous user message.
 
-    # Dedupe
-    context_keywords = list(set(context_keywords))
+    Users often write follow-up prompts that refer to what they just said
+    (e.g., "now do it with bun" after "migrate the project"). Concatenating
+    the previous message gives the scorer the full conversational context.
 
-    if not context_keywords:
-        return prompt  # No context found
-
-    # Only augment short/generic prompts (80 chars or fewer)
+    Only augments short prompts (<=80 chars) to avoid noise on already-specific ones.
+    Note: _cwd is unused — project context is passed separately via extract_context_metadata.
+    """
     prompt_stripped = prompt.strip()
     if len(prompt_stripped) > 80:
-        return prompt  # Prompt is already specific enough
+        return prompt  # Already specific enough
 
-    # Augment prompt with context keywords
-    # Add top 2 context keywords to the prompt
-    context_str = " ".join(context_keywords[:2])
-    augmented = f"{prompt_stripped} {context_str}"
+    # Get the previous user message for conversational continuity
+    prev_msg = extract_previous_user_message(transcript_path)
+    if prev_msg:
+        # Prepend previous message so the scorer sees the full intent
+        # Cap at 200 chars to avoid bloating with long previous messages
+        prev_truncated = prev_msg[:200]
+        return f"{prev_truncated} {prompt_stripped}"
 
-    return augmented
+    return prompt
 
 
 def should_skip_prompt(prompt: str) -> bool:
@@ -679,7 +691,9 @@ def main() -> None:
     """Main entry point - read stdin, call binary, output result."""
     try:
         # Read JSON input from stdin
-        stdin_data = sys.stdin.read(1_048_576)  # 1MB cap to prevent memory exhaustion from oversized input
+        stdin_data = sys.stdin.read(
+            1_048_576
+        )  # 1MB cap to prevent memory exhaustion from oversized input
 
         # Parse input to check if we should skip
         input_json: dict[str, Any] = {}
@@ -693,7 +707,9 @@ def main() -> None:
             home = str(Path.home())
             if cwd and not str(Path(cwd).resolve()).startswith(home):
                 cwd = ""
-            if transcript_path and not str(Path(transcript_path).resolve()).startswith(home):
+            if transcript_path and not str(Path(transcript_path).resolve()).startswith(
+                home
+            ):
                 transcript_path = ""
         except json.JSONDecodeError:
             _exit_empty()
@@ -769,7 +785,9 @@ def main() -> None:
             # Build user-visible summary via systemMessage (like token-reporter)
             hook_out = json.loads(result.stdout)
             try:
-                ctx = (hook_out.get("hookSpecificOutput") or {}).get("additionalContext", "")
+                ctx = (hook_out.get("hookSpecificOutput") or {}).get(
+                    "additionalContext", ""
+                )
                 if ctx:
                     # Extract "name [type]" pairs from SUGGESTED lines
                     names = re.findall(r"SUGGESTED:\s+(.+?)\s+\[(\w+)\]", ctx)
