@@ -23,7 +23,7 @@ Run this exact script. Replace `PLUGIN_ROOT` with the value of `$CLAUDE_PLUGIN_R
 
 ```bash
 #!/bin/bash
-set -euo pipefail
+set -eu
 
 # Resolve paths
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(find ~/.claude/plugins/cache/emasoft-plugins/perfect-skill-suggester -maxdepth 1 -type d | sort -V | tail -1)}"
@@ -55,10 +55,20 @@ mkdir -p "$BACKUP_DIR"
 rm -f ~/.claude/cache/skill-index.json ~/.claude/cache/skill-index.db ~/.claude/cache/skill-checklist.md
 
 # Step 2: Discover + Enrich + Merge (the core pipeline)
-DISCOVER_FLAGS="--jsonl --all-projects"
-python3 "$SCRIPTS/pss_discover.py" $DISCOVER_FLAGS 2>/tmp/pss-discover-warnings.txt \
+# Note: discover emits non-fatal warnings to stderr (stale project paths, encoding issues).
+# Do NOT use pipefail — stderr warnings from discover would kill the entire pipeline.
+python3 "$SCRIPTS/pss_discover.py" --jsonl --all-projects 2>/tmp/pss-discover-warnings.txt \
   | "$BINARY" --pass1-batch 2>/tmp/pss-pass1-stats.txt \
   | python3 "$SCRIPTS/pss_merge_queue.py" --batch-stdin 2>&1
+
+# Verify merge produced output
+ELEMENT_COUNT=$(python3 -c "import json; d=json.load(open('$HOME/.claude/cache/skill-index.json')); print(d.get('skill_count', len(d.get('skills', {}))))" 2>/dev/null || echo "0")
+if [ "$ELEMENT_COUNT" = "0" ]; then
+    echo "ERROR: Pipeline produced 0 elements. Restoring backup."
+    cp "$BACKUP_DIR/skill-index.json" ~/.claude/cache/skill-index.json 2>/dev/null || true
+    echo "Check /tmp/pss-discover-warnings.txt for details."
+    exit 1
+fi
 
 # Step 3: Build CozoDB index for fast scoring
 "$BINARY" --build-db 2>&1
@@ -72,7 +82,6 @@ python3 "$SCRIPTS/pss_cleanup.py" --all-projects 2>/dev/null || true
 # Report
 PASS1_STATS=$(cat /tmp/pss-pass1-stats.txt 2>/dev/null || echo "unknown")
 INDEX_SIZE=$(ls -lh ~/.claude/cache/skill-index.json 2>/dev/null | awk '{print $5}')
-ELEMENT_COUNT=$(python3 -c "import json; d=json.load(open('$HOME/.claude/cache/skill-index.json')); print(d.get('skill_count', len(d.get('skills', {}))))" 2>/dev/null || echo "?")
 echo ""
 echo "PSS Reindex Complete"
 echo "===================="
