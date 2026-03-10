@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.37] - 2026-03-10
+
+### Features
+
+- Expand framework vocabulary from 61 to 108+ frameworks
+
 ## [2.3.36] - 2026-03-10
 
 ### Bug Fixes
@@ -11,6 +17,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Stage pending changes before release
+
+### Bump
+
+- Version 2.3.35 → 2.3.36
 
 ## [2.3.35] - 2026-03-10
 
