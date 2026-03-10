@@ -392,7 +392,7 @@ wheels = [
 
 [[package]]
 name = "perfect-skill-suggester"
-version = "2.3.49"
+version = "2.3.50"
 source = { virtual = "." }
 dependencies = [
     { name = "anthropic" },
