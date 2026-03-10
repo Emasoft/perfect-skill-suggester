@@ -154,7 +154,6 @@ def get_all_element_locations(
         subdirs_to_scan = ELEMENT_SUBDIRS
 
     locations: list[tuple[str, str, Path]] = []
-    home = get_home_dir()
     cwd = get_cwd()
 
     def _add_element_dirs(
