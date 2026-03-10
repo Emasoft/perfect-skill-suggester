@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.33] - 2026-03-10
+
+### Bug Fixes
+
+- Remove 80-char gate, always concatenate both messages in full
+
+### Miscellaneous Tasks
+
+- Sync uv.lock
+
 ## [2.3.32] - 2026-03-10
 
 ### Bug Fixes
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Sync uv.lock
+
+### Bump
+
+- Version 2.3.31 → 2.3.32
 
 ## [2.3.31] - 2026-03-10
 
