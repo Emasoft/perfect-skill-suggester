@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.38] - 2026-03-10
+
+### Documentation
+
+- Update README and architecture documentation
+
 ## [2.3.37] - 2026-03-10
 
 ### Features
 
 - Expand framework vocabulary from 61 to 108+ frameworks
+
+### Bump
+
+- Version 2.3.36 → 2.3.37
 
 ## [2.3.36] - 2026-03-10
 
