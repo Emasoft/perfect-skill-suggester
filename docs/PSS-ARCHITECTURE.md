@@ -83,23 +83,21 @@ find ~/.claude/plugins/cache -name ".pss" -type f -exec mv {} "$BACKUP_DIR/" \; 
 | Plugin cache | `~/.claude/plugins/cache/*/*/skills/` | Always scanned |
 | Local plugins | `~/.claude/plugins/*/skills/` | Always scanned |
 | Current project plugins | `.claude/plugins/*/skills/` | Always scanned |
-| **All other projects** | `<project>/.claude/skills/` and `<project>/.claude/plugins/*/skills/` | **`--all-projects`** |
+| **All other projects** | `<project>/.claude/skills/` and `<project>/.claude/plugins/*/skills/` | Always scanned (default) |
 | Agents | `~/.claude/agents/`, `.claude/agents/`, plugin `agents/` | Always scanned |
 | Commands | `~/.claude/commands/`, `.claude/commands/`, plugin `commands/` | Always scanned |
 | Rules | `~/.claude/rules/`, `.claude/rules/` | Always scanned |
 | MCP servers | `~/.claude.json`, `.mcp.json` | Always scanned |
 | LSP servers | `~/.claude/settings.json` enabledPlugins | Always scanned |
+| **Inactive plugins** | Plugins with enabledPlugins=false in settings.json | Excluded with **`--exclude-inactive-plugins`** |
 
 **Usage:**
 ```bash
-# Standard discovery (current project + global)
+# Standard discovery (current project + global + all projects)
 python3 pss_discover.py
 
-# Comprehensive discovery (ALL projects from ~/.claude.json)
-python3 pss_discover.py --all-projects
-
-# Generate .pss metadata files for each discovered skill
-python3 pss_discover.py --all-projects --generate-pss
+# Exclude plugins marked as inactive in settings.json
+python3 pss_discover.py --exclude-inactive-plugins
 ```
 
 **Deleted Project Handling:**

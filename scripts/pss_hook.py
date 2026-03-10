@@ -167,8 +167,10 @@ def _get_plugin_root() -> Path:
 
 
 def _get_cache_dir() -> Path:
-    """Get the cache directory ($HOME/.claude/cache/)."""
-    return Path.home() / ".claude" / "cache"
+    """Get the PSS cache directory."""
+    from pss_paths import get_cache_dir
+
+    return get_cache_dir()
 
 
 def _load_domain_schema() -> dict[str, str]:
@@ -572,7 +574,7 @@ def augment_prompt_with_context(prompt: str, _cwd: str, transcript_path: str) ->
     if prev_msg:
         return f"{prev_msg} {prompt_stripped}"
 
-    return prompt
+    return prompt_stripped
 
 
 def should_skip_prompt(prompt: str) -> bool:
@@ -617,7 +619,8 @@ def detect_platform() -> str:
             os.environ.get("TERMUX_VERSION"),
         )
         if any(android_markers):
-            return "pss-android-arm64"
+            # Android/Termux uses the linux-arm64 binary
+            return "pss-linux-arm64"
 
     # Map to binary names
     if system == "darwin":
@@ -631,16 +634,14 @@ def detect_platform() -> str:
         if machine == "x86_64":
             return "pss-linux-x86_64"
     elif system == "windows":
-        if machine == "arm64":
-            return "pss-windows-arm64.exe"
+        # ARM64 Windows runs x86_64 via emulation
         return "pss-windows-x86_64.exe"
 
     # Unsupported platform
     raise RuntimeError(
         f"Unsupported platform: {system} {machine}. "
         f"Supported: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64, "
-        f"windows-x86_64, windows-arm64, android-arm64. "
-        f"For other platforms, use the WASM binary: pss-wasm32.wasm"
+        f"windows-x86_64. Build from source for other platforms."
     )
 
 
@@ -734,8 +735,16 @@ def _maybe_auto_reindex(index_path: Path) -> None:
             stderr=subprocess.DEVNULL,
             start_new_session=True,  # Detach from hook process group
         )
-        # Write PID lockfile so subsequent hook calls know a reindex is running
-        lock_path.write_text(str(proc.pid))
+        try:
+            # Exclusive create — fails if file already exists (prevents TOCTOU race)
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(proc.pid).encode())
+            os.close(fd)
+        except FileExistsError:
+            # Another hook already started reindex — kill our process
+            proc.kill()
+            _exit_warning("skill index not found — auto-reindex already in progress")
+            return
         _exit_warning("skill index not found — auto-reindex started, suggestions available shortly")
     except OSError as e:
         _exit_warning(f"skill-index.json not found, auto-reindex failed: {e}")
@@ -782,14 +791,19 @@ def main() -> None:
             return
         # Quick corruption check: file must be valid JSON with a "skills" key
         try:
-            with open(index_path, "r", encoding="utf-8") as f:
-                # Read only the first 64 bytes to verify JSON structure (fast)
-                header = f.read(64)
+            with open(index_path, "r", encoding="utf-8-sig") as f:
+                # Read first 256 chars to verify JSON structure (handles BOM + whitespace)
+                header = f.read(256)
             if not header.strip().startswith("{"):
                 raise ValueError("not JSON")
         except (OSError, ValueError):
-            # Index file is corrupt — delete it and trigger auto-reindex
-            index_path.unlink(missing_ok=True)
+            # Index file is corrupt — rename to .corrupt and trigger auto-reindex
+            # (preserves evidence; if reindex fails, user still has the file)
+            corrupt_path = index_path.with_suffix(".json.corrupt")
+            try:
+                index_path.rename(corrupt_path)
+            except OSError:
+                pass  # Best-effort rename; reindex will overwrite anyway
             _maybe_auto_reindex(index_path)
             return
 

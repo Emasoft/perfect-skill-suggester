@@ -203,13 +203,13 @@ cargo build --release
 
 ### 1. Generate Skill Index
 
-Run the reindex command to analyze all skills with AI:
+Run the reindex command to build the skill index:
 
 ```
 /pss-reindex-skills
 ```
 
-This spawns Sonnet subagents to analyze each element (skills, agents, commands, rules, MCP servers) and generate optimal activation keywords. Marketplace MCP servers are automatically discovered and indexed.
+This runs the 3-stage Rust pipeline (discover → enrich → merge) to index all elements. Completes in under 10 seconds.
 
 ### 2. Check Status
 
@@ -319,20 +319,17 @@ The same logic applies to languages and platforms. A Rust-only skill should neve
 
 ### /pss-reindex-skills
 
-Generate AI-analyzed keyword index for all elements (skills, agents, commands, rules, MCP, LSP).
+Generate the skill index for all elements (skills, agents, commands, rules, MCP, LSP) using the deterministic Rust pipeline.
 
 ```
-/pss-reindex-skills [--batch-size N] [--pass1-only] [--pass2-only] [--all-projects]
+/pss-reindex-skills [--exclude-inactive-plugins]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--batch-size N` | Elements per Sonnet batch (default: 10) |
-| `--pass1-only` | Run only Pass 1 (keyword extraction) |
-| `--pass2-only` | Run only Pass 2 (co-usage analysis) |
-| `--all-projects` | Scan all known projects, not just current |
+| `--exclude-inactive-plugins` | Skip plugins disabled in Claude Code settings (reads `enabledPlugins` from `~/.claude/settings.json`) |
 
-Always performs a full clean-slate regeneration. Two-pass architecture: Pass 1 extracts keywords/metadata, Pass 2 builds co-usage relationships.
+Always performs a full clean-slate regeneration. Uses a 3-stage Rust pipeline: discover → enrich → merge. Completes in under 10 seconds for 10K+ elements.
 
 ### /pss-setup-agent
 

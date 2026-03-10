@@ -4,9 +4,11 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 ## [2.3.46] - 2026-03-10
 
-### Bug Fixes
+### Features
 
-- Add --exclude-inactive-plugins flag to discovery and reindex
+- Add --exclude-inactive-plugins flag to skip disabled plugins from indexing
+- Reads enabledPlugins from ~/.claude/settings.json
+- Fallback: if ALL plugins from a marketplace are disabled, skip entire marketplace
 
 ### Miscellaneous Tasks
 

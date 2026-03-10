@@ -88,7 +88,7 @@ def backup_index(cache_dir: Path) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = Path(tempfile.gettempdir()) / f"pss-backup-{timestamp}"
     backup_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("skill-index.json", "skill-index.db"):
+    for name in ("skill-index.json", "pss-skill-index.db"):
         src = cache_dir / name
         if src.exists():
             shutil.copy2(src, backup_dir / name)
@@ -118,9 +118,9 @@ def run_pipeline(
     if exclude_inactive_plugins:
         discover_flags += " --exclude-inactive-plugins"
     cmd = (
-        f'python3 "{scripts_dir / "pss_discover.py"}" {discover_flags} 2>"{warnings_file}" '
+        f'"{sys.executable}" "{scripts_dir / "pss_discover.py"}" {discover_flags} 2>"{warnings_file}" '
         f'| "{binary}" --pass1-batch 2>"{stats_file}" '
-        f'| python3 "{scripts_dir / "pss_merge_queue.py"}" --batch-stdin --index "{staging_index}"'
+        f'| "{sys.executable}" "{scripts_dir / "pss_merge_queue.py"}" --batch-stdin --index "{staging_index}"'
     )
     result = subprocess.run(cmd, shell=True)
     if result.returncode != 0:
@@ -147,14 +147,14 @@ def build_db(binary: Path) -> None:
 def aggregate_domains(scripts_dir: Path) -> None:
     """Aggregate the domain registry."""
     subprocess.run(
-        ["python3", str(scripts_dir / "pss_aggregate_domains.py")], check=True
+        [sys.executable, str(scripts_dir / "pss_aggregate_domains.py")], check=True
     )
 
 
 def cleanup_stale(scripts_dir: Path) -> None:
     """Clean stale .pss sidecar files (best-effort)."""
     subprocess.run(
-        ["python3", str(scripts_dir / "pss_cleanup.py"), "--all-projects"],
+        [sys.executable, str(scripts_dir / "pss_cleanup.py"), "--all-projects"],
         capture_output=True,
     )
 
@@ -227,11 +227,17 @@ def main() -> None:
     # Step 4: Remove old CozoDB (will be rebuilt from new index)
     (cache_dir / "pss-skill-index.db").unlink(missing_ok=True)
 
-    # Step 5: Build CozoDB from new index
-    build_db(binary)
+    # Step 5: Build CozoDB from new index (non-fatal -- index is already valid)
+    try:
+        build_db(binary)
+    except subprocess.CalledProcessError as e:
+        print(f"WARNING: CozoDB build failed (code {e.returncode}). Index is valid but DB needs rebuild.", file=sys.stderr)
 
-    # Step 6: Aggregate domains
-    aggregate_domains(scripts_dir)
+    # Step 6: Aggregate domains (non-fatal)
+    try:
+        aggregate_domains(scripts_dir)
+    except subprocess.CalledProcessError as e:
+        print(f"WARNING: Domain aggregation failed (code {e.returncode}).", file=sys.stderr)
 
     # Step 7: Clean stale .pss files
     cleanup_stale(scripts_dir)

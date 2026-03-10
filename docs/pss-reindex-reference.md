@@ -69,22 +69,19 @@ Before matching, user prompts are expanded with 70+ synonym patterns:
 
 This improves matching accuracy significantly.
 
-## Parallel Processing
+## Pipeline Architecture
 
-For 200+ elements, process in batches:
+The reindex pipeline is a 3-stage Unix pipeline:
 
 ```
-Batch 1: Elements 1-20   → 20 parallel sonnet subagents
-Batch 2: Elements 21-40  → 20 parallel sonnet subagents
-...
-Batch 11: Elements 201-216 → 16 parallel sonnet subagents
+pss_discover.py → pss (Rust binary --pass1-batch) → pss_merge_queue.py
 ```
 
-Each subagent:
-1. Reads the full element file (not just preview)
-2. Analyzes content to understand the element's purpose
-3. Generates optimal activation patterns
-4. Returns JSON result
+1. **Discover**: Scans all sources (user, project, plugin cache, marketplaces, MCP, LSP)
+2. **Enrich**: Rust binary extracts keywords, intents, categories, languages, frameworks
+3. **Merge**: Writes unified `skill-index.json` with atomic swap for crash safety
+
+No AI agents are used. The pipeline completes in under 10 seconds for 10K+ elements.
 
 ## Cache Management
 
@@ -92,7 +89,7 @@ Each subagent:
 
 | Condition | Action |
 |-----------|--------|
-| **ANY invocation** | **Full reindex (delete + discover + analyze)** |
+| **ANY invocation** | **Full reindex (discover + enrich + merge + atomic swap)** |
 
 **WHY FULL REINDEX ONLY:**
 1. Plugin versions change - old paths become invalid
@@ -101,24 +98,17 @@ Each subagent:
 4. Co-usage references stale elements - causes broken relationships
 5. Partial updates create inconsistent state - impossible to debug
 
+**CRASH SAFETY:** The old index is preserved during rebuild. The merge stage writes to a staging file first, then uses `os.replace()` for an atomic swap. If the pipeline crashes mid-rebuild, the previous index remains intact.
+
 ## Example Output
 
 ```
-Discovering elements...
-Found 216 elements across 19 sources.
-
-Generating checklist: ~/.claude/cache/skill-checklist.md
-  22 batches (10 elements per batch)
-
-Spawning sonnet subagents (22 parallel)...
-  Batch 1 (Agent A): analyzing elements 1-10...
-  ...
-
-Index generated: ~/.claude/cache/skill-index.json
-  216 elements analyzed
-  Method: AI-analyzed (sonnet)
-  Format: PSS v3.0 (rio compatible)
-  Total keywords: 2,592
+PSS Reindex Complete
+====================
+Elements: 9275
+Index: ~/.claude/cache/skill-index.json (12M)
+Pass 1: 9275 enriched
+Backup: /tmp/pss-backup-20260310_143000
 ```
 
 ## Rust Skill Suggester

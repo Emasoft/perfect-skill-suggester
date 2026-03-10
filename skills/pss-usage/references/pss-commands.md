@@ -182,20 +182,24 @@ Type in chat:
 **Step 2: Wait for completion**
 
 The command will:
-1. Scan all skills directories (user, project, local scopes)
-2. Read SKILL.md files and frontmatter
-3. Extract metadata (name, description, categories, keywords)
-4. Use AI to analyze co-usage relationships
-5. Write updated index to `~/.claude/cache/skill-index.json`
+1. Discover all elements (skills, agents, commands, rules, MCP servers, LSP servers)
+2. Enrich via the Rust binary — extract keywords, intents, and categories for each element
+3. Merge results into the unified `skill-index.json`
+4. Build a CozoDB index for fast scoring at query time
+5. Aggregate the domain registry
+
+The entire pipeline runs locally through the compiled Rust binary — no AI agents are involved. It typically completes in under 10 seconds.
 
 **Step 3: Verify completion**
 
 You will see output like:
 ```
 Reindexing skills...
-Found 42 skills across 3 scopes
-Processing... (this may take 1-2 minutes)
-✓ Index updated successfully
+Discovered 9247 elements across 6 source types
+Enriching... done (3.2s)
+Merging into skill-index.json... done
+Building CozoDB index... done
+✓ Index updated successfully (8.7s total)
 ```
 
 **Step 4: Confirm with /pss-status**
@@ -203,7 +207,7 @@ Processing... (this may take 1-2 minutes)
 Run `/pss-status` to verify the new index:
 ```
 Last Modified: 2026-01-23 14:45:00  ← Should be current time
-Total Skills Indexed: 42             ← Should match found skills
+Total Elements Indexed: 9247         ← Should match discovered elements
 ```
 
 ### 3.3 Understanding reindex progress and completion messages
@@ -212,10 +216,10 @@ Total Skills Indexed: 42             ← Should match found skills
 
 | Message | Stage | Estimated Time |
 |---------|-------|----------------|
-| `Scanning directories...` | Finding skills | 1-5 seconds |
-| `Reading skill metadata...` | Parsing SKILL.md files | 5-15 seconds |
-| `Analyzing relationships...` | AI co-usage analysis | 30-90 seconds |
-| `Writing index...` | Saving to disk | 1 second |
+| `Discovering...` | Scanning all sources (skills, agents, commands, rules, MCP, LSP) | 1-3 seconds |
+| `Enriching...` | Rust binary processing (keywords, intents, categories) | 2-5 seconds |
+| `Merging into skill-index.json...` | Building unified index | < 1 second |
+| `Building CozoDB index...` | Creating fast-query index | < 1 second |
 
 **Completion messages:**
 
@@ -239,6 +243,12 @@ After reindexing, always run `/pss-status` to confirm:
 - Review troubleshooting section 5.4 below
 - Try reindexing again
 - Check file permissions on `~/.claude/cache/skill-index.json`
+
+**Filtering inactive plugins:**
+```
+/pss-reindex-skills --exclude-inactive-plugins
+```
+Skips plugins disabled in Claude Code settings (`enabledPlugins` in `~/.claude/settings.json`).
 
 ---
 
