@@ -199,37 +199,17 @@ def _load_domain_schema() -> dict[str, str]:
 
 
 def _load_tool_catalog() -> set[str]:
+    """Return empty set — tool detection is handled entirely by the Rust binary.
+
+    The Rust binary already detects tools two ways:
+    1. scan_project_context() — detects tools from project files (Cargo.toml → cargo, etc.)
+    2. Scoring loop — matches each skill's 'tools' field against the prompt text
+
+    Previously this function parsed the entire 13MB skill-index.json in Python
+    just to extract tool names for substring matching. That was redundant with
+    what Rust already does, and added ~67ms+ of unnecessary I/O per invocation.
     """
-    Load tool catalog dynamically from skill-index.json.
-
-    This extracts ALL unique tool names from the 'tools' field of every skill
-    in the index. No hardcoded tool list - the catalog is built from what
-    skills actually declare they use.
-    """
-    index_path = _get_cache_dir() / SKILL_INDEX_FILE
-    if not index_path.exists():
-        # Fallback: return empty set, no tool detection until index exists
-        return set()
-
-    try:
-        with open(index_path, "r", encoding="utf-8") as f:
-            index = json.load(f)
-
-        tools: set[str] = set()
-        skills = index.get("skills", {})
-
-        for _, skill_data in skills.items():
-            # Extract tools from skill entry
-            skill_tools = skill_data.get("tools", [])
-            if isinstance(skill_tools, list):
-                for tool in skill_tools:
-                    if isinstance(tool, str) and tool.strip():
-                        # Store lowercase for case-insensitive matching
-                        tools.add(tool.strip().lower())
-
-        return tools
-    except (json.JSONDecodeError, IOError, OSError):
-        return set()
+    return set()
 
 
 def _initialize_catalogs() -> None:
