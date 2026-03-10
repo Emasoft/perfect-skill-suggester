@@ -14,8 +14,9 @@ Builds `.agent.toml` profiles via 7-phase pipeline: gather context, score candid
 ## Instructions
 
 1. Ensure skill index exists (run `/pss-reindex-skills` if missing)
-2. Run `/pss-setup-agent <agent-path>` for the full pipeline
-3. Review the generated `.agent.toml`
+2. Run `/pss-setup-agent <agent-path>` for the full pipeline (creates new profile)
+3. Run `/pss-change-agent-profile <profile-path> <instructions>` to modify an existing profile
+4. Review the generated `.agent.toml`
 
 ## Critical Rules
 
@@ -37,7 +38,7 @@ Copy this checklist and track your progress:
 
 - [ ] Gather context, get candidates, evaluate each
 - [ ] Add external elements, cross-type coherence check
-- [ ] Write, validate, and review `.agent.toml`
+- [ ] Write, validate, verify elements (anti-hallucination), and review `.agent.toml`
 
 ## References
 
@@ -58,7 +59,7 @@ Copy this checklist and track your progress:
 - [Cross-Type Coherence (Phase 5)](references/cross-type-coherence.md)
   - Overlap detection, coherence checklist, resolution strategy, autonomous vs interactive mode
 - [Validation (Phase 6)](references/validation-protocol.md)
-  - Write .agent.toml, validate, clean up, completion checklist
+  - Write .agent.toml, validate, verify elements (anti-hallucination), clean up, completion checklist
 - [Review Protocol (Phase 7)](references/review-protocol.md)
   - Self-Review Checklist
     - Check 1: Name Integrity
@@ -96,6 +97,8 @@ Copy this checklist and track your progress:
 /pss-setup-agent agents/my-reviewer.md
 /pss-setup-agent agents/my-reviewer.md --requirements docs/prd.md
 /pss-setup-agent agents/my-reviewer.md --interactive
+/pss-change-agent-profile my-reviewer.agent.toml remove all python-specific skills
+/pss-change-agent-profile my-reviewer.agent.toml add websocket-handler to primary
 ```
 
 ## Error Handling
@@ -112,3 +115,4 @@ Copy this checklist and track your progress:
 
 - **Schema**: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`
 - **Validator**: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`
+- **Verifier**: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_verify_profile.py` (anti-hallucination element verification)

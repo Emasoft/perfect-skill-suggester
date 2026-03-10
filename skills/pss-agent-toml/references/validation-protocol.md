@@ -26,7 +26,13 @@ If validation fails, fix the errors and re-validate. Common issues:
 - Tier size exceeded (primary > 7, secondary > 12, specialized > 8)
 - Agent name not kebab-case
 
-**After validation passes**: Proceed to the Review phase. The profiler performs a mandatory self-review (checks name integrity, auto_skills pinning, non-coding filter, coverage, exclusion quality) and optionally enters interactive review if `--interactive` was requested or self-review finds unfixable issues. See [Review Protocol](review-protocol.md) for the full specification.
+**After validation passes**: Run the element verifier (anti-hallucination check):
+```bash
+uv run scripts/pss_verify_profile.py <output-path> --agent-def <agent.md> --verbose
+```
+This verifies ALL element names (skills, agents, commands, rules, MCP, LSP) exist in the skill index, checks auto_skills pinning, non-coding agent violations, and restriction enforcement. Fix any issues before proceeding.
+
+**After verification passes**: Proceed to the Review phase. The profiler performs a mandatory self-review (checks name integrity, auto_skills pinning, non-coding filter, coverage, exclusion quality) and optionally enters interactive review if `--interactive` was requested or self-review finds unfixable issues. See [Review Protocol](review-protocol.md) for the full specification.
 
 ## Clean up
 

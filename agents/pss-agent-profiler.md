@@ -74,6 +74,7 @@ Example debug trace:
 [PSS-PROFILER] Step 5: Classified — P=6 S=10 Sp=4 excluded=8
 [PSS-PROFILER] Step 7: Writing .agent.toml to /output/path.agent.toml
 [PSS-PROFILER] Step 8: Validation PASSED (exit code 0)
+[PSS-PROFILER] Step 8a: Verification — 22 verified, 8 agent-defined, 0 not-found, 0 violations
 [PSS-PROFILER] Step 8b-i: Self-review — 5/5 checks passed, 0 fixes needed
 [PSS-PROFILER] Step 8b-ii: Interactive review — SKIPPED (autonomous mode)
 [PSS-PROFILER] Step 9: Done — P=6 S=10 Sp=4 excluded=8
@@ -453,12 +454,67 @@ uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH
 - If validation fails 3 times, report `[FAILED]` with the validator errors
 
 **If validation PASSES (exit code 0):**
-- Proceed to Step 9
+- Proceed to Step 8a
 
 **If the TOML file cannot be parsed (exit code 2):**
 - The file has a TOML syntax error — you likely have mismatched quotes or brackets
 - Re-generate the file from scratch, paying attention to TOML escaping rules
 - Common issues: unescaped quotes inside strings, missing closing brackets, inline tables vs standard tables
+
+### Step 8a: Verify Element Names Against Index (MANDATORY — Anti-Hallucination)
+
+After structural validation passes, run the element verification script. This catches hallucinated or misspelled element names that the structural validator cannot detect.
+
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_verify_profile.py" "${OUTPUT_PATH}" \
+  --agent-def "${AGENT_PATH}" \
+  --verbose
+```
+
+If INCLUDE_ELEMENTS or EXCLUDE_ELEMENTS were provided, also pass them:
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_verify_profile.py" "${OUTPUT_PATH}" \
+  --agent-def "${AGENT_PATH}" \
+  --include ${INCLUDE_ELEMENTS} \
+  --exclude ${EXCLUDE_ELEMENTS} \
+  --verbose
+```
+
+**What the verifier checks:**
+1. **Index existence**: Every element name (skills, agents, commands, rules, MCP, LSP) that was NOT taken from the agent definition must exist in `skill-index.json`
+2. **Agent-defined names**: Names from the agent's own `.md` file are marked as "agent-defined" and skipped (they come from the agent's plugin, not the local index)
+3. **Auto-skills pinning**: All `auto_skills` from frontmatter are in `[skills].primary` (never demoted)
+4. **Non-coding filter**: If the agent is an orchestrator, no LSP/linting/code-fixing elements
+5. **Restriction enforcement**: All `INCLUDE_ELEMENTS` are present, all `EXCLUDE_ELEMENTS` are absent
+6. **Fuzzy matching**: For not-found names, suggests the closest match from the index
+
+**If verification reports NOT-FOUND elements (hallucinations):**
+- Check the suggestion provided by the verifier
+- If the suggestion is correct (close match), fix the name in the TOML
+- If no suggestion or wrong suggestion, REMOVE the element entirely
+- Re-run the verifier after fixes
+
+**If verification reports PINNING VIOLATIONS:**
+- Move the offending auto_skill from secondary/specialized back to primary
+- If primary is at capacity, extend the limit (auto_skills always take priority)
+
+**If verification reports CODING VIOLATIONS (non-coding agent):**
+- Remove the flagged coding elements (LSP, linters, code-fixers, test-writers)
+- Add them to `[skills.excluded]` with reason "Excluded: non-coding agent"
+
+**If verification reports RESTRICTION VIOLATIONS:**
+- Add missing INCLUDE elements to the appropriate section
+- Remove forbidden EXCLUDE elements from the profile
+
+**Auto-fix mode** (optional, for batch corrections):
+```bash
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_verify_profile.py" "${OUTPUT_PATH}" \
+  --agent-def "${AGENT_PATH}" \
+  --auto-fix
+```
+This automatically replaces misspelled names with the closest index match. After auto-fix, always re-run the structural validator (Step 8) to ensure the TOML is still valid.
+
+**Verification MUST pass (exit code 0) before proceeding to Step 8b.** Max 2 fix cycles. If still failing → report `[FAILED]`.
 
 ### Step 8b: Self-Review and Interactive Refinement
 
@@ -526,11 +582,12 @@ After each directive: edit TOML → re-validate (Step 8) → show updated summar
 
 **Step 9 Completion Checklist** (MANDATORY before reporting DONE):
 
-- [ ] Validator returned exit code 0 (never report success on exit 1 or 2)
+- [ ] Structural validator returned exit code 0 (Step 8)
+- [ ] Element verifier returned exit code 0 — no hallucinations, no pinning/coding/restriction violations (Step 8a)
 - [ ] Temporary input file `${PSS_INPUT}` deleted
 - [ ] Output file exists at `${OUTPUT_PATH}` and is non-empty
 - [ ] Summary includes: primary count (P), secondary count (S), specialized count (Sp), excluded count
-- [ ] No validation errors remain
+- [ ] No validation or verification errors remain
 - [ ] Self-review passed (all 5 checks green, or issues fixed within 2 cycles)
 - [ ] If `--interactive`: user explicitly typed `approve` or `done`
 - [ ] Response to orchestrator is MAX 2 lines — no verbose output
