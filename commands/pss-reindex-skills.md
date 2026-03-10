@@ -19,76 +19,11 @@ Rebuild the skill index using the deterministic Rust pipeline. Completes in unde
 
 ## Execution
 
-Run this exact script. Replace `PLUGIN_ROOT` with the value of `$CLAUDE_PLUGIN_ROOT` if available, otherwise use the resolved plugin cache path.
+Run the Python reindex script. It resolves paths, runs the pipeline, builds the DB, and reports results.
 
 ```bash
-#!/bin/bash
-set -eu
-
-# Resolve paths
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(find ~/.claude/plugins/cache/emasoft-plugins/perfect-skill-suggester -maxdepth 1 -type d | sort -V | tail -1)}"
-SCRIPTS="$PLUGIN_ROOT/scripts"
-ARCH=$(uname -m)
-OS=$(uname -s)
-if [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then
-    BINARY="$PLUGIN_ROOT/src/skill-suggester/bin/pss-darwin-arm64"
-elif [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
-    BINARY="$PLUGIN_ROOT/src/skill-suggester/bin/pss-darwin-x86_64"
-elif [ "$OS" = "Linux" ] && [ "$ARCH" = "x86_64" ]; then
-    BINARY="$PLUGIN_ROOT/src/skill-suggester/bin/pss-linux-x86_64"
-elif [ "$OS" = "Linux" ] && [ "$ARCH" = "aarch64" ]; then
-    BINARY="$PLUGIN_ROOT/src/skill-suggester/bin/pss-linux-arm64"
-else
-    echo "ERROR: Unsupported platform: $OS/$ARCH"; exit 1
-fi
-
-# Verify binary
-if [ ! -x "$BINARY" ]; then
-    echo "ERROR: Binary not found or not executable: $BINARY"; exit 1
-fi
-
-# Step 1: Back up old index
-BACKUP_DIR="$(python3 -c 'import tempfile; print(tempfile.gettempdir())')/pss-backup-$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$BACKUP_DIR"
-[ -f ~/.claude/cache/skill-index.json ] && cp ~/.claude/cache/skill-index.json "$BACKUP_DIR/"
-[ -f ~/.claude/cache/skill-index.db ] && cp ~/.claude/cache/skill-index.db "$BACKUP_DIR/"
-rm -f ~/.claude/cache/skill-index.json ~/.claude/cache/skill-index.db ~/.claude/cache/skill-checklist.md
-
-# Step 2: Discover + Enrich + Merge (the core pipeline)
-# Note: discover emits non-fatal warnings to stderr (stale project paths, encoding issues).
-# Do NOT use pipefail — stderr warnings from discover would kill the entire pipeline.
-python3 "$SCRIPTS/pss_discover.py" --jsonl --all-projects 2>/tmp/pss-discover-warnings.txt \
-  | "$BINARY" --pass1-batch 2>/tmp/pss-pass1-stats.txt \
-  | python3 "$SCRIPTS/pss_merge_queue.py" --batch-stdin 2>&1
-
-# Verify merge produced output
-ELEMENT_COUNT=$(python3 -c "import json; d=json.load(open('$HOME/.claude/cache/skill-index.json')); print(d.get('skill_count', len(d.get('skills', {}))))" 2>/dev/null || echo "0")
-if [ "$ELEMENT_COUNT" = "0" ]; then
-    echo "ERROR: Pipeline produced 0 elements. Restoring backup."
-    cp "$BACKUP_DIR/skill-index.json" ~/.claude/cache/skill-index.json 2>/dev/null || true
-    echo "Check /tmp/pss-discover-warnings.txt for details."
-    exit 1
-fi
-
-# Step 3: Build CozoDB index for fast scoring
-"$BINARY" --build-db 2>&1
-
-# Step 4: Aggregate domain registry
-python3 "$SCRIPTS/pss_aggregate_domains.py" 2>&1
-
-# Step 5: Clean stale .pss files
-python3 "$SCRIPTS/pss_cleanup.py" --all-projects 2>/dev/null || true
-
-# Report
-PASS1_STATS=$(cat /tmp/pss-pass1-stats.txt 2>/dev/null || echo "unknown")
-INDEX_SIZE=$(ls -lh ~/.claude/cache/skill-index.json 2>/dev/null | awk '{print $5}')
-echo ""
-echo "PSS Reindex Complete"
-echo "===================="
-echo "Elements: $ELEMENT_COUNT"
-echo "Index: ~/.claude/cache/skill-index.json ($INDEX_SIZE)"
-echo "Pass 1: $PASS1_STATS"
-echo "Backup: $BACKUP_DIR"
+uv run "$PLUGIN_ROOT/scripts/pss_reindex.py"
 ```
 
 ## Error Handling
