@@ -22,7 +22,7 @@ Rebuild the skill index using the deterministic Rust pipeline. Completes in unde
 Run the Python reindex script. It resolves paths, runs the pipeline, builds the DB, and reports results.
 
 ```bash
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(find ~/.claude/plugins/cache/emasoft-plugins/perfect-skill-suggester -maxdepth 1 -type d | sort -V | tail -1)}"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(python3 -c "from pathlib import Path; dirs=[d for d in (Path.home()/'.claude/plugins/cache/emasoft-plugins/perfect-skill-suggester').iterdir() if d.is_dir()]; print(sorted(dirs,key=lambda p:tuple(int(x) for x in p.name.split('.')))[-1])")}"
 uv run "$PLUGIN_ROOT/scripts/pss_reindex.py"
 ```
 

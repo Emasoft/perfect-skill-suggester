@@ -40,7 +40,15 @@ def resolve_plugin_root() -> Path:
     )
     if not cache_base.exists():
         sys.exit(f"ERROR: Plugin cache not found: {cache_base}")
-    versions = sorted([d for d in cache_base.iterdir() if d.is_dir()])
+
+    def _version_key(p: Path) -> tuple[int, ...]:
+        """Parse '2.3.28' into (2, 3, 28) for correct numeric sorting."""
+        try:
+            return tuple(int(x) for x in p.name.split("."))
+        except ValueError:
+            return (0,)
+
+    versions = sorted([d for d in cache_base.iterdir() if d.is_dir()], key=_version_key)
     if not versions:
         sys.exit(f"ERROR: No versions found in {cache_base}")
     return versions[-1]
