@@ -375,11 +375,11 @@ def detect_project_type(cwd: str) -> list[str]:
 
 
 def extract_previous_user_message(transcript_path: str) -> str:
-    """Extract the text of the previous user message from the transcript.
+    """Extract the PREVIOUS user message from the transcript (not the current one).
 
-    Only reads the LAST user message (not the entire transcript). Users often
-    refer to what they just said, so the previous message provides continuity.
-    Reading the whole transcript injects thousands of irrelevant terms.
+    The hook fires on UserPromptSubmit, so the current message is already in the
+    transcript. We skip the first (most recent) user message and return the second
+    one — that's the actual previous message the user typed before this prompt.
     """
     if not transcript_path:
         return ""
@@ -389,11 +389,11 @@ def extract_previous_user_message(transcript_path: str) -> str:
         return ""
 
     try:
-        # Read last N lines — enough to find the previous user message
         with open(transcript_file, "r", encoding="utf-8") as f:
             lines = f.readlines()[-MAX_TRANSCRIPT_LINES:]
 
-        # Walk backwards to find the most recent "human" role message
+        # Walk backwards, skip the first user message (current prompt), return the second
+        user_messages_found = 0
         for line in reversed(lines):
             try:
                 entry = json.loads(line.strip())
@@ -402,15 +402,14 @@ def extract_previous_user_message(transcript_path: str) -> str:
                 msg = entry["message"]
                 if not isinstance(msg, dict):
                     continue
-                # Only extract human/user messages
                 role = msg.get("role", "")
                 if role not in ("human", "user"):
                     continue
                 content = msg.get("content", "")
-                if isinstance(content, str) and content.strip():
-                    return content.strip()
-                # content can be a list of content blocks
-                if isinstance(content, list):
+                text = ""
+                if isinstance(content, str):
+                    text = content.strip()
+                elif isinstance(content, list):
                     parts = []
                     for block in content:
                         if isinstance(block, str):
@@ -418,8 +417,12 @@ def extract_previous_user_message(transcript_path: str) -> str:
                         elif isinstance(block, dict) and block.get("type") == "text":
                             parts.append(block.get("text", ""))
                     text = " ".join(parts).strip()
-                    if text:
-                        return text
+                if not text:
+                    continue
+                user_messages_found += 1
+                # Skip the 1st (current prompt already in transcript), return the 2nd
+                if user_messages_found >= 2:
+                    return text
             except (json.JSONDecodeError, KeyError, TypeError):
                 continue
     except (IOError, OSError):
