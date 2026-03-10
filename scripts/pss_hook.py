@@ -23,7 +23,7 @@ MAX_SUGGESTIONS = 4  # Maximum number of skill suggestions per message (strict l
 MIN_SCORE = 0.5  # Minimum score threshold (skip low-confidence matches)
 MAX_TRANSCRIPT_LINES = 200  # How many recent transcript lines to scan for context
 SUBPROCESS_TIMEOUT = (
-    2  # Binary timeout in seconds (hooks.json timeout is 5000ms = 5s; keep this < 5)
+    4  # Binary timeout in seconds (hooks.json timeout is 5000ms = 5s; keep this < 5)
 )
 
 # Project type detection markers
