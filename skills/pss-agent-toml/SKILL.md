@@ -13,8 +13,10 @@ user-invocable: false
 
 ## Instructions
 
-1. `/pss-setup-agent <agent-path>` (new profile)
-2. `/pss-change-agent-profile <profile> <instructions>` (modify)
+1. Run `/pss-setup-agent <agent-path>` to create a new profile
+2. Run `/pss-change-agent-profile <profile> <instructions>` to modify
+3. Review the generated `.agent.toml` output
+4. Validate with `uv run scripts/pss_validate_agent_toml.py <file>`
 
 ## Critical Rules
 
@@ -119,16 +121,9 @@ Copy this checklist and track your progress:
 
 ## Error Handling
 
-- Missing index: `/pss-reindex-skills`
-- Binary not found: `uv run scripts/pss_build.py`
-- Validation: fix errors, re-run
+- Missing index: run `/pss-reindex-skills`
+- Binary not found: run `uv run scripts/pss_build.py`
 
 ## Output
 
 `.agent.toml` in `~/.claude/agents/`.
-
-## Resources
-
-- `schemas/pss-agent-toml-schema.json`
-- `scripts/pss_validate_agent_toml.py`
-- `scripts/pss_verify_profile.py`
