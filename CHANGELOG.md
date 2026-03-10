@@ -2,11 +2,26 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.42] - 2026-03-10
+
+### Bug Fixes
+
+- Remove unused variable `home` in pss_discover.py (lint fix)
+- Add missing shebang to pss_paths.py (plugin validation fix)
+
+### Features
+
+- Add CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME support for portable config paths
+
 ## [2.3.41] - 2026-03-10
 
 ### Features
 
 - Auto-reindex when skill-index.json missing, use systemMessage for warnings
+
+### Bump
+
+- Version 2.3.40 → 2.3.41
 
 ## [2.3.40] - 2026-03-10
 
