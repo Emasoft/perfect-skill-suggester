@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.39] - 2026-03-10
+
+### Features
+
+- Add orchestration/queue framework vocabulary expansion
+
 ## [2.3.38] - 2026-03-10
 
 ### Documentation
 
 - Update README and architecture documentation
+
+### Bump
+
+- Version 2.3.37 → 2.3.38
 
 ## [2.3.37] - 2026-03-10
 
