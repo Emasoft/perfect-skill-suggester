@@ -33,7 +33,7 @@ Output in a clear, tabular format:
 ║           PERFECT SKILL SUGGESTER STATUS                     ║
 ╠══════════════════════════════════════════════════════════════╣
 ║ Index Version:        3.0                                    ║
-║ Generation Method:    ai-analyzed                            ║
+║ Generation Method:    rust-pipeline                          ║
 ║ Last Updated:         2026-01-18 06:00:00 UTC               ║
 ║ Cache Age:            2 hours (VALID)                        ║
 ╠══════════════════════════════════════════════════════════════╣
@@ -75,15 +75,15 @@ Output in a clear, tabular format:
 If the user passes `--run-tests`, execute the end-to-end pipeline test script:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_test_e2e.py" --verbose
+uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_test_e2e.py" --verbose
 ```
 
 Report the test results to the user. The script tests the full PSS pipeline:
 - Environment setup and binary detection
 - Test skill creation
-- Pass 1 merge queue (keywords/metadata)
-- Pass 2 merge queue (co-usage relationships)
-- Rust binary direct scoring
+- Discovery pipeline (pss_discover.py)
+- Rust enrichment (pss --pass1-batch)
+- Merge queue (pss_merge_queue.py)
 - Hook simulation with multiple prompts
 
-If all 6 phases pass, PSS is working correctly. If any phase fails, report the specific failure details.
+If all phases pass, PSS is working correctly. If any phase fails, report the specific failure details.

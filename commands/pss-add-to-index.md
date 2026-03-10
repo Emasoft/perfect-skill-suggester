@@ -1,7 +1,7 @@
 ---
 name: pss-add-to-index
 description: "Index a single skill element"
-argument-hint: "<element-name-or-path> [--plugin <plugin-path>] [--pass2]"
+argument-hint: "<element-name-or-path> [--plugin <plugin-path>]"
 allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep", "Task"]
 ---
 
@@ -14,14 +14,12 @@ Incrementally add or update a single element (skill, agent, command, rule, MCP, 
 ```
 /pss-add-to-index <element-name-or-path>
 /pss-add-to-index --plugin <plugin-path>
-/pss-add-to-index --plugin <plugin-path> --pass2
 ```
 
 | Argument | Description |
 |----------|-------------|
 | `<element-name-or-path>` | Element name (e.g., `senior-ios`) or path to definition file |
 | `--plugin <path>` | Scan ALL elements in a plugin directory and add/update each |
-| `--pass2` | Also run Pass 2 (co-usage analysis) for added elements |
 
 ## How It Works
 
@@ -29,7 +27,7 @@ Incrementally add or update a single element (skill, agent, command, rule, MCP, 
 
 1. **Resolve element**: Find the element by name (lookup in index or scan known locations) or by direct path
 2. **Check for duplicates**: If the element already exists in `~/.claude/cache/skill-index.json`, it will be UPDATED (not duplicated)
-3. **Run Pass 1 scan**: Spawn a sonnet agent to read the element file and extract metadata (keywords, intents, category, etc.)
+3. **Run Rust enrichment**: Pipe the element through the Rust binary (`pss --pass1-batch`) to extract metadata (keywords, intents, category, etc.)
 4. **Merge into index**: Add or update the element in the existing index using `pss_merge_queue.py`
 
 ### Plugin Mode (`--plugin`)
@@ -41,9 +39,9 @@ Incrementally add or update a single element (skill, agent, command, rule, MCP, 
    - `rules/*.md` — rule definitions
    - Check plugin's `plugin.json`, `.mcp.json`, or `mcp.json` for MCP server configurations
 2. **For MCP servers found in plugin configs**:
-   - The discovery script (`pss_discover.py`) automatically builds descriptor `.md` files in the system temp dir
+   - The discovery script (`pss_discover.py`) automatically builds descriptor `.md` files in a temp dir
    - Each descriptor aggregates: MCP config + README content + tool names from source code
-   - The sonnet agent reads the descriptor file (pointed to by the element's `path` field) for deep inspection
+   - The Rust binary reads the descriptor file for keyword/metadata extraction
    - **NEVER activate or run the MCP server** — only read static files (README, source, config)
 3. **For each element**: Run the single-element workflow (check duplicate → scan → merge)
 4. **Report**: Show count of elements added/updated
@@ -62,7 +60,7 @@ When given a name (not a path), search in order:
 
 ## Reference
 
-- [Execution Protocol](pss-add-to-index/execution-protocol.md) — Step-by-step implementation (Steps 1-7: load index, resolve, dedup, scan, merge, verify, pass2)
+- [Execution Protocol](pss-add-to-index/execution-protocol.md) — Step-by-step implementation (Steps 1-6: load index, resolve, dedup, enrich, merge, verify)
 
 ## Example
 
@@ -76,8 +74,6 @@ When given a name (not a path), search in order:
 # Add all elements from a plugin
 /pss-add-to-index --plugin ~/.claude/plugins/cache/my-plugin/my-plugin/1.0.0/
 
-# Add all elements from a plugin with co-usage analysis
-/pss-add-to-index --plugin ~/.claude/plugins/cache/my-plugin/my-plugin/1.0.0/ --pass2
 ```
 
 ## Notes

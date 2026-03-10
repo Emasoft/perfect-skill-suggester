@@ -36,4 +36,4 @@ View the current status of Perfect Skill Suggester including:
 
 ## Related Commands
 
-- `/pss-reindex-skills` - Regenerate the skill index with AI analysis
+- `/pss-reindex-skills` - Rebuild the skill index using the Rust pipeline

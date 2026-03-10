@@ -329,10 +329,10 @@ Skill `docker-deploy` keywords: `docker`, `containerize`, `dockerfile`, `docker-
 
 **3. Co-usage Evidence**
 
-**What it is:** Skills that are commonly used together based on AI-analyzed patterns.
+**What it is:** Skills that are commonly used together based on keyword and category overlap.
 
 **How co-usage works:**
-1. During indexing, PSS analyzes skill descriptions and references
+1. During indexing, the Rust pipeline computes keyword/category overlap between skills
 2. Identifies skills that complement each other
 3. Stores co-usage relationships with weights
 4. Suggests skills when a related skill is activated or mentioned
@@ -597,15 +597,16 @@ grep -r "name: <skill_name>" ~/.claude/skills/
 # Ensure proper indentation, quotes, and YAML syntax
 ```
 
-**4. AI analysis timeout**
+**4. Pipeline stall or hang**
 
-**Error message:** `Timeout during co-usage analysis`
+**Error message:** `Pipeline exited with code <N>` or no output after 30 seconds
 
-**Cause:** Too many skills, AI analysis takes too long
+**Cause:** Rust binary crash, broken pipe, or discovery script error
 
 **Fix:**
-- Split skills into batches
-- Run `/pss-reindex-skills` again (it will retry)
+- Check `/tmp/pss-discover-warnings.txt` for discovery errors
+- Check `/tmp/pss-pass1-stats.txt` for Rust binary stats
+- Run `/pss-reindex-skills` again
 - If persistent, report as a bug
 
 **Recovery procedure:**

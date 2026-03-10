@@ -472,7 +472,6 @@ Pre-built binaries included for:
 | Linux x86_64 | `bin/pss-linux-x86_64` |
 | Linux ARM64 | `bin/pss-linux-arm64` |
 | Windows x86_64 | `bin/pss-windows-x86_64.exe` |
-| wasm32 | `bin/pss-wasm32.wasm` |
 
 ## Building from Source
 
@@ -480,7 +479,7 @@ Pre-built binaries included for:
 # Build for current platform
 uv run python scripts/pss_build.py
 
-# Build all 6 platforms (cross + Docker needed for Linux/Windows)
+# Build all 5 platforms (cross + Docker needed for Linux/Windows)
 uv run python scripts/pss_build.py --all
 
 # Build specific target

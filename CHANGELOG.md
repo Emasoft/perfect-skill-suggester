@@ -2,6 +2,17 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.48] - 2026-03-10
+
+### Bug Fixes
+
+- Deep audit round 2: fix pss_ship.py BIN_DIR wrong path, fix pss_discover.py TOCTOU race in MCP descriptors
+- Fix path traversal check in pss_hook.py (string prefix → relative_to)
+- Fix pss_reindex.py pipeline timeout (was infinite, now 5 minutes)
+- Remove phantom wasm32 platform from docs and README
+- Fix all commands/skills referencing obsolete AI-agent indexing workflow
+- Fix CLAUDE.md version to v2.3.47, template name to pass2-sonnet
+
 ## [2.3.47] - 2026-03-10
 
 ### Bug Fixes

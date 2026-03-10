@@ -17,4 +17,5 @@ Use this checklist to verify your PSS workflow is complete:
 - [ ] MEDIUM confidence suggestions have relevant evidence
 - [ ] After installing new skills, reindex was run again
 - [ ] After modifying skill metadata, reindex was run again
+- [ ] (Optional) Disabled unwanted plugins in Claude Code settings and reindexed with `--exclude-inactive-plugins`
 - [ ] Skills you authored have `keywords` and `categories` in frontmatter

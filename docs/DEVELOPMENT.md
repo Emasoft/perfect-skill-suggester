@@ -30,7 +30,6 @@ This document provides instructions for building, testing, and developing the Pe
    # Linux targets
    rustup target add x86_64-unknown-linux-musl    # Linux x64
    rustup target add aarch64-unknown-linux-musl   # Linux ARM
-   rustup target add wasm32-wasip1                # WebAssembly
 
    # Windows target
    rustup target add x86_64-pc-windows-gnu       # Windows x64
@@ -86,7 +85,7 @@ The binary will be located at:
 The build script handles platform detection, toolchain selection, and binary placement:
 
 ```bash
-uv run scripts/pss_build.py --all          # All 6 targets
+uv run scripts/pss_build.py --all          # All 5 targets
 uv run scripts/pss_build.py                # Native only (darwin-arm64)
 uv run scripts/pss_build.py --target linux-x86_64  # Specific target
 ```
@@ -108,9 +107,6 @@ cross build --release --target x86_64-unknown-linux-musl
 # Linux ARM (requires cross or cargo-zigbuild)
 cross build --release --target aarch64-unknown-linux-musl
 
-# WebAssembly
-cargo build --release --target wasm32-wasip1
-
 # Windows x64 (requires cross or cargo-zigbuild)
 cross build --release --target x86_64-pc-windows-gnu
 ```
@@ -126,8 +122,7 @@ for target in \
   x86_64-apple-darwin \
   x86_64-unknown-linux-musl \
   aarch64-unknown-linux-musl \
-  x86_64-pc-windows-gnu \
-  wasm32-wasip1
+  x86_64-pc-windows-gnu
 do
   echo "Building for $target..."
   cargo build --release --target $target
@@ -149,7 +144,6 @@ PSS binaries follow this naming pattern: `pss-{os}-{arch}[.exe]`
 | Linux x64 | `pss-linux-x86_64` |
 | Linux ARM | `pss-linux-arm64` |
 | Windows x64 | `pss-windows-x86_64.exe` |
-| WebAssembly | `pss-wasm32.wasm` |
 
 ### Installing Binaries to Plugin
 
@@ -166,7 +160,6 @@ cp target/aarch64-apple-darwin/release/pss bin/pss-darwin-arm64
 cp target/x86_64-apple-darwin/release/pss bin/pss-darwin-x86_64
 cp target/x86_64-unknown-linux-musl/release/pss bin/pss-linux-x86_64
 cp target/aarch64-unknown-linux-musl/release/pss bin/pss-linux-arm64
-cp target/wasm32-wasip1/release/pss.wasm bin/pss-wasm32.wasm
 cp target/x86_64-pc-windows-gnu/release/pss.exe bin/pss-windows-x86_64.exe
 
 # Make binaries executable (Unix-like systems)

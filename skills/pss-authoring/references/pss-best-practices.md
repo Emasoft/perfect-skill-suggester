@@ -85,6 +85,6 @@ When PSS provides multiple evidence types for a suggestion, you can be more conf
 **Occasional full rebuild ensures accuracy:**
 - Delete the index file (`~/.claude/cache/skill-index.json`) every few months
 - Rebuild with `/pss-reindex-skills`
-- This ensures that AI co-usage analysis (Phase 2) reflects the current skill landscape
+- This ensures that co-usage analysis reflects the current skill landscape
 
 Note: `/pss-reindex-skills` always performs a full rebuild from scratch -- there is no incremental mode. So running reindex is itself a clean rebuild. Deleting the index file first is optional but ensures no stale data persists.

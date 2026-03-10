@@ -133,7 +133,7 @@ This pass scores candidates based on the agent definition ALONE — its role, du
 
 Determine the system temp directory and create session-unique temp file paths:
 ```bash
-PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
+PSS_TMPDIR=$(uv run python3 -c "import tempfile; print(tempfile.gettempdir())")
 PSS_AGENT_INPUT="${PSS_TMPDIR}/pss-agent-profile-input-$$.json"
 PSS_REQS_INPUT="${PSS_TMPDIR}/pss-reqs-profile-input-$$.json"
 ```

@@ -41,7 +41,6 @@ import math
 import os
 import re
 import sys
-import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -539,11 +538,8 @@ def _discover_marketplace_mcps(
     if not marketplaces_dir.exists():
         return servers
 
-    # Use a deterministic temp path, cleaned at start of each run to prevent leak
-    descriptor_dir = Path(tempfile.gettempdir()) / "pss-mcp-descriptors"
-    if descriptor_dir.exists():
-        shutil.rmtree(descriptor_dir)
-    descriptor_dir.mkdir(parents=True, exist_ok=True)
+    # Use a unique temp dir per run to avoid TOCTOU race on predictable paths
+    descriptor_dir = Path(tempfile.mkdtemp(prefix="pss-mcp-"))
 
     skip_dirs = {"node_modules", ".git", "dist", "build", "__pycache__"}
     config_filenames = {".mcp.json", "mcp.json", "plugin.json"}

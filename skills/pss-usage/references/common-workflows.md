@@ -23,8 +23,12 @@
    ```
    /pss-reindex-skills
    ```
+   Or to skip plugins you've disabled in Claude Code settings:
+   ```
+   /pss-reindex-skills --exclude-inactive-plugins
+   ```
 
-   Wait for completion (1-2 minutes)
+   Wait for completion (under 10 seconds for 10K+ elements)
 
 3. **Verify success**
    ```

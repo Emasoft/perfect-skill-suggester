@@ -32,47 +32,43 @@ PLUGIN_DIR="<user-provided-plugin-path>"
 ### Step 3: Check Duplicate
 
 Read `skill-index.json` and check if an entry with the same name already exists.
-- If EXISTS: Will be UPDATED (overwritten with fresh scan data)
+- If EXISTS: Will be UPDATED (overwritten with fresh enrichment data)
 - If NEW: Will be ADDED
 
-### Step 4: Spawn Sonnet Agent for Metadata Extraction
+### Step 4: Run Rust Enrichment Pipeline
 
-For EACH element to process, spawn a sonnet agent with the Pass 1 template from `${CLAUDE_PLUGIN_ROOT}/templates/pass1-sonnet.md`.
-
-**IMPORTANT**: When spawning the sonnet agent:
-- Use `model: sonnet` for accurate extraction
-- Provide only ONE element per agent
-- The agent writes a `.pss` file to `${PSS_TMPDIR}/pss-queue/`
-
-### Step 5: Merge into Index
-
-After the sonnet agent completes, merge the `.pss` file into the index:
+For EACH element to process, pipe it through the discovery and enrichment pipeline:
 
 ```bash
-PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pss_merge_queue.py" "${PSS_TMPDIR}/pss-queue/${ELEMENT_NAME}.pss" --pass 1 --quiet
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
+BINARY="${PLUGIN_ROOT}/src/skill-suggester/bin/pss-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
+
+# Discover the element and pipe through Rust enrichment
+uv run "${PLUGIN_ROOT}/scripts/pss_discover.py" --jsonl --name "<element-name>" \
+  | "${BINARY}" --pass1-batch \
+  | uv run "${PLUGIN_ROOT}/scripts/pss_merge_queue.py" --batch-stdin --index "$HOME/.claude/cache/skill-index.json"
 ```
 
-### Step 6: Verify
+### Step 5: Verify
 
 Confirm the element appears in the index:
 ```bash
-python3 -c "
+uv run python3 -c "
 import json
 with open('$HOME/.claude/cache/skill-index.json') as f:
     idx = json.load(f)
 name = '<element-name>'
 if name in idx['skills']:
     e = idx['skills'][name]
-    print(f'✅ {name} ({e.get(\"type\",\"skill\")}) - {len(e.get(\"keywords\",[]))} keywords')
+    print(f'Added {name} ({e.get(\"type\",\"skill\")}) - {len(e.get(\"keywords\",[]))} keywords')
 else:
-    print(f'❌ {name} not found in index')
+    print(f'{name} not found in index')
 "
 ```
 
-### Step 7 (Optional): Pass 2
+### Step 6: Rebuild CozoDB (Optional)
 
-If `--pass2` is specified, also run co-usage analysis:
-1. Read the Pass 2 template from `${CLAUDE_PLUGIN_ROOT}/templates/pass2-sonnet.md`
-2. Spawn a sonnet agent to analyze co-usage relationships
-3. Merge the co-usage data into the index
+If the CozoDB index is used for pre-filtering, rebuild it:
+```bash
+"${BINARY}" --build-db
+```

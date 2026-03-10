@@ -40,7 +40,7 @@ RUST_SRC_DIR = ROOT / "src" / "skill-suggester" / "src"
 README_MD = ROOT / "README.md"
 CHANGELOG_MD = ROOT / "CHANGELOG.md"
 BUILD_SCRIPT = ROOT / "scripts" / "pss_build.py"
-BIN_DIR = ROOT / "rust" / "skill-suggester" / "bin"
+BIN_DIR = ROOT / "src" / "skill-suggester" / "bin"
 VALIDATE_SCRIPT = ROOT / "scripts" / "validate_plugin.py"
 HOOK_SOURCE = ROOT / "git-hooks" / "pre-push"
 HOOK_TARGET = ROOT / ".git" / "hooks" / "pre-push"
@@ -146,7 +146,7 @@ def run_validation() -> int:
             timeout=120,
         )
     else:
-        result = run(["python3", str(VALIDATE_SCRIPT), "."], timeout=120)
+        result = run([sys.executable, str(VALIDATE_SCRIPT), "."], timeout=120)
 
     if result.stdout.strip():
         print(result.stdout.strip())
