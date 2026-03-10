@@ -31,9 +31,11 @@ user-invocable: false
 
 ### Checklist
 
-- [ ] Gather context, get candidates, evaluate each
-- [ ] External elements, cross-type coherence
-- [ ] Write, validate, verify, review `.agent.toml`
+Copy this checklist and track your progress:
+
+- [ ] Gather context, get candidates, evaluate
+- [ ] External elements, coherence check
+- [ ] Write, validate, verify, review
 
 ## References
 
@@ -79,38 +81,51 @@ user-invocable: false
   - Clean up
   - Completion Checklist
 - [Review Protocol (Phase 7)](references/review-protocol.md)
-  - Self-Review Checklist (Name Integrity, Auto-Skills Pinning, Non-Coding Filter, Coverage, Exclusion Quality, Fix Cycle)
-  - Interactive Review Protocol (Activation, Summary Format, User Directives)
-  - Search Integration (Find, Compare, Add from Results)
+  - Self-Review Checklist
+    - Check 1: Name Integrity
+    - Check 2: Auto-Skills Pinning
+    - Check 3: Non-Coding Agent Filter
+    - Check 4: Coverage Analysis
+    - Check 5: Exclusion Quality
+    - Self-Review Fix Cycle
+  - Interactive Review Protocol
+    - Activation Conditions
+    - Review Summary Format
+    - User Directives
+  - Search Integration
+    - Finding Alternatives
+    - Comparing Candidates
+    - Adding from Search Results
   - Re-validation Loop
   - Completion Checklist
 - [Setup Command](references/pss-setup-command.md)
-  - Usage Examples, How It Works
+  - Usage Examples
+  - How It Works
 - [Example and Scoring](references/example-and-scoring.md)
-  - Scoring Reference, Troubleshooting, Complete Example
+  - Scoring Reference
+  - Troubleshooting
+  - Complete Example
 - [Error Handling](references/error-handling.md)
-  - Binary Not Found, Missing Skill Index, Validation Failure, Missing Env Var
+  - Binary Not Found
+  - Missing Skill Index
+  - Validation Failure
+  - Missing Environment Variable
 
 ## Examples
 
 ```
 /pss-setup-agent agents/my-agent.md
-/pss-setup-agent agents/my-agent.md --requirements docs/prd.md
 /pss-change-agent-profile my-agent.agent.toml add websocket-handler
 ```
 
 ## Error Handling
 
-- Missing index: run `/pss-reindex-skills`
+- Missing index: `/pss-reindex-skills`
 - Binary not found: `uv run scripts/pss_build.py`
-- Validation fails: fix errors, re-run
-
-## Output
-
-`.agent.toml` in `~/.claude/agents/`.
+- Validation: fix errors, re-run
 
 ## Resources
 
-- Schema: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`
-- Validator: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`
-- Verifier: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_verify_profile.py`
+- `schemas/pss-agent-toml-schema.json`
+- `scripts/pss_validate_agent_toml.py`
+- `scripts/pss_verify_profile.py`
