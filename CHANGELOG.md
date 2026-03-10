@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.25] - 2026-03-10
+
+### Features
+
+- Add unified build script for PSS + pss-nlp with log-only output
+
+### Miscellaneous Tasks
+
+- Sync lock files and rebuilt binaries with version 2.3.22
+
 ## [2.3.24] - 2026-03-10
 
 ### Miscellaneous Tasks
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Build
 
 - Rebuild all PSS + pss-nlp binaries for 5 platforms
+
+### Bump
+
+- Version 2.3.23 → 2.3.24
 
 ## [2.3.23] - 2026-03-10
 
