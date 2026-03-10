@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """PSS Paths — Canonical path resolution for Claude config directory.
 
 All PSS scripts must use these functions instead of hardcoding ~/.claude.
