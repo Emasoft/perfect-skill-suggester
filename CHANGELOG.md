@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.44] - 2026-03-10
+
+### Bug Fixes
+
+- Crash-safe reindex with atomic index swap and corrupt detection
+
 ## [2.3.43] - 2026-03-10
 
 ### Bug Fixes
 
 - Revert CLAUDE_CONFIG_DIR/XDG_CONFIG_HOME env var support
+
+### Bump
+
+- Version 2.3.42 → 2.3.43
 
 ## [2.3.42] - 2026-03-10
 
