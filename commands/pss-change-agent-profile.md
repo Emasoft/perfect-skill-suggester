@@ -124,8 +124,8 @@ Modify the TOML data structure:
 Run both verification and validation:
 
 ```bash
-# Verify all element names against the index
-uv run "${VERIFY_SCRIPT}" "${PROFILE_PATH}" --verbose
+# Verify all element names against the index (--agent-def enables agent-defined name detection)
+uv run "${VERIFY_SCRIPT}" "${PROFILE_PATH}" --agent-def "${AGENT_PATH}" --verbose
 
 # Validate TOML structure
 uv run "${VALIDATE_SCRIPT}" "${PROFILE_PATH}" --check-index --verbose

@@ -73,6 +73,41 @@ uv run "${PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH}" \
 
 If either fails → fix and re-run (max 2 cycles).
 
+## Re-Alignment Scenario
+
+When `pss-change-agent-profile` is called with `--requirements` on an existing profile that already had requirements merged, special rules apply:
+
+### Stale Element Removal
+
+Elements cherry-picked from a previous requirements pass that are no longer relevant:
+
+1. **Compare old vs new**: Score the new requirements document → get new `REQS_CANDIDATES`
+2. **Identify stale**: Any element in the profile tagged as requirements-derived (in secondary/specialized) that does NOT appear in the new `REQS_CANDIDATES` is stale
+3. **Remove stale**: Move stale elements to `[skills.excluded]` with reason "Removed: no longer relevant to updated requirements"
+
+### Idempotency
+
+Running requirements alignment twice with the same requirements document must produce the same profile:
+
+1. **Skip duplicates**: If a cherry-picked candidate is already in the profile → skip silently
+2. **Preserve tier placement**: Do not re-tier elements already placed by a previous merge
+3. **Preserve user overrides**: If the user manually moved an element via `pss-change-agent-profile`, do not revert it
+
+### Provenance Tracking
+
+To support re-alignment, the merge step should add a comment to each cherry-picked element indicating its origin:
+
+```toml
+[skills]
+secondary = [
+    "postgresql-best-practices",  # from requirements: e-commerce-prd.md
+    "redis-best-practices",       # from requirements: e-commerce-prd.md
+    "api-development",            # from agent baseline
+]
+```
+
+This is informational only — the validator ignores inline TOML comments. But it helps the profiler distinguish baseline vs requirements-derived elements during re-alignment.
+
 ## Merge Checklist
 
 - [ ] Exact name deduplication: no cherry-picked element duplicates a baseline element
@@ -80,6 +115,8 @@ If either fails → fix and re-run (max 2 cycles).
 - [ ] All cherry-picked skills placed in secondary or specialized (never primary)
 - [ ] Tier limits respected after merge (secondary ≤ 12, specialized ≤ 8)
 - [ ] All rejected requirements candidates documented in `[skills.excluded]` with reason
+- [ ] Re-alignment: stale elements from previous requirements pass removed
+- [ ] Re-alignment: idempotency verified (no duplicate additions, no tier reverts)
 - [ ] Verification script passed (exit code 0)
 - [ ] Validation script passed (exit code 0)
 - [ ] Clean up: temporary requirements descriptor file deleted

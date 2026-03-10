@@ -131,15 +131,11 @@ If `REQUIREMENTS_PATHS` is non-empty, read ALL requirements files. Extract and s
 
 This pass scores candidates based on the agent definition ALONE — its role, duties, tools, domains, and auto_skills. No requirements content is included. This produces the **baseline agent profile**.
 
-Determine the system temp directory (cross-platform):
-```bash
-PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
-```
-
-Write the agent-only descriptor:
+Determine the system temp directory and create session-unique temp file paths:
 ```bash
 PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
 PSS_AGENT_INPUT="${PSS_TMPDIR}/pss-agent-profile-input-$$.json"
+PSS_REQS_INPUT="${PSS_TMPDIR}/pss-reqs-profile-input-$$.json"
 ```
 
 ```json
@@ -668,7 +664,8 @@ After each directive: edit TOML → re-validate (Step 8) → show updated summar
 
 ### Step 9: Clean Up and Report
 
-- Delete the temporary `${PSS_INPUT}` file
+- Delete the temporary `${PSS_AGENT_INPUT}` file (agent-only descriptor from Step 3a)
+- Delete the temporary `${PSS_REQS_INPUT}` file if it exists (requirements descriptor from Step 3b)
 - **TOKEN BUDGET RULE**: Return ONLY a 1-2 line summary to the orchestrator. NEVER return verbose text, code blocks, TOML contents, candidate lists, or detailed reasoning. Write any detailed report to a file instead.
 - Output format: `[DONE] pss-agent-profiler - <agent-name>: P=<n> S=<n> Sp=<n> excluded=<n> review-fixes=<n> user-changes=<n>. Output: <OUTPUT_PATH>`
 - If failed: `[FAILED] pss-agent-profiler - <error summary>`
@@ -677,7 +674,8 @@ After each directive: edit TOML → re-validate (Step 8) → show updated summar
 
 - [ ] Structural validator returned exit code 0 (Step 8)
 - [ ] Element verifier returned exit code 0 — no hallucinations, no pinning/coding/restriction violations (Step 8a)
-- [ ] Temporary input file `${PSS_INPUT}` deleted
+- [ ] Temporary agent input file `${PSS_AGENT_INPUT}` deleted
+- [ ] Temporary requirements input file `${PSS_REQS_INPUT}` deleted (if Pass 2 was run)
 - [ ] Output file exists at `${OUTPUT_PATH}` and is non-empty
 - [ ] Summary includes: primary count (P), secondary count (S), specialized count (Sp), excluded count
 - [ ] No validation or verification errors remain
@@ -701,9 +699,34 @@ Context: User wants to profile an agent with project requirements
 user: "/pss-setup-agent agents/backend-architect.md --requirements docs/prd.md docs/tech-spec.md"
 assistant: "I'll use the pss-agent-profiler agent to analyze the backend-architect definition alongside the project requirements."
 <commentary>
-The user provides requirements documents that give project-specific context. The profiler reads both the agent definition AND the requirements, then uses the combined context to select skills that match the specific project's tech stack, constraints, and domain. This produces more targeted recommendations than profiling without requirements.
+The user provides requirements documents. The profiler uses two-pass scoring: Pass 1 scores the agent definition alone (baseline profile), Pass 2 scores the requirements document alone (project-level candidates), then cherry-picks from Pass 2 only the elements matching the backend-architect's specialization (e.g., API design, database, infrastructure — not frontend or mobile).
 </commentary>
 </example>
+
+## Change Mode (Modifying Existing Profiles)
+
+When invoked with `MODE=change`, the profiler modifies an existing `.agent.toml` instead of creating one from scratch. The change command (`/pss-change-agent-profile`) passes:
+
+- `MODE=change` — activates this mode
+- `PROFILE_PATH` — path to the existing `.agent.toml`
+- `AGENT_PATH` — path to the agent `.md` (extracted from `[agent].path` in the TOML)
+- `CHANGE_INSTRUCTIONS` — natural language describing what to change
+- `REQUIREMENTS_PATHS` — optional design documents for re-alignment
+- `BINARY_PATH`, `INDEX_PATH` — same as create mode
+
+**Change mode workflow:**
+
+1. **Read current profile**: Load the `.agent.toml` and extract all sections
+2. **Read agent definition**: Load the `.md` for context (role, duties, domains)
+3. **Parse instructions**: Interpret the natural language change request (add/remove/swap/move/exclude)
+4. **Search and resolve**: For add operations, search the index via `"${BINARY_PATH}" search` to find matching elements
+5. **Requirements alignment** (if `REQUIREMENTS_PATHS` provided): Run the `pss-design-alignment` skill — score requirements separately (Pass 2), cherry-pick by agent specialization, merge into profile
+6. **Apply changes**: Edit the TOML data structure
+7. **Verify (Step 8a)**: Run `pss_verify_profile.py` with `--agent-def`
+8. **Validate (Step 8)**: Run `pss_validate_agent_toml.py` with `--check-index`
+9. **Report**: Same format as create mode
+
+All verification, validation, and anti-hallucination checks from create mode apply equally to change mode.
 
 ## Error Handling (FAIL-FAST — NO FALLBACKS)
 

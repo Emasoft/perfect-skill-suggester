@@ -1,10 +1,11 @@
 # Execution Steps
 
-1. Parse arguments: extract `PROFILE_PATH` (first arg) and `CHANGE_INSTRUCTIONS` (remaining args)
+1. Parse arguments: extract `PROFILE_PATH` (first arg), `--requirements PATHS` (optional), and `CHANGE_INSTRUCTIONS` (remaining args after flags). If `--requirements` is present but no change instructions follow, default to "align with project requirements".
 2. Verify the `.agent.toml` file exists at `PROFILE_PATH`
-3. Read the `.agent.toml` to extract `[agent].path` (the agent `.md` file)
-4. Verify `~/.claude/cache/skill-index.json` exists
-5. Validate `CLAUDE_PLUGIN_ROOT` environment variable:
+3. Read the `.agent.toml` to extract `[agent].path` (the agent `.md` file) as `AGENT_PATH`
+4. If `--requirements` provided, verify each requirements file exists
+5. Verify `~/.claude/cache/skill-index.json` exists
+6. Validate `CLAUDE_PLUGIN_ROOT` environment variable:
    ```python
    import os
    from pathlib import Path
@@ -20,7 +21,7 @@
            f"CLAUDE_PLUGIN_ROOT is not a valid directory: {plugin_root_str}"
        )
    ```
-6. Detect the platform-specific Rust binary:
+7. Detect the platform-specific Rust binary:
    ```python
    import platform, os
    system = platform.system()
@@ -41,20 +42,22 @@
        raise RuntimeError(f"Unsupported platform: {system}/{machine}")
    BINARY = os.path.join(plugin_root, "src", "skill-suggester", "bin", binary_name)
    ```
-7. Spawn the `pss-agent-profiler` agent with a CHANGE MODE prompt.
+8. Spawn the `pss-agent-profiler` agent with a CHANGE MODE prompt.
 
 The prompt to the agent MUST include:
-- `MODE=change` (not the default create mode)
-- The absolute path to the existing `.agent.toml` file
-- The agent `.md` path (from `[agent].path` in the TOML)
-- The change instructions from the user
-- The path to the Rust binary (for searching the index)
-- The path to the verification script (`${PLUGIN_ROOT}/scripts/pss_verify_profile.py`)
-- The path to the validation script (`${PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`)
-- Instructions to: read the current TOML, apply changes, verify, validate, write back
+- `MODE=change` (activates change mode — see "Change Mode" section in pss-agent-profiler.md)
+- `PROFILE_PATH` — the absolute path to the existing `.agent.toml` file
+- `AGENT_PATH` — the agent `.md` path (from `[agent].path` in the TOML)
+- `CHANGE_INSTRUCTIONS` — the change instructions from the user
+- `REQUIREMENTS_PATHS` — list of requirements file paths (may be empty). When non-empty, the profiler uses the `pss-design-alignment` skill: scores requirements separately (Pass 2), cherry-picks elements matching the agent's specialization, and merges into the existing profile
+- `BINARY_PATH` — path to the Rust binary (for searching the index)
+- `INDEX_PATH` — path to `~/.claude/cache/skill-index.json`
+- The path to the verification script: `${PLUGIN_ROOT}/scripts/pss_verify_profile.py`
+- The path to the validation script: `${PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`
+- Instructions to: read the current TOML, apply changes, run verification with `--agent-def "${AGENT_PATH}"`, validate, write back
 
 **CRITICAL**: Resolve `${CLAUDE_PLUGIN_ROOT}` to an absolute path BEFORE passing to the agent.
 
-8. Report the result:
+9. Report the result:
    - On success: `[DONE] Profile updated: <profile-path> — <summary of changes>`
    - On failure: `[FAILED] <reason>`

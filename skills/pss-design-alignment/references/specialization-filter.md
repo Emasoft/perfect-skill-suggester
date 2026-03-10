@@ -113,12 +113,34 @@ Requirements suggest: Kubernetes, Docker, CI/CD, monitoring, PostgreSQL, Redis, 
 | grpc-development | backend ✗ | — | REJECT |
 | postgresql-best-practices | database ✗ | — | REJECT |
 
+## Multi-Domain and Ambiguous Agents
+
+### Multi-Domain Agents (3+ domains)
+
+When an agent covers 3+ domains (e.g., a full-stack developer covering frontend + backend + database + devops):
+
+1. **Union of domains**: The domain overlap check passes if the candidate matches ANY of the agent's domains
+2. **Duty matching remains strict**: Even with broad domain coverage, the candidate must match a declared duty
+3. **Tier demotion for peripheral domains**: Elements matching non-primary domains go to specialized tier, not secondary
+4. **Cap enforcement**: Multi-domain agents hit tier caps faster — apply stricter practical usage test to keep counts manageable
+
+### Agents with No Clear Specialization
+
+When an agent has no declared domains or vague duties (e.g., "general assistant", "project helper"):
+
+1. **Default to requirements context**: Use the project requirements as the domain source instead
+2. **Conservative acceptance**: Only accept candidates that score HIGH in the requirements pass AND pass a strict practical usage test
+3. **Limit cherry-picks**: Cap at 5 cherry-picked elements to avoid profile bloat
+4. **Flag for review**: Mark the profile for interactive review since automated specialization filtering cannot be reliable
+
 ## Cherry-Pick Checklist
 
 - [ ] Every `REQS_CANDIDATES` element has been individually evaluated
 - [ ] Domain overlap check applied to each candidate
 - [ ] Duty matching applied to domain-passing candidates
 - [ ] Practical usage test applied to duty-matching candidates
+- [ ] Multi-domain agents: union of domains used, peripheral domain elements go to specialized tier
+- [ ] Ambiguous agents: conservative mode applied (max 5 cherry-picks, flagged for review)
 - [ ] Accepted elements: list with tier assignment (secondary or specialized)
 - [ ] Rejected elements: list with specific rejection reason
 - [ ] No duplicate elements (already in agent baseline → skip)

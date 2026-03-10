@@ -52,6 +52,19 @@ CODING_SKILL_PATTERNS: list[str] = [
     r"^clangd.*",
     r"^python-code-fixer$",
     r"^js-code-fixer$",
+    r"^mypy.*",
+    r"^biome.*",
+    r"^clippy.*",
+    r"^rubocop.*",
+    r"^shellcheck.*",
+    r"^flake8.*",
+    r"^black.*",
+    r"^isort.*",
+    r"^pylint.*",
+    r"^stylelint.*",
+    r"^standardjs.*",
+    r"^swiftlint.*",
+    r"^ktlint.*",
 ]
 
 
@@ -143,14 +156,34 @@ def extract_agent_defined_names(agent_md_path: Path) -> set[str]:
 
     text = agent_md_path.read_text(encoding="utf-8")
 
-    # Extract frontmatter auto_skills
+    # Extract frontmatter list items only from name-bearing keys
+    NAME_BEARING_KEYS = {
+        "auto_skills",
+        "triggers",
+        "agents",
+        "commands",
+        "skills",
+        "rules",
+        "mcp",
+        "lsp",
+    }
     fm_match = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
     if fm_match:
         fm_text = fm_match.group(1)
+        current_key: str | None = None
         for line in fm_text.splitlines():
             stripped = line.strip()
-            # YAML list items under auto_skills:
-            if stripped.startswith("- ") and not stripped.startswith("- {"):
+            # Detect YAML key (e.g. "auto_skills:")
+            key_match = re.match(r"^([a-z_]+)\s*:", stripped)
+            if key_match:
+                current_key = key_match.group(1)
+                continue
+            # Only capture list items under name-bearing keys
+            if (
+                current_key in NAME_BEARING_KEYS
+                and stripped.startswith("- ")
+                and not stripped.startswith("- {")
+            ):
                 name = stripped[2:].strip().strip('"').strip("'")
                 if name and not name.startswith("#"):
                     names.add(name)
@@ -158,8 +191,13 @@ def extract_agent_defined_names(agent_md_path: Path) -> set[str]:
     # Extract agent names from routing tables (markdown table rows with ** bold **)
     for match in re.finditer(r"\*\*([a-z][a-z0-9_-]+)\*\*", text):
         candidate = match.group(1)
-        # Only keep names that look like agent/skill names (kebab-case, 3+ chars)
         if len(candidate) >= 3 and re.match(r"^[a-z][a-z0-9_-]+$", candidate):
+            names.add(candidate)
+
+    # Extract backtick-quoted names (e.g. `skill-name` in instructions)
+    for match in re.finditer(r"`([a-z][a-z0-9_-]{2,})`", text):
+        candidate = match.group(1)
+        if re.match(r"^[a-z][a-z0-9_-]+$", candidate):
             names.add(candidate)
 
     return names
@@ -232,10 +270,21 @@ def is_coding_element(name: str) -> bool:
     return any(re.match(pat, name) for pat in CODING_SKILL_PATTERNS)
 
 
+def _normalize_name(name: str) -> str:
+    """Normalize hyphens/underscores for comparison."""
+    return name.lower().replace("_", "-")
+
+
 def find_closest_match(
     name: str, candidates: set[str], cutoff: float = 0.6
 ) -> str | None:
-    """Find the closest matching name using difflib."""
+    """Find the closest matching name using difflib with hyphen/underscore normalization."""
+    # First try exact match after normalization
+    norm = _normalize_name(name)
+    for c in candidates:
+        if _normalize_name(c) == norm:
+            return c
+    # Fall back to fuzzy matching
     matches = difflib.get_close_matches(name, candidates, n=1, cutoff=cutoff)
     return matches[0] if matches else None
 
@@ -250,8 +299,8 @@ def extract_toml_elements(data: dict) -> list[tuple[str, str, str]]:
         for name in skills.get(tier, []):
             elements.append((name, "skill", f"skills.{tier}"))
 
-    # Other sections
-    for section in ("agents", "commands", "rules", "mcp", "lsp"):
+    # Other sections (including hooks)
+    for section in ("agents", "commands", "rules", "mcp", "lsp", "hooks"):
         sec_data = data.get(section, {})
         rec = sec_data.get("recommended", [])
         if isinstance(rec, list):
@@ -478,7 +527,14 @@ def write_toml(data: dict, path: Path) -> None:
                 items = ", ".join(f'"{i}"' for i in v)
                 lines.append(f"{k} = [{items}]")
             elif isinstance(v, str):
-                lines.append(f'{k} = "{v}"')
+                # Escape special TOML characters in string values
+                escaped = (
+                    v.replace("\\", "\\\\")
+                    .replace('"', '\\"')
+                    .replace("\n", "\\n")
+                    .replace("\t", "\\t")
+                )
+                lines.append(f'{k} = "{escaped}"')
             elif isinstance(v, bool):
                 lines.append(f"{k} = {'true' if v else 'false'}")
             elif isinstance(v, int):
@@ -621,7 +677,8 @@ def main() -> int:
         try:
             data = load_toml(toml_path)
             agent_path_str = data.get("agent", {}).get("path")
-            if agent_path_str:
+            # Guard against empty string resolving to cwd
+            if agent_path_str and agent_path_str.strip():
                 candidate = Path(agent_path_str)
                 if candidate.exists():
                     agent_md_path = candidate

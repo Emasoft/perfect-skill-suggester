@@ -39,7 +39,7 @@
    binary_name = PLATFORM_MAP.get((system, machine))
    if binary_name is None:
        raise RuntimeError(f"Unsupported platform: {system}/{machine}")
-   BINARY = os.path.join(plugin_root, "rust", "skill-suggester", "bin", binary_name)
+   BINARY = os.path.join(plugin_root, "src", "skill-suggester", "bin", binary_name)
    ```
 7. Extract optional flags from command arguments:
    - `--interactive`: boolean (present or absent) → pass as `INTERACTIVE=true/false`
@@ -56,15 +56,15 @@
    The profiler agent is MANDATORY — it applies AI reasoning (conflict detection, mutual exclusivity, cross-type coherence, stack compatibility) that no script can replicate. Do NOT attempt to generate `.agent.toml` without an AI agent.
 
 The prompt to the agent MUST include:
-- The resolved absolute path to the <agent-name>.md file
-- The list of requirements file paths (may be empty)
-- The path to skill-index.json (`~/.claude/cache/skill-index.json`)
-- The absolute path to the Rust binary (resolved in step 6)
-- The desired output path for the .agent.toml file
+- `AGENT_PATH` — the resolved absolute path to the <agent-name>.md file
+- `REQUIREMENTS_PATHS` — the list of requirements file paths (may be empty). When non-empty, the profiler uses two-pass scoring: Pass 1 scores the agent alone, Pass 2 scores requirements separately via the `pss-design-alignment` skill, then cherry-picks by agent specialization
+- `INDEX_PATH` — the path to skill-index.json (`~/.claude/cache/skill-index.json`)
+- `BINARY_PATH` — the absolute path to the Rust binary (resolved in step 6)
+- `OUTPUT_PATH` — the desired output path for the .agent.toml file
 - Instructions to follow the workflow defined in `${CLAUDE_PLUGIN_ROOT}/agents/pss-agent-profiler.md`
-- Whether interactive mode is enabled (`INTERACTIVE=true/false`)
-- List of elements to force-include (from `--include`, may be empty)
-- List of elements to force-exclude (from `--exclude`, may be empty)
+- `INTERACTIVE` — whether interactive mode is enabled (`true/false`)
+- `INCLUDE_ELEMENTS` — list of elements to force-include (from `--include`, may be empty)
+- `EXCLUDE_ELEMENTS` — list of elements to force-exclude (from `--exclude`, may be empty)
 - Tier size overrides if specified (`MAX_PRIMARY`, `MAX_SECONDARY`, `MAX_SPECIALIZED`)
 - Domain/language/platform constraints if specified
 

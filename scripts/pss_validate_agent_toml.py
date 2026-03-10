@@ -20,14 +20,30 @@ Exit codes:
 import json
 import re
 import sys
-import tomllib
 from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib  # type: ignore[no-redefine]
+    except ImportError:
+        sys.exit("ERROR: Python 3.11+ or 'tomli' package required for TOML parsing.")
 
 
 # Schema constraints matching schemas/pss-agent-toml-schema.json
 REQUIRED_SECTIONS = ["agent", "skills"]
-OPTIONAL_SECTIONS = ["requirements", "agents", "commands", "rules", "mcp", "hooks", "lsp", "dependencies"]
+OPTIONAL_SECTIONS = [
+    "requirements",
+    "agents",
+    "commands",
+    "rules",
+    "mcp",
+    "hooks",
+    "lsp",
+    "dependencies",
+]
 ALL_KNOWN_SECTIONS = REQUIRED_SECTIONS + OPTIONAL_SECTIONS
 
 AGENT_REQUIRED_FIELDS = ["name", "path"]
@@ -133,9 +149,7 @@ def validate_requirements_section(
         return  # Optional section
 
     if not isinstance(reqs, dict):
-        result.error(
-            "[requirements] must be a table/dict, got: " + type(reqs).__name__
-        )
+        result.error("[requirements] must be a table/dict, got: " + type(reqs).__name__)
         return
 
     # Unknown fields
@@ -235,9 +249,7 @@ def validate_skills_section(
         tier_seen: set[str] = set()
         for skill_name in tier_list:
             if skill_name in tier_seen:
-                result.error(
-                    f"[skills].{tier} contains duplicate skill '{skill_name}'"
-                )
+                result.error(f"[skills].{tier} contains duplicate skill '{skill_name}'")
             tier_seen.add(skill_name)
 
         all_skill_names.extend(tier_list)
@@ -270,9 +282,7 @@ def validate_skills_section(
                 f"got: {type(excluded).__name__}"
             )
         elif not all(isinstance(v, str) for v in excluded.values()):
-            result.error(
-                "[skills.excluded] values must be strings (exclusion reasons)"
-            )
+            result.error("[skills.excluded] values must be strings (exclusion reasons)")
 
 
 def validate_recommendation_section(
@@ -291,8 +301,7 @@ def validate_recommendation_section(
     if rec is not None:
         if not isinstance(rec, list):
             result.error(
-                f"[{section}].recommended must be an array, "
-                f"got: {type(rec).__name__}"
+                f"[{section}].recommended must be an array, got: {type(rec).__name__}"
             )
         elif not all(isinstance(r, str) for r in rec):
             result.error(f"[{section}].recommended must contain only strings")
@@ -315,9 +324,7 @@ def validate_dependencies_section(
         return
 
     if not isinstance(deps, dict):
-        result.error(
-            f"[dependencies] must be a table/dict, got: {type(deps).__name__}"
-        )
+        result.error(f"[dependencies] must be a table/dict, got: {type(deps).__name__}")
         return
 
     for field in deps:
@@ -333,9 +340,7 @@ def validate_dependencies_section(
                     f"got: {type(val).__name__}"
                 )
             elif not all(isinstance(v, str) for v in val):
-                result.error(
-                    f"[dependencies].{field} must contain only strings"
-                )
+                result.error(f"[dependencies].{field} must contain only strings")
 
 
 def validate_toml(
@@ -458,7 +463,9 @@ def main() -> int:
         for tier in ("primary", "secondary", "specialized"):
             count = len(skills.get(tier, []))
             skill_counts.append(f"{count} {tier}")
-        print(f"VALID: {toml_path.name} (agent: {agent_name}, {', '.join(skill_counts)})")
+        print(
+            f"VALID: {toml_path.name} (agent: {agent_name}, {', '.join(skill_counts)})"
+        )
         if args.verbose and result.warnings:
             print(result.report(verbose=True))
         return 0
