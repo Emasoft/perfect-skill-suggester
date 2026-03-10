@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.40] - 2026-03-10
+
+### Features
+
+- Add README header image, rebuild binaries with expanded vocabulary, clean stale bins
+
 ## [2.3.39] - 2026-03-10
 
 ### Features
 
 - Add orchestration/queue framework vocabulary expansion
+
+### Bump
+
+- Version 2.3.38 → 2.3.39
 
 ## [2.3.38] - 2026-03-10
 
