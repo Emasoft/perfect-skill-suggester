@@ -166,7 +166,11 @@ Save the output as `PSS_AGENT_CANDIDATES`. These are the **baseline candidates**
 
 **Skip this step if `REQUIREMENTS_PATHS` is empty.** Only run when design/requirements documents were provided.
 
-**This step follows the `pss-design-alignment` skill's [Scoring Protocol](../skills/pss-design-alignment/references/scoring-protocol.md).**
+**This step follows the `pss-design-alignment` skill's [Scoring Protocol](../skills/pss-design-alignment/references/scoring-protocol.md):**
+- Requirements Descriptor Format
+- Binary Invocation
+- Output Format
+- Scoring Checklist
 
 This pass scores candidates based on the requirements document ALONE. It produces **project-level candidates** — everything the project needs, regardless of which agent handles what.
 
@@ -312,7 +316,20 @@ If `EXCLUDE_ELEMENTS` is non-empty:
 
 **Skip this step if `REQUIREMENTS_PATHS` was empty (no Pass 2 was run).**
 
-**This step follows the `pss-design-alignment` skill's [Specialization Filter](../skills/pss-design-alignment/references/specialization-filter.md) and [Merge Protocol](../skills/pss-design-alignment/references/merge-protocol.md).**
+**This step follows the `pss-design-alignment` skill's [Specialization Filter](../skills/pss-design-alignment/references/specialization-filter.md):**
+- Domain Overlap Check
+- Duty Matching
+- Practical Usage Test
+- Filter Decision Table
+- Examples by Agent Type
+- Cherry-Pick Checklist
+
+**And the [Merge Protocol](../skills/pss-design-alignment/references/merge-protocol.md):**
+- Deduplication
+- Tier Placement Rules
+- Exclusion Documentation
+- Verification and Validation
+- Merge Checklist
 
 You now have two candidate pools:
 1. **Agent candidates** (from Step 3a) — already post-filtered in steps 4a-4f above

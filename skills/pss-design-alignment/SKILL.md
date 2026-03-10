@@ -1,6 +1,6 @@
 ---
 name: pss-design-alignment
-description: "Align an agent profile with project requirements. Scores design docs, cherry-picks elements matching the agent's specialization."
+description: "Use when augmenting an .agent.toml with project requirements. Trigger with /pss-change-agent-profile --requirements. Scores design docs, cherry-picks elements matching the agent's specialization."
 argument-hint: "<agent.toml> --requirements <design-doc.md>"
 user-invocable: false
 ---
@@ -33,6 +33,8 @@ Takes an existing `.agent.toml` (or baseline candidate pool) and a project requi
 - Rust binary at `$CLAUDE_PLUGIN_ROOT/src/skill-suggester/bin/<platform>`
 
 ### Checklist
+
+Copy this checklist and track your progress:
 
 - [ ] Requirements scored separately (Pass 2)
 - [ ] Each candidate filtered by agent specialization
