@@ -29,6 +29,12 @@ user-invocable: false
 - Rust binary at `$CLAUDE_PLUGIN_ROOT/src/skill-suggester/bin/<platform>`
 - Agent `.md` file to profile
 
+### Checklist
+
+- [ ] Gather context, get candidates, evaluate each
+- [ ] External elements, cross-type coherence
+- [ ] Write, validate, verify, review `.agent.toml`
+
 ## References
 
 - [AI Agent Principle](references/ai-agent-principle.md)
@@ -73,35 +79,17 @@ user-invocable: false
   - Clean up
   - Completion Checklist
 - [Review Protocol (Phase 7)](references/review-protocol.md)
-  - Self-Review Checklist
-    - Check 1: Name Integrity
-    - Check 2: Auto-Skills Pinning
-    - Check 3: Non-Coding Agent Filter
-    - Check 4: Coverage Analysis
-    - Check 5: Exclusion Quality
-    - Self-Review Fix Cycle
-  - Interactive Review Protocol
-    - Activation Conditions
-    - Review Summary Format
-    - User Directives
-  - Search Integration
-    - Finding Alternatives
-    - Comparing Candidates
-    - Adding from Search Results
+  - Self-Review Checklist (Name Integrity, Auto-Skills Pinning, Non-Coding Filter, Coverage, Exclusion Quality, Fix Cycle)
+  - Interactive Review Protocol (Activation, Summary Format, User Directives)
+  - Search Integration (Find, Compare, Add from Results)
   - Re-validation Loop
   - Completion Checklist
 - [Setup Command](references/pss-setup-command.md)
-  - Usage Examples
-  - How It Works
+  - Usage Examples, How It Works
 - [Example and Scoring](references/example-and-scoring.md)
-  - Scoring Reference
-  - Troubleshooting
-  - Complete Example
+  - Scoring Reference, Troubleshooting, Complete Example
 - [Error Handling](references/error-handling.md)
-  - Binary Not Found
-  - Missing Skill Index
-  - Validation Failure
-  - Missing Environment Variable
+  - Binary Not Found, Missing Skill Index, Validation Failure, Missing Env Var
 
 ## Examples
 
