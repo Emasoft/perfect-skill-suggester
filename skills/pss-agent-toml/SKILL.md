@@ -1,6 +1,6 @@
 ---
 name: pss-agent-toml
-description: "Use when creating .agent.toml profiles for agents. Trigger with /pss-setup-agent. AI selects elements, validates coherence, produces profiles."
+description: "Creates .agent.toml profiles. Trigger: /pss-setup-agent. AI selects elements, validates coherence, produces profiles."
 argument-hint: "<agent-path> [--requirements PATH...]"
 user-invocable: false
 ---
@@ -50,16 +50,39 @@ Copy this checklist and track your progress:
   - Template
   - Schema and Validator
 - [Workflow Phases 1-3](references/workflow-phases.md)
-  - Phase 1: Gather Context (read agent def, requirements, detect languages)
-  - Phase 2: Get Candidates (invoke Rust binary, search for additional)
-  - Phase 3: Evaluate Each Candidate (relevance, mutual exclusivity, obsolescence, stack compatibility, gaps, redundancy)
+  - Phase 1: Gather Context
+    - Read the agent definition file
+    - Read requirements documents
+    - Detect project languages from cwd
+  - Phase 2: Get Candidates from the Index
+    - Invoke the Rust binary
+    - Search for additional candidates
+  - Phase 3: Evaluate Each Candidate
+    - Read the candidate's source file
+    - Evaluate relevance
+    - Detect mutual exclusivity
+    - Check for obsolescence
+    - Verify stack compatibility
+    - Identify gaps
+    - Prune redundancy
 - [External Sources (Phase 4)](references/external-sources.md)
-  - From local file/folder, installed plugin, marketplace plugin, GitHub URL, network folder, raw URL
+  - From a local file or folder
+  - From an installed plugin
+  - From a marketplace plugin (not installed)
+  - From a GitHub/git repository URL
+  - From a network shared folder
+  - From a URL to a raw file
   - Phase 4 Completion Checklist
 - [Cross-Type Coherence (Phase 5)](references/cross-type-coherence.md)
-  - Overlap detection, coherence checklist, resolution strategy, autonomous vs interactive mode
+  - 5.1 Cross-type overlap detection
+  - 5.2 Coherence checklist
+  - 5.3 Resolution strategy
+  - 5.4 Autonomous vs Interactive mode
 - [Validation (Phase 6)](references/validation-protocol.md)
-  - Write .agent.toml, validate, verify elements (anti-hallucination), clean up, completion checklist
+  - Write the .agent.toml file
+  - Validate
+  - Clean up
+  - Completion Checklist
 - [Review Protocol (Phase 7)](references/review-protocol.md)
   - Self-Review Checklist
     - Check 1: Name Integrity
@@ -91,28 +114,6 @@ Copy this checklist and track your progress:
   - Validation Failure
   - Missing Environment Variable
 
-## Examples
-
-```
-/pss-setup-agent agents/my-reviewer.md
-/pss-setup-agent agents/my-reviewer.md --requirements docs/prd.md
-/pss-setup-agent agents/my-reviewer.md --interactive
-/pss-change-agent-profile my-reviewer.agent.toml remove all python-specific skills
-/pss-change-agent-profile my-reviewer.agent.toml add websocket-handler to primary
-```
-
-## Error Handling
-
-- Missing index: run `/pss-reindex-skills`
-- Binary not found: `uv run scripts/pss_build.py`
-- Validation fails: fix errors, re-run
-
 ## Output
 
-`.agent.toml` at `~/.claude/agents/<agent-name>.agent.toml`.
-
-## Resources
-
-- **Schema**: `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`
-- **Validator**: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`
-- **Verifier**: `${CLAUDE_PLUGIN_ROOT}/scripts/pss_verify_profile.py` (anti-hallucination element verification)
+`.agent.toml` in `~/.claude/agents/`.
