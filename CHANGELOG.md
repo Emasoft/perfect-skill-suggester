@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.49] - 2026-03-10
+
+### Bug Fixes
+
+- Remove last 2 phantom wasm32 platform references
+
 ## [2.3.48] - 2026-03-10
 
 ### Bug Fixes
 
 - Deep audit round 2 — obsolete AI refs, TOCTOU, path traversal, phantom wasm32, pipeline timeout
+
+### Bump
+
+- Version 2.3.47 → 2.3.48
 
 ## [2.3.47] - 2026-03-10
 
