@@ -2,6 +2,20 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.26] - 2026-03-10
+
+### Bug Fixes
+
+- Use word-boundary matching for negation gate, not substring
+
+### Miscellaneous Tasks
+
+- Sync lock files (Cargo.lock, uv.lock)
+
+### Build
+
+- Rebuild PSS binaries for all platforms
+
 ## [2.3.25] - 2026-03-10
 
 ### Features
@@ -11,6 +25,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Sync lock files and rebuilt binaries with version 2.3.22
+
+### Bump
+
+- Version 2.3.24 → 2.3.25
 
 ## [2.3.24] - 2026-03-10
 
