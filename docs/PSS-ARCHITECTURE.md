@@ -348,6 +348,9 @@ The Rust binary operates in two modes:
 | `schemas/pss-schema.json` | JSON schema for .pss files |
 | `schemas/pss-skill-index-schema.json` | JSON schema for skill-index.json |
 | `src/skill-suggester/bin/pss-<platform>` | Pre-compiled skill-suggester binaries |
+| `scripts/pss_verify_profile.py` | Element name verification against skill index (anti-hallucination) |
+| `skills/pss-design-alignment/` | Requirements alignment skill (two-pass scoring) |
+| `commands/pss-change-agent-profile.md` | Natural language profile modification command |
 
 ---
 
@@ -361,7 +364,14 @@ The Rust binary operates in two modes:
 
 ### Agent TOML Generation (v2.3.0)
 
-The `/pss-setup-agent` command + `pss-agent-profiler` agent generate `.agent.toml` configuration files:
+The `/pss-setup-agent` command + `pss-agent-profiler` agent generate `.agent.toml` configuration files.
+
+**Key capabilities:**
+- **Two-pass scoring**: agent definition scored separately from project requirements
+- **Anti-hallucination verification**: all element names cross-checked against skill index
+- **Change mode**: modify existing profiles with natural language via `/pss-change-agent-profile`
+
+**Pipeline steps:**
 
 1. **Discovery**: Analyze agent definition (.md) + optional requirements docs
 2. **Two-Pass Scoring**:

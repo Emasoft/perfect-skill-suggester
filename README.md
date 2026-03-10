@@ -341,7 +341,7 @@ Analyze an agent definition and generate a `.agent.toml` configuration with AI-r
 /pss-setup-agent agents/my-agent.md --interactive
 ```
 
-Uses the Rust binary for fast candidate scoring + an AI agent for intelligent post-filtering (mutual exclusivity, stack compatibility, redundancy pruning).
+Uses the Rust binary for fast candidate scoring + an AI agent for intelligent post-filtering (mutual exclusivity, stack compatibility, redundancy pruning). Two-pass scoring with `--requirements` separates agent-intrinsic elements from project-level elements, cherry-picking only those matching the agent's specialization.
 
 | Flag | Description |
 |------|-------------|
@@ -369,6 +369,20 @@ Index a single skill/agent/command element incrementally without full reindex.
 ```
 /pss-add-to-index /path/to/element
 ```
+
+### /pss-change-agent-profile
+
+Modify an existing `.agent.toml` profile with natural language instructions. Resolves element names against the skill index, applies changes, verifies, and validates.
+
+```
+/pss-change-agent-profile /path/to/agent.agent.toml remove all skills using tldr tool
+/pss-change-agent-profile /path/to/agent.agent.toml add a subagent for github projects
+/pss-change-agent-profile /path/to/agent.agent.toml --requirements docs/prd.md align with project requirements
+```
+
+| Flag | Description |
+|------|-------------|
+| `--requirements <files>` | Re-align profile with project requirements using two-pass scoring |
 
 ### /pss-status
 
@@ -409,6 +423,13 @@ Common tools/languages are dampened (divided by 5 or 20) to stay within their ti
 | MEDIUM | >= 100 | One specific keyword match |
 | LOW | < 100 | Generic words only |
 
+### Validation Scripts
+
+```bash
+uv run scripts/pss_validate_agent_toml.py <file.agent.toml>    # Validate TOML structure
+uv run scripts/pss_verify_profile.py <file.agent.toml>          # Verify element names against index
+```
+
 ## Element Index Format (v3.0)
 
 ```json
@@ -416,7 +437,7 @@ Common tools/languages are dampened (divided by 5 or 20) to stay within their ti
   "version": "3.0",
   "generated": "2026-02-27T06:00:00Z",
   "method": "ai-analyzed",
-  "skill_count": 874,
+  "skill_count": 9172,
   "skills": {
     "devops-expert": {
       "source": "user",
