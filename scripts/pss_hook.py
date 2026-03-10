@@ -167,8 +167,20 @@ def _get_plugin_root() -> Path:
 
 
 def _get_cache_dir() -> Path:
-    """Get the cache directory (~/.claude/cache/)."""
-    return Path.home() / ".claude" / "cache"
+    """Get the cache directory under Claude's config dir."""
+    # Import shared path resolution (respects CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME)
+    try:
+        from pss_paths import get_cache_dir
+        return get_cache_dir()
+    except ImportError:
+        # Fallback if pss_paths not importable (e.g. running from different cwd)
+        env_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+        if env_dir:
+            return Path(env_dir) / "cache"
+        xdg_home = os.environ.get("XDG_CONFIG_HOME")
+        if xdg_home:
+            return Path(xdg_home) / "claude" / "cache"
+        return Path.home() / ".claude" / "cache"
 
 
 def _load_domain_schema() -> dict[str, str]:

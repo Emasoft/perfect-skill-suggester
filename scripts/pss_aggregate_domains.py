@@ -32,8 +32,10 @@ from typing import Any
 
 # -- Constants --
 
-DEFAULT_INDEX_PATH = Path.home() / ".claude" / "cache" / "skill-index.json"
-DEFAULT_REGISTRY_PATH = Path.home() / ".claude" / "cache" / "domain-registry.json"
+from pss_paths import get_cache_dir
+
+DEFAULT_INDEX_PATH = get_cache_dir() / "skill-index.json"
+DEFAULT_REGISTRY_PATH = get_cache_dir() / "domain-registry.json"
 
 # Abbreviation expansions for gate name normalization.
 # Maps abbreviated tokens to their canonical expanded form.

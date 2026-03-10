@@ -443,7 +443,8 @@ def main() -> int:
         if args.index:
             index_path = Path(args.index)
         else:
-            index_path = Path.home() / ".claude" / "cache" / "skill-index.json"
+            from pss_paths import get_index_path
+            index_path = get_index_path()
         index_skills = load_index_skills(index_path)
         if index_skills is None:
             print(

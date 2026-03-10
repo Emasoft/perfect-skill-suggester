@@ -159,7 +159,8 @@ def check_binary_exists() -> bool:
 
 def check_skill_index() -> bool:
     """Check if skill index exists and is valid."""
-    index_path = Path.home() / ".claude" / "cache" / "skill-index.json"
+    from pss_paths import get_index_path
+    index_path = get_index_path()
 
     if not index_path.exists():
         print_warn("Skill index not found")

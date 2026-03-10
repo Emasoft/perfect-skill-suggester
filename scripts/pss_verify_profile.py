@@ -632,7 +632,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--index",
-        default=str(Path.home() / ".claude" / "cache" / "skill-index.json"),
+        default=None,  # Resolved below via pss_paths
         help="Path to skill-index.json (default: ~/.claude/cache/skill-index.json)",
     )
     parser.add_argument(
@@ -669,7 +669,11 @@ def main() -> int:
     if not toml_path.exists():
         sys.exit(f"ERROR: TOML file not found: {toml_path}")
 
-    index_path = Path(args.index)
+    if args.index is None:
+        from pss_paths import get_index_path
+        index_path = get_index_path()
+    else:
+        index_path = Path(args.index)
     agent_md_path = Path(args.agent_def) if args.agent_def else None
 
     # Also try to get agent_def from the TOML's [agent].path field

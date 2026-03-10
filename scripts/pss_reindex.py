@@ -24,6 +24,9 @@ from datetime import datetime
 from pathlib import Path
 
 
+from pss_paths import get_claude_config_dir
+
+
 def resolve_plugin_root() -> Path:
     """Resolve the plugin root directory from env var or plugin cache."""
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
@@ -167,7 +170,7 @@ def main() -> None:
     plugin_root = resolve_plugin_root()
     scripts_dir = plugin_root / "scripts"
     binary = resolve_binary(plugin_root)
-    cache_dir = Path.home() / ".claude" / "cache"
+    cache_dir = get_claude_config_dir() / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     # Step 1: Back up

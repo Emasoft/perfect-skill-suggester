@@ -27,9 +27,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pss_paths import get_index_path, get_lock_path
+
 # Default paths for index and lock files
-DEFAULT_INDEX_PATH = Path.home() / ".claude" / "cache" / "skill-index.json"
-DEFAULT_LOCK_PATH = Path.home() / ".claude" / "cache" / "skill-index.lock"
+DEFAULT_INDEX_PATH = get_index_path()
+DEFAULT_LOCK_PATH = get_lock_path()
 
 # Fields merged during pass 1 (factual skill data)
 PASS1_FIELDS: list[str] = [

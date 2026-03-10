@@ -7579,8 +7579,25 @@ fn calculate_relative_score(score: i32, max_score: i32) -> f64 {
 // Index Loading
 // ============================================================================
 
+/// Resolve Claude's config directory, respecting CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME.
+/// Resolution order: CLAUDE_CONFIG_DIR > XDG_CONFIG_HOME/claude > ~/.claude
+fn get_claude_config_dir() -> Result<PathBuf, SuggesterError> {
+    if let Ok(dir) = std::env::var("CLAUDE_CONFIG_DIR") {
+        if !dir.is_empty() {
+            return Ok(PathBuf::from(dir));
+        }
+    }
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        if !xdg.is_empty() {
+            return Ok(PathBuf::from(xdg).join("claude"));
+        }
+    }
+    let home = dirs::home_dir().ok_or(SuggesterError::NoHomeDir)?;
+    Ok(home.join(".claude"))
+}
+
 /// Get the path to the skill index file.
-/// Resolution order: --index CLI flag > PSS_INDEX_PATH env var > ~/.claude/cache/skill-index.json
+/// Resolution order: --index CLI flag > PSS_INDEX_PATH env var > <claude_config>/cache/skill-index.json
 fn get_index_path(cli_index: Option<&str>) -> Result<PathBuf, SuggesterError> {
     // 1. CLI flag takes priority (required on WASM targets)
     if let Some(path) = cli_index {
@@ -7594,9 +7611,9 @@ fn get_index_path(cli_index: Option<&str>) -> Result<PathBuf, SuggesterError> {
         }
     }
 
-    // 3. Default: ~/.claude/cache/skill-index.json
-    let home = dirs::home_dir().ok_or(SuggesterError::NoHomeDir)?;
-    Ok(home.join(".claude").join(CACHE_DIR).join(INDEX_FILE))
+    // 3. Default: <claude_config>/cache/skill-index.json
+    let config_dir = get_claude_config_dir()?;
+    Ok(config_dir.join(CACHE_DIR).join(INDEX_FILE))
 }
 
 /// Load and parse the skill index
@@ -7635,9 +7652,9 @@ fn get_registry_path(cli_registry: Option<&str>) -> Option<PathBuf> {
         }
     }
 
-    // 3. Default: ~/.claude/cache/domain-registry.json
-    let home = dirs::home_dir()?;
-    Some(home.join(".claude").join(CACHE_DIR).join(REGISTRY_FILE))
+    // 3. Default: <claude_config>/cache/domain-registry.json
+    let config_dir = get_claude_config_dir().ok()?;
+    Some(config_dir.join(CACHE_DIR).join(REGISTRY_FILE))
 }
 
 /// Load and parse the domain registry. Returns None if registry doesn't exist
@@ -7863,8 +7880,8 @@ fn load_pss_files(index: &mut SkillIndex) {
 
 /// Get the path to the activation log file.
 fn get_log_path() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    let log_dir = home.join(".claude").join(LOG_DIR);
+    let config_dir = get_claude_config_dir().ok()?;
+    let log_dir = config_dir.join(LOG_DIR);
 
     // Create log directory if it doesn't exist
     if !log_dir.exists() {
@@ -11257,9 +11274,9 @@ fn get_db_path(cli_index: Option<&str>) -> Option<PathBuf> {
         }
     }
 
-    // Default: ~/.claude/cache/pss-skill-index.db
-    let home = dirs::home_dir()?;
-    let db_path = home.join(".claude").join(CACHE_DIR).join(DB_FILE);
+    // Default: <claude_config>/cache/pss-skill-index.db
+    let config_dir = get_claude_config_dir().ok()?;
+    let db_path = config_dir.join(CACHE_DIR).join(DB_FILE);
     if db_path.exists() { Some(db_path) } else { None }
 }
 

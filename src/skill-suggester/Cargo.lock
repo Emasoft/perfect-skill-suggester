@@ -1196,7 +1196,7 @@ dependencies = [
 
 [[package]]
 name = "perfect-skill-suggester"
-version = "2.3.39"
+version = "2.3.41"
 dependencies = [
  "chrono",
  "clap",

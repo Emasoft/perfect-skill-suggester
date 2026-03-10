@@ -52,6 +52,15 @@ def get_home_dir() -> Path:
     return Path.home()
 
 
+def get_claude_dir() -> Path:
+    """Get Claude's config directory, respecting CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME."""
+    try:
+        from pss_paths import get_claude_config_dir
+        return get_claude_config_dir()
+    except ImportError:
+        return get_claude_dir()
+
+
 def get_cwd() -> Path:
     """Get current working directory."""
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
@@ -161,13 +170,13 @@ def get_all_element_locations(
                 locations.append((source, elem_type, elem_dir))
 
     # 1. User-level elements: ~/.claude/{skills,agents,commands,rules}/
-    _add_element_dirs(home / ".claude", "user", include_rules=True)
+    _add_element_dirs(get_claude_dir(), "user", include_rules=True)
 
     # 2. Current project-level elements: .claude/{skills,agents,commands,rules}/
     _add_element_dirs(cwd / ".claude", "project", include_rules=True)
 
     # 3. Plugin cache: ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/
-    plugin_cache = home / ".claude" / "plugins" / "cache"
+    plugin_cache = get_claude_dir() / "plugins" / "cache"
     if plugin_cache.exists():
         for marketplace in plugin_cache.iterdir():
             if not marketplace.is_dir():
@@ -186,7 +195,7 @@ def get_all_element_locations(
                     # Plugins should use the skills/ subdirectory layout instead.
 
     # 4. Local plugins: ~/.claude/plugins/<plugin>/
-    user_plugins = home / ".claude" / "plugins"
+    user_plugins = get_claude_dir() / "plugins"
     if user_plugins.exists():
         for plugin_dir in user_plugins.iterdir():
             if not plugin_dir.is_dir():
@@ -223,7 +232,7 @@ def get_all_element_locations(
         ".tox",
         ".mypy_cache",
     }
-    marketplace_root = home / ".claude" / "plugins" / "marketplaces"
+    marketplace_root = get_claude_dir() / "plugins" / "marketplaces"
     if marketplace_root.exists():
         for marketplace_dir in marketplace_root.iterdir():
             if not marketplace_dir.is_dir():
@@ -419,7 +428,7 @@ def _discover_marketplace_mcps(seen_names: set[str]) -> list[dict[str, Any]]:
     Deduplicates by server name. Builds descriptor files for each MCP.
     """
     servers: list[dict[str, Any]] = []
-    marketplaces_dir = get_home_dir() / ".claude" / "plugins" / "marketplaces"
+    marketplaces_dir = get_claude_dir() / "plugins" / "marketplaces"
     if not marketplaces_dir.exists():
         return servers
 
@@ -539,7 +548,7 @@ def discover_mcp_servers(scan_all_projects: bool = False) -> list[dict[str, Any]
 
                 # Try to get description from README.md in servers dir
                 description = ""
-                server_dir = home / ".claude" / "servers" / name
+                server_dir = get_claude_dir() / "servers" / name
                 readme = server_dir / "README.md"
                 if readme.exists():
                     try:
@@ -715,7 +724,7 @@ def discover_lsp_servers() -> list[dict[str, Any]]:
     Only includes LSPs that are enabled (value=true) in settings.
     """
     servers: list[dict[str, Any]] = []
-    settings_path = get_home_dir() / ".claude" / "settings.json"
+    settings_path = get_claude_dir() / "settings.json"
 
     if not settings_path.exists():
         return servers
@@ -1229,7 +1238,7 @@ def main() -> int:
             output_path = Path(args.output)
         else:
             # Default output path
-            cache_dir = Path.home() / ".claude" / "cache"
+            cache_dir = get_claude_dir() / "cache"
             cache_dir.mkdir(parents=True, exist_ok=True)
             output_path = cache_dir / "skill-checklist.md"
 
