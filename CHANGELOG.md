@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.23] - 2026-03-10
+
+### Miscellaneous Tasks
+
+- Sync uv.lock with version 2.3.22
+
 ## [2.3.22] - 2026-03-09
 
 ### Bug Fixes
@@ -11,6 +17,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Sync uv.lock with version 2.3.21
+
+### Bump
+
+- Version 2.3.21 → 2.3.22
 
 ## [2.3.21] - 2026-03-09
 
