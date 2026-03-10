@@ -2,11 +2,25 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.50] - 2026-03-10
+
+### Bug Fixes
+
+- Increase binary subprocess timeout from 2s to 4s
+
+### Miscellaneous Tasks
+
+- Update uv.lock
+
 ## [2.3.49] - 2026-03-10
 
 ### Bug Fixes
 
 - Remove last 2 phantom wasm32 platform references
+
+### Bump
+
+- Version 2.3.48 → 2.3.49
 
 ## [2.3.48] - 2026-03-10
 
