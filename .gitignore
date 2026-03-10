@@ -56,3 +56,6 @@ node_modules/
 # Rust
 target/
 # Note: Cargo.lock is tracked (binary crate needs reproducible builds)
+
+# LLM Externalizer MCP output
+llm_externalizer_output/
