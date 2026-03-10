@@ -129,12 +129,12 @@ def human_size(path: Path) -> str:
     """Return human-readable file size."""
     if not path.exists():
         return "?"
-    size = path.stat().st_size
+    sz: float = path.stat().st_size
     for unit in ("B", "K", "M", "G"):
-        if size < 1024:
-            return f"{size:.0f}{unit}" if unit == "B" else f"{size:.1f}{unit}"
-        size /= 1024
-    return f"{size:.1f}T"
+        if sz < 1024:
+            return f"{sz:.0f}{unit}" if unit == "B" else f"{sz:.1f}{unit}"
+        sz /= 1024
+    return f"{sz:.1f}T"
 
 
 def main() -> None:
