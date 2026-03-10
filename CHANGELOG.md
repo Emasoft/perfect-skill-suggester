@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.28] - 2026-03-10
+
+### Miscellaneous Tasks
+
+- Sync uv.lock
+
+### Styling
+
+- Ruff format pss_reindex.py
+
 ## [2.3.27] - 2026-03-10
 
 ### Bug Fixes
@@ -16,6 +26,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Refactor
 
 - Convert reindex command from bash to Python script
+
+### Bump
+
+- Version 2.3.26 → 2.3.27
 
 ## [2.3.26] - 2026-03-10
 
