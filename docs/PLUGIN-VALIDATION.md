@@ -400,7 +400,6 @@ PSS has additional validation requirements:
    - `bin/pss-linux-x86_64` (Linux x86_64)
    - `bin/pss-linux-arm64` (Linux ARM64)
    - `bin/pss-windows-x86_64.exe` (Windows)
-   - `bin/pss-wasm32.wasm` (WebAssembly)
    - At least one native binary must exist
 
 3. **Categories validation**:
