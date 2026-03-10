@@ -2,17 +2,25 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.47] - 2026-03-10
+
+### Bug Fixes
+
+- Audit fixes — TOCTOU race, platform detection, corrupt index handling, docs sync
+
 ## [2.3.46] - 2026-03-10
 
-### Features
+### Bug Fixes
 
-- Add --exclude-inactive-plugins flag to skip disabled plugins from indexing
-- Reads enabledPlugins from ~/.claude/settings.json
-- Fallback: if ALL plugins from a marketplace are disabled, skip entire marketplace
+- Add --exclude-inactive-plugins flag to discovery and reindex
 
 ### Miscellaneous Tasks
 
 - Sync uv.lock with current version 2.3.45
+
+### Bump
+
+- Version 2.3.45 → 2.3.46
 
 ## [2.3.45] - 2026-03-10
 
