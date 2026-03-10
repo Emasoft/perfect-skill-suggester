@@ -2,11 +2,25 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.24] - 2026-03-10
+
+### Miscellaneous Tasks
+
+- Add llm_externalizer_output/ to .gitignore
+
+### Build
+
+- Rebuild all PSS + pss-nlp binaries for 5 platforms
+
 ## [2.3.23] - 2026-03-10
 
 ### Miscellaneous Tasks
 
 - Sync uv.lock with version 2.3.22
+
+### Bump
+
+- Version 2.3.22 → 2.3.23
 
 ## [2.3.22] - 2026-03-09
 
