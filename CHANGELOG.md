@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.52] - 2026-03-10
+
+### Miscellaneous Tasks
+
+- Update uv.lock before refactor
+
+### Refactor
+
+- Remove 428 lines of redundant Python context detection
+
 ## [2.3.51] - 2026-03-10
 
 ### Bug Fixes
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update uv.lock
+
+### Bump
+
+- Version 2.3.50 → 2.3.51
 
 ## [2.3.50] - 2026-03-10
 
