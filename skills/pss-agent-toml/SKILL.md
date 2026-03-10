@@ -51,8 +51,9 @@ Copy this checklist and track your progress:
     - Read the agent definition file
     - Read requirements documents
     - Detect project languages from cwd
-  - Phase 2: Get Candidates from the Index
-    - Invoke the Rust binary
+  - Phase 2: Get Candidates (Two-Pass Scoring)
+    - Pass 1: Agent-only scoring (baseline)
+    - Pass 2: Requirements-only scoring (uses `pss-design-alignment`)
     - Search for additional candidates
   - Phase 3: Evaluate Each Candidate
     - Read the candidate's source file
@@ -62,6 +63,7 @@ Copy this checklist and track your progress:
     - Verify stack compatibility
     - Identify gaps
     - Prune redundancy
+    - Cherry-pick from requirements (uses `pss-design-alignment`)
 - [External Sources (Phase 4)](references/external-sources.md)
   - From a local file or folder
   - From an installed plugin

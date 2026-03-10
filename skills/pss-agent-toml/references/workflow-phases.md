@@ -6,8 +6,9 @@
   - [Read the agent definition file](#read-the-agent-definition-file)
   - [Read requirements documents](#read-requirements-documents)
   - [Detect project languages from cwd](#detect-project-languages-from-cwd)
-- [Phase 2: Get Candidates from the Index](#phase-2-get-candidates-from-the-index)
-  - [Invoke the Rust binary](#invoke-the-rust-binary)
+- [Phase 2: Get Candidates from the Index (Two-Pass Scoring)](#phase-2-get-candidates-from-the-index-two-pass-scoring)
+  - [Pass 1: Agent-only scoring](#pass-1--agent-only-scoring-baseline-profile)
+  - [Pass 2: Requirements-only scoring](#pass-2--requirements-only-scoring-project-level-candidates)
   - [Search for additional candidates](#search-for-additional-candidates)
 - [Phase 3: Evaluate Each Candidate](#phase-3-evaluate-each-candidate)
   - [Read the candidate's source file](#read-the-candidates-source-file)
@@ -86,32 +87,62 @@ This determines LSP server assignment.
 
 ---
 
-## Phase 2: Get Candidates from the Index
+## Phase 2: Get Candidates from the Index (Two-Pass Scoring)
 
-**2.1 Invoke the Rust binary for scored candidates**
+Candidate generation uses TWO separate binary invocations to avoid mixing agent-intrinsic skills with project-level skills. This ensures the agent only gets project-derived elements that match its specialization.
 
-Build a JSON descriptor and invoke the binary:
+**2.1 Pass 1 — Agent-only scoring (baseline profile)**
+
+Build a descriptor from the agent definition ONLY (no requirements content):
 
 ```bash
 # $$ = current shell PID, ensures unique temp file per session
 cat > /tmp/pss-agent-profile-input-$$.json << 'EOF'
 {
   "name": "<agent-name>",
-  "description": "<agent description + requirements summary>",
+  "description": "<agent description from .md file ONLY>",
   "role": "<role>",
   "duties": ["<duty1>", "<duty2>"],
   "tools": ["<tool1>", "<tool2>"],
   "domains": ["<domain1>", "<domain2>"],
-  "requirements_summary": "<condensed requirements text, max 2000 chars>",
+  "requirements_summary": "",
   "cwd": "<absolute path to working directory>"
 }
 EOF
 
-# Invoke binary — returns up to 30 scored candidates grouped by type
 "$BINARY_PATH" --agent-profile /tmp/pss-agent-profile-input-$$.json --format json --top 30
 ```
 
-The binary returns scored candidates grouped by type:
+Save output as `AGENT_CANDIDATES`. These form the **baseline profile** — skills the agent needs regardless of which project it works on.
+
+**2.1b Pass 2 — Requirements-only scoring (project-level candidates)**
+
+**Skip if no requirements files were provided.**
+
+Build a SEPARATE descriptor from the requirements documents ONLY:
+
+```bash
+cat > /tmp/pss-reqs-profile-input-$$.json << 'EOF'
+{
+  "name": "<project-name or 'project-requirements'>",
+  "description": "<condensed requirements summary>",
+  "role": "project",
+  "duties": ["<key_feature1>", "<key_feature2>"],
+  "tools": [],
+  "domains": ["<project_domain1>", "<project_domain2>"],
+  "requirements_summary": "<full requirements text, max 2000 chars>",
+  "cwd": "<absolute path to working directory>"
+}
+EOF
+
+"$BINARY_PATH" --agent-profile /tmp/pss-reqs-profile-input-$$.json --format json --top 30
+```
+
+Save output as `REQS_CANDIDATES`. These are **project-level candidates** — everything the project needs, NOT yet filtered for this agent's specialization. Cherry-picking happens in Phase 3 (step 4g).
+
+**IMPORTANT**: Use a DIFFERENT temp file name (`pss-reqs-profile-input`) to avoid overwriting the agent candidates.
+
+The binary returns scored candidates grouped by type in both passes:
 ```json
 {
   "agent": "name",
@@ -128,7 +159,7 @@ The binary returns scored candidates grouped by type:
 }
 ```
 
-**CRITICAL**: These are CANDIDATES, not final selections. The binary scores by keyword/intent matching only. YOU must now evaluate each candidate intelligently.
+**CRITICAL**: These are CANDIDATES, not final selections. The binary scores by keyword/intent matching only. YOU must now evaluate each candidate intelligently. Agent candidates are the baseline; requirements candidates must be cherry-picked based on agent specialization (see Phase 3, step 4g).
 
 **2.2 Search for additional candidates using CLI query commands**
 
@@ -169,17 +200,19 @@ After narrowing to ~5 candidates per slot, use `pss resolve <id1> <id2> ...` to 
 
 **Phase 2 Completion Checklist** (ALL items must be checked before proceeding to Phase 3):
 
-- [ ] Temporary JSON descriptor written with session-unique filename (use PID suffix: `pss-agent-profile-input-$$.json`)
-- [ ] Descriptor contains all 8 fields: `name`, `description`, `role`, `duties`, `tools`, `domains`, `requirements_summary`, `cwd`
-- [ ] `requirements_summary` is 2000 characters or fewer (truncate if needed)
-- [ ] Rust binary invoked with `--agent-profile`, `--format json`, `--top 30`
-- [ ] Binary returned exit code 0 (non-zero = STOP and report error)
-- [ ] Binary output is valid JSON (parse to verify)
-- [ ] Candidates grouped by type: `skills`, `complementary_agents`, `commands`, `rules`, `mcp`, `lsp` all present
-- [ ] Candidate count per type noted (for gap analysis in Phase 3)
-- [ ] Additional manual index search performed for any known needs not covered by binary output
+- [ ] **Pass 1 (agent-only)**: Temp descriptor written (`pss-agent-profile-input-$$.json`) with `requirements_summary: ""`
+- [ ] Pass 1 descriptor contains all 8 fields: `name`, `description`, `role`, `duties`, `tools`, `domains`, `requirements_summary`, `cwd`
+- [ ] Pass 1 binary invoked with `--agent-profile`, `--format json`, `--top 30`
+- [ ] Pass 1 binary returned exit code 0 and valid JSON
+- [ ] `AGENT_CANDIDATES` saved with candidate counts per type noted
+- [ ] **Pass 2 (requirements-only)**: SKIPPED if no requirements files provided
+- [ ] Pass 2 temp descriptor written (`pss-reqs-profile-input-$$.json`) — DIFFERENT filename from Pass 1
+- [ ] Pass 2 `requirements_summary` is 2000 characters or fewer
+- [ ] Pass 2 binary returned exit code 0 and valid JSON
+- [ ] `REQS_CANDIDATES` saved with candidate counts per type noted
+- [ ] Additional manual index search performed for any known needs not covered by either pass
 
-**If binary fails: do NOT proceed. Report the error and stop.**
+**If either binary invocation fails: do NOT proceed. Report the error and stop.**
 
 ---
 
@@ -265,16 +298,34 @@ Search the index for each gap and add qualified matches.
 
 If skill A covers everything skill B does plus more, remove skill B. Example: `exhaustive-testing` subsumes `unit-testing` — keep only `exhaustive-testing`.
 
+**3.8 Specialization-aware cherry-pick from requirements candidates**
+
+**Skip if no requirements files were provided (no Pass 2).**
+
+For each element in `REQS_CANDIDATES` not already in the agent candidates, ask:
+1. Does this element's domain overlap with the agent's domain?
+2. Does this element match one of the agent's duties?
+3. Would this agent realistically USE this element daily?
+
+If YES → add to secondary/specialized tier. If NO → document in `[skills.excluded]` with reason.
+
+Example: Agent = "database specialist", Project = "online shopping site"
+- requirements suggest: React, Stripe, shipping APIs → REJECT (not DB domain)
+- requirements suggest: postgresql-best-practices, SQL optimization → ACCEPT (DB domain)
+
 **Phase 3 Completion Checklist** (ALL items must be checked before proceeding to Phase 4):
 
-- [ ] Every candidate's SKILL.md/agent.md has been READ IN FULL (not just the binary's description)
+- [ ] Every agent candidate's SKILL.md/agent.md has been READ IN FULL
 - [ ] Every candidate evaluated: "Does this solve a problem this agent will ACTUALLY encounter?"
-- [ ] Mutual exclusivity checked for ALL 11 families (JS framework, runtime, bundler, CSS, ORM, testing, state mgmt, deployment, Python web, Python test, mobile)
+- [ ] Mutual exclusivity checked for ALL 11 families
 - [ ] Only ONE element remains from each mutually exclusive family
 - [ ] Obsolescence/deprecation check completed for all candidates
-- [ ] Stack compatibility verified: no cross-stack elements (Python skill for TS project, iOS for web, etc.)
+- [ ] Stack compatibility verified: no cross-stack elements
 - [ ] Gap analysis done: every key requirement scanned for missing coverage
 - [ ] Redundancy pruning done: no strict-subset skills remain alongside their superset
+- [ ] **Requirements cherry-pick** (if Pass 2 was run): every requirements candidate individually evaluated against agent specialization
+- [ ] Cherry-picked elements added to secondary/specialized tier only (not primary)
+- [ ] Rejected requirements candidates documented in `[skills.excluded]`
 - [ ] Final candidates list assembled with intended tier assignment (primary/secondary/specialized)
 - [ ] All `auto_skills` from frontmatter are in the primary tier (NEVER demoted)
 - [ ] All names from agent definition preserved exactly (no prefix changes, no renaming)

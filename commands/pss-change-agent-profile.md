@@ -1,13 +1,15 @@
 ---
 name: pss-change-agent-profile
 description: "Modify an existing .agent.toml profile with natural language instructions"
-argument-hint: "<profile-path> <change-instructions>"
+argument-hint: "<profile-path> <change-instructions> [--requirements PATH...]"
 allowed-tools: ["Task", "Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 ---
 
 # PSS Change Agent Profile
 
 Modify an existing `.agent.toml` profile based on natural language instructions. The profiler agent reads the current profile, applies the requested changes, verifies all element names against the skill index, re-validates, and writes the updated file.
+
+Optionally, a `--requirements` document can be provided to re-align the profile with project requirements using the `pss-design-alignment` skill (two-pass scoring with specialization-aware cherry-picking).
 
 ## Usage
 
@@ -18,6 +20,7 @@ Modify an existing `.agent.toml` profile based on natural language instructions.
 /pss-change-agent-profile /path/to/agent.agent.toml replace jest-testing with vitest
 /pss-change-agent-profile /path/to/agent.agent.toml add websocket-handler to primary skills
 /pss-change-agent-profile /path/to/agent.agent.toml exclude all python-specific skills
+/pss-change-agent-profile /path/to/agent.agent.toml --requirements docs/prd.md align with project requirements
 ```
 
 ## Argument Parsing
@@ -26,10 +29,16 @@ Modify an existing `.agent.toml` profile based on natural language instructions.
    - Path to an existing `.agent.toml` file
    - If the file doesn't exist → error
 
-2. **Change instructions** (required, remaining arguments after the path):
+2. **`--requirements PATH...`** (optional, one or more paths):
+   - Design/requirements document(s) describing the project
+   - When provided: runs the `pss-design-alignment` skill's two-pass scoring (requirements-only scoring + specialization-aware cherry-pick), then merges into the existing profile
+   - Elements cherry-picked from requirements go to secondary/specialized tier only
+
+3. **Change instructions** (required, remaining arguments after flags):
    - Free-form natural language describing the changes to make
    - Supports: add, remove, replace/swap, move between tiers, exclude with reason
    - Multiple changes can be described in one instruction
+   - If `--requirements` is provided without change instructions, defaults to "align with project requirements"
 
 ## Execution
 
@@ -93,10 +102,20 @@ For each operation that adds a new element:
 
 For removal operations, verify the element is actually in the profile before removing.
 
+### Step 4b: Requirements Alignment (when `--requirements` is provided)
+
+If requirements documents were provided, run the `pss-design-alignment` skill:
+
+1. **Score requirements**: Build a requirements-only descriptor, invoke the Rust binary (see `pss-design-alignment` scoring protocol)
+2. **Cherry-pick by specialization**: For each requirements candidate, evaluate domain overlap, duty matching, and practical usage against this agent's role (see `pss-design-alignment` specialization filter)
+3. **Merge**: Add cherry-picked elements to secondary/specialized tiers (see `pss-design-alignment` merge protocol)
+4. **Document rejections**: Add rejected requirements candidates to `[skills.excluded]`
+
 ### Step 5: Apply Changes
 
 Modify the TOML data structure:
 - Add/remove elements from the appropriate arrays
+- Apply requirements cherry-picks (if Step 4b was run)
 - Update `[skills.excluded]` with reasons for removals
 - Maintain TOML formatting and comments
 

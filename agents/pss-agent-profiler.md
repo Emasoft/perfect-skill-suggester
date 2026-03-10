@@ -2,6 +2,9 @@
 name: pss-agent-profiler
 description: "AI agent that analyzes agent definitions and generates .agent.toml configuration profiles. Uses Rust binary for candidate scoring + intelligent post-filtering for mutual exclusivity, stack compatibility, and redundancy pruning across all 6 element types."
 model: sonnet
+auto_skills:
+  - pss-agent-toml
+  - pss-design-alignment
 tools:
   - Bash
   - Read
@@ -27,11 +30,18 @@ The `.agent.toml` output format is defined by a formal JSON Schema:
 
 You MUST write TOML that conforms to this schema. After writing, you MUST validate.
 
-## Architecture: Two-Phase Scoring
+## Architecture: Two-Pass Scoring + AI Post-Filtering
 
-**Phase A (Rust binary):** Fast candidate generation using the same weighted scoring engine that powers the real-time hook. Produces a generous pool of ~30 candidates ranked by keyword/intent/domain/context overlap.
+This profiler uses TWO skills with distinct responsibilities:
 
-**Phase B (AI post-filtering):** You read each candidate skill's SKILL.md, cross-reference with the agent's role AND the project requirements, then make intelligent exclusion/promotion decisions that the binary cannot make.
+1. **`pss-agent-toml`** — Agent profiling skill. Handles Pass 1 (agent-only scoring), AI post-filtering, tier classification, and TOML generation. Used for all profiles.
+2. **`pss-design-alignment`** — Requirements alignment skill. Handles Pass 2 (requirements-only scoring), specialization-aware cherry-picking, and merge into the baseline profile. Used ONLY when `REQUIREMENTS_PATHS` is non-empty.
+
+**Pass 1 (Rust binary — agent-only):** Scores candidates from the agent `.md` definition alone. Produces the baseline agent profile — skills the agent needs regardless of project.
+
+**Pass 2 (Rust binary — requirements-only):** Scores candidates from the design/requirements document alone. Produces project-level candidates that must be filtered through the agent's specialization. **Separate binary invocation, separate temp file.**
+
+**Pass 3 (AI post-filtering + cherry-pick):** You read each candidate's SKILL.md, apply mutual exclusivity/stack/redundancy filters to Pass 1 results, then cherry-pick from Pass 2 results only the elements matching this agent's specialization.
 
 ## Inputs
 
@@ -65,12 +75,15 @@ Example debug trace:
 [PSS-PROFILER] Step 1: Extracted: name=my-agent, role=developer, writes_code=true, auto_skills=3, sub_agents=5
 [PSS-PROFILER] Step 2: Reading 2 requirements files
 [PSS-PROFILER] Step 2: Detected tech_stack=[typescript, react, postgresql], project_type=web-app
-[PSS-PROFILER] Step 3: Invoking binary with 8-field descriptor (requirements_summary: 1847 chars)
-[PSS-PROFILER] Step 3: Binary returned 28 candidates: skills=18, agents=4, commands=3, rules=2, mcp=1
+[PSS-PROFILER] Step 3a: Pass 1 — agent-only scoring (no requirements in descriptor)
+[PSS-PROFILER] Step 3a: Binary returned 24 agent candidates: skills=15, agents=3, commands=3, rules=2, mcp=1
+[PSS-PROFILER] Step 3b: Pass 2 — requirements-only scoring (project-level candidates)
+[PSS-PROFILER] Step 3b: Binary returned 28 project candidates: skills=18, agents=4, commands=3, rules=2, mcp=1
 [PSS-PROFILER] Step 4a: Mutual exclusivity — removed vue-frontend (conflicts with react)
 [PSS-PROFILER] Step 4b: Obsolescence — removed moment-js (superseded by date-fns)
 [PSS-PROFILER] Step 4c: Stack filter — removed 3 python-only skills
 [PSS-PROFILER] Step 4f: Force-include: websocket-handler; Force-exclude: jest-testing
+[PSS-PROFILER] Step 4g: Cherry-pick from requirements — 5 elements match agent specialization, 12 rejected
 [PSS-PROFILER] Step 5: Classified — P=6 S=10 Sp=4 excluded=8
 [PSS-PROFILER] Step 7: Writing .agent.toml to /output/path.agent.toml
 [PSS-PROFILER] Step 8: Validation PASSED (exit code 0)
@@ -104,7 +117,7 @@ Read the <agent-name>.md file completely. Extract:
 
 ### Step 2: Read Requirements Documents
 
-If `REQUIREMENTS_PATHS` is non-empty, read ALL requirements files. Extract:
+If `REQUIREMENTS_PATHS` is non-empty, read ALL requirements files. Extract and store these SEPARATELY from the agent info (they are used in a separate scoring pass):
 - **project_type**: What is being built (web app, mobile app, CLI tool, library, etc.)
 - **tech_stack**: Specific technologies, frameworks, languages mentioned
 - **apis_and_services**: External APIs, databases, cloud services referenced
@@ -112,60 +125,79 @@ If `REQUIREMENTS_PATHS` is non-empty, read ALL requirements files. Extract:
 - **constraints**: Performance requirements, platform targets, compliance needs
 - **domain_specifics**: Industry-specific terminology (fintech, healthcare, media, etc.)
 
-Combine the agent's role with the requirements to build a complete picture. For example:
-- Agent: "web developer" + Requirements: "video streaming platform" → skills for media handling, HLS/DASH, CDN, WebRTC
-- Agent: "web developer" + Requirements: "bitcoin trading platform" → skills for WebSocket real-time data, financial APIs, security hardening
-- Agent: "backend architect" + Requirements: "microservices for healthcare" → skills for HIPAA compliance, HL7/FHIR, service mesh
+**DO NOT** merge requirements into the agent descriptor. The requirements are scored separately in Step 3b (using the `pss-design-alignment` skill's scoring protocol) to produce project-level candidates, which are then cherry-picked based on agent specialization in Step 4g (using the `pss-design-alignment` skill's specialization filter).
 
-### Step 3: Build Agent Descriptor and Invoke Rust Binary
+### Step 3a: Build Agent-Only Descriptor and Invoke Rust Binary (Pass 1)
+
+This pass scores candidates based on the agent definition ALONE — its role, duties, tools, domains, and auto_skills. No requirements content is included. This produces the **baseline agent profile**.
 
 Determine the system temp directory (cross-platform):
 ```bash
 PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
 ```
 
-Write the descriptor to a session-unique temp file (use `$$` PID suffix to avoid race conditions with concurrent profiler runs):
-
+Write the agent-only descriptor:
 ```bash
 PSS_TMPDIR=$(python3 -c "import tempfile; print(tempfile.gettempdir())")
-PSS_INPUT="${PSS_TMPDIR}/pss-agent-profile-input-$$.json"
-```
-
-Write the JSON using the Bash tool with a heredoc:
-
-```bash
-cat > "${PSS_INPUT}" << 'ENDJSON'
+PSS_AGENT_INPUT="${PSS_TMPDIR}/pss-agent-profile-input-$$.json"
 ```
 
 ```json
 {
   "name": "<agent-name>",
-  "description": "<agent description + combined requirements summary>",
+  "description": "<agent description from the .md file ONLY>",
   "role": "<agent role>",
   "duties": ["<duty1>", "<duty2>", ...],
   "tools": ["<tool1>", "<tool2>", ...],
   "domains": ["<domain1>", "<domain2>", ...],
-  "requirements_summary": "<condensed summary of all requirements files — MAX 2000 characters>",
+  "requirements_summary": "",
   "cwd": "<current working directory>"
 }
 ```
 
-**IMPORTANT**: `requirements_summary` must be 2000 characters or fewer. If the combined requirements exceed this, prioritize: project_type, tech_stack, key_features, then constraints. Truncate the rest.
-
-Then invoke the Rust binary in `--agent-profile` mode:
-
+Invoke the Rust binary:
 ```bash
-"${BINARY_PATH}" --agent-profile "${PSS_INPUT}" --format json --top 30
+"${BINARY_PATH}" --agent-profile "${PSS_AGENT_INPUT}" --format json --top 30
 ```
 
-The binary will:
-1. Load skill-index.json and domain-registry.json
-2. Synthesize multiple scoring queries from the agent descriptor fields
-3. Run each query through the existing weighted scoring pipeline (synonym expansion, domain gates, keyword/intent/pattern matching)
-4. Aggregate scores per skill across all queries
-5. Return a JSON with up to 30 candidates, each with name, score, confidence, and evidence
+Save the output as `PSS_AGENT_CANDIDATES`. These are the **baseline candidates** derived from the agent's own definition.
 
-The binary now returns results grouped by type. The JSON output includes:
+### Step 3b: Build Requirements-Only Descriptor and Invoke Rust Binary (Pass 2)
+
+**Skip this step if `REQUIREMENTS_PATHS` is empty.** Only run when design/requirements documents were provided.
+
+**This step follows the `pss-design-alignment` skill's [Scoring Protocol](../skills/pss-design-alignment/references/scoring-protocol.md).**
+
+This pass scores candidates based on the requirements document ALONE. It produces **project-level candidates** — everything the project needs, regardless of which agent handles what.
+
+Write the requirements-only descriptor to a DIFFERENT temp file:
+```bash
+PSS_REQS_INPUT="${PSS_TMPDIR}/pss-reqs-profile-input-$$.json"
+```
+
+```json
+{
+  "name": "<project-name or 'project-requirements'>",
+  "description": "<condensed summary of all requirements files>",
+  "role": "project",
+  "duties": ["<key_feature1>", "<key_feature2>", ...],
+  "tools": [],
+  "domains": ["<domain1>", "<domain2>", ...],
+  "requirements_summary": "<full requirements summary — MAX 2000 characters>",
+  "cwd": "<current working directory>"
+}
+```
+
+Invoke the Rust binary:
+```bash
+"${BINARY_PATH}" --agent-profile "${PSS_REQS_INPUT}" --format json --top 30
+```
+
+Save the output as `PSS_REQS_CANDIDATES`. These are **project-level candidates** — NOT yet filtered for this specific agent.
+
+**CRITICAL**: The requirements candidates file uses a DIFFERENT filename (`pss-reqs-profile-input-$$.json`) to avoid overwriting the agent candidates from Step 3a.
+
+The binary returns results grouped by type in both passes:
 - `skills` — tiered skill/agent recommendations (primary, secondary, specialized)
 - `complementary_agents` — agents that work well alongside
 - `commands` — recommended slash commands
@@ -173,7 +205,11 @@ The binary now returns results grouped by type. The JSON output includes:
 - `mcp` — recommended MCP servers
 - `lsp` — recommended LSP servers
 
-Use these pre-scored results as your starting candidates for each .agent.toml section.
+**After both passes**, you have TWO candidate pools:
+1. `PSS_AGENT_CANDIDATES` — derived from the agent's own role/duties/tools (baseline)
+2. `PSS_REQS_CANDIDATES` — derived from the project requirements document (project-level)
+
+The agent candidates (Pass 1) form the core of the profile. The requirements candidates (Pass 2) are cherry-picked in Step 4g based on the agent's specialization.
 
 ### Step 4: AI Post-Filtering (YOUR CRITICAL VALUE-ADD)
 
@@ -271,6 +307,46 @@ If `EXCLUDE_ELEMENTS` is non-empty:
 - Remove every matching element from all candidate pools
 - Add to `[skills.excluded]` with reason "Excluded by user directive"
 - Force-exclusions cannot be overridden by scoring or auto_skills (but user can re-include via interactive review)
+
+#### 4g. Specialization-Aware Cherry-Pick from Requirements Candidates (Two-Pass Merge)
+
+**Skip this step if `REQUIREMENTS_PATHS` was empty (no Pass 2 was run).**
+
+**This step follows the `pss-design-alignment` skill's [Specialization Filter](../skills/pss-design-alignment/references/specialization-filter.md) and [Merge Protocol](../skills/pss-design-alignment/references/merge-protocol.md).**
+
+You now have two candidate pools:
+1. **Agent candidates** (from Step 3a) — already post-filtered in steps 4a-4f above
+2. **Requirements candidates** (from Step 3b) — raw project-level candidates not yet filtered
+
+For each element in `PSS_REQS_CANDIDATES` that is NOT already in the agent candidates pool, evaluate:
+
+**Specialization Filter**: Does this element relate to THIS agent's specific duties and domain?
+
+- **Example**: Agent = "database specialist", Requirements = "online shopping site"
+  - The requirements will suggest skills for frontend (React), payments (Stripe), shipping APIs, etc.
+  - The DB specialist should ONLY get: database/SQL skills, ORM skills, data migration, performance tuning
+  - Frontend/payments/shipping skills → REJECT (not this agent's domain)
+
+- **Example**: Agent = "security reviewer", Requirements = "healthcare app"
+  - The requirements will suggest skills for FHIR/HL7, patient UI, appointment scheduling, etc.
+  - The security reviewer should ONLY get: HIPAA compliance, auth/authz, encryption, vulnerability scanning
+  - Patient UI/scheduling skills → REJECT (not this agent's domain)
+
+**Decision criteria for each requirements candidate**:
+1. Does the element's domain overlap with the agent's domain(s)? (e.g., both are "backend")
+2. Does the element's purpose match one of the agent's duties? (e.g., agent does "database design", element is "postgresql-best-practices")
+3. Would this agent realistically USE this element in its daily work?
+4. Is this element already covered by a higher-scoring agent candidate?
+
+If YES to criteria 1-3 and NO to 4 → ADD to the agent's candidate pool (typically as secondary or specialized tier).
+If NO to any of 1-3 → REJECT (document reason in `[skills.excluded]` with "Excluded: requirements element outside agent specialization")
+
+**Merge checklist**:
+- [ ] Every requirements candidate has been individually evaluated against agent specialization
+- [ ] Cherry-picked elements are added to secondary or specialized tier (not primary — that's reserved for agent-intrinsic skills)
+- [ ] Rejected requirements candidates are documented in `[skills.excluded]` with clear reasons
+- [ ] No duplicate elements after merge (requirements candidate already in agent pool → skip)
+- [ ] Tier limits still respected after adding cherry-picked elements
 
 ### Step 5: Classify into Final Tiers
 
