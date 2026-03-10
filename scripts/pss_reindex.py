@@ -30,7 +30,14 @@ def resolve_plugin_root() -> Path:
     if env_root:
         return Path(env_root)
     # Fallback: find latest version in plugin cache
-    cache_base = Path.home() / ".claude" / "plugins" / "cache" / "emasoft-plugins" / "perfect-skill-suggester"
+    cache_base = (
+        Path.home()
+        / ".claude"
+        / "plugins"
+        / "cache"
+        / "emasoft-plugins"
+        / "perfect-skill-suggester"
+    )
     if not cache_base.exists():
         sys.exit(f"ERROR: Plugin cache not found: {cache_base}")
     versions = sorted([d for d in cache_base.iterdir() if d.is_dir()])
@@ -114,7 +121,9 @@ def build_db(binary: Path) -> None:
 
 def aggregate_domains(scripts_dir: Path) -> None:
     """Aggregate the domain registry."""
-    subprocess.run(["python3", str(scripts_dir / "pss_aggregate_domains.py")], check=True)
+    subprocess.run(
+        ["python3", str(scripts_dir / "pss_aggregate_domains.py")], check=True
+    )
 
 
 def cleanup_stale(scripts_dir: Path) -> None:
