@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.41] - 2026-03-10
+
+### Features
+
+- Auto-reindex when skill-index.json missing, use systemMessage for warnings
+
 ## [2.3.40] - 2026-03-10
 
 ### Features
 
 - Add README header image, rebuild binaries with expanded vocabulary, clean stale bins
+
+### Bump
+
+- Version 2.3.39 → 2.3.40
 
 ## [2.3.39] - 2026-03-10
 
