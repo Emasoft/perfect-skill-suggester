@@ -572,10 +572,8 @@ def augment_prompt_with_context(prompt: str, _cwd: str, transcript_path: str) ->
     # Get the previous user message for conversational continuity
     prev_msg = extract_previous_user_message(transcript_path)
     if prev_msg:
-        # Prepend previous message so the scorer sees the full intent
-        # Cap at 200 chars to avoid bloating with long previous messages
-        prev_truncated = prev_msg[:200]
-        return f"{prev_truncated} {prompt_stripped}"
+        # Concatenate previous message + current prompt so the scorer sees the full intent
+        return f"{prev_msg} {prompt_stripped}"
 
     return prompt
 
