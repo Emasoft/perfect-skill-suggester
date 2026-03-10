@@ -1,13 +1,15 @@
 ---
 name: pss-reindex-skills
 description: "Rebuild the PSS skill index from scratch using the Rust enrichment pipeline"
-argument-hint: "[--all-projects]"
+argument-hint: "[--index-only-this-project]"
 allowed-tools: ["Bash", "Read"]
 ---
 
 # PSS Reindex Skills Command
 
 Rebuild the skill index using the deterministic Rust pipeline. Completes in under 10 seconds for 10K+ elements. No AI agents needed.
+
+By default, indexes **all registered projects** (every project in `~/.claude.json` plus user-scope elements). Use `--index-only-this-project` to restrict to the current project + user scope only.
 
 ## Instructions
 
@@ -26,6 +28,12 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(python3 -c "from pathlib import Path; dirs=
 uv run "$PLUGIN_ROOT/scripts/pss_reindex.py"
 ```
 
+To index only the current project + user scope:
+
+```bash
+uv run "$PLUGIN_ROOT/scripts/pss_reindex.py" --index-only-this-project
+```
+
 ## Error Handling
 
 - **Binary not found**: Run `cargo build --release` in `$PLUGIN_ROOT/src/skill-suggester/` or check platform detection
@@ -42,7 +50,8 @@ uv run "$PLUGIN_ROOT/scripts/pss_reindex.py"
 ## Examples
 
 ```
-/pss-reindex-skills
+/pss-reindex-skills                        # All projects (default)
+/pss-reindex-skills --index-only-this-project  # Current project + user scope only
 ```
 
 Output: `PSS Reindex Complete — Elements: 9275, Index: 12M, 7 seconds`
