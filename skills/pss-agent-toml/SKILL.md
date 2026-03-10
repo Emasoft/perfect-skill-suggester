@@ -9,32 +9,30 @@ user-invocable: false
 
 ## Overview
 
-7-phase pipeline: gather context, score candidates (Rust binary), resolve conflicts, validate, review.
+7-phase pipeline: context, scoring (Rust binary), conflict resolution, validation, review.
 
 ## Instructions
 
-1. Run `/pss-setup-agent <agent-path>` (creates new profile)
-2. Run `/pss-change-agent-profile <profile-path> <instructions>` (modify existing)
-3. Review the generated `.agent.toml`
+1. `/pss-setup-agent <agent-path>` (new profile)
+2. `/pss-change-agent-profile <profile> <instructions>` (modify)
 
 ## Critical Rules
 
-- NEVER rename skills/agents/commands from the agent definition
-- `auto_skills:` frontmatter entries MUST stay in `[skills].primary`
-- Non-coding agents: no LSP/linting/code-fix elements (code REVIEW is fine)
+- NEVER rename skills/agents/commands from agent definition
+- `auto_skills:` MUST stay in `[skills].primary`
+- Non-coding agents: no LSP/linting/code-fix elements
 
 ## Prerequisites
 
-- Skill index at `~/.claude/cache/skill-index.json` (run `/pss-reindex-skills`)
+- Skill index at `~/.claude/cache/skill-index.json`
 - Rust binary at `$CLAUDE_PLUGIN_ROOT/src/skill-suggester/bin/<platform>`
-- Agent `.md` file to profile
 
 ### Checklist
 
 Copy this checklist and track your progress:
 
-- [ ] Gather context, get candidates, evaluate
-- [ ] External elements, coherence check
+- [ ] Context, candidates, evaluate
+- [ ] External elements, coherence
 - [ ] Write, validate, verify, review
 
 ## References
@@ -51,9 +49,9 @@ Copy this checklist and track your progress:
     - Read the agent definition file
     - Read requirements documents
     - Detect project languages from cwd
-  - Phase 2: Get Candidates (Two-Pass Scoring)
-    - Pass 1: Agent-only scoring (baseline)
-    - Pass 2: Requirements-only scoring (uses `pss-design-alignment`)
+  - Phase 2: Get Candidates from the Index (Two-Pass Scoring)
+    - Pass 1: Agent-only scoring (baseline profile)
+    - Pass 2: Requirements-only scoring (project-level candidates)
     - Search for additional candidates
   - Phase 3: Evaluate Each Candidate
     - Read the candidate's source file
@@ -63,7 +61,6 @@ Copy this checklist and track your progress:
     - Verify stack compatibility
     - Identify gaps
     - Prune redundancy
-    - Cherry-pick from requirements (uses `pss-design-alignment`)
 - [External Sources (Phase 4)](references/external-sources.md)
   - From a local file or folder
   - From an installed plugin
