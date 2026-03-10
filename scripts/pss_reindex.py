@@ -78,7 +78,11 @@ def resolve_binary(plugin_root: Path) -> Path:
 
 
 def backup_index(cache_dir: Path) -> Path:
-    """Back up existing index files and remove stale cache entries."""
+    """Back up existing index files (does NOT delete originals — crash-safe).
+
+    The old index stays in place until the new one is verified and swapped in.
+    Backup is kept as a safety net for manual recovery only.
+    """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = Path(tempfile.gettempdir()) / f"pss-backup-{timestamp}"
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -86,26 +90,24 @@ def backup_index(cache_dir: Path) -> Path:
         src = cache_dir / name
         if src.exists():
             shutil.copy2(src, backup_dir / name)
-    # Remove old files so the pipeline writes fresh ones
-    for name in ("skill-index.json", "skill-index.db", "skill-checklist.md"):
-        (cache_dir / name).unlink(missing_ok=True)
     return backup_dir
 
 
-def run_pipeline(scripts_dir: Path, binary: Path) -> int:
+def run_pipeline(scripts_dir: Path, binary: Path, staging_index: Path) -> int:
     """Run the 3-stage pipeline: discover | enrich | merge.
 
+    Writes to a staging index file (not the live one) for crash safety.
     Uses shell pipes so that discover's stderr warnings don't kill the pipeline.
-    Returns the element count from the merged index.
+    Returns the pipeline exit code.
     """
     warnings_file = Path(tempfile.gettempdir()) / "pss-discover-warnings.txt"
     stats_file = Path(tempfile.gettempdir()) / "pss-pass1-stats.txt"
-    # Build the pipeline as a shell command to get proper pipe semantics
-    # (no pipefail — discover emits non-fatal warnings to stderr)
+    # Pipeline writes to staging_index (not the live index) so a crash
+    # during build leaves the old index intact and usable
     cmd = (
         f'python3 "{scripts_dir / "pss_discover.py"}" --jsonl --all-projects 2>"{warnings_file}" '
         f'| "{binary}" --pass1-batch 2>"{stats_file}" '
-        f'| python3 "{scripts_dir / "pss_merge_queue.py"}" --batch-stdin'
+        f'| python3 "{scripts_dir / "pss_merge_queue.py"}" --batch-stdin --index "{staging_index}"'
     )
     result = subprocess.run(cmd, shell=True)
     if result.returncode != 0:
@@ -113,9 +115,8 @@ def run_pipeline(scripts_dir: Path, binary: Path) -> int:
     return result.returncode
 
 
-def verify_index(cache_dir: Path) -> int:
-    """Verify the merged index has elements. Returns the element count."""
-    index_file = cache_dir / "skill-index.json"
+def verify_index_file(index_file: Path) -> int:
+    """Verify an index file has elements. Returns the element count."""
     if not index_file.exists():
         return 0
     try:
@@ -158,12 +159,11 @@ def human_size(path: Path) -> str:
 
 
 def _cleanup_lockfile(cache_dir: Path) -> None:
-    """Remove the PID lockfile created by pss_hook.py's auto-reindex."""
+    """Remove the PID lockfile and any stale staging/tmp files from prior crashes."""
     lock_path = cache_dir / "skill-index.reindex.pid"
     lock_path.unlink(missing_ok=True)
-    # Also remove any leftover .tmp from a prior crash
-    tmp_path = cache_dir / "skill-index.json.tmp"
-    tmp_path.unlink(missing_ok=True)
+    for stale in ("skill-index.json.tmp", "skill-index.staging.json"):
+        (cache_dir / stale).unlink(missing_ok=True)
 
 
 def main() -> None:
@@ -173,34 +173,44 @@ def main() -> None:
     cache_dir = get_claude_config_dir() / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: Back up
+    live_index = cache_dir / "skill-index.json"
+    staging_index = cache_dir / "skill-index.staging.json"
+
+    # Step 1: Back up (old index stays in place — crash-safe)
     backup_dir = backup_index(cache_dir)
 
-    # Step 2: Pipeline (discover → enrich → merge)
-    run_pipeline(scripts_dir, binary)
+    # Step 2: Pipeline writes to staging file (not the live index)
+    # If crash/blackout happens here, old index is still intact and usable
+    staging_index.unlink(missing_ok=True)
+    run_pipeline(scripts_dir, binary, staging_index)
 
-    # Verify
-    element_count = verify_index(cache_dir)
+    # Verify the staging index
+    element_count = verify_index_file(staging_index)
     if element_count == 0:
-        print("ERROR: Pipeline produced 0 elements. Restoring backup.")
-        backup_index_file = backup_dir / "skill-index.json"
-        if backup_index_file.exists():
-            shutil.copy2(backup_index_file, cache_dir / "skill-index.json")
+        print("ERROR: Pipeline produced 0 elements. Old index preserved.")
+        staging_index.unlink(missing_ok=True)
         warnings_file = Path(tempfile.gettempdir()) / "pss-discover-warnings.txt"
         print(f"Check {warnings_file} for details.")
         _cleanup_lockfile(cache_dir)
         sys.exit(1)
 
-    # Step 3: Build CozoDB
+    # Step 3: Atomic swap — staging replaces live index in one syscall
+    # os.replace() is atomic on the same filesystem (POSIX rename guarantee)
+    os.replace(staging_index, live_index)
+
+    # Step 4: Remove old CozoDB (will be rebuilt from new index)
+    (cache_dir / "pss-skill-index.db").unlink(missing_ok=True)
+
+    # Step 5: Build CozoDB from new index
     build_db(binary)
 
-    # Step 4: Aggregate domains
+    # Step 6: Aggregate domains
     aggregate_domains(scripts_dir)
 
-    # Step 5: Clean stale .pss files
+    # Step 7: Clean stale .pss files
     cleanup_stale(scripts_dir)
 
-    # Step 6: Clean up auto-reindex lockfile (if spawned by hook)
+    # Step 8: Clean up auto-reindex lockfile (if spawned by hook)
     _cleanup_lockfile(cache_dir)
 
     # Report

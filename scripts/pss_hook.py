@@ -700,7 +700,6 @@ def _maybe_auto_reindex(index_path: Path) -> None:
     - After crash: detects dead PID, cleans up stale files, respawns
     """
     lock_path = index_path.with_suffix(".reindex.pid")
-    tmp_path = index_path.with_suffix(".json.tmp")
 
     # Check if a reindex is already running
     if lock_path.exists():
@@ -714,7 +713,9 @@ def _maybe_auto_reindex(index_path: Path) -> None:
             pass
         # PID is dead or lockfile corrupt — clean up stale artifacts
         lock_path.unlink(missing_ok=True)
-        tmp_path.unlink(missing_ok=True)
+        # Clean up any staging/tmp files left by crashed reindex
+        for suffix in (".json.tmp", ".staging.json"):
+            index_path.with_suffix(suffix).unlink(missing_ok=True)
 
     # Spawn background reindex
     script_dir = Path(__file__).parent.resolve()
@@ -773,10 +774,22 @@ def main() -> None:
             _exit_empty()
             return
 
-        # Check if skill index exists BEFORE doing any expensive work.
-        # If missing, auto-spawn a background reindex (once) and notify user.
+        # Check if skill index exists and is valid BEFORE doing any expensive work.
+        # If missing or corrupt, auto-spawn a background reindex and notify user.
         index_path = _get_cache_dir() / SKILL_INDEX_FILE
         if not index_path.exists():
+            _maybe_auto_reindex(index_path)
+            return
+        # Quick corruption check: file must be valid JSON with a "skills" key
+        try:
+            with open(index_path, "r", encoding="utf-8") as f:
+                # Read only the first 64 bytes to verify JSON structure (fast)
+                header = f.read(64)
+            if not header.strip().startswith("{"):
+                raise ValueError("not JSON")
+        except (OSError, ValueError):
+            # Index file is corrupt — delete it and trigger auto-reindex
+            index_path.unlink(missing_ok=True)
             _maybe_auto_reindex(index_path)
             return
 
