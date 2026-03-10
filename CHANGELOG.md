@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.30] - 2026-03-10
+
+### Bug Fixes
+
+- Stop transcript pollution in skill suggestions
+
+### Miscellaneous Tasks
+
+- Sync uv.lock
+
 ## [2.3.29] - 2026-03-10
 
 ### Bug Fixes
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Sync uv.lock
+
+### Bump
+
+- Version 2.3.28 → 2.3.29
 
 ## [2.3.28] - 2026-03-10
 
