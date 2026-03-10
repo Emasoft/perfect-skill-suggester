@@ -6530,10 +6530,11 @@ fn find_matches(
             let is_skill_negated = prompt_negated_terms.iter().any(|neg_term| {
                 // Stem the negated term for fuzzy matching (e.g., "testing" → "test")
                 let neg_stem = stem_word(neg_term);
-                // Check skill name contains negated term (or its stem matches a name part)
-                entry_name_lower.contains(neg_term.as_str())
-                || entry_name_lower.split(|c: char| c == '-' || c == '_' || c == ' ')
-                    .any(|part| part == neg_stem || stem_word(part) == neg_stem)
+                // Check skill name parts match negated term (word-boundary only, NOT substring).
+                // "bun" must match "bun-development" but NOT "debug-bundle" or "esbuild-bundler".
+                // Split name on delimiters and compare each part as a whole word.
+                entry_name_lower.split(|c: char| c == '-' || c == '_' || c == ' ')
+                    .any(|part| part == neg_term.as_str() || part == neg_stem || stem_word(part) == neg_stem)
                 // Check skill keywords match negated term (exact or stem)
                 || entry.keywords.iter().any(|kw| {
                     let kl = kw.to_lowercase();
