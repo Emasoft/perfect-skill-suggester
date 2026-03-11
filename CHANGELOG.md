@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.54] - 2026-03-11
+
+### Documentation
+
+- Document installed_plugins.json v2 format
+
+### Miscellaneous Tasks
+
+- Update uv.lock
+
 ## [2.3.53] - 2026-03-11
 
 ### Bug Fixes
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update uv.lock
+
+### Bump
+
+- Version 2.3.52 → 2.3.53
 
 ## [2.3.52] - 2026-03-10
 
