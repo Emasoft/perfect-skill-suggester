@@ -84,14 +84,19 @@ def backup_index(cache_dir: Path) -> Path:
 
     The old index stays in place until the new one is verified and swapped in.
     Backup is kept as a safety net for manual recovery only.
+    Non-fatal: backup failure does not block reindexing.
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = Path(tempfile.gettempdir()) / f"pss-backup-{timestamp}"
     backup_dir.mkdir(parents=True, exist_ok=True)
     for name in ("skill-index.json", "pss-skill-index.db"):
         src = cache_dir / name
-        if src.exists():
-            shutil.copy2(src, backup_dir / name)
+        try:
+            if src.exists():
+                shutil.copy2(src, backup_dir / name)
+        except OSError as e:
+            # Backup is best-effort — don't block reindex if copy fails
+            print(f"WARNING: Could not back up {src}: {e}", file=sys.stderr)
     return backup_dir
 
 
@@ -145,13 +150,15 @@ def verify_index_file(index_file: Path) -> int:
 
 def build_db(binary: Path) -> None:
     """Build the CozoDB index for fast scoring."""
-    subprocess.run([str(binary), "--build-db"], check=True)
+    subprocess.run([str(binary), "--build-db"], check=True, timeout=120)
 
 
 def aggregate_domains(scripts_dir: Path) -> None:
     """Aggregate the domain registry."""
     subprocess.run(
-        [sys.executable, str(scripts_dir / "pss_aggregate_domains.py")], check=True
+        [sys.executable, str(scripts_dir / "pss_aggregate_domains.py")],
+        check=True,
+        timeout=120,
     )
 
 
@@ -160,6 +167,7 @@ def cleanup_stale(scripts_dir: Path) -> None:
     subprocess.run(
         [sys.executable, str(scripts_dir / "pss_cleanup.py"), "--all-projects"],
         capture_output=True,
+        timeout=60,
     )
 
 
@@ -176,11 +184,29 @@ def human_size(path: Path) -> str:
 
 
 def _cleanup_lockfile(cache_dir: Path) -> None:
-    """Remove the PID lockfile and any stale staging/tmp files from prior crashes."""
+    """Remove the PID lockfile (only if it belongs to this process or a dead process)
+    and any stale staging/tmp files from prior crashes."""
     lock_path = cache_dir / "skill-index.reindex.pid"
-    lock_path.unlink(missing_ok=True)
+    if lock_path.exists():
+        try:
+            pid = int(lock_path.read_text().strip())
+            # Only remove if PID matches this process or the process is dead
+            if pid == os.getpid() or not _is_pid_alive(pid):
+                lock_path.unlink(missing_ok=True)
+        except (ValueError, OSError):
+            # Corrupt lockfile — safe to remove
+            lock_path.unlink(missing_ok=True)
     for stale in ("skill-index.json.tmp", "skill-index.staging.json"):
         (cache_dir / stale).unlink(missing_ok=True)
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Check if a process with the given PID is still running."""
+    try:
+        os.kill(pid, 0)  # Signal 0 = existence check, no actual signal sent
+        return True
+    except OSError:
+        return False
 
 
 def main() -> None:
@@ -236,22 +262,32 @@ def main() -> None:
         build_db(binary)
     except subprocess.CalledProcessError as e:
         print(f"WARNING: CozoDB build failed (code {e.returncode}). Index is valid but DB needs rebuild.", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print("WARNING: CozoDB build timed out after 120s.", file=sys.stderr)
 
     # Step 6: Aggregate domains (non-fatal)
     try:
         aggregate_domains(scripts_dir)
     except subprocess.CalledProcessError as e:
         print(f"WARNING: Domain aggregation failed (code {e.returncode}).", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print("WARNING: Domain aggregation timed out after 120s.", file=sys.stderr)
 
-    # Step 7: Clean stale .pss files
-    cleanup_stale(scripts_dir)
+    # Step 7: Clean stale .pss files (non-fatal)
+    try:
+        cleanup_stale(scripts_dir)
+    except subprocess.TimeoutExpired:
+        print("WARNING: Stale file cleanup timed out after 60s.", file=sys.stderr)
 
     # Step 8: Clean up auto-reindex lockfile (if spawned by hook)
     _cleanup_lockfile(cache_dir)
 
     # Report
     stats_file = Path(tempfile.gettempdir()) / "pss-pass1-stats.txt"
-    pass1_stats = stats_file.read_text().strip() if stats_file.exists() else "unknown"
+    try:
+        pass1_stats = stats_file.read_text().strip()
+    except OSError:
+        pass1_stats = "unknown"
     index_size = human_size(cache_dir / "skill-index.json")
 
     print()
