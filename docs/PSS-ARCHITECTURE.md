@@ -109,6 +109,53 @@ Projects in `~/.claude.json` that no longer exist on disk are automatically skip
 - Indexing skills from other projects enables better co-usage correlation in Pass 2
 - Skills from inactive projects can still be suggested if they become active
 
+### Claude Code Plugin Registry Format (installed_plugins.json v2)
+
+Claude Code 2.1.69+ uses `~/.claude/plugins/installed_plugins.json` **version 2** format. Any script or agent that reads or writes this file MUST use the correct format. Writing v1 format causes Claude Code to rebuild the file on next sync, **silently dropping plugins**.
+
+**v2 format** (correct):
+```json
+{
+  "version": 2,
+  "plugins": {
+    "plugin-name@marketplace-name": [
+      {
+        "scope": "user",
+        "installPath": "~/.claude/plugins/cache/marketplace/plugin/version",
+        "version": "1.0.0",
+        "installedAt": "2026-01-01T00:00:00.000Z",
+        "lastUpdated": "2026-01-01T00:00:00.000Z",
+        "gitCommitSha": "abc123def456..."
+      }
+    ]
+  }
+}
+```
+
+**Key differences from v1:**
+| Field | v1 (OBSOLETE) | v2 (CURRENT) |
+|-------|---------------|--------------|
+| Root `version` | absent | `2` (required) |
+| Plugin value | flat `{}` dict | `[{}]` list of scope entries |
+| `scope` field | absent | `"user"` or `"project"` |
+| `installPath` | absent | full path to cached plugin |
+| `isLocal` | present | **removed** — do not use |
+| `gitCommitSha` | absent | commit SHA from marketplace |
+
+**Critical rules:**
+- Each plugin key is `"name@marketplace"` (e.g., `"perfect-skill-suggester@emasoft-plugins"`)
+- The value is always a **list** (array), even for a single scope entry
+- `scope` must be `"user"` or `"project"` — never omit it
+- `installPath` must point to the versioned cache directory
+- Never include `isLocal` — it is not part of the v2 schema
+- If migrating from v1: wrap each flat dict in a list and add `"version": 2` at root
+
+**Related files:**
+- `~/.claude/plugins/installed_plugins.json` — the registry itself
+- `~/.claude/plugins/known_marketplaces.json` — marketplace metadata (source URLs, install locations)
+- `~/.claude/plugins/blocklist.json` — blocked plugins (fetched from Anthropic)
+- `~/.claude/settings.json` → `enabledPlugins` — per-plugin enable/disable toggles
+
 ### 4. Categories vs Keywords
 
 **Categories** are FIELDS OF COMPETENCE/USAGE:

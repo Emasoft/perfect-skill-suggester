@@ -173,6 +173,50 @@ claude plugin list | grep perfect-skill  # Verify new version
 # Then restart Claude Code
 ```
 
+### Plugin disappears after installing another plugin
+
+**Symptom:** `claude plugin update perfect-skill-suggester@emasoft-plugins` fails with `Plugin is not installed`, even though it was working before.
+
+**Cause:** Claude Code 2.1.69+ uses `installed_plugins.json` **version 2** format. If any tool writes a v1-format entry into this file, Claude Code detects the malformed entry during its next sync and **rebuilds the file from its own internal state** — dropping plugins that were installed via marketplace or other mechanisms.
+
+**v2 format** (correct — each plugin maps to a **list** of scope entries):
+```json
+{
+  "version": 2,
+  "plugins": {
+    "plugin-name@marketplace": [
+      {
+        "scope": "user",
+        "installPath": "/path/to/cache/marketplace/plugin/version",
+        "version": "1.0.0",
+        "installedAt": "2026-01-01T00:00:00.000Z",
+        "lastUpdated": "2026-01-01T00:00:00.000Z",
+        "gitCommitSha": "abc123..."
+      }
+    ]
+  }
+}
+```
+
+**v1 format** (WRONG — flat dict per plugin, causes corruption):
+```json
+{
+  "plugin-name@marketplace": {
+    "version": "1.0.0",
+    "isLocal": true
+  }
+}
+```
+
+**Solution:** Reinstall the plugin:
+```bash
+claude plugin marketplace update emasoft-plugins
+claude plugin install perfect-skill-suggester@emasoft-plugins
+# Then restart Claude Code
+```
+
+**Prevention:** Any script that writes to `~/.claude/plugins/installed_plugins.json` MUST use v2 format (list of scope entries per plugin key, with `"version": 2` at root level). See the [Architecture docs](docs/PSS-ARCHITECTURE.md) for the full schema.
+
 ### Commands not found
 
 **Symptom:** `/pss-reindex-skills` or `/pss-status` not recognized.
