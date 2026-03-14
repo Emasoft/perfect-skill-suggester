@@ -2,6 +2,7 @@
 name: pss-agent-profiler
 description: "AI agent that analyzes agent definitions and generates .agent.toml configuration profiles. Uses Rust binary for candidate scoring + intelligent post-filtering for mutual exclusivity, stack compatibility, and redundancy pruning across all 6 element types."
 model: sonnet
+memory: user
 auto_skills:
   - pss-agent-toml
   - pss-design-alignment
@@ -14,6 +15,9 @@ tools:
   - Grep
   - WebSearch
   - WebFetch
+  - mcp__llm-externalizer__batch_check
+  - mcp__llm-externalizer__code_task
+  - mcp__llm-externalizer__chat
 ---
 
 # PSS Agent Profiler
@@ -236,7 +240,34 @@ The Rust binary produces raw candidates. YOU must now apply intelligent filterin
 "${BINARY_PATH}" vocab languages --type skill
 ```
 
-For each candidate, read its SKILL.md (use `"${BINARY_PATH}" resolve <id>` to get the path) and evaluate:
+#### Token-Efficient Candidate Evaluation (LLM Externalizer)
+
+When the `mcp__llm-externalizer__batch_check` tool is available, use it instead of reading every SKILL.md into your context. This saves thousands of tokens when evaluating 20-30+ candidates.
+
+**Batch evaluation workflow:**
+1. Resolve all candidate file paths: `"${BINARY_PATH}" resolve <id1> <id2> ... <idN>`
+2. Build the evaluation instructions with the agent's tech stack, role, and domains
+3. Call `batch_check` with all candidate paths and the evaluation instructions:
+   ```
+   mcp__llm-externalizer__batch_check(
+     instructions: "Evaluate this skill/agent/command for an agent with role=<role>, domains=<domains>, tech_stack=<stack>. Answer these questions:
+     1. MUTUAL_EXCLUSIVITY: Does it conflict with any of these frameworks/tools: <list>? (yes/no + which)
+     2. OBSOLETE: Is it deprecated or superseded in 2026? (yes/no + by what)
+     3. STACK_COMPATIBLE: Is it compatible with <languages/frameworks>? (yes/no)
+     4. REDUNDANT_WITH: Is it a strict subset of any of these candidates: <list>? (yes/no + which)
+     5. RELEVANCE: Rate 1-5 how relevant this is to the agent's duties: <duties>
+     Format: one line per question, e.g. 'MUTUAL_EXCLUSIVITY: no'",
+     input_files_paths: [<list of SKILL.md paths>],
+     max_tokens: 500,
+     ensemble: false
+   )
+   ```
+4. Read the output file to get per-candidate evaluations
+5. Use the evaluations to drive the filtering decisions below
+
+**Fallback**: If `batch_check` is unavailable (MCP not connected), read each SKILL.md directly. Prioritize reading only the top-15 candidates by score to stay within context budget.
+
+For each candidate, evaluate:
 
 #### 4a. Mutual Exclusivity Detection
 Identify skills that are **alternatives to each other** and should NOT both be recommended:
@@ -630,7 +661,24 @@ After validation passes, perform a mandatory self-review before reporting. If `-
 
 #### 8b-i: Self-Review (ALWAYS runs)
 
-Re-read the generated `.agent.toml` AND the original agent definition. Check:
+**Token-efficient self-review**: If `mcp__llm-externalizer__code_task` is available, use it instead of re-reading both files into context:
+```
+mcp__llm-externalizer__code_task(
+  instructions: "Cross-check this .agent.toml profile against the original agent definition. Verify:
+  1. NAME_INTEGRITY: Every skill/agent name in TOML that appears in the agent .md matches exactly (no prefix changes)
+  2. AUTO_SKILLS_PINNING: All auto_skills from frontmatter are in [skills].primary (list any violations)
+  3. NON_CODING_FILTER: If agent is orchestrator/coordinator, verify no LSP/linting/code-fixing elements
+  4. COVERAGE: Every duty/domain from agent def has at least one supporting element
+  5. EXCLUSION_QUALITY: Every [skills.excluded] entry has a specific reason
+  Format: CHECK_NAME: PASS/FAIL - details",
+  input_files_paths: ["<OUTPUT_PATH>", "<AGENT_PATH>"],
+  max_tokens: 800,
+  ensemble: false
+)
+```
+Read the output file. If all 5 checks pass, proceed to 8b-ii. If any fail, fix in-place and re-validate.
+
+**Fallback**: If LLM Externalizer unavailable, re-read both files directly and check:
 
 1. **Name Integrity**: Every skill/agent name in TOML that appears in the agent definition matches EXACTLY (no prefix changes, no renaming to local index names)
 2. **Auto-Skills Pinning**: ALL frontmatter `auto_skills` are in `[skills].primary` (none demoted)

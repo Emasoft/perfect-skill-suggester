@@ -8,7 +8,7 @@ user-invocable: false
 
 ## Overview
 
-Mandatory documentation protocol for Opus agents competing to improve the PSS scoring engine. Defines report structure, benchmark tracking format, sacred parameters, and anti-patterns. Ensures each agent's work becomes high-quality training data for the next competition cycle.
+Benchmark protocol for Opus agents competing to improve the PSS scoring engine. Defines report structure, tracking format, sacred parameters, and anti-patterns.
 
 ## Prerequisites
 
@@ -19,8 +19,6 @@ Mandatory documentation protocol for Opus agents competing to improve the PSS sc
 
 ## Instructions
 
-Mandatory documentation protocol for Opus agents competing to improve the PSS scoring engine. Reports are training data for future cycles.
-
 1. Read `docs_dev/methodology-improvement-history.md` and current `main.rs`
 2. Run baseline benchmark BEFORE changes and record score
 3. Make one change at a time, benchmark after each
@@ -29,6 +27,8 @@ Mandatory documentation protocol for Opus agents competing to improve the PSS sc
 6. Write benchmark log to `docs_dev/worktree-{YOUR_ID}-benchmark-log.md`
 7. Run `cargo test` and `cargo build --release`
 8. Complete the Work Tracking Checklist
+
+**Token savings**: When `mcp__llm-externalizer__code_task` is available, use it to analyze benchmark logs and scoring engine source instead of reading them into your context. Use `batch_check` to compare multiple benchmark log snapshots. Keep Opus reasoning for the actual scoring algorithm changes — delegate log analysis to the externalizer.
 
 ## References
 
@@ -88,11 +88,12 @@ cargo build --release && uv run scripts/pss_benchmark.py --binary target/release
 
 ## Error Handling
 
-If the benchmark script fails or produces unexpected output, check `docs_dev/methodology-improvement-history.md` for known issues. See the Examples and Resources reference above for error handling and sample commands.
+If the benchmark script fails or produces unexpected output, check `docs_dev/methodology-improvement-history.md` for known issues.
 
 ## Resources
 
-- **Scoring engine**: `src/skill-suggester/src/main.rs`
-- **Benchmark prompts**: `docs_dev/benchmark-v2-prompts-100.jsonl`
-- **Gold standard**: `docs_dev/benchmark-v2-gold-100.json`
-- **History**: `docs_dev/methodology-improvement-history.md`
+- `src/skill-suggester/src/main.rs` — scoring engine
+- `docs_dev/benchmark-v2-prompts-100.jsonl` — prompts
+- `docs_dev/benchmark-v2-gold-100.json` — gold standard
+- `docs_dev/methodology-improvement-history.md` — history
+
