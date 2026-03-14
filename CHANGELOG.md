@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.55] - 2026-03-14
+
+### Features
+
+- Integrate LLM Externalizer MCP for token-efficient agent profiling
+
+### Miscellaneous Tasks
+
+- Update uv.lock
+
 ## [2.3.54] - 2026-03-11
 
 ### Documentation
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update uv.lock
+
+### Bump
+
+- Version 2.3.53 → 2.3.54
 
 ## [2.3.53] - 2026-03-11
 
