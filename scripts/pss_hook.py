@@ -27,7 +27,9 @@ from typing import Any
 MAX_SUGGESTIONS = 4  # Maximum skill suggestions per message
 MIN_SCORE = 0.5  # Minimum score threshold
 MAX_TRANSCRIPT_LINES = 200  # Recent transcript lines to scan for previous message
-SUBPROCESS_TIMEOUT = 4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
+SUBPROCESS_TIMEOUT = (
+    4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
+)
 SKILL_INDEX_FILE = "skill-index.json"
 
 
@@ -138,6 +140,52 @@ SKIP_SIMPLE_PROMPTS = {
 }
 
 
+def _tail_lines(filepath: Path, max_lines: int) -> list[str]:
+    """Read the last `max_lines` lines from a file using seek, NOT readlines().
+
+    JSONL transcripts can be 500MB+.  readlines() loads the entire file into
+    memory (0.4s+ on 559MB) while seek-based tail takes <1ms.  This is the
+    difference between hitting the 4s subprocess timeout or not.
+
+    Strategy: read progressively larger chunks from the end of the file until
+    we have enough lines. Start at 4MB (handles base64 image lines up to 3.6MB),
+    double up to 64MB if needed (559MB transcript needs ~21MB for 200 lines).
+    """
+    INITIAL_CHUNK = 4 * 1024 * 1024  # 4MB — handles base64 image lines up to 3.6MB
+    MAX_CHUNK = (
+        64 * 1024 * 1024
+    )  # 64MB cap — 559MB transcript needs ~21MB for 200 lines
+
+    try:
+        file_size = filepath.stat().st_size
+    except OSError:
+        return []
+
+    if file_size == 0:
+        return []
+
+    lines: list[str] = []
+    chunk_size = min(INITIAL_CHUNK, file_size)
+    while chunk_size <= min(MAX_CHUNK, file_size):
+        with open(filepath, "rb") as f:
+            f.seek(max(0, file_size - chunk_size))
+            data = f.read()
+        # Decode and split — the first "line" may be partial (we seeked mid-line)
+        text = data.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+        # Drop the first line if we didn't read from the start (it's likely truncated)
+        if file_size > chunk_size and lines:
+            lines = lines[1:]
+        if len(lines) >= max_lines:
+            return lines[-max_lines:]
+        # Not enough lines — double chunk and retry
+        if chunk_size >= file_size:
+            return lines  # We've read the whole file
+        chunk_size = min(chunk_size * 2, file_size)
+
+    return lines[-max_lines:] if len(lines) >= max_lines else lines
+
+
 def extract_previous_user_message(transcript_path: str) -> str:
     """Extract the PREVIOUS user message from the transcript (not the current one).
 
@@ -153,8 +201,8 @@ def extract_previous_user_message(transcript_path: str) -> str:
         return ""
 
     try:
-        with open(transcript_file, "r", encoding="utf-8") as f:
-            lines = f.readlines()[-MAX_TRANSCRIPT_LINES:]
+        # Use seek-based tail — never loads the full file into memory
+        lines = _tail_lines(transcript_file, MAX_TRANSCRIPT_LINES)
 
         # Walk backwards, skip the first user message (current prompt), return the second
         user_messages_found = 0
@@ -268,7 +316,9 @@ def detect_platform() -> str:
         return "pss-windows-x86_64.exe"
 
     # Unsupported platform
-    raise RuntimeError(f"Unsupported platform: {system} {machine}. Supported: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64, windows-x86_64. Build from source for other platforms.")
+    raise RuntimeError(
+        f"Unsupported platform: {system} {machine}. Supported: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64, windows-x86_64. Build from source for other platforms."
+    )
 
 
 def find_binary() -> Path:
@@ -280,7 +330,9 @@ def find_binary() -> Path:
     binary_path = script_dir.parent / "src" / "skill-suggester" / "bin" / binary_name
 
     if not binary_path.exists():
-        raise FileNotFoundError(f"PSS binary not found at: {binary_path}. Build it with: uv run python {script_dir / 'pss_build.py'}")
+        raise FileNotFoundError(
+            f"PSS binary not found at: {binary_path}. Build it with: uv run python {script_dir / 'pss_build.py'}"
+        )
 
     return binary_path
 
@@ -345,7 +397,9 @@ def _maybe_auto_reindex(index_path: Path) -> None:
     script_dir = Path(__file__).parent.resolve()
     reindex_script = script_dir / "pss_reindex.py"
     if not reindex_script.exists():
-        _exit_warning(f"skill-index.json not found and reindex script missing at {reindex_script} — run /pss-reindex-skills manually")
+        _exit_warning(
+            f"skill-index.json not found and reindex script missing at {reindex_script} — run /pss-reindex-skills manually"
+        )
         return
 
     try:
@@ -365,7 +419,9 @@ def _maybe_auto_reindex(index_path: Path) -> None:
             proc.kill()
             _exit_warning("skill index not found — auto-reindex already in progress")
             return
-        _exit_warning("skill index not found — auto-reindex started, suggestions available shortly")
+        _exit_warning(
+            "skill index not found — auto-reindex started, suggestions available shortly"
+        )
     except OSError as e:
         _exit_warning(f"skill-index.json not found, auto-reindex failed: {e}")
 
@@ -374,7 +430,9 @@ def main() -> None:
     """Main entry point - read stdin, call binary, output result."""
     try:
         # Read JSON input from stdin
-        stdin_data = sys.stdin.read(1_048_576)  # 1MB cap to prevent memory exhaustion from oversized input
+        stdin_data = sys.stdin.read(
+            1_048_576
+        )  # 1MB cap to prevent memory exhaustion from oversized input
 
         # Parse input to check if we should skip
         input_json: dict[str, Any] = {}
@@ -470,7 +528,9 @@ def main() -> None:
             # User-visible notification only in --debug mode (silent otherwise)
             if _is_debug_mode():
                 try:
-                    ctx = (hook_out.get("hookSpecificOutput") or {}).get("additionalContext", "")
+                    ctx = (hook_out.get("hookSpecificOutput") or {}).get(
+                        "additionalContext", ""
+                    )
                     if ctx:
                         # Extract "name [type]" pairs from SUGGESTED lines
                         names = re.findall(r"SUGGESTED:\s+(.+?)\s+\[(\w+)\]", ctx)
@@ -486,12 +546,16 @@ def main() -> None:
             print(json.dumps(hook_out))
         else:
             build_script = Path(__file__).parent / "pss_build.py"
-            _exit_warning(f"binary exited with code {result.returncode}: {result.stderr[:300]}. Try rebuilding: uv run python {build_script}")
+            _exit_warning(
+                f"binary exited with code {result.returncode}: {result.stderr[:300]}. Try rebuilding: uv run python {build_script}"
+            )
 
         sys.exit(0)  # Always exit 0 to not block Claude
 
     except subprocess.TimeoutExpired:
-        _exit_warning(f"binary timed out after {SUBPROCESS_TIMEOUT}s. The skill index may be too large or the binary may be stuck. Check: uv run python {Path(__file__).parent / 'pss_test_e2e.py'}")
+        _exit_warning(
+            f"binary timed out after {SUBPROCESS_TIMEOUT}s. The skill index may be too large or the binary may be stuck. Check: uv run python {Path(__file__).parent / 'pss_test_e2e.py'}"
+        )
     except Exception as e:
         _exit_warning(str(e))
 
