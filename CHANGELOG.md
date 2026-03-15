@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.56] - 2026-03-15
+
+### Features
+
+- Gate user-visible suggestions on --debug mode
+
 ## [2.3.55] - 2026-03-14
 
 ### Features
@@ -11,6 +17,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update uv.lock
+
+### Bump
+
+- Version 2.3.54 → 2.3.55
 
 ## [2.3.54] - 2026-03-11
 
