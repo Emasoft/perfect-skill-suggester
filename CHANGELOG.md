@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.59] - 2026-03-15
+
+### Bug Fixes
+
+- Replace readlines() with seek-based tail for transcript reading
+
 ## [2.3.58] - 2026-03-15
 
 ### Bug Fixes
 
 - Update LLM Externalizer MCP tool prefix to plugin format
+
+### Bump
+
+- Version 2.3.57 → 2.3.58
 
 ## [2.3.57] - 2026-03-15
 
