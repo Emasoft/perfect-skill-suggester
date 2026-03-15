@@ -2,11 +2,25 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.3.60] - 2026-03-15
+
+### Bug Fixes
+
+- Merge chunk-reading and message-finding into single loop
+
+### Miscellaneous Tasks
+
+- Update uv.lock
+
 ## [2.3.59] - 2026-03-15
 
 ### Bug Fixes
 
 - Replace readlines() with seek-based tail for transcript reading
+
+### Bump
+
+- Version 2.3.58 → 2.3.59
 
 ## [2.3.58] - 2026-03-15
 
