@@ -27,10 +27,51 @@ from typing import Any
 MAX_SUGGESTIONS = 4  # Maximum skill suggestions per message
 MIN_SCORE = 0.5  # Minimum score threshold
 MAX_TRANSCRIPT_LINES = 200  # Recent transcript lines to scan for previous message
-SUBPROCESS_TIMEOUT = (
-    4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
-)
+SUBPROCESS_TIMEOUT = 4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
 SKILL_INDEX_FILE = "skill-index.json"
+
+
+_debug_mode_cache: bool | None = None
+
+
+def _is_debug_mode() -> bool:
+    """Check if Claude Code is running with --debug by walking the process tree.
+
+    Matches only the actual 'claude' binary (not paths containing '.claude').
+    Adapted from token-reporter-plugin. Result is cached for the process lifetime.
+    """
+    global _debug_mode_cache
+    if _debug_mode_cache is not None:
+        return _debug_mode_cache
+    pid = os.getppid()
+    while pid > 1:
+        try:
+            result = subprocess.run(
+                ["ps", "-o", "args=", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            cmdline = result.stdout.strip()
+            args = cmdline.split()
+            if args:
+                # Check the binary is actually 'claude' (not just a path with .claude)
+                cmd = os.path.basename(args[0])
+                if cmd == "claude" and "--debug" in args:
+                    _debug_mode_cache = True
+                    return True
+            # Walk up to this process's parent
+            result = subprocess.run(
+                ["ps", "-o", "ppid=", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            pid = int(result.stdout.strip())
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            break
+    _debug_mode_cache = False
+    return False
 
 
 def _get_cache_dir() -> Path:
@@ -38,7 +79,6 @@ def _get_cache_dir() -> Path:
     from pss_paths import get_cache_dir
 
     return get_cache_dir()
-
 
 
 # Prompts to skip (slash commands and simple responses don't need skill suggestions)
@@ -96,7 +136,6 @@ SKIP_SIMPLE_PROMPTS = {
     "all good",
     "thank you!",
 }
-
 
 
 def extract_previous_user_message(transcript_path: str) -> str:
@@ -229,11 +268,7 @@ def detect_platform() -> str:
         return "pss-windows-x86_64.exe"
 
     # Unsupported platform
-    raise RuntimeError(
-        f"Unsupported platform: {system} {machine}. "
-        f"Supported: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64, "
-        f"windows-x86_64. Build from source for other platforms."
-    )
+    raise RuntimeError(f"Unsupported platform: {system} {machine}. Supported: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64, windows-x86_64. Build from source for other platforms.")
 
 
 def find_binary() -> Path:
@@ -245,10 +280,7 @@ def find_binary() -> Path:
     binary_path = script_dir.parent / "src" / "skill-suggester" / "bin" / binary_name
 
     if not binary_path.exists():
-        raise FileNotFoundError(
-            f"PSS binary not found at: {binary_path}. "
-            f"Build it with: uv run python {script_dir / 'pss_build.py'}"
-        )
+        raise FileNotFoundError(f"PSS binary not found at: {binary_path}. Build it with: uv run python {script_dir / 'pss_build.py'}")
 
     return binary_path
 
@@ -313,10 +345,7 @@ def _maybe_auto_reindex(index_path: Path) -> None:
     script_dir = Path(__file__).parent.resolve()
     reindex_script = script_dir / "pss_reindex.py"
     if not reindex_script.exists():
-        _exit_warning(
-            f"skill-index.json not found and reindex script missing at {reindex_script} — "
-            f"run /pss-reindex-skills manually"
-        )
+        _exit_warning(f"skill-index.json not found and reindex script missing at {reindex_script} — run /pss-reindex-skills manually")
         return
 
     try:
@@ -345,9 +374,7 @@ def main() -> None:
     """Main entry point - read stdin, call binary, output result."""
     try:
         # Read JSON input from stdin
-        stdin_data = sys.stdin.read(
-            1_048_576
-        )  # 1MB cap to prevent memory exhaustion from oversized input
+        stdin_data = sys.stdin.read(1_048_576)  # 1MB cap to prevent memory exhaustion from oversized input
 
         # Parse input to check if we should skip
         input_json: dict[str, Any] = {}
@@ -438,41 +465,33 @@ def main() -> None:
 
         # Output the result (binary already limits to MAX_SUGGESTIONS)
         if result.returncode == 0:
-            # Build user-visible summary via systemMessage (like token-reporter)
+            # Parse the binary output — additionalContext always goes to the model
             hook_out = json.loads(result.stdout)
-            try:
-                ctx = (hook_out.get("hookSpecificOutput") or {}).get(
-                    "additionalContext", ""
-                )
-                if ctx:
-                    # Extract "name [type]" pairs from SUGGESTED lines
-                    names = re.findall(r"SUGGESTED:\s+(.+?)\s+\[(\w+)\]", ctx)
-                    if names:
-                        # Names in bold bright green, types in dim green, wrapped in guillemets
-                        parts = [f"\033[1;92m{n}\033[0;32m ({t})" for n, t in names]
-                        label = "\033[0;32m, ".join(parts)
-                        notification = f"\033[1;92m⚡\u00ab Pss!... use\033[0;32m:\033[0;32m {label} \033[1;92m\u00bb\033[0m"
-                        # Inject systemMessage into hook output for user-visible display
-                        hook_out["systemMessage"] = notification
-            except KeyError:
-                pass  # Don't block on display errors
+            # User-visible notification only in --debug mode (silent otherwise)
+            if _is_debug_mode():
+                try:
+                    ctx = (hook_out.get("hookSpecificOutput") or {}).get("additionalContext", "")
+                    if ctx:
+                        # Extract "name [type]" pairs from SUGGESTED lines
+                        names = re.findall(r"SUGGESTED:\s+(.+?)\s+\[(\w+)\]", ctx)
+                        if names:
+                            # Names in bold bright green, types in dim green, wrapped in guillemets
+                            parts = [f"\033[1;92m{n}\033[0;32m ({t})" for n, t in names]
+                            label = "\033[0;32m, ".join(parts)
+                            notification = f"\033[1;92m⚡\u00ab Pss!... use\033[0;32m:\033[0;32m {label} \033[1;92m\u00bb\033[0m"
+                            # Inject systemMessage into hook output for user-visible display
+                            hook_out["systemMessage"] = notification
+                except KeyError:
+                    pass  # Don't block on display errors
             print(json.dumps(hook_out))
         else:
             build_script = Path(__file__).parent / "pss_build.py"
-            _exit_warning(
-                f"binary exited with code {result.returncode}: "
-                f"{result.stderr[:300]}. "
-                f"Try rebuilding: uv run python {build_script}"
-            )
+            _exit_warning(f"binary exited with code {result.returncode}: {result.stderr[:300]}. Try rebuilding: uv run python {build_script}")
 
         sys.exit(0)  # Always exit 0 to not block Claude
 
     except subprocess.TimeoutExpired:
-        _exit_warning(
-            f"binary timed out after {SUBPROCESS_TIMEOUT}s. "
-            f"The skill index may be too large or the binary may be stuck. "
-            f"Check: uv run python {Path(__file__).parent / 'pss_test_e2e.py'}"
-        )
+        _exit_warning(f"binary timed out after {SUBPROCESS_TIMEOUT}s. The skill index may be too large or the binary may be stuck. Check: uv run python {Path(__file__).parent / 'pss_test_e2e.py'}")
     except Exception as e:
         _exit_warning(str(e))
 
