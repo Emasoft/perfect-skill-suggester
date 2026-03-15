@@ -15,9 +15,9 @@ tools:
   - Grep
   - WebSearch
   - WebFetch
-  - mcp__llm-externalizer__batch_check
-  - mcp__llm-externalizer__code_task
-  - mcp__llm-externalizer__chat
+  - mcp__plugin_llm-externalizer_llm-externalizer__batch_check
+  - mcp__plugin_llm-externalizer_llm-externalizer__code_task
+  - mcp__plugin_llm-externalizer_llm-externalizer__chat
 ---
 
 # PSS Agent Profiler
@@ -242,14 +242,14 @@ The Rust binary produces raw candidates. YOU must now apply intelligent filterin
 
 #### Token-Efficient Candidate Evaluation (LLM Externalizer)
 
-When the `mcp__llm-externalizer__batch_check` tool is available, use it instead of reading every SKILL.md into your context. This saves thousands of tokens when evaluating 20-30+ candidates.
+When the `mcp__plugin_llm-externalizer_llm-externalizer__batch_check` tool is available, use it instead of reading every SKILL.md into your context. This saves thousands of tokens when evaluating 20-30+ candidates.
 
 **Batch evaluation workflow:**
 1. Resolve all candidate file paths: `"${BINARY_PATH}" resolve <id1> <id2> ... <idN>`
 2. Build the evaluation instructions with the agent's tech stack, role, and domains
 3. Call `batch_check` with all candidate paths and the evaluation instructions:
    ```
-   mcp__llm-externalizer__batch_check(
+   mcp__plugin_llm-externalizer_llm-externalizer__batch_check(
      instructions: "Evaluate this skill/agent/command for an agent with role=<role>, domains=<domains>, tech_stack=<stack>. Answer these questions:
      1. MUTUAL_EXCLUSIVITY: Does it conflict with any of these frameworks/tools: <list>? (yes/no + which)
      2. OBSOLETE: Is it deprecated or superseded in 2026? (yes/no + by what)
@@ -661,9 +661,9 @@ After validation passes, perform a mandatory self-review before reporting. If `-
 
 #### 8b-i: Self-Review (ALWAYS runs)
 
-**Token-efficient self-review**: If `mcp__llm-externalizer__code_task` is available, use it instead of re-reading both files into context:
+**Token-efficient self-review**: If `mcp__plugin_llm-externalizer_llm-externalizer__code_task` is available, use it instead of re-reading both files into context:
 ```
-mcp__llm-externalizer__code_task(
+mcp__plugin_llm-externalizer_llm-externalizer__code_task(
   instructions: "Cross-check this .agent.toml profile against the original agent definition. Verify:
   1. NAME_INTEGRITY: Every skill/agent name in TOML that appears in the agent .md matches exactly (no prefix changes)
   2. AUTO_SKILLS_PINNING: All auto_skills from frontmatter are in [skills].primary (list any violations)

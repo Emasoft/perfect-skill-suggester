@@ -2,7 +2,7 @@
 name: pss-change-agent-profile
 description: "Modify an existing .agent.toml profile with natural language instructions"
 argument-hint: "<profile-path> <change-instructions> [--requirements PATH...]"
-allowed-tools: ["Task", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "mcp__llm-externalizer__batch_check", "mcp__llm-externalizer__code_task", "mcp__llm-externalizer__chat"]
+allowed-tools: ["Task", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "mcp__plugin_llm-externalizer_llm-externalizer__batch_check", "mcp__plugin_llm-externalizer_llm-externalizer__code_task", "mcp__plugin_llm-externalizer_llm-externalizer__chat"]
 ---
 
 # PSS Change Agent Profile
@@ -133,9 +133,9 @@ uv run "${VALIDATE_SCRIPT}" "${PROFILE_PATH}" --check-index --verbose
 
 If either fails, fix the issues and retry (max 2 cycles).
 
-**Token-efficient post-change verification**: If `mcp__llm-externalizer__code_task` is available, use it to verify the changes without re-reading both files into context:
+**Token-efficient post-change verification**: If `mcp__plugin_llm-externalizer_llm-externalizer__code_task` is available, use it to verify the changes without re-reading both files into context:
 ```
-mcp__llm-externalizer__code_task(
+mcp__plugin_llm-externalizer_llm-externalizer__code_task(
   instructions: "Verify this .agent.toml was correctly modified. Check: (1) TOML syntax valid, (2) no duplicate elements across tiers, (3) no empty names, (4) excluded entries have reasons. List any issues found.",
   input_files_paths: "<PROFILE_PATH>",
   max_tokens: 500,
