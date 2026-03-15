@@ -140,50 +140,26 @@ SKIP_SIMPLE_PROMPTS = {
 }
 
 
-def _tail_lines(filepath: Path, max_lines: int) -> list[str]:
-    """Read the last `max_lines` lines from a file using seek, NOT readlines().
-
-    JSONL transcripts can be 500MB+.  readlines() loads the entire file into
-    memory (0.4s+ on 559MB) while seek-based tail takes <1ms.  This is the
-    difference between hitting the 4s subprocess timeout or not.
-
-    Strategy: read progressively larger chunks from the end of the file until
-    we have enough lines. Start at 4MB (handles base64 image lines up to 3.6MB),
-    double up to 64MB if needed (559MB transcript needs ~21MB for 200 lines).
-    """
-    INITIAL_CHUNK = 4 * 1024 * 1024  # 4MB — handles base64 image lines up to 3.6MB
-    MAX_CHUNK = (
-        64 * 1024 * 1024
-    )  # 64MB cap — 559MB transcript needs ~21MB for 200 lines
-
-    try:
-        file_size = filepath.stat().st_size
-    except OSError:
-        return []
-
-    if file_size == 0:
-        return []
-
-    lines: list[str] = []
-    chunk_size = min(INITIAL_CHUNK, file_size)
-    while chunk_size <= min(MAX_CHUNK, file_size):
-        with open(filepath, "rb") as f:
-            f.seek(max(0, file_size - chunk_size))
-            data = f.read()
-        # Decode and split — the first "line" may be partial (we seeked mid-line)
-        text = data.decode("utf-8", errors="replace")
-        lines = text.splitlines()
-        # Drop the first line if we didn't read from the start (it's likely truncated)
-        if file_size > chunk_size and lines:
-            lines = lines[1:]
-        if len(lines) >= max_lines:
-            return lines[-max_lines:]
-        # Not enough lines — double chunk and retry
-        if chunk_size >= file_size:
-            return lines  # We've read the whole file
-        chunk_size = min(chunk_size * 2, file_size)
-
-    return lines[-max_lines:] if len(lines) >= max_lines else lines
+def _extract_user_text(entry: dict) -> str:
+    """Extract user message text from a parsed JSONL transcript entry."""
+    msg = entry.get("message")
+    if not isinstance(msg, dict):
+        return ""
+    role = msg.get("role", "")
+    if role not in ("human", "user"):
+        return ""
+    content = msg.get("content", "")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        return " ".join(parts).strip()
+    return ""
 
 
 def extract_previous_user_message(transcript_path: str) -> str:
@@ -192,6 +168,11 @@ def extract_previous_user_message(transcript_path: str) -> str:
     The hook fires on UserPromptSubmit, so the current message is already in the
     transcript. We skip the first (most recent) user message and return the second
     one — that's the actual previous message the user typed before this prompt.
+
+    Uses seek-based chunked reading — never loads the full file into memory.
+    JSONL transcripts can be 500MB+ with 3.6MB base64 image lines.  readlines()
+    would take 350ms+ on those; this approach takes <5ms by reading progressively
+    larger chunks from the end until the 2nd user message is found.
     """
     if not transcript_path:
         return ""
@@ -200,45 +181,55 @@ def extract_previous_user_message(transcript_path: str) -> str:
     if not transcript_file.exists():
         return ""
 
-    try:
-        # Use seek-based tail — never loads the full file into memory
-        lines = _tail_lines(transcript_file, MAX_TRANSCRIPT_LINES)
+    # Chunk sizing: start small, double until we find what we need.
+    # 4MB handles most cases (user messages are small, even if surrounding
+    # assistant entries contain 3.6MB base64 images).
+    INITIAL_CHUNK = 4 * 1024 * 1024
+    MAX_CHUNK = 256 * 1024 * 1024  # 256MB hard cap — stop before OOM
 
-        # Walk backwards, skip the first user message (current prompt), return the second
+    try:
+        file_size = transcript_file.stat().st_size
+    except OSError:
+        return ""
+
+    if file_size == 0:
+        return ""
+
+    chunk_size = min(INITIAL_CHUNK, file_size)
+    while chunk_size <= min(MAX_CHUNK, file_size):
+        with open(transcript_file, "rb") as f:
+            f.seek(max(0, file_size - chunk_size))
+            data = f.read()
+
+        # Decode and split into JSONL lines
+        text = data.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+
+        # Drop first line if we seeked mid-file (it's likely a partial JSON block)
+        if file_size > chunk_size and lines:
+            lines = lines[1:]
+
+        # Scan backwards for 2nd user message — that's all we need
         user_messages_found = 0
         for line in reversed(lines):
             try:
                 entry = json.loads(line.strip())
-                if "message" not in entry:
-                    continue
-                msg = entry["message"]
-                if not isinstance(msg, dict):
-                    continue
-                role = msg.get("role", "")
-                if role not in ("human", "user"):
-                    continue
-                content = msg.get("content", "")
-                text = ""
-                if isinstance(content, str):
-                    text = content.strip()
-                elif isinstance(content, list):
-                    parts = []
-                    for block in content:
-                        if isinstance(block, str):
-                            parts.append(block)
-                        elif isinstance(block, dict) and block.get("type") == "text":
-                            parts.append(block.get("text", ""))
-                    text = " ".join(parts).strip()
-                if not text:
-                    continue
-                user_messages_found += 1
-                # Skip the 1st (current prompt already in transcript), return the 2nd
-                if user_messages_found >= 2:
-                    return text
-            except (json.JSONDecodeError, KeyError, TypeError):
+            except (json.JSONDecodeError, ValueError):
                 continue
-    except (IOError, OSError):
-        pass
+            if "message" not in entry:
+                continue
+            user_text = _extract_user_text(entry)
+            if not user_text:
+                continue
+            user_messages_found += 1
+            # Skip 1st (current prompt already in transcript), return 2nd
+            if user_messages_found >= 2:
+                return user_text
+
+        # Found fewer than 2 user messages — read a bigger chunk
+        if chunk_size >= file_size:
+            break  # Already read the whole file
+        chunk_size = min(chunk_size * 2, file_size)
 
     return ""
 
