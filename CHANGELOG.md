@@ -2,12 +2,26 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.4.4] - 2026-03-16
+
+### Bug Fixes
+
+- Condense pss-usage SKILL.md references to pass 4000-char validation limit
+
+### Features
+
+- Add rule file indexing (index-rules, list-rules) for agent profiling
+
 ## [2.4.3] - 2026-03-16
 
 ### Bug Fixes
 
 - Audit fixes for composite key migration
 - Prevent HashMap collision by keying SkillIndex on entry ID instead of name
+
+### Bump
+
+- Version 2.4.2 → 2.4.3
 
 ## [2.4.2] - 2026-03-16
 
