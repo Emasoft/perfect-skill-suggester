@@ -12650,32 +12650,24 @@ fn extract_plugin_from_source(source: &str) -> Option<String> {
     }
 }
 
-/// Look up a single element and return its lightweight metadata as a JSON Value.
-/// Returns `null` for not-found entries (batch-friendly).
-fn get_description_one(db: &DbInstance, name_or_id: &str) -> serde_json::Value {
-    // Resolve name or ID
-    let name = match resolve_name_or_id(db, name_or_id) {
-        Ok(n) => n,
-        Err(_) => return serde_json::Value::Null,
-    };
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("name".into(), DataValue::Str(name.clone().into()));
+/// Derive a human-readable scope label from the `source` field.
+/// "user" → "user", "project" → "project",
+/// "plugin:owner/name" → "installed", "marketplace:name" → "marketplace"
+fn derive_scope(source: &str) -> &'static str {
+    if source.starts_with("plugin:") {
+        "installed"
+    } else if source.starts_with("marketplace:") {
+        "marketplace"
+    } else if source == "project" {
+        "project"
+    } else {
+        "user"
+    }
+}
 
-    let result = match db.run_script(
-        "?[name, skill_type, source, description, path, keywords_json] := \
-         *skills{ name, skill_type, source, description, path, keywords_json }, name = $name",
-        params,
-        ScriptMutability::Immutable,
-    ) {
-        Ok(r) => r,
-        Err(_) => return serde_json::Value::Null,
-    };
-
-    let row = match result.rows.first() {
-        Some(r) => r,
-        None => return serde_json::Value::Null,
-    };
-
+/// Build a lightweight JSON object from a CozoDB row (6 columns:
+/// name, skill_type, source, description, path, keywords_json).
+fn row_to_description_json(row: &[DataValue]) -> serde_json::Value {
     let source_str = dv_to_string(&row[2]);
     let keywords: Vec<String> = serde_json::from_str(&dv_to_string(&row[5])).unwrap_or_default();
 
@@ -12684,6 +12676,8 @@ fn get_description_one(db: &DbInstance, name_or_id: &str) -> serde_json::Value {
     obj.insert("type".into(), serde_json::json!(dv_to_string(&row[1])));
     obj.insert("description".into(), serde_json::json!(dv_to_string(&row[3])));
     obj.insert("source_path".into(), serde_json::json!(dv_to_string(&row[4])));
+    obj.insert("source".into(), serde_json::json!(&source_str));
+    obj.insert("scope".into(), serde_json::json!(derive_scope(&source_str)));
     // Plugin field: extracted from source, null if user-owned
     obj.insert("plugin".into(), match extract_plugin_from_source(&source_str) {
         Some(p) => serde_json::json!(p),
@@ -12696,6 +12690,134 @@ fn get_description_one(db: &DbInstance, name_or_id: &str) -> serde_json::Value {
     serde_json::Value::Object(obj)
 }
 
+/// Parse a possibly-namespaced element reference.
+///
+/// Supports these formats:
+///   "element-name"                          → (None, "element-name")
+///   "plugin-name:element-name"              → (Some("plugin-name"), "element-name")
+///   "owner/plugin:element-name"             → (Some("owner/plugin"), "element-name")
+///   "element-name@marketplace-name"         → (Some("marketplace-name"), "element-name")
+///   "plugin-name@marketplace:element-name"  → (Some("plugin-name@marketplace"), "element-name")
+///
+/// Convention: `@` separates plugin from marketplace (e.g. "plugin@marketplace"),
+/// `:` separates namespace from element name.
+///
+/// The namespace is matched against the `source` field using substring search,
+/// so "trailofbits" matches "marketplace:trailofbits" and
+/// "emasoft-plugins/claude-plugins-validation" matches "plugin:emasoft-plugins/claude-plugins-validation".
+fn parse_namespaced_ref(input: &str) -> (Option<String>, String) {
+    let trimmed = input.trim();
+
+    // Try `:` separator first — everything after the LAST `:` is the element name
+    if let Some(colon_pos) = trimmed.rfind(':') {
+        let ns = trimmed[..colon_pos].trim();
+        let elem = trimmed[colon_pos + 1..].trim();
+        if !ns.is_empty() && !elem.is_empty() {
+            return (Some(ns.to_string()), elem.to_string());
+        }
+    }
+
+    // No `:` found.  Try `@` as namespace indicator.
+    // "element@namespace" — the element name is BEFORE `@`, namespace AFTER.
+    // This matches the installed_plugins.json convention: "plugin-name@marketplace".
+    if let Some(at_pos) = trimmed.rfind('@') {
+        let before_at = trimmed[..at_pos].trim();
+        let after_at = trimmed[at_pos + 1..].trim();
+        if !before_at.is_empty() && !after_at.is_empty() {
+            // "element@marketplace" — namespace is the marketplace, element is the name
+            return (Some(after_at.to_string()), before_at.to_string());
+        }
+    }
+
+    (None, trimmed.to_string())
+}
+
+/// Smart lookup: resolves an element reference to one or more matching rows.
+///
+/// Resolution strategy (in order):
+/// 1. If input is a 13-char ID → resolve via skill_ids table
+/// 2. If input contains `:` or `@` → parse namespace, query by name + source LIKE
+/// 3. Exact name match (case-sensitive)
+/// 4. Case-insensitive name match (fallback)
+///
+/// Returns a Vec of JSON objects.  Empty vec = not found.
+/// Multiple results = ambiguity (caller decides how to handle).
+fn lookup_descriptions(db: &DbInstance, input: &str) -> Vec<serde_json::Value> {
+    let query_cols = "?[name, skill_type, source, description, path, keywords_json]";
+    let from_skills = "*skills{ name, skill_type, source, description, path, keywords_json }";
+
+    // Step 1: ID resolution (13-char alphanumeric)
+    let resolved_name = match resolve_name_or_id(db, input) {
+        Ok(n) => n,
+        Err(_) => return vec![],
+    };
+    // If resolve changed the input (was an ID), use the resolved name directly
+    if resolved_name != input {
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("name".into(), DataValue::Str(resolved_name.clone().into()));
+        if let Ok(result) = db.run_script(
+            &format!("{} := {}, name = $name", query_cols, from_skills),
+            params, ScriptMutability::Immutable,
+        ) {
+            return result.rows.iter().map(|r| row_to_description_json(r)).collect();
+        }
+        return vec![];
+    }
+
+    // Step 2: Parse namespace
+    let (namespace, element_name) = parse_namespaced_ref(input);
+
+    if let Some(ns) = &namespace {
+        // Namespaced lookup: query by element name + source contains namespace
+        let ns_lower = ns.to_lowercase();
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("name".into(), DataValue::Str(element_name.clone().into()));
+        params.insert("ns".into(), DataValue::Str(ns_lower.into()));
+        // str_includes on lowercase(source) matches both "plugin:owner/name" and "marketplace:name"
+        if let Ok(result) = db.run_script(
+            &format!("{} := {}, name = $name, str_includes(lowercase(source), $ns)", query_cols, from_skills),
+            params, ScriptMutability::Immutable,
+        ) {
+            if !result.rows.is_empty() {
+                return result.rows.iter().map(|r| row_to_description_json(r)).collect();
+            }
+        }
+        // Namespace didn't match — fall through to try element_name alone
+    }
+
+    // Step 3: Exact name match (use the element name, which is the full input if no namespace)
+    let lookup_name = if namespace.is_some() { &element_name } else { &resolved_name };
+    {
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("name".into(), DataValue::Str(lookup_name.clone().into()));
+        if let Ok(result) = db.run_script(
+            &format!("{} := {}, name = $name", query_cols, from_skills),
+            params, ScriptMutability::Immutable,
+        ) {
+            if !result.rows.is_empty() {
+                return result.rows.iter().map(|r| row_to_description_json(r)).collect();
+            }
+        }
+    }
+
+    // Step 4: Case-insensitive fallback — bind lowercase(name) then compare
+    {
+        let name_lower = lookup_name.to_lowercase();
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("q".into(), DataValue::Str(name_lower.into()));
+        if let Ok(result) = db.run_script(
+            &format!("{} := {}, lc = lowercase(name), lc = $q", query_cols, from_skills),
+            params, ScriptMutability::Immutable,
+        ) {
+            if !result.rows.is_empty() {
+                return result.rows.iter().map(|r| row_to_description_json(r)).collect();
+            }
+        }
+    }
+
+    vec![]
+}
+
 fn cmd_get_description(db: &DbInstance, names: &str, batch: bool, format: &str) -> Result<(), SuggesterError> {
     if batch {
         // Batch mode: comma-separated names → JSON array
@@ -12703,47 +12825,104 @@ fn cmd_get_description(db: &DbInstance, names: &str, batch: bool, format: &str) 
             .split(',')
             .map(|n| n.trim())
             .filter(|n| !n.is_empty())
-            .map(|n| get_description_one(db, n))
+            .map(|n| {
+                let results = lookup_descriptions(db, n);
+                match results.len() {
+                    0 => serde_json::Value::Null,
+                    1 => results.into_iter().next().unwrap(),
+                    // Multiple matches: return array with disambiguation
+                    _ => serde_json::json!({
+                        "ambiguous": true,
+                        "query": n,
+                        "matches": results,
+                    }),
+                }
+            })
             .collect();
 
         if format == "json" {
             println!("{}", serde_json::to_string_pretty(&entries).unwrap_or_default());
         } else {
             // Table format for batch
-            println!("{:<30} {:<10} {:<40} {:<30}", "NAME", "TYPE", "DESCRIPTION", "PLUGIN");
-            println!("{}", "─".repeat(110));
+            println!("{:<30} {:<10} {:<12} {:<40} {:<30}", "NAME", "TYPE", "SCOPE", "DESCRIPTION", "PLUGIN");
+            println!("{}", "─".repeat(122));
             for e in &entries {
                 if e.is_null() {
                     println!("{:<30} (not found)", "?");
                     continue;
                 }
+                if e.get("ambiguous").is_some() {
+                    // Print each match from the ambiguous result
+                    let query = e["query"].as_str().unwrap_or("?");
+                    if let Some(matches) = e["matches"].as_array() {
+                        for m in matches {
+                            let name = m["name"].as_str().unwrap_or("?");
+                            let etype = m["type"].as_str().unwrap_or("?");
+                            let scope = m["scope"].as_str().unwrap_or("?");
+                            let desc = m["description"].as_str().unwrap_or("");
+                            let desc_short = if desc.len() > 37 { format!("{}...", &desc[..37]) } else { desc.to_string() };
+                            let plugin = m["plugin"].as_str().unwrap_or("-");
+                            println!("{:<30} {:<10} {:<12} {:<40} {:<30}  ← ambiguous '{}'", name, etype, scope, desc_short, plugin, query);
+                        }
+                    }
+                    continue;
+                }
                 let name = e["name"].as_str().unwrap_or("?");
                 let etype = e["type"].as_str().unwrap_or("?");
+                let scope = e["scope"].as_str().unwrap_or("?");
                 let desc = e["description"].as_str().unwrap_or("");
-                // Truncate description to 40 chars for table
                 let desc_short = if desc.len() > 37 { format!("{}...", &desc[..37]) } else { desc.to_string() };
                 let plugin = e["plugin"].as_str().unwrap_or("-");
-                println!("{:<30} {:<10} {:<40} {:<30}", name, etype, desc_short, plugin);
+                println!("{:<30} {:<10} {:<12} {:<40} {:<30}", name, etype, scope, desc_short, plugin);
             }
         }
     } else {
         // Single mode
-        let entry = get_description_one(db, names);
-        if entry.is_null() {
-            return Err(SuggesterError::IndexParse(format!("Entry not found: '{}'", names)));
-        }
-        if format == "json" {
-            println!("{}", serde_json::to_string_pretty(&entry).unwrap_or_default());
-        } else {
-            println!("  Name        : {}", entry["name"].as_str().unwrap_or("?"));
-            println!("  Type        : {}", entry["type"].as_str().unwrap_or("?"));
-            println!("  Plugin      : {}", entry["plugin"].as_str().unwrap_or("-"));
-            println!("  Description : {}", entry["description"].as_str().unwrap_or(""));
-            println!("  Source path : {}", entry["source_path"].as_str().unwrap_or("?"));
-            if let Some(triggers) = entry["trigger"].as_array() {
-                let kws: Vec<&str> = triggers.iter().filter_map(|v| v.as_str()).collect();
-                if !kws.is_empty() {
-                    println!("  Trigger     : {}", kws.join(", "));
+        let results = lookup_descriptions(db, names);
+        match results.len() {
+            0 => return Err(SuggesterError::IndexParse(format!("Entry not found: '{}'", names))),
+            1 => {
+                let entry = &results[0];
+                if format == "json" {
+                    println!("{}", serde_json::to_string_pretty(entry).unwrap_or_default());
+                } else {
+                    println!("  Name        : {}", entry["name"].as_str().unwrap_or("?"));
+                    println!("  Type        : {}", entry["type"].as_str().unwrap_or("?"));
+                    println!("  Scope       : {}", entry["scope"].as_str().unwrap_or("?"));
+                    println!("  Plugin      : {}", entry["plugin"].as_str().unwrap_or("-"));
+                    println!("  Source      : {}", entry["source"].as_str().unwrap_or("?"));
+                    println!("  Description : {}", entry["description"].as_str().unwrap_or(""));
+                    println!("  Source path : {}", entry["source_path"].as_str().unwrap_or("?"));
+                    if let Some(triggers) = entry["trigger"].as_array() {
+                        let kws: Vec<&str> = triggers.iter().filter_map(|v| v.as_str()).collect();
+                        if !kws.is_empty() {
+                            println!("  Trigger     : {}", kws.join(", "));
+                        }
+                    }
+                }
+            }
+            _ => {
+                // Multiple matches — report ambiguity
+                if format == "json" {
+                    let obj = serde_json::json!({
+                        "ambiguous": true,
+                        "query": names,
+                        "count": results.len(),
+                        "hint": "Use namespace:name to disambiguate (e.g. 'trailofbits:element' or 'emasoft-plugins/cpv:element')",
+                        "matches": results,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&obj).unwrap_or_default());
+                } else {
+                    println!("  AMBIGUOUS: '{}' matched {} entries. Use namespace:name to disambiguate.\n", names, results.len());
+                    for entry in &results {
+                        println!("  • {} [{}] — scope: {}, plugin: {}",
+                            entry["name"].as_str().unwrap_or("?"),
+                            entry["type"].as_str().unwrap_or("?"),
+                            entry["scope"].as_str().unwrap_or("?"),
+                            entry["plugin"].as_str().unwrap_or("-"),
+                        );
+                        println!("    {}", entry["description"].as_str().unwrap_or(""));
+                    }
                 }
             }
         }
