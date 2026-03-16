@@ -368,7 +368,12 @@ def load_index_skills(index_path: Path) -> set[str] | None:
         return None
     with open(index_path) as f:
         index = json.load(f)
-    return set(index.get("skills", {}).keys())
+    # Handle both legacy (name-keyed) and new (source::name-keyed) formats
+    names: set[str] = set()
+    for key, entry in index.get("skills", {}).items():
+        name = entry.get("name") or (key.split("::", 1)[-1] if "::" in key else key)
+        names.add(name)
+    return names
 
 
 def main() -> int:

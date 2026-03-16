@@ -136,11 +136,17 @@ def load_index(index_path: Path) -> dict[str, dict]:
 
 
 def build_type_index(index: dict[str, dict]) -> dict[str, set[str]]:
-    """Build a type→set-of-names mapping from the index."""
+    """Build a type→set-of-names mapping from the index.
+
+    Handles both legacy (name-keyed) and new (source::name-keyed) JSON formats.
+    Uses the entry's 'name' field when available; falls back to extracting from composite key.
+    """
     result: dict[str, set[str]] = {}
-    for name, entry in index.items():
+    for key, entry in index.items():
+        # Extract element name: prefer entry["name"], fall back to key parsing
+        element_name = entry.get("name") or (key.split("::", 1)[-1] if "::" in key else key)
         etype = entry.get("type", "skill")
-        result.setdefault(etype, set()).add(name)
+        result.setdefault(etype, set()).add(element_name)
     return result
 
 

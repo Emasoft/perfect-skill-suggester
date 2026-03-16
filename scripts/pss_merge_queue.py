@@ -160,8 +160,13 @@ def merge_pass1(
         )
         sys.exit(1)
 
+    # Use composite key "source::name" to prevent collisions when different
+    # sources (plugins, user, marketplace) provide same-named elements.
+    source = pss_data.get("source", "unknown")
+    composite_key = f"{source}::{skill_name}"
+
     skills = index.setdefault("skills", {})
-    entry = skills.setdefault(skill_name, {})
+    entry = skills.setdefault(composite_key, {})
 
     # Copy each pass 1 field if present in the .pss data
     for field_name in PASS1_FIELDS:
@@ -203,15 +208,22 @@ def merge_pass2(
         )
         sys.exit(1)
 
+    # Look up by composite key "source::name" (new format) or fall back to name (legacy)
+    source = pss_data.get("source", "unknown")
+    composite_key = f"{source}::{skill_name}"
+
     skills = index.get("skills", {})
-    if skill_name not in skills:
+    if composite_key in skills:
+        entry = skills[composite_key]
+    elif skill_name in skills:
+        # Legacy fallback: old index format uses name as key
+        entry = skills[skill_name]
+    else:
         print(
             f"[ERROR] Skill '{skill_name}' not found in index. Run pass 1 first.",
             file=sys.stderr,
         )
         sys.exit(1)
-
-    entry = skills[skill_name]
 
     # Merge co_usage sub-fields
     pss_co_usage = pss_data.get("co_usage", {})

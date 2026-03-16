@@ -142,7 +142,9 @@ def collect_domain_gates(
     domains: dict[str, list[tuple[str, str, list[str]]]] = defaultdict(list)
 
     skills = index.get("skills", {})
-    for skill_name, entry in skills.items():
+    for key, entry in skills.items():
+        # Handle both legacy (name-keyed) and new (source::name-keyed) formats
+        skill_name = entry.get("name") or (key.split("::", 1)[-1] if "::" in key else key)
         gates = entry.get("domain_gates")
         if not gates or not isinstance(gates, dict):
             continue

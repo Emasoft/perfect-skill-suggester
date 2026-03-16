@@ -502,7 +502,9 @@ def import_from_index(
     skills = index.get("skills", {})
     count = 0
 
-    for skill_name, skill_data in skills.items():
+    for key, skill_data in skills.items():
+        # Handle both legacy (name-keyed) and new (source::name-keyed) formats
+        skill_name = skill_data.get("name") or (key.split("::", 1)[-1] if "::" in key else key)
         pss_path = output_dir / f"{skill_name}.pss"
 
         if pss_path.exists() and not force:

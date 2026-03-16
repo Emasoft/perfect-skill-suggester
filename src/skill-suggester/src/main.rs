@@ -2660,8 +2660,36 @@ pub struct SkillIndex {
     #[serde(default, alias = "skill_count")]
     pub skills_count: usize,
 
-    /// Map of skill name to skill entry
+    /// Map of entry ID → skill entry. Keyed by 13-char deterministic ID
+    /// (hash of name+source) to prevent collisions when different sources
+    /// provide same-named elements.
     pub skills: HashMap<String, SkillEntry>,
+
+    /// Secondary index: element name → list of entry IDs.
+    /// Built after loading; enables O(1) name-based lookups across all sources.
+    #[serde(skip)]
+    pub name_to_ids: HashMap<String, Vec<String>>,
+}
+
+impl SkillIndex {
+    /// Build the secondary name→ids index from the skills HashMap.
+    /// Must be called after loading from JSON or CozoDB.
+    fn build_name_index(&mut self) {
+        self.name_to_ids.clear();
+        for (id, entry) in &self.skills {
+            self.name_to_ids.entry(entry.name.clone())
+                .or_default()
+                .push(id.clone());
+        }
+    }
+
+    /// Look up the first entry matching a name (any source).
+    /// For co-usage and scoring lookups where source disambiguation isn't needed.
+    fn get_by_name(&self, name: &str) -> Option<&SkillEntry> {
+        self.name_to_ids.get(name)
+            .and_then(|ids| ids.first())
+            .and_then(|id| self.skills.get(id))
+    }
 }
 
 /// Co-usage relationship data (nested under "co_usage" in JSON index)
@@ -2683,6 +2711,12 @@ pub struct CoUsageData {
 /// A single skill entry in the index (enhanced with intents, patterns, directories)
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SkillEntry {
+    /// Element name (e.g., "react", "docker-expert"). Stored explicitly so
+    /// the HashMap key can be the entry ID instead of the name, preventing
+    /// collisions when different sources provide same-named elements.
+    #[serde(default)]
+    pub name: String,
+
     /// Where the skill comes from: user, project, plugin
     #[serde(default)]
     pub source: String,
@@ -6526,7 +6560,9 @@ fn find_matches(
     let prompt_negated_terms = detect_prompt_negations(original_prompt);
 
     // Parallel scoring: each skill scored independently across all CPU cores via rayon
-    let mut matches: Vec<MatchedSkill> = index.skills.par_iter().filter_map(|(name, entry)| {
+    // HashMap key is entry ID (not element name); use entry.name for the element name.
+    let mut matches: Vec<MatchedSkill> = index.skills.par_iter().filter_map(|(_entry_id, entry)| {
+        let name = &entry.name;
         let mut score: i32 = 0;
         let mut evidence: Vec<String> = Vec::new();
         let mut keyword_matches = 0;
@@ -7453,7 +7489,7 @@ fn find_matches(
             .collect();
 
         for matched_name in &high_scoring {
-            if let Some(entry) = index.skills.get(matched_name) {
+            if let Some(entry) = index.get_by_name(matched_name) {
                 let booster_score = *score_lookup.get(matched_name.as_str()).unwrap_or(&0);
                 for related in &entry.co_usage.usually_with {
                     co_usage_boosts
@@ -7487,7 +7523,7 @@ fn find_matches(
                 continue;
             }
             // Add the related skill with minimal score (tiebreaker level only)
-            if let Some(entry) = index.skills.get(related_name) {
+            if let Some(entry) = index.get_by_name(related_name) {
                 let evidence: Vec<String> = boosters
                     .iter()
                     .map(|(b, _)| format!("co_usage:{}", b))
@@ -7623,7 +7659,9 @@ fn get_index_path(cli_index: Option<&str>) -> Result<PathBuf, SuggesterError> {
     Ok(home.join(".claude").join(CACHE_DIR).join(INDEX_FILE))
 }
 
-/// Load and parse the skill index
+/// Load and parse the skill index.
+/// After JSON deserialization, re-keys the HashMap from name-based to ID-based
+/// to prevent collisions when different sources provide same-named elements.
 fn load_index(path: &PathBuf) -> Result<SkillIndex, SuggesterError> {
     if !path.exists() {
         return Err(SuggesterError::IndexNotFound(path.clone()));
@@ -7634,8 +7672,31 @@ fn load_index(path: &PathBuf) -> Result<SkillIndex, SuggesterError> {
         source: e,
     })?;
 
-    let index: SkillIndex =
+    let mut index: SkillIndex =
         serde_json::from_str(&content).map_err(|e| SuggesterError::IndexParse(e.to_string()))?;
+
+    // Re-key HashMap from name-based (JSON format) to ID-based (collision-safe).
+    // JSON key formats: "name" (legacy) or "source::name" (new composite format).
+    let old_skills = std::mem::take(&mut index.skills);
+    let mut rekeyed = HashMap::with_capacity(old_skills.len());
+    for (key, mut entry) in old_skills {
+        // Extract element name from key: new "source::name" format or legacy "name" format
+        let element_name = if let Some(pos) = key.find("::") {
+            key[pos + 2..].to_string()
+        } else {
+            key
+        };
+        // Set the name field if not already populated from JSON
+        if entry.name.is_empty() {
+            entry.name = element_name;
+        }
+        // Use entry ID as HashMap key (unique per name+source combination)
+        let entry_id = make_entry_id(&entry.name, &entry.source);
+        rekeyed.insert(entry_id, entry);
+    }
+    index.skills = rekeyed;
+    index.skills_count = index.skills.len();
+    index.build_name_index();
 
     Ok(index)
 }
@@ -7714,8 +7775,13 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
 
     let skill_name = &pss.skill.name;
 
+    // Find entry by name using the secondary name index, then get mutable ref by ID
+    let existing_id = index.name_to_ids.get(skill_name.as_str())
+        .and_then(|ids| ids.first())
+        .cloned();
+
     // If skill exists in index, merge PSS data
-    if let Some(entry) = index.skills.get_mut(skill_name) {
+    if let Some(entry) = existing_id.as_ref().and_then(|id| index.skills.get_mut(id)) {
         // Merge keywords (add any not already present)
         for kw in &pss.matchers.keywords {
             if !entry.keywords.contains(kw) {
@@ -7778,8 +7844,11 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
             pss_path.parent().unwrap_or(pss_path).to_string_lossy().to_string()
         };
 
+        let source = pss.skill.source.clone();
+        let entry_id = make_entry_id(skill_name, &source);
         let entry = SkillEntry {
-            source: pss.skill.source.clone(),
+            name: skill_name.clone(),
+            source,
             path,
             skill_type: pss.skill.skill_type.clone(),
             keywords: pss.matchers.keywords.clone(),
@@ -7815,7 +7884,9 @@ fn load_pss_file(pss_path: &PathBuf, index: &mut SkillIndex) -> Result<(), io::E
         };
 
         info!("Added skill '{}' from PSS file: {:?}", skill_name, pss_path);
-        index.skills.insert(skill_name.clone(), entry);
+        // Insert with entry ID as key; update secondary name index
+        index.name_to_ids.entry(skill_name.clone()).or_default().push(entry_id.clone());
+        index.skills.insert(entry_id, entry);
     }
 
     Ok(())
@@ -8330,13 +8401,10 @@ fn resolve_agent_input(
     }
 
     // Fallback: try loading JSON index and searching by name
-    // SkillEntry has no `name` field — the name is the HashMap key suffix after ":"
     if let Ok(index_path) = get_index_path(cli.index.as_deref()) {
         if let Ok(index) = load_index(&index_path) {
-            for (key, entry) in &index.skills {
-                // Key format is "source:name" — extract the name part
-                let entry_name = key.rsplit(':').next().unwrap_or(key);
-                if entry_name == agent_ref && entry.skill_type == "agent" {
+            for (_id, entry) in &index.skills {
+                if entry.name == agent_ref && entry.skill_type == "agent" {
                     if Path::new(&entry.path).exists() {
                         return parse_agent_md(&entry.path);
                     }
@@ -8880,7 +8948,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     let mut sorted_skills: Vec<(String, i32, Vec<String>, String, String, String)> = skill_scores
         .into_iter()
         .map(|(name, (combined_score, domain_score, evidence, path, confidence, description))| {
-            let entry_type = index.skills.get(&name)
+            let entry_type = index.get_by_name(&name)
                 .map(|e| e.skill_type.as_str())
                 .unwrap_or("skill");
 
@@ -8896,7 +8964,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
                 // Check if entry is language-specific via multiple signals
                 let mut is_lang_specific = false;
 
-                if let Some(entry) = index.skills.get(&name) {
+                if let Some(entry) = index.get_by_name(&name) {
                     // Signal 1: explicit languages array (when populated)
                     if !entry.languages.is_empty()
                         && !entry.languages.contains(&"any".to_string())
@@ -8935,7 +9003,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
             if agent_is_framework_agnostic {
                 // Check if entry is framework-specific
                 let mut is_fw_specific = false;
-                if let Some(entry) = index.skills.get(&name) {
+                if let Some(entry) = index.get_by_name(&name) {
                     if !entry.frameworks.is_empty() {
                         is_fw_specific = true;
                     }
@@ -8986,7 +9054,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
 
     for (name, score, evidence, path, confidence, description) in sorted_skills.into_iter() {
         // Look up the entry's type from the index
-        let entry_type = index.skills.get(&name)
+        let entry_type = index.get_by_name(&name)
             .map(|e| e.skill_type.as_str())
             .unwrap_or("skill");
 
@@ -9018,18 +9086,18 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     let rule_names: HashSet<String> = rule_candidates.iter().map(|r| r.0.clone()).collect();
     let mcp_names: HashSet<String> = mcp_candidates.iter().map(|r| r.0.clone()).collect();
     let lsp_names: HashSet<String> = lsp_candidates.iter().map(|r| r.0.clone()).collect();
-    for (name, entry) in &index.skills {
+    for (_id, entry) in &index.skills {
         match entry.skill_type.as_str() {
-            "rule" if !rule_names.contains(name) => {
-                rule_candidates.push((name.clone(), 1, vec!["scarce_type_inject".to_string()],
+            "rule" if !rule_names.contains(&entry.name) => {
+                rule_candidates.push((entry.name.clone(), 1, vec!["scarce_type_inject".to_string()],
                     entry.path.clone(), "LOW".to_string(), entry.description.clone()));
             }
-            "mcp" if !mcp_names.contains(name) => {
-                mcp_candidates.push((name.clone(), 1, vec!["scarce_type_inject".to_string()],
+            "mcp" if !mcp_names.contains(&entry.name) => {
+                mcp_candidates.push((entry.name.clone(), 1, vec!["scarce_type_inject".to_string()],
                     entry.path.clone(), "LOW".to_string(), entry.description.clone()));
             }
-            "lsp" if !lsp_names.contains(name) => {
-                lsp_candidates.push((name.clone(), 1, vec!["scarce_type_inject".to_string()],
+            "lsp" if !lsp_names.contains(&entry.name) => {
+                lsp_candidates.push((entry.name.clone(), 1, vec!["scarce_type_inject".to_string()],
                     entry.path.clone(), "LOW".to_string(), entry.description.clone()));
             }
             _ => {}
@@ -9051,7 +9119,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         "docker", "container", "deployment", "compose", "orchestration", "registry",
     ];
     for mcp in mcp_candidates.iter_mut() {
-        if let Some(entry) = index.skills.get(&mcp.0) {
+        if let Some(entry) = index.get_by_name(&mcp.0) {
             let mcp_kw_lower: Vec<String> = entry.keywords.iter()
                 .map(|k| k.to_lowercase())
                 .collect();
@@ -9177,7 +9245,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     // applied during scoring. The closure checks the entry name, keywords, and description
     // against the same lang_signal_patterns used in the scoring penalty.
     let is_entry_lang_specific = |entry_name: &str| -> bool {
-        if let Some(entry) = index.skills.get(entry_name) {
+        if let Some(entry) = index.get_by_name(entry_name) {
             // Signal 1: explicit languages array
             if !entry.languages.is_empty()
                 && !entry.languages.contains(&"any".to_string())
@@ -9226,9 +9294,9 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     for p_name in &all_tiered_names {
         // Use parent skill's score to give co-usage discoveries proportional relevance
         let parent_score = tiered_scores.get(p_name.as_str()).copied().unwrap_or(0.1);
-        if let Some(entry) = index.skills.get(p_name.as_str()) {
+        if let Some(entry) = index.get_by_name(p_name.as_str()) {
             for uw in &entry.co_usage.usually_with {
-                if let Some(uw_entry) = index.skills.get(uw.as_str()) {
+                if let Some(uw_entry) = index.get_by_name(uw.as_str()) {
                     // Language gate: skip language-specific co_usage entries for language-agnostic agents.
                     // Without this, axiom-* skills leak in via co_usage chains from generic debugging skills.
                     if agent_is_language_agnostic && is_entry_lang_specific(uw.as_str()) {
@@ -9289,7 +9357,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         .map(|a| (a.name.clone(), a.score))
         .collect();
     for (agent_name, agent_score) in &agents_snapshot {
-        if let Some(entry) = index.skills.get(agent_name.as_str()) {
+        if let Some(entry) = index.get_by_name(agent_name.as_str()) {
             // 2-hop score = 30% of parent agent's score
             let hop2_score = agent_score * 0.3;
             // Cap 2-hop additions per parent to prevent co_usage noise explosion.
@@ -9299,7 +9367,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
             let hop2_max_per_parent = 3;
             for uw in &entry.co_usage.usually_with {
                 if hop2_added >= hop2_max_per_parent { break; }
-                if let Some(uw_entry) = index.skills.get(uw.as_str()) {
+                if let Some(uw_entry) = index.get_by_name(uw.as_str()) {
                     // Language gate: skip language-specific 2-hop co_usage for language-agnostic agents
                     if agent_is_language_agnostic && is_entry_lang_specific(uw.as_str()) {
                         continue;
@@ -9353,12 +9421,12 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     // This captures the "I'm useful WITH that agent" relationship that forward traversal misses.
     {
         // Build reverse co_usage map: who mentions each name in their co_usage?
-        let mut reverse_co_usage: HashMap<&str, Vec<(&str, &str)>> = HashMap::new(); // name → [(mentioner, type)]
-        for (name, entry) in &index.skills {
+        let mut reverse_co_usage: HashMap<&str, Vec<(&str, &str)>> = HashMap::new(); // name → [(mentioner_name, type)]
+        for (_id, entry) in &index.skills {
             for uw in &entry.co_usage.usually_with {
                 reverse_co_usage.entry(uw.as_str())
                     .or_default()
-                    .push((name.as_str(), entry.skill_type.as_str()));
+                    .push((entry.name.as_str(), entry.skill_type.as_str()));
             }
         }
 
@@ -9379,7 +9447,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
                     }
                     match mentioner_type {
                         "skill" if !existing_skill_names.contains(mentioner_name) => {
-                            let entry = &index.skills[mentioner_name];
+                            let entry = &index.get_by_name(mentioner_name).unwrap();
                             specialized.push(AgentProfileCandidate {
                                 name: mentioner_name.to_string(),
                                 path: entry.path.clone(),
@@ -9392,7 +9460,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
                         }
                         "agent" if !existing_agent_names.contains(mentioner_name)
                             && total_reverse_agents < max_reverse_agents => {
-                            let entry = &index.skills[mentioner_name];
+                            let entry = &index.get_by_name(mentioner_name).unwrap();
                             complementary_agents_vec.push(AgentProfileCandidate {
                                 name: mentioner_name.to_string(),
                                 path: entry.path.clone(),
@@ -9405,7 +9473,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
                             total_reverse_agents += 1;
                         }
                         "command" if !existing_command_names.contains(mentioner_name) => {
-                            let entry = &index.skills[mentioner_name];
+                            let entry = &index.get_by_name(mentioner_name).unwrap();
                             command_candidates_vec.push(AgentProfileCandidate {
                                 name: mentioner_name.to_string(),
                                 path: entry.path.clone(),
@@ -9436,7 +9504,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
                     }
                     match mentioner_type {
                         "skill" if !existing_skill_names.contains(mentioner_name) => {
-                            let entry = &index.skills[mentioner_name];
+                            let entry = &index.get_by_name(mentioner_name).unwrap();
                             specialized.push(AgentProfileCandidate {
                                 name: mentioner_name.to_string(),
                                 path: entry.path.clone(),
@@ -9448,7 +9516,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
                             existing_skill_names.insert(mentioner_name.to_string());
                         }
                         "agent" if !existing_agent_names.contains(mentioner_name) => {
-                            let entry = &index.skills[mentioner_name];
+                            let entry = &index.get_by_name(mentioner_name).unwrap();
                             complementary_agents_vec.push(AgentProfileCandidate {
                                 name: mentioner_name.to_string(),
                                 path: entry.path.clone(),
@@ -9460,7 +9528,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
                             existing_agent_names.insert(mentioner_name.to_string());
                         }
                         "command" if !existing_command_names.contains(mentioner_name) => {
-                            let entry = &index.skills[mentioner_name];
+                            let entry = &index.get_by_name(mentioner_name).unwrap();
                             command_candidates_vec.push(AgentProfileCandidate {
                                 name: mentioner_name.to_string(),
                                 path: entry.path.clone(),
@@ -9486,7 +9554,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     // Only 2.5% of benchmark profiles are in the index, so description-based detection is critical.
     let profile_category: String;
     let profile_platforms: Vec<String>;
-    if let Some(profile_entry) = index.skills.get(&profile.name) {
+    if let Some(profile_entry) = index.get_by_name(&profile.name) {
         profile_category = profile_entry.category.clone();
         profile_platforms = profile_entry.platforms.iter().map(|p| p.to_lowercase()).collect();
     } else {
@@ -9545,7 +9613,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
     // Apply domain affinity multiplier to agents
     if !profile_category.is_empty() || !profile_platforms.is_empty() {
         for agent in complementary_agents_vec.iter_mut() {
-            if let Some(entry) = index.skills.get(&agent.name) {
+            if let Some(entry) = index.get_by_name(&agent.name) {
                 let same_category = !profile_category.is_empty()
                     && !entry.category.is_empty()
                     && entry.category == profile_category;
@@ -9567,7 +9635,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         }
         // Apply to commands too (commands like "run-tests" vs "design-review")
         for cmd in command_candidates_vec.iter_mut() {
-            if let Some(entry) = index.skills.get(&cmd.name) {
+            if let Some(entry) = index.get_by_name(&cmd.name) {
                 let same_category = !profile_category.is_empty()
                     && !entry.category.is_empty()
                     && entry.category == profile_category;
@@ -9588,7 +9656,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
         }
         // Apply to skills (boost same-domain skills)
         for skill in primary.iter_mut().chain(secondary.iter_mut()).chain(specialized.iter_mut()) {
-            if let Some(entry) = index.skills.get(&skill.name) {
+            if let Some(entry) = index.get_by_name(&skill.name) {
                 let same_category = !profile_category.is_empty()
                     && !entry.category.is_empty()
                     && entry.category == profile_category;
@@ -9640,7 +9708,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
 
         // Boost agents based on keyword overlap with profile description
         for agent in complementary_agents_vec.iter_mut() {
-            if let Some(entry) = index.skills.get(&agent.name) {
+            if let Some(entry) = index.get_by_name(&agent.name) {
                 let overlap_count = count_keyword_overlap(entry);
                 // Boost proportional to overlap: 0 overlap = 1.0x, 3+ overlap = 1.6x
                 let overlap_boost = match overlap_count {
@@ -9656,7 +9724,7 @@ fn run_agent_profile(cli: &Cli, profile_path: &str) -> Result<(), SuggesterError
 
         // Also boost commands by keyword overlap (helps domain-specific commands rank higher)
         for cmd in command_candidates_vec.iter_mut() {
-            if let Some(entry) = index.skills.get(&cmd.name) {
+            if let Some(entry) = index.get_by_name(&cmd.name) {
                 let overlap_count = count_keyword_overlap(entry);
                 let overlap_boost = match overlap_count {
                     0 => 1.0,
@@ -11434,34 +11502,14 @@ fn insert_skills_batch(
     let mut ft_pairs: Vec<(String, String)> = Vec::new();
     let mut id_pairs: Vec<(String, String, String)> = Vec::new();
 
-    // Insert main skills table in batches of 100
+    // Insert main skills table in batches of 100 (using parameterized queries)
     let skill_entries: Vec<(&String, &SkillEntry)> = skills.iter().collect();
     for chunk in skill_entries.chunks(100) {
-        let rows: Vec<String> = chunk.iter().map(|(name, entry)| {
-            let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
-            format!(
-                "[\"{}\", \"{}\", \"{}\", \"{}\", \"{}\", \"{}\", {}, \"{}\", \"{}\", \"{}\", {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}]",
-                esc(name),
-                esc(&entry.path),
-                esc(&entry.skill_type),
-                esc(&entry.source),
-                esc(&entry.description.chars().take(500).collect::<String>()),
-                esc(&entry.tier),
-                entry.boost,
-                esc(&entry.category),
-                esc(&entry.server_type),
-                esc(&entry.server_command),
-                serde_json::to_string(&entry.server_args).unwrap_or_else(|_| "\"[]\"".into()).replace('"', "\\\"").replace('\\', "\\\\").len(), // placeholder
-                serde_json::to_string(&entry.language_ids).unwrap_or_else(|_| "\"[]\"".into()).replace('"', "\\\"").replace('\\', "\\\\").len(),
-                0, 0, 0, 0, 0, 0, 0, 0, 0
-            )
-        }).collect();
-        // This approach is getting too complex with escaping; use parameterized queries instead
-        let _ = rows; // discard
-        for (name, entry) in chunk {
-            let entry_id = make_entry_id(name, &entry.source);
+        for &(id_key, entry) in chunk {
+            // HashMap key is already the entry ID after load_index() re-keying
+            let entry_id = id_key.clone();
             let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-            params.insert("name".into(), DataValue::Str((*name).clone().into()));
+            params.insert("name".into(), DataValue::Str(entry.name.clone().into()));
             params.insert("source".into(), DataValue::Str(entry.source.clone().into()));
             params.insert("id".into(), DataValue::Str(entry_id.clone().into()));
             params.insert("path".into(), DataValue::Str(entry.path.clone().into()));
@@ -11532,39 +11580,39 @@ fn insert_skills_batch(
                 params,
                 ScriptMutability::Mutable,
             ).map_err(|e| SuggesterError::IndexParse(
-                format!("Insert skill '{}' failed: {}", name, e)
+                format!("Insert skill '{}' failed: {}", entry.name, e)
             ))?;
 
-            // Collect normalized data for batch insert
+            // Collect normalized data for batch insert (keyed by element name, not entry ID)
             for kw in &entry.keywords {
-                kw_pairs.push(((*name).clone(), kw.clone()));
+                kw_pairs.push((entry.name.clone(), kw.clone()));
             }
             for intent in &entry.intents {
-                intent_pairs.push(((*name).clone(), intent.clone()));
+                intent_pairs.push((entry.name.clone(), intent.clone()));
             }
             for tool in &entry.tools {
-                tool_pairs.push(((*name).clone(), tool.clone()));
+                tool_pairs.push((entry.name.clone(), tool.clone()));
             }
             for svc in &entry.services {
-                svc_pairs.push(((*name).clone(), svc.clone()));
+                svc_pairs.push((entry.name.clone(), svc.clone()));
             }
             for fw in &entry.frameworks {
-                fw_pairs.push(((*name).clone(), fw.clone()));
+                fw_pairs.push((entry.name.clone(), fw.clone()));
             }
             for lang in &entry.languages {
-                lang_pairs.push(((*name).clone(), lang.clone()));
+                lang_pairs.push((entry.name.clone(), lang.clone()));
             }
             for plat in &entry.platforms {
-                plat_pairs.push(((*name).clone(), plat.clone()));
+                plat_pairs.push((entry.name.clone(), plat.clone()));
             }
             for domain in &entry.domains {
-                domain_pairs.push(((*name).clone(), domain.clone()));
+                domain_pairs.push((entry.name.clone(), domain.clone()));
             }
             for ft in &entry.file_types {
-                ft_pairs.push(((*name).clone(), ft.clone()));
+                ft_pairs.push((entry.name.clone(), ft.clone()));
             }
             // Collect ID → (name, source) mapping for batch insert into skill_ids
-            id_pairs.push((entry_id, (*name).clone(), entry.source.clone()));
+            id_pairs.push((entry_id, entry.name.clone(), entry.source.clone()));
 
             count += 1;
         }
@@ -11946,10 +11994,14 @@ fn load_index_from_db(db: &DbInstance) -> Result<SkillIndex, SuggesterError> {
     for row in &main_result.rows {
         if row.len() < 29 { continue; }
         let name = dv_str(&row[0]);
+        let source = dv_str(&row[3]);
+        // Use entry ID as HashMap key (collision-safe: same name + different source = different ID)
+        let entry_id = make_entry_id(&name, &source);
         let entry = SkillEntry {
+            name: name.clone(),
             path: dv_str(&row[1]),
             skill_type: dv_str(&row[2]),
-            source: dv_str(&row[3]),
+            source,
             description: dv_str(&row[4]),
             tier: dv_str(&row[5]),
             boost: dv_i32(&row[6]),
@@ -11976,7 +12028,7 @@ fn load_index_from_db(db: &DbInstance) -> Result<SkillIndex, SuggesterError> {
             platforms: serde_json::from_str(&dv_str(&row[27])).unwrap_or_default(),
             domains: serde_json::from_str(&dv_str(&row[28])).unwrap_or_default(),
         };
-        skills.insert(name, entry);
+        skills.insert(entry_id, entry);
     }
 
     // Load version from metadata
@@ -11996,13 +12048,16 @@ fn load_index_from_db(db: &DbInstance) -> Result<SkillIndex, SuggesterError> {
     let skills_count = skills.len();
     info!("Loaded {} skills from CozoDB", skills_count);
 
-    Ok(SkillIndex {
+    let mut index = SkillIndex {
         version,
         generated: String::new(),
         method: "cozodb".to_string(),
         skills_count,
         skills,
-    })
+        name_to_ids: HashMap::new(),
+    };
+    index.build_name_index();
+    Ok(index)
 }
 
 // ============================================================================
@@ -13805,96 +13860,106 @@ fn is_skip_prompt(prompt: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn create_test_index() -> SkillIndex {
-        let mut skills = HashMap::new();
+    /// Helper to insert a SkillEntry into a HashMap using the proper entry ID key.
+    fn test_insert(skills: &mut HashMap<String, SkillEntry>, entry: SkillEntry) {
+        let id = make_entry_id(&entry.name, &entry.source);
+        skills.insert(id, entry);
+    }
 
-        skills.insert(
-            "devops-expert".to_string(),
-            SkillEntry {
-                source: "plugin".to_string(),
-                path: "/path/to/devops-expert/SKILL.md".to_string(),
-                skill_type: "skill".to_string(),
-                keywords: vec![
-                    "github".to_string(),
-                    "actions".to_string(),
-                    "ci".to_string(),
-                    "cd".to_string(),
-                    "pipeline".to_string(),
-                    "deploy".to_string(),
-                ],
-                intents: vec!["deploy".to_string(), "build".to_string(), "release".to_string()],
-                patterns: vec![],
-                directories: vec!["workflows".to_string(), ".github".to_string()],
-                path_patterns: vec![],
-                description: "CI/CD pipeline configuration".to_string(),
-                negative_keywords: vec![],
-                tier: "primary".to_string(),
-                boost: 0,
-                category: "devops".to_string(),
-                platforms: vec![],
-                frameworks: vec![],
-                languages: vec![],
-                domains: vec![],
-                tools: vec![],
-                services: vec![],
-                file_types: vec![],
-                domain_gates: HashMap::new(),
-                co_usage: CoUsageData::default(),
-                alternatives: vec![],
-                use_cases: vec![],
-                server_type: String::new(),
-                server_command: String::new(),
-                server_args: vec![],
-                language_ids: vec![],
-            },
-        );
-
-        skills.insert(
-            "docker-expert".to_string(),
-            SkillEntry {
-                source: "user".to_string(),
-                path: "/path/to/docker-expert/SKILL.md".to_string(),
-                skill_type: "skill".to_string(),
-                keywords: vec![
-                    "docker".to_string(),
-                    "container".to_string(),
-                    "dockerfile".to_string(),
-                    "compose".to_string(),
-                ],
-                intents: vec!["containerize".to_string(), "build".to_string()],
-                patterns: vec![],
-                directories: vec![],
-                path_patterns: vec![],
-                description: "Docker containerization".to_string(),
-                negative_keywords: vec!["kubernetes".to_string()],  // Test negative keywords
-                tier: "secondary".to_string(),
-                boost: 0,
-                category: "containerization".to_string(),
-                platforms: vec![],
-                frameworks: vec![],
-                languages: vec![],
-                domains: vec![],
-                tools: vec![],
-                services: vec![],
-                file_types: vec![],
-                domain_gates: HashMap::new(),
-                co_usage: CoUsageData::default(),
-                alternatives: vec![],
-                use_cases: vec![],
-                server_type: String::new(),
-                server_command: String::new(),
-                server_args: vec![],
-                language_ids: vec![],
-            },
-        );
-
-        SkillIndex {
+    /// Helper to build a SkillIndex from a skills HashMap, calling build_name_index().
+    fn test_skill_index(skills: HashMap<String, SkillEntry>) -> SkillIndex {
+        let mut index = SkillIndex {
             version: "3.0".to_string(),
             generated: "2026-01-18T00:00:00Z".to_string(),
             method: "ai-analyzed".to_string(),
-            skills_count: 2,
+            skills_count: skills.len(),
             skills,
-        }
+            name_to_ids: HashMap::new(),
+        };
+        index.build_name_index();
+        index
+    }
+
+    fn create_test_index() -> SkillIndex {
+        let mut skills = HashMap::new();
+
+        test_insert(&mut skills, SkillEntry {
+            name: "devops-expert".to_string(),
+            source: "plugin".to_string(),
+            path: "/path/to/devops-expert/SKILL.md".to_string(),
+            skill_type: "skill".to_string(),
+            keywords: vec![
+                "github".to_string(),
+                "actions".to_string(),
+                "ci".to_string(),
+                "cd".to_string(),
+                "pipeline".to_string(),
+                "deploy".to_string(),
+            ],
+            intents: vec!["deploy".to_string(), "build".to_string(), "release".to_string()],
+            patterns: vec![],
+            directories: vec!["workflows".to_string(), ".github".to_string()],
+            path_patterns: vec![],
+            description: "CI/CD pipeline configuration".to_string(),
+            negative_keywords: vec![],
+            tier: "primary".to_string(),
+            boost: 0,
+            category: "devops".to_string(),
+            platforms: vec![],
+            frameworks: vec![],
+            languages: vec![],
+            domains: vec![],
+            tools: vec![],
+            services: vec![],
+            file_types: vec![],
+            domain_gates: HashMap::new(),
+            co_usage: CoUsageData::default(),
+            alternatives: vec![],
+            use_cases: vec![],
+            server_type: String::new(),
+            server_command: String::new(),
+            server_args: vec![],
+            language_ids: vec![],
+        });
+
+        test_insert(&mut skills, SkillEntry {
+            name: "docker-expert".to_string(),
+            source: "user".to_string(),
+            path: "/path/to/docker-expert/SKILL.md".to_string(),
+            skill_type: "skill".to_string(),
+            keywords: vec![
+                "docker".to_string(),
+                "container".to_string(),
+                "dockerfile".to_string(),
+                "compose".to_string(),
+            ],
+            intents: vec!["containerize".to_string(), "build".to_string()],
+            patterns: vec![],
+            directories: vec![],
+            path_patterns: vec![],
+            description: "Docker containerization".to_string(),
+            negative_keywords: vec!["kubernetes".to_string()],
+            tier: "secondary".to_string(),
+            boost: 0,
+            category: "containerization".to_string(),
+            platforms: vec![],
+            frameworks: vec![],
+            languages: vec![],
+            domains: vec![],
+            tools: vec![],
+            services: vec![],
+            file_types: vec![],
+            domain_gates: HashMap::new(),
+            co_usage: CoUsageData::default(),
+            alternatives: vec![],
+            use_cases: vec![],
+            server_type: String::new(),
+            server_command: String::new(),
+            server_args: vec![],
+            language_ids: vec![],
+        });
+
+        test_skill_index(skills)
     }
 
     #[test]
@@ -14013,81 +14078,71 @@ mod tests {
         // Create index with same-scoring skill and agent
         let mut skills = HashMap::new();
 
-        skills.insert(
-            "test-skill".to_string(),
-            SkillEntry {
-                source: "user".to_string(),
-                path: "/path/to/test-skill/SKILL.md".to_string(),
-                skill_type: "skill".to_string(),
-                keywords: vec!["test".to_string()],
-                intents: vec![],
-                patterns: vec![],
-                directories: vec![],
-                path_patterns: vec![],
-                description: "Test skill".to_string(),
-                negative_keywords: vec![],
-                tier: String::new(),
-                boost: 0,
-                category: String::new(),
-                platforms: vec![],
-                frameworks: vec![],
-                languages: vec![],
-                domains: vec![],
-                tools: vec![],
-                services: vec![],
-                file_types: vec![],
-                domain_gates: HashMap::new(),
-                co_usage: CoUsageData::default(),
-                alternatives: vec![],
-                use_cases: vec![],
-                server_type: String::new(),
-                server_command: String::new(),
-                server_args: vec![],
-                language_ids: vec![],
-            },
-        );
+        test_insert(&mut skills, SkillEntry {
+            name: "test-skill".to_string(),
+            source: "user".to_string(),
+            path: "/path/to/test-skill/SKILL.md".to_string(),
+            skill_type: "skill".to_string(),
+            keywords: vec!["test".to_string()],
+            intents: vec![],
+            patterns: vec![],
+            directories: vec![],
+            path_patterns: vec![],
+            description: "Test skill".to_string(),
+            negative_keywords: vec![],
+            tier: String::new(),
+            boost: 0,
+            category: String::new(),
+            platforms: vec![],
+            frameworks: vec![],
+            languages: vec![],
+            domains: vec![],
+            tools: vec![],
+            services: vec![],
+            file_types: vec![],
+            domain_gates: HashMap::new(),
+            co_usage: CoUsageData::default(),
+            alternatives: vec![],
+            use_cases: vec![],
+            server_type: String::new(),
+            server_command: String::new(),
+            server_args: vec![],
+            language_ids: vec![],
+        });
 
-        skills.insert(
-            "test-agent".to_string(),
-            SkillEntry {
-                source: "user".to_string(),
-                path: "/path/to/test-agent.md".to_string(),
-                skill_type: "agent".to_string(),
-                keywords: vec!["test".to_string()],
-                intents: vec![],
-                patterns: vec![],
-                directories: vec![],
-                path_patterns: vec![],
-                description: "Test agent".to_string(),
-                negative_keywords: vec![],
-                tier: String::new(),
-                boost: 0,
-                category: String::new(),
-                platforms: vec![],
-                frameworks: vec![],
-                languages: vec![],
-                domains: vec![],
-                tools: vec![],
-                services: vec![],
-                file_types: vec![],
-                domain_gates: HashMap::new(),
-                co_usage: CoUsageData::default(),
-                alternatives: vec![],
-                use_cases: vec![],
-                server_type: String::new(),
-                server_command: String::new(),
-                server_args: vec![],
-                language_ids: vec![],
-            },
-        );
+        test_insert(&mut skills, SkillEntry {
+            name: "test-agent".to_string(),
+            source: "user".to_string(),
+            path: "/path/to/test-agent.md".to_string(),
+            skill_type: "agent".to_string(),
+            keywords: vec!["test".to_string()],
+            intents: vec![],
+            patterns: vec![],
+            directories: vec![],
+            path_patterns: vec![],
+            description: "Test agent".to_string(),
+            negative_keywords: vec![],
+            tier: String::new(),
+            boost: 0,
+            category: String::new(),
+            platforms: vec![],
+            frameworks: vec![],
+            languages: vec![],
+            domains: vec![],
+            tools: vec![],
+            services: vec![],
+            file_types: vec![],
+            domain_gates: HashMap::new(),
+            co_usage: CoUsageData::default(),
+            alternatives: vec![],
+            use_cases: vec![],
+            server_type: String::new(),
+            server_command: String::new(),
+            server_args: vec![],
+            language_ids: vec![],
+        });
 
-        let index = SkillIndex {
-            version: "3.0".to_string(),
-            generated: "2026-01-18T00:00:00Z".to_string(),
-            method: "test".to_string(),
-            skills_count: 2,
-            skills,
-        };
+        let index = test_skill_index(skills);
 
         let matches = find_matches("run test", "run test", &index, "", &ProjectContext::default(), false, &HashMap::new(), None);
 
@@ -14180,51 +14235,43 @@ mod tests {
         // Create index with typescript skill
         let mut skills = HashMap::new();
 
-        skills.insert(
-            "typescript-expert".to_string(),
-            SkillEntry {
-                source: "user".to_string(),
-                path: "/path/to/typescript-expert/SKILL.md".to_string(),
-                skill_type: "skill".to_string(),
-                keywords: vec![
-                    "typescript".to_string(),
-                    "ts".to_string(),
-                    "interface".to_string(),
-                ],
-                intents: vec![],
-                patterns: vec![],
-                directories: vec![],
-                path_patterns: vec![],
-                description: "TypeScript development".to_string(),
-                negative_keywords: vec![],
-                tier: String::new(),
-                boost: 0,
-                category: String::new(),
-                platforms: vec![],
-                frameworks: vec![],
-                languages: vec![],
-                domains: vec![],
-                tools: vec![],
-                services: vec![],
-                file_types: vec![],
-                domain_gates: HashMap::new(),
-                co_usage: CoUsageData::default(),
-                alternatives: vec![],
-                use_cases: vec![],
-                server_type: String::new(),
-                server_command: String::new(),
-                server_args: vec![],
-                language_ids: vec![],
-            },
-        );
+        test_insert(&mut skills, SkillEntry {
+            name: "typescript-expert".to_string(),
+            source: "user".to_string(),
+            path: "/path/to/typescript-expert/SKILL.md".to_string(),
+            skill_type: "skill".to_string(),
+            keywords: vec![
+                "typescript".to_string(),
+                "ts".to_string(),
+                "interface".to_string(),
+            ],
+            intents: vec![],
+            patterns: vec![],
+            directories: vec![],
+            path_patterns: vec![],
+            description: "TypeScript development".to_string(),
+            negative_keywords: vec![],
+            tier: String::new(),
+            boost: 0,
+            category: String::new(),
+            platforms: vec![],
+            frameworks: vec![],
+            languages: vec![],
+            domains: vec![],
+            tools: vec![],
+            services: vec![],
+            file_types: vec![],
+            domain_gates: HashMap::new(),
+            co_usage: CoUsageData::default(),
+            alternatives: vec![],
+            use_cases: vec![],
+            server_type: String::new(),
+            server_command: String::new(),
+            server_args: vec![],
+            language_ids: vec![],
+        });
 
-        let index = SkillIndex {
-            version: "3.0".to_string(),
-            generated: "2026-01-18T00:00:00Z".to_string(),
-            method: "test".to_string(),
-            skills_count: 1,
-            skills,
-        };
+        let index = test_skill_index(skills);
 
         // Test with typo "typscript" - should still match "typescript" via fuzzy matching
         let original = "help me with typscript code";
@@ -14741,89 +14788,79 @@ mod tests {
         // Create an index with two skills: one gated on python, one gated on rust
         let mut skills = HashMap::new();
 
-        skills.insert(
-            "python-test-writer".to_string(),
-            SkillEntry {
-                source: "user".to_string(),
-                path: "/path/to/python-test-writer/SKILL.md".to_string(),
-                skill_type: "skill".to_string(),
-                keywords: vec!["test".to_string(), "unit test".to_string(), "pytest".to_string()],
-                intents: vec![],
-                patterns: vec![],
-                directories: vec![],
-                path_patterns: vec![],
-                description: "Python test writing".to_string(),
-                negative_keywords: vec![],
-                tier: String::new(),
-                boost: 0,
-                category: String::new(),
-                platforms: vec![],
-                frameworks: vec![],
-                languages: vec![],
-                domains: vec![],
-                tools: vec![],
-                services: vec![],
-                file_types: vec![],
-                domain_gates: {
-                    let mut g = HashMap::new();
-                    g.insert("target_language".to_string(), vec!["python".to_string()]);
-                    g
-                },
-                co_usage: CoUsageData::default(),
-                alternatives: vec![],
-                use_cases: vec![],
-                server_type: String::new(),
-                server_command: String::new(),
-                server_args: vec![],
-                language_ids: vec![],
+        test_insert(&mut skills, SkillEntry {
+            name: "python-test-writer".to_string(),
+            source: "user".to_string(),
+            path: "/path/to/python-test-writer/SKILL.md".to_string(),
+            skill_type: "skill".to_string(),
+            keywords: vec!["test".to_string(), "unit test".to_string(), "pytest".to_string()],
+            intents: vec![],
+            patterns: vec![],
+            directories: vec![],
+            path_patterns: vec![],
+            description: "Python test writing".to_string(),
+            negative_keywords: vec![],
+            tier: String::new(),
+            boost: 0,
+            category: String::new(),
+            platforms: vec![],
+            frameworks: vec![],
+            languages: vec![],
+            domains: vec![],
+            tools: vec![],
+            services: vec![],
+            file_types: vec![],
+            domain_gates: {
+                let mut g = HashMap::new();
+                g.insert("target_language".to_string(), vec!["python".to_string()]);
+                g
             },
-        );
+            co_usage: CoUsageData::default(),
+            alternatives: vec![],
+            use_cases: vec![],
+            server_type: String::new(),
+            server_command: String::new(),
+            server_args: vec![],
+            language_ids: vec![],
+        });
 
-        skills.insert(
-            "rust-test-writer".to_string(),
-            SkillEntry {
-                source: "user".to_string(),
-                path: "/path/to/rust-test-writer/SKILL.md".to_string(),
-                skill_type: "skill".to_string(),
-                keywords: vec!["test".to_string(), "unit test".to_string(), "cargo test".to_string()],
-                intents: vec![],
-                patterns: vec![],
-                directories: vec![],
-                path_patterns: vec![],
-                description: "Rust test writing".to_string(),
-                negative_keywords: vec![],
-                tier: String::new(),
-                boost: 0,
-                category: String::new(),
-                platforms: vec![],
-                frameworks: vec![],
-                languages: vec![],
-                domains: vec![],
-                tools: vec![],
-                services: vec![],
-                file_types: vec![],
-                domain_gates: {
-                    let mut g = HashMap::new();
-                    g.insert("target_language".to_string(), vec!["rust".to_string()]);
-                    g
-                },
-                co_usage: CoUsageData::default(),
-                alternatives: vec![],
-                use_cases: vec![],
-                server_type: String::new(),
-                server_command: String::new(),
-                server_args: vec![],
-                language_ids: vec![],
+        test_insert(&mut skills, SkillEntry {
+            name: "rust-test-writer".to_string(),
+            source: "user".to_string(),
+            path: "/path/to/rust-test-writer/SKILL.md".to_string(),
+            skill_type: "skill".to_string(),
+            keywords: vec!["test".to_string(), "unit test".to_string(), "cargo test".to_string()],
+            intents: vec![],
+            patterns: vec![],
+            directories: vec![],
+            path_patterns: vec![],
+            description: "Rust test writing".to_string(),
+            negative_keywords: vec![],
+            tier: String::new(),
+            boost: 0,
+            category: String::new(),
+            platforms: vec![],
+            frameworks: vec![],
+            languages: vec![],
+            domains: vec![],
+            tools: vec![],
+            services: vec![],
+            file_types: vec![],
+            domain_gates: {
+                let mut g = HashMap::new();
+                g.insert("target_language".to_string(), vec!["rust".to_string()]);
+                g
             },
-        );
+            co_usage: CoUsageData::default(),
+            alternatives: vec![],
+            use_cases: vec![],
+            server_type: String::new(),
+            server_command: String::new(),
+            server_args: vec![],
+            language_ids: vec![],
+        });
 
-        let index = SkillIndex {
-            version: "3.0".to_string(),
-            generated: "2026-01-18T00:00:00Z".to_string(),
-            method: "test".to_string(),
-            skills_count: 2,
-            skills,
-        };
+        let index = test_skill_index(skills);
 
         // Prompt: "help me write python unit tests" → should match python-test-writer only
         let matches = find_matches(
@@ -15638,47 +15675,39 @@ mediapipe>=0.10
         // Verify that Phase 2.5 allows matching across separator variants
         // and morphological forms by testing find_matches with crafted skills.
         let mut skills = HashMap::new();
-        skills.insert(
-            "geojson-expert".to_string(),
-            SkillEntry {
-                source: "user".to_string(),
-                path: "/path/to/geojson-expert/SKILL.md".to_string(),
-                skill_type: "skill".to_string(),
-                keywords: vec!["geojson".to_string(), "mapping".to_string()],
-                intents: vec![],
-                patterns: vec![],
-                directories: vec![],
-                path_patterns: vec![],
-                description: "GeoJSON expert".to_string(),
-                negative_keywords: vec![],
-                tier: String::new(),
-                boost: 0,
-                category: String::new(),
-                platforms: vec![],
-                frameworks: vec![],
-                languages: vec![],
-                domains: vec![],
-                tools: vec![],
-                services: vec![],
-                file_types: vec![],
-                domain_gates: HashMap::new(),
-                co_usage: CoUsageData::default(),
-                alternatives: vec![],
-                use_cases: vec![],
-                server_type: String::new(),
-                server_command: String::new(),
-                server_args: vec![],
-                language_ids: vec![],
-            },
-        );
+        test_insert(&mut skills, SkillEntry {
+            name: "geojson-expert".to_string(),
+            source: "user".to_string(),
+            path: "/path/to/geojson-expert/SKILL.md".to_string(),
+            skill_type: "skill".to_string(),
+            keywords: vec!["geojson".to_string(), "mapping".to_string()],
+            intents: vec![],
+            patterns: vec![],
+            directories: vec![],
+            path_patterns: vec![],
+            description: "GeoJSON expert".to_string(),
+            negative_keywords: vec![],
+            tier: String::new(),
+            boost: 0,
+            category: String::new(),
+            platforms: vec![],
+            frameworks: vec![],
+            languages: vec![],
+            domains: vec![],
+            tools: vec![],
+            services: vec![],
+            file_types: vec![],
+            domain_gates: HashMap::new(),
+            co_usage: CoUsageData::default(),
+            alternatives: vec![],
+            use_cases: vec![],
+            server_type: String::new(),
+            server_command: String::new(),
+            server_args: vec![],
+            language_ids: vec![],
+        });
 
-        let index = SkillIndex {
-            version: "3.0".to_string(),
-            generated: "2026-01-01T00:00:00Z".to_string(),
-            method: "test".to_string(),
-            skills_count: 1,
-            skills,
-        };
+        let index = test_skill_index(skills);
 
         let ctx = ProjectContext::default();
         let detected: DetectedDomains = HashMap::new();
@@ -15775,47 +15804,39 @@ mediapipe>=0.10
     fn test_abbreviation_matching_in_phase_2_5() {
         // Verify that abbreviations work in find_matches via Phase 2.5.
         let mut skills = HashMap::new();
-        skills.insert(
-            "config-manager".to_string(),
-            SkillEntry {
-                source: "user".to_string(),
-                path: "/path/to/config-manager/SKILL.md".to_string(),
-                skill_type: "skill".to_string(),
-                keywords: vec!["configuration".to_string(), "settings".to_string()],
-                intents: vec![],
-                patterns: vec![],
-                directories: vec![],
-                path_patterns: vec![],
-                description: "Configuration manager".to_string(),
-                negative_keywords: vec![],
-                tier: String::new(),
-                boost: 0,
-                category: String::new(),
-                platforms: vec![],
-                frameworks: vec![],
-                languages: vec![],
-                domains: vec![],
-                tools: vec![],
-                services: vec![],
-                file_types: vec![],
-                domain_gates: HashMap::new(),
-                co_usage: CoUsageData::default(),
-                alternatives: vec![],
-                use_cases: vec![],
-                server_type: String::new(),
-                server_command: String::new(),
-                server_args: vec![],
-                language_ids: vec![],
-            },
-        );
+        test_insert(&mut skills, SkillEntry {
+            name: "config-manager".to_string(),
+            source: "user".to_string(),
+            path: "/path/to/config-manager/SKILL.md".to_string(),
+            skill_type: "skill".to_string(),
+            keywords: vec!["configuration".to_string(), "settings".to_string()],
+            intents: vec![],
+            patterns: vec![],
+            directories: vec![],
+            path_patterns: vec![],
+            description: "Configuration manager".to_string(),
+            negative_keywords: vec![],
+            tier: String::new(),
+            boost: 0,
+            category: String::new(),
+            platforms: vec![],
+            frameworks: vec![],
+            languages: vec![],
+            domains: vec![],
+            tools: vec![],
+            services: vec![],
+            file_types: vec![],
+            domain_gates: HashMap::new(),
+            co_usage: CoUsageData::default(),
+            alternatives: vec![],
+            use_cases: vec![],
+            server_type: String::new(),
+            server_command: String::new(),
+            server_args: vec![],
+            language_ids: vec![],
+        });
 
-        let index = SkillIndex {
-            version: "3.0".to_string(),
-            generated: "2026-01-01T00:00:00Z".to_string(),
-            method: "test".to_string(),
-            skills_count: 1,
-            skills,
-        };
+        let index = test_skill_index(skills);
 
         let ctx = ProjectContext::default();
         let detected: DetectedDomains = HashMap::new();
@@ -15852,48 +15873,40 @@ mediapipe>=0.10
             ("auto-mcp", "mcp"),
             ("auto-lsp", "lsp"),
         ] {
-            skills.insert(
-                name.to_string(),
-                SkillEntry {
-                    source: "user".to_string(),
-                    path: format!("/path/to/{}/SKILL.md", name),
-                    skill_type: stype.to_string(),
-                    keywords: vec!["automation".to_string()],
-                    intents: vec![],
-                    patterns: vec![],
-                    directories: vec![],
-                    path_patterns: vec![],
-                    description: format!("{} entry", stype),
-                    negative_keywords: vec![],
-                    tier: String::new(),
-                    boost: 0,
-                    category: String::new(),
-                    platforms: vec![],
-                    frameworks: vec![],
-                    languages: vec![],
-                    domains: vec![],
-                    tools: vec![],
-                    services: vec![],
-                    file_types: vec![],
-                    domain_gates: HashMap::new(),
-                    co_usage: CoUsageData::default(),
-                    alternatives: vec![],
-                    use_cases: vec![],
-                    server_type: String::new(),
-                    server_command: String::new(),
-                    server_args: vec![],
-                    language_ids: vec![],
-                },
-            );
+            test_insert(&mut skills, SkillEntry {
+                name: name.to_string(),
+                source: "user".to_string(),
+                path: format!("/path/to/{}/SKILL.md", name),
+                skill_type: stype.to_string(),
+                keywords: vec!["automation".to_string()],
+                intents: vec![],
+                patterns: vec![],
+                directories: vec![],
+                path_patterns: vec![],
+                description: format!("{} entry", stype),
+                negative_keywords: vec![],
+                tier: String::new(),
+                boost: 0,
+                category: String::new(),
+                platforms: vec![],
+                frameworks: vec![],
+                languages: vec![],
+                domains: vec![],
+                tools: vec![],
+                services: vec![],
+                file_types: vec![],
+                domain_gates: HashMap::new(),
+                co_usage: CoUsageData::default(),
+                alternatives: vec![],
+                use_cases: vec![],
+                server_type: String::new(),
+                server_command: String::new(),
+                server_args: vec![],
+                language_ids: vec![],
+            });
         }
 
-        let index = SkillIndex {
-            version: "3.0".to_string(),
-            generated: "2026-01-18T00:00:00Z".to_string(),
-            method: "test".to_string(),
-            skills_count: 6,
-            skills,
-        };
+        let index = test_skill_index(skills);
 
         // find_matches returns all types
         let matches = find_matches(
@@ -16013,48 +16026,40 @@ mediapipe>=0.10
             ("order-agent", "agent"),
             ("order-command", "command"),
         ] {
-            skills.insert(
-                name.to_string(),
-                SkillEntry {
-                    source: "user".to_string(),
-                    path: format!("/path/to/{}/SKILL.md", name),
-                    skill_type: stype.to_string(),
-                    keywords: vec!["sorting".to_string()],
-                    intents: vec![],
-                    patterns: vec![],
-                    directories: vec![],
-                    path_patterns: vec![],
-                    description: format!("{} for sorting test", stype),
-                    negative_keywords: vec![],
-                    tier: String::new(),
-                    boost: 0,
-                    category: String::new(),
-                    platforms: vec![],
-                    frameworks: vec![],
-                    languages: vec![],
-                    domains: vec![],
-                    tools: vec![],
-                    services: vec![],
-                    file_types: vec![],
-                    domain_gates: HashMap::new(),
-                    co_usage: CoUsageData::default(),
-                    alternatives: vec![],
-                    use_cases: vec![],
-                    server_type: String::new(),
-                    server_command: String::new(),
-                    server_args: vec![],
-                    language_ids: vec![],
-                },
-            );
+            test_insert(&mut skills, SkillEntry {
+                name: name.to_string(),
+                source: "user".to_string(),
+                path: format!("/path/to/{}/SKILL.md", name),
+                skill_type: stype.to_string(),
+                keywords: vec!["sorting".to_string()],
+                intents: vec![],
+                patterns: vec![],
+                directories: vec![],
+                path_patterns: vec![],
+                description: format!("{} for sorting test", stype),
+                negative_keywords: vec![],
+                tier: String::new(),
+                boost: 0,
+                category: String::new(),
+                platforms: vec![],
+                frameworks: vec![],
+                languages: vec![],
+                domains: vec![],
+                tools: vec![],
+                services: vec![],
+                file_types: vec![],
+                domain_gates: HashMap::new(),
+                co_usage: CoUsageData::default(),
+                alternatives: vec![],
+                use_cases: vec![],
+                server_type: String::new(),
+                server_command: String::new(),
+                server_args: vec![],
+                language_ids: vec![],
+            });
         }
 
-        let index = SkillIndex {
-            version: "3.0".to_string(),
-            generated: "2026-01-18T00:00:00Z".to_string(),
-            method: "test".to_string(),
-            skills_count: 3,
-            skills,
-        };
+        let index = test_skill_index(skills);
 
         let matches = find_matches(
             "sorting",
