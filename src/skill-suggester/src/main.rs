@@ -348,13 +348,21 @@ const MAX_LOG_ENTRIES: usize = 10000;
 // Entry ID Generation (deterministic FNV-1a hash → base36)
 // ============================================================================
 
-/// Generate a deterministic 13-char ID from an entry's HashMap key.
+/// Generate a deterministic 13-char ID from an entry's name + source.
 /// Uses FNV-1a 64-bit hash encoded as base36 (a-z0-9).
-/// Same key always produces the same ID across rebuilds.
-fn make_entry_id(key: &str) -> String {
-    // FNV-1a 64-bit hash
+/// Hashing both name and source ensures unique IDs even when different
+/// plugins provide elements with the same name.
+fn make_entry_id(name: &str, source: &str) -> String {
+    // FNV-1a 64-bit hash over name + separator + source
     let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in key.as_bytes() {
+    for byte in name.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    // 0xFF separator prevents collisions between "ab"+"cd" and "abc"+"d"
+    hash ^= 0xFF_u64;
+    hash = hash.wrapping_mul(0x100000001b3);
+    for byte in source.as_bytes() {
         hash ^= *byte as u64;
         hash = hash.wrapping_mul(0x100000001b3);
     }
@@ -11292,11 +11300,10 @@ fn create_db_schema(db: &DbInstance) -> Result<(), SuggesterError> {
     db.run_script(
         r#"
         {:create skills {
-            name: String =>
+            name: String, source: String =>
             id: String,
             path: String,
             skill_type: String,
-            source: String,
             description: String,
             tier: String,
             boost: Int,
@@ -11377,9 +11384,9 @@ fn create_db_schema(db: &DbInstance) -> Result<(), SuggesterError> {
         ScriptMutability::Mutable,
     ).map_err(|e| SuggesterError::IndexParse(format!("Schema create (domain_skills) failed: {}", e)))?;
 
-    // ID lookup table: maps 13-char deterministic IDs to entry names
+    // ID lookup table: maps 13-char deterministic IDs to entry (name, source) pairs
     db.run_script(
-        "{:create skill_ids { id: String => name: String }}",
+        "{:create skill_ids { id: String => name: String, source: String }}",
         Default::default(),
         ScriptMutability::Mutable,
     ).map_err(|e| SuggesterError::IndexParse(format!("Schema create (skill_ids) failed: {}", e)))?;
@@ -11425,7 +11432,7 @@ fn insert_skills_batch(
     let mut plat_pairs: Vec<(String, String)> = Vec::new();
     let mut domain_pairs: Vec<(String, String)> = Vec::new();
     let mut ft_pairs: Vec<(String, String)> = Vec::new();
-    let mut id_pairs: Vec<(String, String)> = Vec::new();
+    let mut id_pairs: Vec<(String, String, String)> = Vec::new();
 
     // Insert main skills table in batches of 100
     let skill_entries: Vec<(&String, &SkillEntry)> = skills.iter().collect();
@@ -11452,13 +11459,13 @@ fn insert_skills_batch(
         // This approach is getting too complex with escaping; use parameterized queries instead
         let _ = rows; // discard
         for (name, entry) in chunk {
-            let entry_id = make_entry_id(name);
+            let entry_id = make_entry_id(name, &entry.source);
             let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
             params.insert("name".into(), DataValue::Str((*name).clone().into()));
+            params.insert("source".into(), DataValue::Str(entry.source.clone().into()));
             params.insert("id".into(), DataValue::Str(entry_id.clone().into()));
             params.insert("path".into(), DataValue::Str(entry.path.clone().into()));
             params.insert("skill_type".into(), DataValue::Str(entry.skill_type.clone().into()));
-            params.insert("source".into(), DataValue::Str(entry.source.clone().into()));
             params.insert("description".into(), DataValue::Str(
                 entry.description.chars().take(500).collect::<String>().into()));
             params.insert("tier".into(), DataValue::Str(entry.tier.clone().into()));
@@ -11517,7 +11524,7 @@ fn insert_skills_batch(
                    $negative_kw_json, $patterns_json, $directories_json, $path_patterns_json, \
                    $use_cases_json, $co_usage_json, $alternatives_json, $domain_gates_json, $file_types_json, \
                    $keywords_json, $intents_json, $tools_json, $services_json, $frameworks_json, $languages_json, $platforms_json, $domains_json]] \
-                 :put skills { name => id, path, skill_type, source, description, tier, boost, category, \
+                 :put skills { name, source => id, path, skill_type, description, tier, boost, category, \
                               server_type, server_command, server_args_json, language_ids_json, \
                               negative_kw_json, patterns_json, directories_json, path_patterns_json, \
                               use_cases_json, co_usage_json, alternatives_json, domain_gates_json, file_types_json, \
@@ -11556,8 +11563,8 @@ fn insert_skills_batch(
             for ft in &entry.file_types {
                 ft_pairs.push(((*name).clone(), ft.clone()));
             }
-            // Collect ID → name mapping for batch insert into skill_ids
-            id_pairs.push((entry_id, (*name).clone()));
+            // Collect ID → (name, source) mapping for batch insert into skill_ids
+            id_pairs.push((entry_id, (*name).clone(), entry.source.clone()));
 
             count += 1;
         }
@@ -11590,12 +11597,20 @@ fn insert_skills_batch(
     batch_insert("skill_domains", &domain_pairs)?;
     batch_insert("skill_file_types", &ft_pairs)?;
 
-    // Batch-insert ID → name mappings into skill_ids lookup table
+    // Batch-insert ID → (name, source) mappings into skill_ids lookup table
     for chunk in id_pairs.chunks(500) {
-        let data = build_inline_data(chunk);
+        let data: String = chunk.iter()
+            .map(|(id, name, source)| {
+                format!("[\"{}\", \"{}\", \"{}\"]",
+                    id.replace('\\', "\\\\").replace('"', "\\\""),
+                    name.replace('\\', "\\\\").replace('"', "\\\""),
+                    source.replace('\\', "\\\\").replace('"', "\\\""))
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
         if data.is_empty() { continue; }
         let script = format!(
-            "?[id, name] <- [{}] :put skill_ids {{ id => name }}",
+            "?[id, name, source] <- [{}] :put skill_ids {{ id => name, source }}",
             data
         );
         db.run_script(&script, Default::default(), ScriptMutability::Mutable)
@@ -12042,7 +12057,7 @@ fn resolve_name_or_id(db: &DbInstance, ref_str: &str) -> Result<String, Suggeste
         let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
         params.insert("id".into(), DataValue::Str(ref_str.into()));
         let result = db.run_script(
-            "?[name] := *skill_ids{ id: $id, name }",
+            "?[name, source] := *skill_ids{ id: $id, name, source }",
             params,
             ScriptMutability::Immutable,
         ).map_err(|e| SuggesterError::IndexParse(format!("ID lookup failed: {}", e)))?;
@@ -12542,18 +12557,25 @@ fn cmd_inspect(db: &DbInstance, name_or_id: &str, format: &str) -> Result<(), Su
         ScriptMutability::Immutable,
     ).map_err(|e| SuggesterError::IndexParse(format!("inspect query failed: {}", e)))?;
 
-    let row = result.rows.first()
-        .ok_or_else(|| SuggesterError::IndexParse(format!("Entry not found: '{}'", name_or_id)))?;
+    if result.rows.is_empty() {
+        return Err(SuggesterError::IndexParse(format!("Entry not found: '{}'", name_or_id)));
+    }
 
-    // Parse JSON vector fields
-    let parse_vec = |idx: usize| -> Vec<String> {
-        serde_json::from_str(&dv_to_string(&row[idx])).unwrap_or_default()
-    };
-    let parse_map = |idx: usize| -> HashMap<String, Vec<String>> {
-        serde_json::from_str(&dv_to_string(&row[idx])).unwrap_or_default()
-    };
+    // With composite key (name, source), multiple rows can match the same name
+    // from different sources. Show all of them.
+    let multiple = result.rows.len() > 1;
+    if multiple && format != "json" {
+        eprintln!("Note: {} entries found for '{}' (from different sources):\n", result.rows.len(), name_or_id);
+    }
 
-    if format == "json" {
+    // Helper: build a full JSON entry from a single row
+    let build_json_entry = |row: &[DataValue]| -> serde_json::Value {
+        let parse_vec = |idx: usize| -> Vec<String> {
+            serde_json::from_str(&dv_to_string(&row[idx])).unwrap_or_default()
+        };
+        let parse_map = |idx: usize| -> HashMap<String, Vec<String>> {
+            serde_json::from_str(&dv_to_string(&row[idx])).unwrap_or_default()
+        };
         let mut entry = serde_json::Map::new();
         entry.insert("id".into(), serde_json::json!(dv_to_string(&row[1])));
         entry.insert("name".into(), serde_json::json!(dv_to_string(&row[0])));
@@ -12564,7 +12586,6 @@ fn cmd_inspect(db: &DbInstance, name_or_id: &str, format: &str) -> Result<(), Su
         entry.insert("tier".into(), serde_json::json!(dv_to_string(&row[6])));
         entry.insert("boost".into(), serde_json::json!(dv_to_i64(&row[7])));
         entry.insert("category".into(), serde_json::json!(dv_to_string(&row[8])));
-        // MCP/LSP fields (only if non-empty)
         let st = dv_to_string(&row[9]);
         if !st.is_empty() { entry.insert("server_type".into(), serde_json::json!(st)); }
         let sc = dv_to_string(&row[10]);
@@ -12573,7 +12594,6 @@ fn cmd_inspect(db: &DbInstance, name_or_id: &str, format: &str) -> Result<(), Su
         if !sa.is_empty() { entry.insert("server_args".into(), serde_json::json!(sa)); }
         let li: Vec<String> = parse_vec(12);
         if !li.is_empty() { entry.insert("language_ids".into(), serde_json::json!(li)); }
-        // Vector fields
         entry.insert("negative_keywords".into(), serde_json::json!(parse_vec(13)));
         entry.insert("patterns".into(), serde_json::json!(parse_vec(14)));
         entry.insert("directories".into(), serde_json::json!(parse_vec(15)));
@@ -12592,10 +12612,17 @@ fn cmd_inspect(db: &DbInstance, name_or_id: &str, format: &str) -> Result<(), Su
         entry.insert("languages".into(), serde_json::json!(parse_vec(27)));
         entry.insert("platforms".into(), serde_json::json!(parse_vec(28)));
         entry.insert("domains".into(), serde_json::json!(parse_vec(29)));
+        serde_json::Value::Object(entry)
+    };
 
-        println!("{}", serde_json::to_string_pretty(&serde_json::Value::Object(entry)).unwrap_or_default());
-    } else {
-        // Table format
+    // Helper: print a single row in table format
+    let print_table_entry = |row: &[DataValue]| {
+        let parse_vec = |idx: usize| -> Vec<String> {
+            serde_json::from_str(&dv_to_string(&row[idx])).unwrap_or_default()
+        };
+        let parse_map = |idx: usize| -> HashMap<String, Vec<String>> {
+            serde_json::from_str(&dv_to_string(&row[idx])).unwrap_or_default()
+        };
         println!("━━━ ENTRY: {} ━━━", dv_to_string(&row[0]));
         println!("  ID          : {}", dv_to_string(&row[1]));
         println!("  Type        : {}", dv_to_string(&row[3]));
@@ -12605,33 +12632,51 @@ fn cmd_inspect(db: &DbInstance, name_or_id: &str, format: &str) -> Result<(), Su
         println!("  Boost       : {}", dv_to_i64(&row[7]));
         println!("  Description : {}", dv_to_string(&row[5]));
         println!("  Path        : {}", dv_to_string(&row[2]));
-
-        let print_vec = |label: &str, idx: usize| {
+        let print_v = |label: &str, idx: usize| {
             let v: Vec<String> = parse_vec(idx);
             if !v.is_empty() { println!("  {:12}: {}", label, v.join(", ")); }
         };
-        print_vec("Keywords", 22);
-        print_vec("Intents", 23);
-        print_vec("Languages", 27);
-        print_vec("Frameworks", 26);
-        print_vec("Platforms", 28);
-        print_vec("Domains", 29);
-        print_vec("Tools", 24);
-        print_vec("Services", 25);
-        print_vec("File types", 21);
-        print_vec("Use cases", 17);
-        print_vec("Alternatives", 19);
-        print_vec("Neg keywords", 13);
-
+        print_v("Keywords", 22);
+        print_v("Intents", 23);
+        print_v("Languages", 27);
+        print_v("Frameworks", 26);
+        print_v("Platforms", 28);
+        print_v("Domains", 29);
+        print_v("Tools", 24);
+        print_v("Services", 25);
+        print_v("File types", 21);
+        print_v("Use cases", 17);
+        print_v("Alternatives", 19);
+        print_v("Neg keywords", 13);
         let gates = parse_map(20);
         if !gates.is_empty() {
             println!("  Domain gates:");
-            for (k, v) in &gates { println!("    {} : {}", k, v.join(", ")); }
+            for (k, v) in &gates {
+                println!("    {} → {}", k, v.join(", "));
+            }
         }
-        let co: CoUsageData = serde_json::from_str(&dv_to_string(&row[18])).unwrap_or_default();
-        if !co.usually_with.is_empty() { println!("  Usually with: {}", co.usually_with.join(", ")); }
-        if !co.precedes.is_empty() { println!("  Precedes    : {}", co.precedes.join(", ")); }
-        if !co.follows.is_empty() { println!("  Follows     : {}", co.follows.join(", ")); }
+    };
+
+    if format == "json" {
+        if multiple {
+            // Multiple entries with same name — return array
+            let entries: Vec<serde_json::Value> = result.rows.iter()
+                .map(|row| build_json_entry(row))
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&entries).unwrap_or_default());
+        } else {
+            // Single entry — return object
+            println!("{}", serde_json::to_string_pretty(&build_json_entry(&result.rows[0])).unwrap_or_default());
+        }
+    } else {
+        for (i, row) in result.rows.iter().enumerate() {
+            if i > 0 { println!(); }
+            print_table_entry(row);
+            let co: CoUsageData = serde_json::from_str(&dv_to_string(&row[18])).unwrap_or_default();
+            if !co.usually_with.is_empty() { println!("  Usually with: {}", co.usually_with.join(", ")); }
+            if !co.precedes.is_empty() { println!("  Precedes    : {}", co.precedes.join(", ")); }
+            if !co.follows.is_empty() { println!("  Follows     : {}", co.follows.join(", ")); }
+        }
     }
     Ok(())
 }
