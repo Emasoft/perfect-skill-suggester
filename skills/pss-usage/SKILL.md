@@ -62,43 +62,11 @@ Output: `⚡« Pss!... use: docker (skill), devops (skill) »`
 
 ## References
 
-- [Commands Reference](references/pss-commands.md)
-  - Understanding PSS command structure and invocation
-    - Command naming conventions
-    - Command invocation from Claude Code chat
-  - Using /pss-status to check PSS configuration and index health
-    - Basic /pss-status usage without arguments
-    - Understanding /pss-status output: index statistics
-    - Understanding /pss-status output: skill counts and categories
-    - Interpreting /pss-status warnings and errors
-  - Using /pss-reindex-skills to rebuild the skill index
-    - When to reindex: detecting stale skill data
-    - Running /pss-reindex-skills workflow step-by-step
-    - Understanding reindex progress and completion messages
-    - Verifying successful reindexing with /pss-status
-  - Interpreting PSS skill suggestion output
-    - Understanding confidence levels: HIGH, MEDIUM, LOW
-    - Understanding evidence types: intent, keyword, co_usage
-    - Reading the skill suggestion table format
-    - Deciding when to activate suggested skills
-  - Troubleshooting common PSS issues
-    - PSS commands not found or not responding
-    - Empty or missing skill suggestions
-    - Index file errors or corruption
-    - Reindexing failures and recovery
-- [Suggestion Output](references/suggestion-output.md)
-  - Reading This Table
-  - Decision Framework
-- [Common Workflows](references/common-workflows.md)
-  - Workflow 1: First-Time PSS Setup
-  - Workflow 2: Adding New Skills
-  - Workflow 3: Debugging Missing Suggestions
-- [Examples](references/examples.md)
-  - Example 1: Testing Workflow
-  - Example 2: First-Time Setup
-  - Example 3: Debugging Missing Suggestions
-- [Setup Checklist](references/setup-checklist.md)
-  - PSS setup and verification checklist items
+- [Commands Reference](references/pss-commands.md) -- command structure, /pss-status, /pss-reindex-skills, suggestion output interpretation, troubleshooting
+- [Suggestion Output](references/suggestion-output.md) -- reading the table, decision framework
+- [Common Workflows](references/common-workflows.md) -- first-time setup, adding skills, debugging missing suggestions
+- [Examples](references/examples.md) -- testing, setup, debugging examples
+- [Setup Checklist](references/setup-checklist.md) -- setup and verification checklist
 
 ## Resources
 
