@@ -94,7 +94,7 @@ class ValidationResult:
         return "\n".join(lines)
 
 
-def validate_agent_section(data: dict[str, Any], result: ValidationResult) -> None:
+def validate_agent_section(data: dict[str, Any], result: ValidationResult, toml_path: Path | None = None) -> None:
     """Validate the [agent] section."""
     agent = data.get("agent")
     if agent is None:
@@ -138,6 +138,37 @@ def validate_agent_section(data: dict[str, Any], result: ValidationResult) -> No
     source = agent.get("source")
     if source is not None and not isinstance(source, str):
         result.error(f"[agent].source must be a string, got: {type(source).__name__}")
+
+    # Role-Plugin triple-match validation:
+    # When source starts with "plugin:", the plugin name, TOML filename stem,
+    # and [agent].name must all match for AI Maestro to recognize it as a Role-Plugin.
+    if (
+        isinstance(source, str)
+        and source.startswith("plugin:")
+        and isinstance(name, str)
+        and toml_path is not None
+    ):
+        # Extract plugin name from source (e.g. "plugin:my-plugin" → "my-plugin",
+        # "plugin:owner/my-plugin" → "my-plugin")
+        plugin_ref = source[len("plugin:"):]
+        plugin_name = plugin_ref.rsplit("/", 1)[-1] if "/" in plugin_ref else plugin_ref
+        # Filename stem: "my-plugin.agent.toml" → "my-plugin"
+        filename_stem = toml_path.name
+        if filename_stem.endswith(".agent.toml"):
+            filename_stem = filename_stem[: -len(".agent.toml")]
+        elif filename_stem.endswith(".toml"):
+            filename_stem = filename_stem[: -len(".toml")]
+
+        if name != plugin_name:
+            result.warn(
+                f"Role-Plugin triple-match: [agent].name '{name}' != plugin name '{plugin_name}' "
+                f"(from source '{source}'). AI Maestro requires all three to match."
+            )
+        if filename_stem and name != filename_stem:
+            result.warn(
+                f"Role-Plugin triple-match: [agent].name '{name}' != filename stem '{filename_stem}' "
+                f"(from '{toml_path.name}'). AI Maestro requires all three to match."
+            )
 
 
 def validate_requirements_section(
@@ -312,7 +343,7 @@ def validate_recommendation_section(
             result.warn(f"[{section}] has unknown field: '{field}'")
 
 
-DEPENDENCIES_FIELDS = ["plugins", "skills", "mcp_servers", "tools"]
+DEPENDENCIES_FIELDS = ["plugins", "skills", "mcp_servers", "tools", "scripts", "hooks"]
 
 
 def validate_dependencies_section(
@@ -347,6 +378,7 @@ def validate_toml(
     data: dict[str, Any],
     result: ValidationResult,
     index_skills: set[str] | None = None,
+    toml_path: Path | None = None,
 ) -> None:
     """Run all validations on parsed TOML data."""
     # Check for unknown top-level sections
@@ -354,7 +386,7 @@ def validate_toml(
         if key not in ALL_KNOWN_SECTIONS:
             result.warn(f"Unknown top-level section: '[{key}]'")
 
-    validate_agent_section(data, result)
+    validate_agent_section(data, result, toml_path)
     validate_requirements_section(data, result)
     validate_skills_section(data, result, index_skills)
     for section in ("agents", "commands", "rules", "mcp", "hooks", "lsp"):
@@ -459,7 +491,7 @@ def main() -> int:
 
     # Validate
     result = ValidationResult()
-    validate_toml(data, result, index_skills)
+    validate_toml(data, result, index_skills, toml_path)
 
     # Report
     if result.is_valid:

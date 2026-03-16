@@ -50,6 +50,53 @@ recommended = []
 
 [lsp]                      # OPTIONAL: Language servers (assigned by language detection)
 recommended = ["typescript-lsp", "pyright-lsp"]
+
+[dependencies]             # OPTIONAL: Prerequisites that must be installed
+plugins = []
+skills = []
+mcp_servers = []
+tools = ["gh"]
+scripts = []               # CLI scripts on PATH
+hooks = []                 # Hook configs installed globally
+```
+
+## Dependencies
+
+The `[dependencies]` section lists prerequisites that must be installed:
+
+```toml
+[dependencies]
+plugins = []                                    # Plugins that must be installed
+skills = ["agent-messaging", "team-governance"] # Skills from external plugins
+mcp_servers = []                                # MCP servers in settings
+tools = ["gh"]                                  # CLI tools on PATH
+scripts = ["amp-send.sh", "amp-inbox.sh"]       # CLI scripts on PATH
+hooks = []                                      # Hook configs installed globally
+```
+
+## Role-Plugin Convention
+
+When a `.agent.toml` is used as a **Role-Plugin profile** (consumed by AI Maestro), three names must match:
+
+```
+plugin name (plugin.json) == filename stem == [agent].name
+```
+
+Example: plugin `ai-maestro-chief-of-staff` → file `ai-maestro-chief-of-staff.agent.toml` → `[agent].name = "ai-maestro-chief-of-staff"`.
+
+**Profile ≠ Persona**: The `.agent.toml` defines a reusable role-plugin, NOT a specific AI Maestro persona. The same role-plugin can be assigned to many personas simultaneously.
+
+**Location**: Role-Plugin profiles live at the plugin root (alongside `.claude-plugin/`):
+
+```
+my-role-plugin/
+├── .claude-plugin/
+│   └── plugin.json
+├── my-role-plugin.agent.toml    ← Role-Plugin profile
+├── agents/
+│   └── main-agent.md
+├── skills/
+└── hooks/
 ```
 
 ## Schema and Validator
