@@ -55,6 +55,10 @@ Output: `⚡« Pss!... use: docker (skill), devops (skill) »`
 
 - `/pss-status` -- displays index health, element count, last reindex time
 - `/pss-reindex-skills` -- full regeneration of skill index from all sources
+- `/pss-get-description react` -- lightweight metadata lookup for any indexed element
+- `/pss-setup-agent path/to/agent.md` -- generate `.agent.toml` profile for an agent
+- `/pss-change-agent-profile path/to/file.agent.toml` -- modify a profile with natural language
+- `/pss-add-to-index path/to/SKILL.md` -- add a new element to the index
 
 ## References
 

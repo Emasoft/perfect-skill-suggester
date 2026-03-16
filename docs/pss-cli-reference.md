@@ -1,6 +1,6 @@
 # PSS CLI Reference — Query & Inspect Commands
 
-The `pss` binary provides 8 subcommands for querying, searching, and inspecting the skill index. These commands use CozoDB (Datalog) for fast indexed lookups — no full index scan needed.
+The `pss` binary provides 9 subcommands for querying, searching, and inspecting the skill index. These commands use CozoDB (Datalog) for fast indexed lookups — no full index scan needed.
 
 ## Entry Identifiers
 
@@ -10,7 +10,7 @@ Every entry in the index has a **13-character deterministic ID** (base36, lowerc
 - **Paths change**: plugin staging copies entries to cache dirs; reinstalling changes paths
 - **Namespaces overlap**: different plugins can register same-named skills
 
-The ID is derived from the entry's unique HashMap key (includes source namespace) using FNV-1a 64-bit hash. Same entry always gets the same ID, even after re-indexing.
+The ID is derived from the entry's name and source using FNV-1a 64-bit hash. Same entry always gets the same ID, even after re-indexing.
 
 **Always use IDs** (not names) when programmatically referencing entries. Use `search` or `list` to find IDs, then `inspect` or `resolve` with the ID.
 
@@ -85,6 +85,8 @@ pss inspect flutter-expert --format table
 ```
 
 **Output (JSON)** includes: id, name, path, type, source, description, tier, boost, category, keywords, intents, languages, frameworks, platforms, domains, tools, file_types, use_cases, alternatives, negative_keywords, domain_gates, co_usage (usually_with, precedes, follows), and MCP/LSP fields if applicable.
+
+With composite key `(name, source)`, `inspect` returns all entries matching the given name. If multiple entries exist from different sources, JSON format returns an array; table format prints each entry separately.
 
 ### `pss compare <ref1> <ref2>`
 
@@ -187,6 +189,46 @@ pss resolve 1o7bxu6yv8aj8 --format table
 ]
 ```
 
+### `pss get-description <name> [--batch] [--format json|table]`
+
+Retrieve lightweight metadata for one or more elements. Designed for tooltips, UI panels, and token-efficient lookups without reading entire skill/agent files.
+
+```bash
+# Single element
+pss get-description react
+
+# Namespaced lookup (plugin:element)
+pss get-description "cpv:skill-validation"
+
+# Batch mode (comma-separated)
+pss get-description "react,flutter,vue" --batch
+
+# Table format
+pss get-description react --format table
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `--batch` | Treat input as comma-separated names; returns JSON array |
+| `--format` | Output: json (default), table |
+
+**Output (JSON):**
+```json
+{
+  "name": "react",
+  "type": "skill",
+  "description": "Expert in React development...",
+  "source": "user",
+  "source_path": "/path/to/SKILL.md",
+  "scope": "user",
+  "plugin": null,
+  "trigger": ["react", "hooks", "jsx"]
+}
+```
+
+**Ambiguity handling:** When multiple entries share the same name (from different sources), the response includes `"ambiguous": true` with a `"matches"` array. Use namespace-qualified names (e.g., `plugin-name:element-name`) or 13-char IDs to disambiguate.
+
 ## Typical Agent Workflow
 
 An agent profiler building a `.agent.toml` would use the commands in this order:
@@ -198,6 +240,7 @@ An agent profiler building a `.agent.toml` would use the commands in this order:
 5. **`pss list --type agent --language dart --framework flutter`** — Find complementary agents
 6. **`pss compare <id1> <id2>`** — Compare top candidates to pick the best one
 7. **`pss inspect <id>`** — Deep-dive into a candidate's full metadata
+   - **`pss get-description <name>`** — Lightweight metadata lookup (faster than inspect, returns only key fields)
 8. **`pss resolve <id1> <id2> <id3>`** — Get file paths to read actual skill/agent content for final selection
 
 ## ID System Details
@@ -207,12 +250,12 @@ An agent profiler building a `.agent.toml` would use the commands in this order:
 | Length | 13 characters |
 | Character set | 0-9, a-z (base36) |
 | Hash algorithm | FNV-1a 64-bit |
-| Input | Entry's HashMap key (includes source namespace) |
+| Input | Entry name + source (hashed together with separator) |
 | Deterministic | Yes — same input always produces same ID |
 | Collision-free | Effectively yes (64-bit hash space = 1.8×10¹⁹) |
 | Example | `1o7bxu6yv8aj8` |
 
-The HashMap key format is `source_prefix:name` where `source_prefix` encodes the origin (user, project, plugin namespace, marketplace). This ensures two entries named "debug" from different sources get different IDs.
+The hash input combines the entry name and its source field (e.g., `user`, `plugin:owner/name`, `marketplace:marketplace-name`) with a 0xFF separator byte. This ensures two entries named "debug" from different sources get different IDs.
 
 ## Output Formats
 

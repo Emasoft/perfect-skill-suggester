@@ -48,6 +48,16 @@ Path: <source_path>
 Present as a formatted table with columns: NAME, TYPE, DESCRIPTION, PLUGIN.
 Mark not-found entries as `null` in the output.
 
+## Ambiguous Results
+
+When multiple entries share the same name (from different sources/plugins), the binary returns:
+- **Single mode**: JSON object with `"ambiguous": true`, `"query"`, and `"matches"` array
+- **Batch mode**: The ambiguous entry appears as the full ambiguity object in the array position
+
+Present ambiguous results clearly to the user and suggest using:
+- Namespace prefix: `plugin-name:element-name`
+- 13-char ID: from `pss search` or `pss list` output
+
 ## Error Handling
 
 - If the binary is not found, instruct the user to run `/pss-reindex-skills`

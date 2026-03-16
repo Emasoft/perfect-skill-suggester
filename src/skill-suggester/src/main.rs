@@ -12335,35 +12335,41 @@ fn cmd_resolve(db: &DbInstance, ids: &[String], format: &str) -> Result<(), Sugg
         let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
         params.insert("name".into(), DataValue::Str(name.clone().into()));
         let result = db.run_script(
-            "?[name, id, path, skill_type, description] := *skills{name, id, path, skill_type, description}, name = $name",
+            "?[name, id, path, skill_type, source, description] := *skills{name, id, path, skill_type, source, description}, name = $name",
             params,
             ScriptMutability::Immutable,
         ).map_err(|e| SuggesterError::IndexParse(format!("resolve query failed: {}", e)))?;
 
-        if let Some(row) = result.rows.first() {
-            results.push(serde_json::json!({
-                "id": dv_to_string(&row[1]),
-                "name": dv_to_string(&row[0]),
-                "path": dv_to_string(&row[2]),
-                "type": dv_to_string(&row[3]),
-                "description": dv_to_string(&row[4]),
-            }));
-        } else {
+        if result.rows.is_empty() {
             results.push(serde_json::json!({
                 "ref": ref_str,
                 "error": format!("not found: {}", ref_str),
             }));
+        } else {
+            // Return all matching rows — with composite key (name, source),
+            // same name from different sources produces multiple entries
+            for row in &result.rows {
+                results.push(serde_json::json!({
+                    "id": dv_to_string(&row[1]),
+                    "name": dv_to_string(&row[0]),
+                    "path": dv_to_string(&row[2]),
+                    "type": dv_to_string(&row[3]),
+                    "source": dv_to_string(&row[4]),
+                    "description": dv_to_string(&row[5]),
+                }));
+            }
         }
     }
 
     if format == "json" {
         println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
     } else {
-        print_table(&["ID", "NAME", "TYPE", "PATH"],
+        print_table(&["ID", "NAME", "TYPE", "SOURCE", "PATH"],
             &results.iter().map(|r| vec![
                 r["id"].as_str().unwrap_or("").to_string(),
                 r["name"].as_str().unwrap_or("").to_string(),
                 r["type"].as_str().unwrap_or("").to_string(),
+                r["source"].as_str().unwrap_or("").to_string(),
                 r["path"].as_str().unwrap_or("").to_string(),
             ]).collect::<Vec<_>>());
     }
@@ -13011,7 +13017,8 @@ fn cmd_compare(db: &DbInstance, ref1: &str, ref2: &str, format: &str) -> Result<
     let name1 = resolve_name_or_id(db, ref1)?;
     let name2 = resolve_name_or_id(db, ref2)?;
 
-    // Load scalar fields for both
+    // Load scalar fields for both. With composite key (name, source), a name
+    // query can return multiple rows — use the first and warn on stderr.
     let load_scalars = |name: &str| -> Result<serde_json::Value, SuggesterError> {
         let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
         params.insert("name".into(), DataValue::Str(name.into()));
@@ -13022,6 +13029,10 @@ fn cmd_compare(db: &DbInstance, ref1: &str, ref2: &str, format: &str) -> Result<
         ).map_err(|e| SuggesterError::IndexParse(format!("compare query failed: {}", e)))?;
         let row = result.rows.first()
             .ok_or_else(|| SuggesterError::IndexParse(format!("Entry not found: '{}'", name)))?;
+        if result.rows.len() > 1 {
+            eprintln!("Warning: '{}' matches {} entries from different sources; comparing first (source: {}). Use IDs for precision.",
+                name, result.rows.len(), dv_to_string(&row[2]));
+        }
         Ok(serde_json::json!({
             "id": dv_to_string(&row[0]), "type": dv_to_string(&row[1]),
             "source": dv_to_string(&row[2]), "category": dv_to_string(&row[3]),
@@ -15715,6 +15726,30 @@ mediapipe>=0.10
         assert_eq!(stem_word("optimize"), "optimiz");
         assert_eq!(stem_word("optimized"), "optimiz"); // -ized→"optimize"→strip e→"optimiz"
         assert_eq!(stem_word("optimizing"), "optimiz"); // -ing→"optimiz"
+    }
+
+    #[test]
+    fn test_composite_key_id_uniqueness() {
+        // Same name with different sources must produce different IDs
+        let id_user = make_entry_id("react", "user");
+        let id_plugin = make_entry_id("react", "plugin:owner/my-plugin");
+        let id_marketplace = make_entry_id("react", "marketplace:claude-code-plugins-plus");
+        assert_ne!(id_user, id_plugin, "user and plugin IDs must differ");
+        assert_ne!(id_user, id_marketplace, "user and marketplace IDs must differ");
+        assert_ne!(id_plugin, id_marketplace, "plugin and marketplace IDs must differ");
+
+        // All IDs must be 13 chars, lowercase alphanumeric
+        for id in &[&id_user, &id_plugin, &id_marketplace] {
+            assert_eq!(id.len(), 13, "ID must be 13 chars: {}", id);
+            assert!(id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+                "ID must be base36: {}", id);
+        }
+
+        // Same name+source must produce the same ID (deterministic)
+        assert_eq!(make_entry_id("react", "user"), id_user);
+
+        // Different names with same source must differ
+        assert_ne!(make_entry_id("react", "user"), make_entry_id("vue", "user"));
     }
 
     #[test]

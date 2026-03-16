@@ -36,9 +36,11 @@ Retrieve lightweight metadata for any indexed element. Designed for tooltips, UI
   "name": "api-development",
   "type": "skill",
   "description": "Guidelines for building clean, scalable APIs...",
+  "source": "user",
+  "source_path": "/path/to/SKILL.md",
+  "scope": "user",
   "plugin": "owner/plugin-name",
-  "trigger": ["api", "rest", "endpoint"],
-  "source_path": "/path/to/SKILL.md"
+  "trigger": ["api", "rest", "endpoint"]
 }
 ```
 
@@ -46,9 +48,23 @@ Fields:
 - **name**: Element name as indexed
 - **type**: skill | agent | command | hook | rule | mcp | lsp
 - **description**: One-line description from frontmatter
+- **source**: Raw source field (e.g., `user`, `plugin:owner/name`, `marketplace:name`)
+- **source_path**: Absolute path to the element definition file
+- **scope**: Derived scope label: `user`, `project`, `installed`, or `marketplace`
 - **plugin**: Plugin identifier (`null` for user-owned elements)
 - **trigger**: Top keywords/activation terms (max 20)
-- **source_path**: Absolute path to the element definition file
+
+### Ambiguous Results
+
+When multiple entries share the same name from different sources, single mode returns:
+```json
+{
+  "ambiguous": true,
+  "query": "element-name",
+  "matches": [...]
+}
+```
+Use namespace-qualified names (`plugin-name:element-name`) or 13-char IDs to disambiguate.
 
 ## Related Commands
 

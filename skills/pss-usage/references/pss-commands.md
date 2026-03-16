@@ -37,6 +37,10 @@ All PSS commands follow the prefix convention `pss-` to avoid naming collisions 
 **Available PSS commands:**
 - `/pss-status` - Check PSS configuration and index health
 - `/pss-reindex-skills` - Rebuild the skill index from scratch
+- `/pss-get-description <name>` - Get element metadata (description, type, plugin, triggers)
+- `/pss-setup-agent <path>` - Generate `.agent.toml` profile for an agent definition
+- `/pss-change-agent-profile <path>` - Modify an existing `.agent.toml` with natural language
+- `/pss-add-to-index <path>` - Add a new element to the skill index
 
 **Why the prefix matters:**
 The `pss-` prefix ensures PSS commands do not conflict with:
