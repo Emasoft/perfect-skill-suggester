@@ -12692,40 +12692,31 @@ fn row_to_description_json(row: &[DataValue]) -> serde_json::Value {
 
 /// Parse a possibly-namespaced element reference.
 ///
-/// Supports these formats:
-///   "element-name"                          → (None, "element-name")
-///   "plugin-name:element-name"              → (Some("plugin-name"), "element-name")
-///   "owner/plugin:element-name"             → (Some("owner/plugin"), "element-name")
-///   "element-name@marketplace-name"         → (Some("marketplace-name"), "element-name")
-///   "plugin-name@marketplace:element-name"  → (Some("plugin-name@marketplace"), "element-name")
+/// Claude Code convention (from docs + installed_plugins.json v2):
+///   `:` separates namespace from element name
+///   `@` separates plugin-name from marketplace-name within a namespace
 ///
-/// Convention: `@` separates plugin from marketplace (e.g. "plugin@marketplace"),
-/// `:` separates namespace from element name.
+/// Supported formats:
+///   "element-name"                                → (None, "element-name")
+///   "plugin-name:element-name"                    → (Some("plugin-name"), "element-name")
+///   "owner/plugin:element-name"                   → (Some("owner/plugin"), "element-name")
+///   "plugin-name@marketplace:element-name"        → (Some("plugin-name@marketplace"), "element-name")
 ///
-/// The namespace is matched against the `source` field using substring search,
-/// so "trailofbits" matches "marketplace:trailofbits" and
-/// "emasoft-plugins/claude-plugins-validation" matches "plugin:emasoft-plugins/claude-plugins-validation".
+/// The namespace is matched against the `source` field.  If the namespace
+/// contains `@` (e.g. "cpv@emasoft-plugins"), BOTH the plugin part and the
+/// marketplace part must appear in the source string.  This handles:
+///   source = "plugin:emasoft-plugins/claude-plugins-validation"
+///   namespace = "claude-plugins-validation@emasoft-plugins"
+///   → matches because source contains both "claude-plugins-validation" and "emasoft-plugins"
 fn parse_namespaced_ref(input: &str) -> (Option<String>, String) {
     let trimmed = input.trim();
 
-    // Try `:` separator first — everything after the LAST `:` is the element name
+    // Try `:` separator — everything after the LAST `:` is the element name
     if let Some(colon_pos) = trimmed.rfind(':') {
         let ns = trimmed[..colon_pos].trim();
         let elem = trimmed[colon_pos + 1..].trim();
         if !ns.is_empty() && !elem.is_empty() {
             return (Some(ns.to_string()), elem.to_string());
-        }
-    }
-
-    // No `:` found.  Try `@` as namespace indicator.
-    // "element@namespace" — the element name is BEFORE `@`, namespace AFTER.
-    // This matches the installed_plugins.json convention: "plugin-name@marketplace".
-    if let Some(at_pos) = trimmed.rfind('@') {
-        let before_at = trimmed[..at_pos].trim();
-        let after_at = trimmed[at_pos + 1..].trim();
-        if !before_at.is_empty() && !after_at.is_empty() {
-            // "element@marketplace" — namespace is the marketplace, element is the name
-            return (Some(after_at.to_string()), before_at.to_string());
         }
     }
 
@@ -12768,16 +12759,32 @@ fn lookup_descriptions(db: &DbInstance, input: &str) -> Vec<serde_json::Value> {
     let (namespace, element_name) = parse_namespaced_ref(input);
 
     if let Some(ns) = &namespace {
-        // Namespaced lookup: query by element name + source contains namespace
+        // Namespaced lookup: query by element name + source matches namespace.
+        //
+        // If namespace contains `@` (e.g. "cpv@emasoft-plugins"), split on `@`
+        // and require BOTH parts to appear in the source field.  This handles
+        // the Claude Code "plugin-name@marketplace" convention matching against
+        // source values like "plugin:emasoft-plugins/claude-plugins-validation".
         let ns_lower = ns.to_lowercase();
+        let ns_parts: Vec<&str> = ns_lower.split('@').collect();
+
         let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
         params.insert("name".into(), DataValue::Str(element_name.clone().into()));
-        params.insert("ns".into(), DataValue::Str(ns_lower.into()));
-        // str_includes on lowercase(source) matches both "plugin:owner/name" and "marketplace:name"
-        if let Ok(result) = db.run_script(
-            &format!("{} := {}, name = $name, str_includes(lowercase(source), $ns)", query_cols, from_skills),
-            params, ScriptMutability::Immutable,
-        ) {
+
+        let query = if ns_parts.len() >= 2 && !ns_parts[0].is_empty() && !ns_parts[1].is_empty() {
+            // "plugin@marketplace" → both parts must match source
+            params.insert("ns1".into(), DataValue::Str(ns_parts[0].into()));
+            params.insert("ns2".into(), DataValue::Str(ns_parts[1].into()));
+            format!("{} := {}, name = $name, str_includes(lowercase(source), $ns1), str_includes(lowercase(source), $ns2)",
+                query_cols, from_skills)
+        } else {
+            // Simple namespace (no @) — single substring match
+            params.insert("ns".into(), DataValue::Str(ns_lower.into()));
+            format!("{} := {}, name = $name, str_includes(lowercase(source), $ns)",
+                query_cols, from_skills)
+        };
+
+        if let Ok(result) = db.run_script(&query, params, ScriptMutability::Immutable) {
             if !result.rows.is_empty() {
                 return result.rows.iter().map(|r| row_to_description_json(r)).collect();
             }
