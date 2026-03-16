@@ -2,6 +2,13 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.4.3] - 2026-03-16
+
+### Bug Fixes
+
+- Audit fixes for composite key migration
+- Prevent HashMap collision by keying SkillIndex on entry ID instead of name
+
 ## [2.4.2] - 2026-03-16
 
 ### Bug Fixes
@@ -11,6 +18,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update uv.lock
+
+### Bump
+
+- Version 2.4.1 → 2.4.2
 
 ## [2.4.1] - 2026-03-16
 
