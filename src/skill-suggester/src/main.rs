@@ -283,6 +283,22 @@ enum Commands {
         #[arg(long, default_value = "json")]
         format: String,
     },
+
+    /// Get lightweight metadata (description, type, plugin, keywords) for elements.
+    /// Designed for tooltips, UI panels, and token-efficient lookups.
+    #[command(name = "get-description")]
+    GetDescription {
+        /// Element name(s).  Single name, or comma-separated names in --batch mode.
+        names: String,
+
+        /// Treat `names` as a comma-separated list and return an array of results.
+        #[arg(long)]
+        batch: bool,
+
+        /// Output format: json (default) or table
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
 }
 
 // ============================================================================
@@ -12068,6 +12084,8 @@ fn run_query_command(cli: &Cli, cmd: &Commands) -> Result<(), SuggesterError> {
             cmd_coverage(&db, r#type.as_deref(), format),
         Commands::Resolve { ids, format } =>
             cmd_resolve(&db, ids, format),
+        Commands::GetDescription { names, batch, format } =>
+            cmd_get_description(&db, names, *batch, format),
     }
 }
 
@@ -12614,6 +12632,121 @@ fn cmd_inspect(db: &DbInstance, name_or_id: &str, format: &str) -> Result<(), Su
         if !co.usually_with.is_empty() { println!("  Usually with: {}", co.usually_with.join(", ")); }
         if !co.precedes.is_empty() { println!("  Precedes    : {}", co.precedes.join(", ")); }
         if !co.follows.is_empty() { println!("  Follows     : {}", co.follows.join(", ")); }
+    }
+    Ok(())
+}
+
+// --- cmd_get_description ---
+
+/// Extract plugin name from the `source` field.
+/// Formats: "user" → None, "plugin:owner/name" → "owner/name", "marketplace:name" → "name"
+fn extract_plugin_from_source(source: &str) -> Option<String> {
+    if let Some(rest) = source.strip_prefix("plugin:") {
+        Some(rest.to_string())
+    } else if let Some(rest) = source.strip_prefix("marketplace:") {
+        Some(rest.to_string())
+    } else {
+        None
+    }
+}
+
+/// Look up a single element and return its lightweight metadata as a JSON Value.
+/// Returns `null` for not-found entries (batch-friendly).
+fn get_description_one(db: &DbInstance, name_or_id: &str) -> serde_json::Value {
+    // Resolve name or ID
+    let name = match resolve_name_or_id(db, name_or_id) {
+        Ok(n) => n,
+        Err(_) => return serde_json::Value::Null,
+    };
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("name".into(), DataValue::Str(name.clone().into()));
+
+    let result = match db.run_script(
+        "?[name, skill_type, source, description, path, keywords_json] := \
+         *skills{ name, skill_type, source, description, path, keywords_json }, name = $name",
+        params,
+        ScriptMutability::Immutable,
+    ) {
+        Ok(r) => r,
+        Err(_) => return serde_json::Value::Null,
+    };
+
+    let row = match result.rows.first() {
+        Some(r) => r,
+        None => return serde_json::Value::Null,
+    };
+
+    let source_str = dv_to_string(&row[2]);
+    let keywords: Vec<String> = serde_json::from_str(&dv_to_string(&row[5])).unwrap_or_default();
+
+    let mut obj = serde_json::Map::new();
+    obj.insert("name".into(), serde_json::json!(dv_to_string(&row[0])));
+    obj.insert("type".into(), serde_json::json!(dv_to_string(&row[1])));
+    obj.insert("description".into(), serde_json::json!(dv_to_string(&row[3])));
+    obj.insert("source_path".into(), serde_json::json!(dv_to_string(&row[4])));
+    // Plugin field: extracted from source, null if user-owned
+    obj.insert("plugin".into(), match extract_plugin_from_source(&source_str) {
+        Some(p) => serde_json::json!(p),
+        None => serde_json::Value::Null,
+    });
+    // Trigger/keywords — first 20 keywords to keep response lightweight
+    let trigger: Vec<&String> = keywords.iter().take(20).collect();
+    obj.insert("trigger".into(), serde_json::json!(trigger));
+
+    serde_json::Value::Object(obj)
+}
+
+fn cmd_get_description(db: &DbInstance, names: &str, batch: bool, format: &str) -> Result<(), SuggesterError> {
+    if batch {
+        // Batch mode: comma-separated names → JSON array
+        let entries: Vec<serde_json::Value> = names
+            .split(',')
+            .map(|n| n.trim())
+            .filter(|n| !n.is_empty())
+            .map(|n| get_description_one(db, n))
+            .collect();
+
+        if format == "json" {
+            println!("{}", serde_json::to_string_pretty(&entries).unwrap_or_default());
+        } else {
+            // Table format for batch
+            println!("{:<30} {:<10} {:<40} {:<30}", "NAME", "TYPE", "DESCRIPTION", "PLUGIN");
+            println!("{}", "─".repeat(110));
+            for e in &entries {
+                if e.is_null() {
+                    println!("{:<30} (not found)", "?");
+                    continue;
+                }
+                let name = e["name"].as_str().unwrap_or("?");
+                let etype = e["type"].as_str().unwrap_or("?");
+                let desc = e["description"].as_str().unwrap_or("");
+                // Truncate description to 40 chars for table
+                let desc_short = if desc.len() > 37 { format!("{}...", &desc[..37]) } else { desc.to_string() };
+                let plugin = e["plugin"].as_str().unwrap_or("-");
+                println!("{:<30} {:<10} {:<40} {:<30}", name, etype, desc_short, plugin);
+            }
+        }
+    } else {
+        // Single mode
+        let entry = get_description_one(db, names);
+        if entry.is_null() {
+            return Err(SuggesterError::IndexParse(format!("Entry not found: '{}'", names)));
+        }
+        if format == "json" {
+            println!("{}", serde_json::to_string_pretty(&entry).unwrap_or_default());
+        } else {
+            println!("  Name        : {}", entry["name"].as_str().unwrap_or("?"));
+            println!("  Type        : {}", entry["type"].as_str().unwrap_or("?"));
+            println!("  Plugin      : {}", entry["plugin"].as_str().unwrap_or("-"));
+            println!("  Description : {}", entry["description"].as_str().unwrap_or(""));
+            println!("  Source path : {}", entry["source_path"].as_str().unwrap_or("?"));
+            if let Some(triggers) = entry["trigger"].as_array() {
+                let kws: Vec<&str> = triggers.iter().filter_map(|v| v.as_str()).collect();
+                if !kws.is_empty() {
+                    println!("  Trigger     : {}", kws.join(", "));
+                }
+            }
+        }
     }
     Ok(())
 }
