@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.4.5] - 2026-03-16
+
+### Features
+
+- Add Role-Plugin naming convention and triple-match rule to .agent.toml schema
+
 ## [2.4.4] - 2026-03-16
 
 ### Bug Fixes
@@ -11,6 +17,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Features
 
 - Add rule file indexing (index-rules, list-rules) for agent profiling
+
+### Bump
+
+- Version 2.4.3 → 2.4.4
 
 ## [2.4.3] - 2026-03-16
 
