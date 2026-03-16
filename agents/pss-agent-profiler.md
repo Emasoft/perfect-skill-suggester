@@ -99,6 +99,16 @@ Example debug trace:
 
 To check if debug mode is active, test whether the `CLAUDE_DEBUG` environment variable is set. If not set, suppress all `[PSS-PROFILER]` messages.
 
+### Step 0: Index Rule Files
+
+Before profiling, ensure rule files are indexed in the DB so Step 6c has a complete catalogue:
+
+```bash
+"${BINARY_PATH}" index-rules --project-root "$(pwd)" --format json
+```
+
+This scans `~/.claude/rules/*.md` (user-level) and `.claude/rules/*.md` (project-level), extracts names and descriptions, and stores them in a separate `rules` table. It's fast (filesystem scan, no AI), idempotent (re-running updates existing entries), and only needs to happen once per profiling session.
+
 ### Step 1: Read and Analyze the Agent
 
 Read the <agent-name>.md file completely. Extract:
@@ -435,10 +445,18 @@ From the element index, find slash commands that enhance this agent's workflow:
 
 ### Step 6c: Identify Recommended Rules
 
-From the element index, find rules that should be active when this agent runs:
+List all available rules from the dedicated rules table (populated by Step 0):
+
+```bash
+"${BINARY_PATH}" list-rules --format json
+```
+
+For each rule, read its description and decide if it applies to this agent:
 - Rules that enforce quality constraints in the agent's domain
 - Rules that prevent common mistakes for the agent's type of work
 - Rules that align with the agent's responsibilities
+
+Use `"${BINARY_PATH}" get-description "<rule-name>" --format json` for details on any rule. Rules are NOT suggestable (they're auto-injected by Claude Code), but they MUST be listed in the `.agent.toml` so users know which behavioral constraints apply.
 
 ### Step 6d: Identify Recommended MCP Servers
 

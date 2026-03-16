@@ -299,6 +299,34 @@ enum Commands {
         #[arg(long, default_value = "json")]
         format: String,
     },
+
+    /// Index rule files from ~/.claude/rules/ and .claude/rules/ into the DB.
+    /// Rules are not suggestable (auto-injected) but are needed for agent profiling
+    /// and get-description lookups.  Extracts name from filename and description
+    /// from the first non-heading, non-empty content line.
+    #[command(name = "index-rules")]
+    IndexRules {
+        /// Project root directory (for finding .claude/rules/).
+        /// Defaults to current working directory.
+        #[arg(long, value_name = "PATH")]
+        project_root: Option<String>,
+
+        /// Output format: json (default) or table
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+
+    /// List all indexed rules with their descriptions.
+    #[command(name = "list-rules")]
+    ListRules {
+        /// Filter by scope: user or project
+        #[arg(long)]
+        scope: Option<String>,
+
+        /// Output format: json (default) or table
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
 }
 
 // ============================================================================
@@ -11466,6 +11494,21 @@ fn create_db_schema(db: &DbInstance) -> Result<(), SuggesterError> {
         ScriptMutability::Mutable,
     ).map_err(|e| SuggesterError::IndexParse(format!("Schema create (metadata) failed: {}", e)))?;
 
+    // Rules table: stores rule file metadata separately from skills.
+    // Rules are auto-injected (not suggestable), but indexed for get-description
+    // lookups and agent profiling.  Populated on-demand via `pss index-rules`.
+    db.run_script(
+        r#"{:create rules {
+            name: String, scope: String =>
+            description: String,
+            source_path: String,
+            summary: String,
+            keywords_json: String
+        }}"#,
+        Default::default(),
+        ScriptMutability::Mutable,
+    ).map_err(|e| SuggesterError::IndexParse(format!("Schema create (rules) failed: {}", e)))?;
+
     Ok(())
 }
 
@@ -12156,6 +12199,10 @@ fn run_query_command(cli: &Cli, cmd: &Commands) -> Result<(), SuggesterError> {
             cmd_resolve(&db, ids, format),
         Commands::GetDescription { names, batch, format } =>
             cmd_get_description(&db, names, *batch, format),
+        Commands::IndexRules { project_root, format } =>
+            cmd_index_rules(&db, project_root.as_deref(), format),
+        Commands::ListRules { scope, format } =>
+            cmd_list_rules(&db, scope.as_deref(), format),
     }
 }
 
@@ -12928,6 +12975,13 @@ fn lookup_descriptions(db: &DbInstance, input: &str) -> Vec<serde_json::Value> {
         }
     }
 
+    // Step 5: Fall back to the `rules` table — rules are stored separately
+    // because they're auto-injected (not suggestable) but still need description lookups
+    let rule_results = lookup_rule(db, lookup_name);
+    if !rule_results.is_empty() {
+        return rule_results;
+    }
+
     vec![]
 }
 
@@ -13041,6 +13095,260 @@ fn cmd_get_description(db: &DbInstance, names: &str, batch: bool, format: &str) 
         }
     }
     Ok(())
+}
+
+// --- cmd_index_rules ---
+
+/// Extract a human-readable description from a rule file's content.
+/// Takes the first non-empty, non-heading line (skipping `#`-prefixed lines,
+/// blank lines, and `**bold**`-only lines that serve as sub-headings).
+fn extract_rule_description(content: &str) -> String {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        // Skip markdown headings
+        if trimmed.starts_with('#') { continue; }
+        // Skip bold-only lines like "**LESSON LEARNED:**" (sub-heading style)
+        if trimmed.starts_with("**") && trimmed.ends_with("**") { continue; }
+        // Use this line as description, truncated to 200 chars
+        let desc = if trimmed.len() > 200 { &trimmed[..200] } else { trimmed };
+        return desc.to_string();
+    }
+    String::new()
+}
+
+/// Ensure the `rules` table exists in an existing DB (migration-safe).
+/// Silently succeeds if the table already exists.
+fn ensure_rules_table(db: &DbInstance) {
+    let _ = db.run_script(
+        r#"{:create rules {
+            name: String, scope: String =>
+            description: String,
+            source_path: String,
+            summary: String,
+            keywords_json: String
+        }}"#,
+        Default::default(),
+        ScriptMutability::Mutable,
+    );
+    // Ignore error — if table already exists, CozoDB returns an error which is fine
+}
+
+/// Scan rule file directories and upsert metadata into the `rules` CozoDB table.
+fn cmd_index_rules(db: &DbInstance, project_root: Option<&str>, format: &str) -> Result<(), SuggesterError> {
+    // Ensure the rules table exists (handles DBs built before this feature)
+    ensure_rules_table(db);
+
+    let mut indexed: Vec<serde_json::Value> = Vec::new();
+
+    // Collect rule dirs: user-level (~/.claude/rules/) + project-level (.claude/rules/)
+    let mut rule_dirs: Vec<(PathBuf, &str)> = Vec::new();
+
+    // User-level rules
+    if let Some(home) = dirs::home_dir() {
+        let user_rules = home.join(".claude").join("rules");
+        if user_rules.is_dir() {
+            rule_dirs.push((user_rules, "user"));
+        }
+    }
+
+    // Project-level rules
+    let proj = project_root
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let project_rules = proj.join(".claude").join("rules");
+    if project_rules.is_dir() {
+        rule_dirs.push((project_rules, "project"));
+    }
+
+    for (dir, scope) in &rule_dirs {
+        let entries = match fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // Only .md files
+            if path.extension().and_then(|e| e.to_str()) != Some("md") { continue; }
+            // Rule name = filename without extension
+            let name = match path.file_stem().and_then(|s| s.to_str()) {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+            // Read file content and extract description
+            let content = match fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let description = extract_rule_description(&content);
+            let source_path = path.to_string_lossy().to_string();
+
+            // Upsert into rules table (name + scope is the composite primary key)
+            let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+            params.insert("name".into(), DataValue::Str(name.clone().into()));
+            params.insert("scope".into(), DataValue::Str((*scope).into()));
+            params.insert("desc".into(), DataValue::Str(description.clone().into()));
+            params.insert("path".into(), DataValue::Str(source_path.clone().into()));
+            // summary and keywords_json start empty — enriched later by profiler
+            params.insert("summary".into(), DataValue::Str("".into()));
+            params.insert("kw".into(), DataValue::Str("[]".into()));
+
+            if let Err(e) = db.run_script(
+                r#"?[name, scope, description, source_path, summary, keywords_json] <-
+                    [[$name, $scope, $desc, $path, $summary, $kw]]
+                :put rules { name, scope => description, source_path, summary, keywords_json }"#,
+                params,
+                ScriptMutability::Mutable,
+            ) {
+                eprintln!("Warning: failed to index rule '{}': {}", name, e);
+                continue;
+            }
+
+            indexed.push(serde_json::json!({
+                "name": name,
+                "scope": scope,
+                "description": description,
+                "source_path": source_path,
+            }));
+        }
+    }
+
+    // Output results
+    if format == "json" {
+        let result = serde_json::json!({
+            "indexed": indexed.len(),
+            "rules": indexed,
+        });
+        println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default());
+    } else {
+        println!("{:<30} {:<10} {:<60}", "NAME", "SCOPE", "DESCRIPTION");
+        println!("{}", "─".repeat(100));
+        for r in &indexed {
+            let name = r["name"].as_str().unwrap_or("?");
+            let scope = r["scope"].as_str().unwrap_or("?");
+            let desc = r["description"].as_str().unwrap_or("");
+            let desc_short = if desc.len() > 57 { format!("{}...", &desc[..57]) } else { desc.to_string() };
+            println!("{:<30} {:<10} {:<60}", name, scope, desc_short);
+        }
+        println!("\nIndexed {} rule(s).", indexed.len());
+    }
+
+    Ok(())
+}
+
+// --- cmd_list_rules ---
+
+/// List all indexed rules from the `rules` CozoDB table.
+fn cmd_list_rules(db: &DbInstance, scope_filter: Option<&str>, format: &str) -> Result<(), SuggesterError> {
+    let query = if let Some(scope) = scope_filter {
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("scope".into(), DataValue::Str(scope.into()));
+        db.run_script(
+            "?[name, scope, description, source_path, summary, keywords_json] := *rules{ name, scope, description, source_path, summary, keywords_json }, scope = $scope",
+            params,
+            ScriptMutability::Immutable,
+        )
+    } else {
+        db.run_script(
+            "?[name, scope, description, source_path, summary, keywords_json] := *rules{ name, scope, description, source_path, summary, keywords_json }",
+            Default::default(),
+            ScriptMutability::Immutable,
+        )
+    };
+
+    let result = query.map_err(|e| SuggesterError::IndexParse(format!("list-rules query failed: {}", e)))?;
+
+    if format == "json" {
+        let rules: Vec<serde_json::Value> = result.rows.iter().map(|row| {
+            let keywords: Vec<String> = serde_json::from_str(&dv_to_string(&row[5])).unwrap_or_default();
+            serde_json::json!({
+                "name": dv_to_string(&row[0]),
+                "scope": dv_to_string(&row[1]),
+                "description": dv_to_string(&row[2]),
+                "source_path": dv_to_string(&row[3]),
+                "summary": dv_to_string(&row[4]),
+                "keywords": keywords,
+                "type": "rule",
+            })
+        }).collect();
+        println!("{}", serde_json::to_string_pretty(&rules).unwrap_or_default());
+    } else {
+        println!("{:<30} {:<10} {:<60}", "NAME", "SCOPE", "DESCRIPTION");
+        println!("{}", "─".repeat(100));
+        for row in &result.rows {
+            let name = dv_to_string(&row[0]);
+            let scope = dv_to_string(&row[1]);
+            let desc = dv_to_string(&row[2]);
+            let desc_short = if desc.len() > 57 { format!("{}...", &desc[..57]) } else { desc.to_string() };
+            println!("{:<30} {:<10} {:<60}", name, scope, desc_short);
+        }
+        println!("\n{} rule(s) found.", result.rows.len());
+    }
+
+    Ok(())
+}
+
+/// Look up a rule by name from the `rules` table. Returns a description JSON
+/// in the same shape as `row_to_description_json()` for consistency with
+/// `get-description` output.
+fn lookup_rule(db: &DbInstance, name: &str) -> Vec<serde_json::Value> {
+    // Ensure rules table exists (no-op if already present)
+    ensure_rules_table(db);
+
+    // Exact match first
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("name".into(), DataValue::Str(name.into()));
+    if let Ok(result) = db.run_script(
+        "?[name, scope, description, source_path, summary, keywords_json] := *rules{ name, scope, description, source_path, summary, keywords_json }, name = $name",
+        params,
+        ScriptMutability::Immutable,
+    ) {
+        if !result.rows.is_empty() {
+            return result.rows.iter().map(|row| {
+                let keywords: Vec<String> = serde_json::from_str(&dv_to_string(&row[5])).unwrap_or_default();
+                let trigger: Vec<&String> = keywords.iter().take(20).collect();
+                serde_json::json!({
+                    "name": dv_to_string(&row[0]),
+                    "type": "rule",
+                    "scope": dv_to_string(&row[1]),
+                    "description": dv_to_string(&row[2]),
+                    "source_path": dv_to_string(&row[3]),
+                    "source": format!("rule:{}", dv_to_string(&row[1])),
+                    "plugin": serde_json::Value::Null,
+                    "trigger": trigger,
+                })
+            }).collect();
+        }
+    }
+
+    // Case-insensitive fallback
+    let name_lower = name.to_lowercase();
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("q".into(), DataValue::Str(name_lower.into()));
+    if let Ok(result) = db.run_script(
+        "?[name, scope, description, source_path, summary, keywords_json] := *rules{ name, scope, description, source_path, summary, keywords_json }, lc = lowercase(name), lc = $q",
+        params,
+        ScriptMutability::Immutable,
+    ) {
+        if !result.rows.is_empty() {
+            return result.rows.iter().map(|row| {
+                let keywords: Vec<String> = serde_json::from_str(&dv_to_string(&row[5])).unwrap_or_default();
+                let trigger: Vec<&String> = keywords.iter().take(20).collect();
+                serde_json::json!({
+                    "name": dv_to_string(&row[0]),
+                    "type": "rule",
+                    "scope": dv_to_string(&row[1]),
+                    "description": dv_to_string(&row[2]),
+                    "source_path": dv_to_string(&row[3]),
+                    "source": format!("rule:{}", dv_to_string(&row[1])),
+                    "plugin": serde_json::Value::Null,
+                    "trigger": trigger,
+                })
+            }).collect();
+        }
+    }
+
+    vec![]
 }
 
 // --- cmd_compare ---

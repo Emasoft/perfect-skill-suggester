@@ -1,6 +1,6 @@
 # PSS CLI Reference — Query & Inspect Commands
 
-The `pss` binary provides 9 subcommands for querying, searching, and inspecting the skill index. These commands use CozoDB (Datalog) for fast indexed lookups — no full index scan needed.
+The `pss` binary provides 11 subcommands for querying, searching, and inspecting the skill index. These commands use CozoDB (Datalog) for fast indexed lookups — no full index scan needed.
 
 ## Entry Identifiers
 
@@ -228,6 +228,70 @@ pss get-description react --format table
 ```
 
 **Ambiguity handling:** When multiple entries share the same name (from different sources), the response includes `"ambiguous": true` with a `"matches"` array. Use namespace-qualified names (e.g., `plugin-name:element-name`) or 13-char IDs to disambiguate.
+
+**Rules fallback:** If no match is found in the main skill index, `get-description` falls back to the rules table (populated by `pss index-rules`). This enables metadata lookups for rule files used in agent profiling and description retrieval.
+
+### `pss index-rules [--project-root PATH] [--format json|table]`
+
+Index rule files from `~/.claude/rules/` (user scope) and `.claude/rules/` (project scope) into the rules table. Rules are not suggestable (they are auto-injected by Claude Code) but are needed for agent profiling and `get-description` lookups.
+
+```bash
+# Index rules from default locations (cwd as project root)
+pss index-rules
+
+# Specify a project root for .claude/rules/ discovery
+pss index-rules --project-root /path/to/project
+
+# Table output
+pss index-rules --format table
+```
+
+**Options:**
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--project-root` | Project root directory for finding `.claude/rules/` | Current working directory |
+| `--format` | Output: json (default), table | json |
+
+**Behavior:**
+- Scans `~/.claude/rules/` for user-scope rules and `<project-root>/.claude/rules/` for project-scope rules
+- Extracts the rule name from the filename (e.g., `claim-verification.md` becomes `claim-verification`)
+- Extracts the description from the first non-heading, non-empty content line of the file
+- Idempotent — re-running updates existing entries rather than creating duplicates
+- Returns a summary of indexed rules (count per scope, any errors)
+
+### `pss list-rules [--scope user|project] [--format json|table]`
+
+List all indexed rules with their descriptions.
+
+```bash
+# List all rules
+pss list-rules
+
+# Filter by scope
+pss list-rules --scope user
+pss list-rules --scope project
+
+# Table format for human reading
+pss list-rules --format table
+```
+
+**Options:**
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--scope` | Filter by rule scope: `user` or `project` | (all scopes) |
+| `--format` | Output: json (default), table | json |
+
+**Output (JSON):**
+```json
+[
+  {
+    "name": "claim-verification",
+    "scope": "user",
+    "description": "An 80% false claim rate occurred when grep results were trusted without reading files.",
+    "path": "/Users/.../.claude/rules/claim-verification.md"
+  }
+]
+```
 
 ## Typical Agent Workflow
 
