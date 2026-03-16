@@ -2,12 +2,26 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.4.2] - 2026-03-16
+
+### Bug Fixes
+
+- Composite primary key (name, source) in CozoDB skills table
+
+### Miscellaneous Tasks
+
+- Update uv.lock
+
 ## [2.4.1] - 2026-03-16
 
 ### Features
 
 - Smart namespace-aware lookup for get-description
 - Support plugin@marketplace:element namespace convention
+
+### Bump
+
+- Version 2.4.0 → 2.4.1
 
 ## [2.4.0] - 2026-03-16
 
