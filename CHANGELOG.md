@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.4.0] - 2026-03-16
+
+### Features
+
+- Add get-description command for element metadata retrieval
+
 ## [2.3.60] - 2026-03-15
 
 ### Bug Fixes
@@ -11,6 +17,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update uv.lock
+
+### Bump
+
+- Version 2.3.59 → 2.3.60
 
 ## [2.3.59] - 2026-03-15
 
