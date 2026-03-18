@@ -173,12 +173,12 @@ def extract_previous_user_message(transcript_path: str) -> str:
     transcript. We skip the first (most recent) user message and return the second
     one — that's the actual previous message the user typed before this prompt.
 
-    Performance-critical optimizations (transcripts can be 559MB with 3.6MB base64 lines):
-    1. Seek-based chunked reading from EOF — never loads the full file
-    2. Pre-filter: skip lines that can't be user messages (no "human"/"user" substring)
-       before expensive json.loads(). Eliminates 90%+ of parse cost.
-    3. Time budget: bail after 800ms — suggestions aren't worth blocking the user
-    4. Smaller initial chunk (512KB) — user messages are near the end in most cases
+    Seek-based backwards reader — scans 8KB blocks for newline positions, then
+    peeks at each line start (512 bytes) to pre-filter before reading.  Multi-MB
+    assistant/image lines are NEVER loaded into memory — only their newline
+    boundaries are detected.
+
+    Memory: 8KB (scan block) + 512B (peek) + one user message line.
     """
     if not transcript_path:
         return ""
@@ -190,8 +190,9 @@ def extract_previous_user_message(transcript_path: str) -> str:
     import time
     deadline = time.monotonic() + 0.8  # 800ms time budget
 
-    INITIAL_CHUNK = 512 * 1024  # 512KB — much smaller start, user msgs are small
-    MAX_CHUNK = 32 * 1024 * 1024  # 32MB cap — beyond this, bail out
+    BLOCK = 8192  # 8KB blocks for newline scanning
+    PEEK = 512  # Bytes to peek at each line start for pre-filter
+    MAX_SCAN = 32 * 1024 * 1024  # Stop after scanning 32MB from EOF
 
     try:
         file_size = transcript_file.stat().st_size
@@ -201,65 +202,97 @@ def extract_previous_user_message(transcript_path: str) -> str:
     if file_size == 0:
         return ""
 
-    chunk_size = min(INITIAL_CHUNK, file_size)
-    while chunk_size <= min(MAX_CHUNK, file_size):
-        if time.monotonic() > deadline:
-            return ""  # Time budget exceeded — bail out
+    user_messages_found = 0
+    bytes_scanned = 0
 
-        with open(transcript_file, "rb") as f:
-            f.seek(max(0, file_size - chunk_size))
-            data = f.read()
+    with open(transcript_file, "rb") as f:
+        # line_end tracks where the current line ends (exclusive).
+        # We start at EOF — the last line ends at file_size.
+        line_end = file_size
+        scan_pos = file_size
 
-        # Scan raw bytes backwards for user message lines.
-        # Pre-filter: only parse lines containing "human" or "user" role markers.
-        # This skips 3.6MB base64 image lines without json.loads() overhead.
-        user_messages_found = 0
-        pos = len(data)
-        first_line = file_size > chunk_size  # True if we seeked mid-file
-
-        while pos > 0:
+        while scan_pos > 0 and bytes_scanned < MAX_SCAN:
             if time.monotonic() > deadline:
-                return ""  # Time budget exceeded
+                return ""
 
-            # Find the previous newline to extract one JSONL line
-            nl = data.rfind(b"\n", 0, pos)
-            line_start = nl + 1 if nl >= 0 else 0
-            line_bytes = data[line_start:pos]
-            pos = nl  # Move cursor before the newline for next iteration
+            # Read one block for newline scanning
+            block_start = max(0, scan_pos - BLOCK)
+            block_len = scan_pos - block_start
+            f.seek(block_start)
+            block = f.read(block_len)
+            bytes_scanned += block_len
 
-            if not line_bytes or len(line_bytes) < 20:
-                continue
+            # Find all newlines in this block (from end to start) using rfind
+            search_end = block_len
+            while True:
+                nl = block.rfind(b"\n", 0, search_end)
+                if nl < 0:
+                    break
 
-            # Skip first line if we seeked mid-file (partial JSON)
-            if first_line and line_start == 0:
-                continue
+                # Newline at absolute file position block_start + nl
+                abs_nl = block_start + nl
+                line_start = abs_nl + 1
+                line_len = line_end - line_start
 
-            # Pre-filter: skip lines that can't be user messages.
-            # User messages have "role":"human" or "role":"user" in the JSON.
-            # This avoids json.loads() on multi-MB assistant/tool lines.
-            if b'"human"' not in line_bytes and b'"user"' not in line_bytes:
-                continue
+                if line_len >= 20:
+                    # Peek at the start of this line for pre-filter (512 bytes).
+                    # User messages have "role":"human" or "role":"user" near the start.
+                    # This avoids reading 3.6MB base64 image lines.
+                    peek_len = min(PEEK, line_len)
+                    f.seek(line_start)
+                    peek = f.read(peek_len)
 
-            # Now parse — this line likely contains a user message
-            try:
-                entry = json.loads(line_bytes)
-            except (json.JSONDecodeError, ValueError):
-                continue
-            if "message" not in entry:
-                continue
-            user_text = _extract_user_text(entry)
-            if not user_text:
-                continue
-            user_messages_found += 1
-            # Skip 1st (current prompt already in transcript), return 2nd
-            if user_messages_found >= 2:
-                # Cap the returned text — we only need it for intent context
-                return user_text[:MAX_PROMPT_CHARS] if len(user_text) > MAX_PROMPT_CHARS else user_text
+                    if b'"human"' in peek or b'"user"' in peek:
+                        if time.monotonic() > deadline:
+                            return ""
 
-        # Found fewer than 2 user messages — read a bigger chunk
-        if chunk_size >= file_size:
-            break
-        chunk_size = min(chunk_size * 2, file_size)
+                        # This line likely contains a user message — read it fully
+                        if line_len > peek_len:
+                            f.seek(line_start)
+                            full_line = f.read(line_len)
+                        else:
+                            full_line = peek
+
+                        try:
+                            entry = json.loads(full_line)
+                        except (json.JSONDecodeError, ValueError):
+                            line_end = abs_nl
+                            search_end = nl
+                            continue
+                        if "message" not in entry:
+                            line_end = abs_nl
+                            search_end = nl
+                            continue
+                        user_text = _extract_user_text(entry)
+                        if user_text:
+                            user_messages_found += 1
+                            if user_messages_found >= 2:
+                                return user_text[:MAX_PROMPT_CHARS] if len(user_text) > MAX_PROMPT_CHARS else user_text
+
+                line_end = abs_nl
+                search_end = nl
+
+            scan_pos = block_start
+
+        # Handle the very first line (from position 0 to line_end) if we reached BOF
+        if scan_pos == 0 and line_end > 20:
+            f.seek(0)
+            peek = f.read(min(PEEK, line_end))
+            if b'"human"' in peek or b'"user"' in peek:
+                if line_end > len(peek):
+                    f.seek(0)
+                    full_line = f.read(line_end)
+                else:
+                    full_line = peek
+                try:
+                    entry = json.loads(full_line)
+                    user_text = _extract_user_text(entry)
+                    if user_text:
+                        user_messages_found += 1
+                        if user_messages_found >= 2:
+                            return user_text[:MAX_PROMPT_CHARS] if len(user_text) > MAX_PROMPT_CHARS else user_text
+                except (json.JSONDecodeError, ValueError):
+                    pass
 
     return ""
 
