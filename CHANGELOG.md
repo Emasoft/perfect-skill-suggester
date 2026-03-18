@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.4.6] - 2026-03-18
+
+### Features
+
+- CC v2.1.76-2.1.78 compatibility update
+
 ## [2.4.5] - 2026-03-16
 
 ### Features
 
 - Add Role-Plugin naming convention and triple-match rule to .agent.toml schema
+
+### Bump
+
+- Version 2.4.4 → 2.4.5
 
 ## [2.4.4] - 2026-03-16
 
