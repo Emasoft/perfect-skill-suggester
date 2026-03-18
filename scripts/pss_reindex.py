@@ -26,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-from pss_paths import get_claude_config_dir
+from pss_paths import get_data_dir
 
 
 def resolve_plugin_root() -> Path:
@@ -221,7 +221,7 @@ def main() -> None:
     plugin_root = resolve_plugin_root()
     scripts_dir = plugin_root / "scripts"
     binary = resolve_binary(plugin_root)
-    cache_dir = get_claude_config_dir() / "cache"
+    cache_dir = get_data_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     live_index = cache_dir / "skill-index.json"

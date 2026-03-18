@@ -4,12 +4,12 @@
 
 # Perfect Skill Suggester (PSS)
 
-![Version](https://img.shields.io/badge/version-2.4.5-blue)
+![Version](https://img.shields.io/badge/version-2.4.6-blue)
 ![Platforms](https://img.shields.io/badge/platforms-6-green)
 ![Accuracy](https://img.shields.io/badge/accuracy-88%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Rust](https://img.shields.io/badge/rust-native_binary-orange)
-![Claude Code](https://img.shields.io/badge/claude--code-plugin-blueviolet)
+![Claude Code](https://img.shields.io/badge/claude--code-v2.1.78+-blueviolet)
 
 > **Installation:** This plugin is distributed via the [Emasoft Plugins Marketplace](https://github.com/Emasoft/emasoft-plugins).
 > See [Installation](#installation) below for instructions.
@@ -19,6 +19,18 @@
 > Part of the [Emasoft Plugins](https://github.com/Emasoft/emasoft-plugins) ecosystem
 
 **High-accuracy skill activation (88%+) for Claude Code** with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing. Indexes 6 element types: skills, agents, commands, rules, MCP servers, and LSP servers — 874+ elements including 246 MCP servers.
+
+## What's New
+
+### v2.4.6
+- **`${CLAUDE_PLUGIN_DATA}` integration** (CC v2.1.78+) — persistent state directory for `skill-index.json` and CozoDB database; falls back to `~/.claude/cache/` on older versions
+- **New `.agent.toml` fields**: `effort`, `maxTurns`, `disallowedTools` for fine-grained agent configuration (CC v2.1.78+)
+
+### v2.4.5
+- **Role-Plugin naming convention** and triple-match rule added to `.agent.toml` schema
+
+### v2.4.4
+- **Rule file indexing**: `index-rules` and `list-rules` CLI commands for agent profiling support
 
 ## Features
 
@@ -85,6 +97,9 @@ Each skill can have a `.pss` file for custom matching rules:
 - Negative keywords to prevent false matches
 - Tier (primary/secondary/utility) for priority
 - Score boost (-10 to +10)
+
+### Persistent State via `${CLAUDE_PLUGIN_DATA}` (CC v2.1.78+)
+PSS uses the `${CLAUDE_PLUGIN_DATA}` environment variable (introduced in Claude Code v2.1.78) as the persistent data directory for `skill-index.json` and the CozoDB database. This ensures plugin state survives across sessions and plugin updates. Falls back to `~/.claude/cache/` on older Claude Code versions.
 
 ## Installation (Production)
 

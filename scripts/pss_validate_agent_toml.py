@@ -47,7 +47,7 @@ OPTIONAL_SECTIONS = [
 ALL_KNOWN_SECTIONS = REQUIRED_SECTIONS + OPTIONAL_SECTIONS
 
 AGENT_REQUIRED_FIELDS = ["name", "path"]
-AGENT_OPTIONAL_FIELDS = ["source"]
+AGENT_OPTIONAL_FIELDS = ["source", "effort", "maxTurns", "disallowedTools"]
 AGENT_ALL_FIELDS = AGENT_REQUIRED_FIELDS + AGENT_OPTIONAL_FIELDS
 
 REQUIREMENTS_FIELDS = ["files", "project_type", "tech_stack"]
@@ -169,6 +169,28 @@ def validate_agent_section(data: dict[str, Any], result: ValidationResult, toml_
                 f"Role-Plugin triple-match: [agent].name '{name}' != filename stem '{filename_stem}' "
                 f"(from '{toml_path.name}'). AI Maestro requires all three to match."
             )
+
+    # CC v2.1.78+ agent frontmatter fields
+    effort = agent.get("effort")
+    if effort is not None:
+        if not isinstance(effort, str):
+            result.error(f"[agent].effort must be a string, got: {type(effort).__name__}")
+        elif effort not in ("low", "medium", "high"):
+            result.error(f"[agent].effort must be 'low', 'medium', or 'high', got: '{effort}'")
+
+    max_turns = agent.get("maxTurns")
+    if max_turns is not None:
+        if not isinstance(max_turns, int):
+            result.error(f"[agent].maxTurns must be an integer, got: {type(max_turns).__name__}")
+        elif max_turns < 1:
+            result.error(f"[agent].maxTurns must be >= 1, got: {max_turns}")
+
+    disallowed = agent.get("disallowedTools")
+    if disallowed is not None:
+        if not isinstance(disallowed, list):
+            result.error(f"[agent].disallowedTools must be an array, got: {type(disallowed).__name__}")
+        elif not all(isinstance(t, str) for t in disallowed):
+            result.error("[agent].disallowedTools must contain only strings")
 
 
 def validate_requirements_section(

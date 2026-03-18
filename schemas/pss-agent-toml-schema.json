@@ -25,6 +25,23 @@
         "path": {
           "type": "string",
           "description": "Absolute path to the <agent-name>.md definition file"
+        },
+        "effort": {
+          "type": "string",
+          "description": "Model effort level for this agent (CC v2.1.78+). Controls thinking depth.",
+          "enum": ["low", "medium", "high"],
+          "examples": ["medium"]
+        },
+        "maxTurns": {
+          "type": "integer",
+          "description": "Maximum number of turns the agent can take before stopping (CC v2.1.78+).",
+          "minimum": 1
+        },
+        "disallowedTools": {
+          "type": "array",
+          "description": "Tools this agent is not allowed to use (CC v2.1.78+). Uses same syntax as settings disallowedTools.",
+          "items": { "type": "string" },
+          "examples": [["WebSearch", "WebFetch"]]
         }
       },
       "additionalProperties": false

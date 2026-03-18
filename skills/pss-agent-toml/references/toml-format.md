@@ -18,6 +18,9 @@ Every `.agent.toml` has these sections:
 name = "my-agent"          # kebab-case, matches ^[a-z0-9][a-z0-9_-]*$
 source = "path"            # "path" or "plugin:<name>"
 path = "/abs/path/to/my-agent.md"
+# effort = "medium"        # OPTIONAL: low|medium|high (CC v2.1.78+)
+# maxTurns = 50            # OPTIONAL: max turns before stopping (CC v2.1.78+)
+# disallowedTools = []     # OPTIONAL: tools this agent cannot use (CC v2.1.78+)
 
 [requirements]             # OPTIONAL: Project context used for profiling
 files = ["prd.md"]         # Basenames of requirement files

@@ -124,6 +124,9 @@ Read the <agent-name>.md file completely. Extract:
 - **examples**: Example use cases or trigger phrases mentioned in the file
 - **trigger_patterns**: Phrases that would invoke this agent
 - **writes_code**: Does this agent write/edit/analyze code directly, or only orchestrate?
+- **effort**: From frontmatter `effort:` field (low/medium/high) — controls reasoning depth (CC v2.1.78+)
+- **maxTurns**: From frontmatter `maxTurns:` field — max agentic turns before stopping (CC v2.1.78+)
+- **disallowedTools**: From frontmatter `disallowedTools:` list — tools the agent must NOT use (CC v2.1.78+)
 
 **CRITICAL — Name Preservation Rule**: The agent definition may reference skills, sub-agents, and commands from its OWN plugin (not installed locally). These names MUST be preserved EXACTLY as written in the agent definition, even if they don't exist in the local skill index. NEVER rename, re-prefix, or "correct" names from the agent definition to match locally installed elements. For example, if the agent references `amia-code-reviewer`, do NOT change it to `eia-code-reviewer` or any other prefix — use `amia-code-reviewer` exactly.
 
@@ -510,6 +513,9 @@ Create the output directory if needed. Write the TOML file:
 name = "<agent-name>"
 source = "<how agent was specified: path or plugin:name>"
 path = "<absolute path to <agent-name>.md>"
+# effort = "medium"          # Only if agent def specifies effort (low/medium/high, CC v2.1.78+)
+# maxTurns = 50              # Only if agent def specifies maxTurns (CC v2.1.78+)
+# disallowedTools = [...]    # Only if agent def specifies disallowedTools (CC v2.1.78+)
 
 [requirements]
 # Design documents used for profiling (empty if none provided)
