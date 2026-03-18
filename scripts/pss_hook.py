@@ -31,6 +31,10 @@ SUBPROCESS_TIMEOUT = (
     4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
 )
 SKILL_INDEX_FILE = "skill-index.json"
+# Prompt length cap for the Rust binary — the scorer only needs the first few
+# thousand chars to determine intent.  Piping 100KB+ prompts causes timeouts
+# (JSON parse + tokenization + scoring can't finish in 4s on huge inputs).
+MAX_PROMPT_CHARS = 4000
 
 
 _debug_mode_cache: bool | None = None
@@ -235,13 +239,25 @@ def extract_previous_user_message(transcript_path: str) -> str:
 
 
 def augment_prompt_with_context(prompt: str, transcript_path: str) -> str:
-    """Concatenate previous user message + current prompt for full intent."""
+    """Concatenate previous user message + current prompt for full intent.
+
+    The result is capped at MAX_PROMPT_CHARS because the Rust binary only needs
+    the first few thousand chars for intent/keyword extraction.  Piping 100KB+
+    through subprocess stdin → JSON parse → tokenize → score blows the 4s timeout.
+    """
     prompt_stripped = prompt.strip()
 
-    # Always concatenate previous message + current prompt, no truncation, no caps
+    # Cap current prompt first — if it's already huge, prev_msg won't help
+    if len(prompt_stripped) > MAX_PROMPT_CHARS:
+        prompt_stripped = prompt_stripped[:MAX_PROMPT_CHARS]
+
     prev_msg = extract_previous_user_message(transcript_path)
     if prev_msg:
-        return f"{prev_msg} {prompt_stripped}"
+        # Cap prev_msg so total stays under MAX_PROMPT_CHARS
+        budget = MAX_PROMPT_CHARS - len(prompt_stripped) - 1  # -1 for space separator
+        if budget > 200:
+            prev_msg = prev_msg[:budget]
+            return f"{prev_msg} {prompt_stripped}"
 
     return prompt_stripped
 
@@ -263,8 +279,21 @@ def should_skip_prompt(prompt: str) -> bool:
     if prompt_lower in SKIP_SIMPLE_PROMPTS:
         return True
 
-    # Skip task notifications
+    # Skip system-generated prompts (task notifications, session continuations,
+    # hook outputs, release notes, local commands).  These are often 50KB+ and
+    # don't represent user intent that needs skill suggestions.
     if "<task-notification>" in prompt:
+        return True
+    if "<local-command-caveat>" in prompt:
+        return True
+    if "<local-command-stdout>" in prompt:
+        return True
+    # Session continuation summaries start with a system-reminder containing the
+    # full prior conversation context — skip these entirely
+    if prompt_stripped.startswith("<system-reminder>"):
+        return True
+    # Claude Code release notes pasted by /release-notes command
+    if prompt_stripped.startswith("Version ") and "\n• " in prompt[:500]:
         return True
 
     return False
@@ -485,9 +514,23 @@ def main() -> None:
             _exit_warning(str(e))
             return
 
+        # Strip <system-reminder>...</system-reminder> blocks from the prompt before
+        # processing — these are injected by Claude Code (hook context, file change
+        # notifications, skill lists, etc.) and can be 50KB+.  They contain no user
+        # intent and bloat the prompt beyond the binary's 4s timeout.
+        clean_prompt = re.sub(
+            r"<system-reminder>.*?</system-reminder>",
+            "",
+            prompt,
+            flags=re.DOTALL,
+        ).strip()
+        if not clean_prompt:
+            _exit_empty()
+            return
+
         # Augment prompt with previous user message for conversational context
         # (Rust binary handles all project/domain/tool/file-type detection itself)
-        input_json["prompt"] = augment_prompt_with_context(prompt, transcript_path)
+        input_json["prompt"] = augment_prompt_with_context(clean_prompt, transcript_path)
         augmented_stdin = json.dumps(input_json)
 
         # Call the binary with --format hook, --top to limit count,
