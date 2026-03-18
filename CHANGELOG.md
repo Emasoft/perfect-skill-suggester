@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.4.11] - 2026-03-18
+
+### Bug Fixes
+
+- Audit fixes — error handling, dead code removal, documentation gaps
+
 ## [2.4.10] - 2026-03-18
 
 ### Features
 
 - Mmap-based backward transcript reader in Rust binary
+
+### Bump
+
+- Version 2.4.9 → 2.4.10
 
 ## [2.4.9] - 2026-03-18
 
