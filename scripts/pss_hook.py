@@ -173,10 +173,12 @@ def extract_previous_user_message(transcript_path: str) -> str:
     transcript. We skip the first (most recent) user message and return the second
     one — that's the actual previous message the user typed before this prompt.
 
-    Uses seek-based chunked reading — never loads the full file into memory.
-    JSONL transcripts can be 500MB+ with 3.6MB base64 image lines.  readlines()
-    would take 350ms+ on those; this approach takes <5ms by reading progressively
-    larger chunks from the end until the 2nd user message is found.
+    Performance-critical optimizations (transcripts can be 559MB with 3.6MB base64 lines):
+    1. Seek-based chunked reading from EOF — never loads the full file
+    2. Pre-filter: skip lines that can't be user messages (no "human"/"user" substring)
+       before expensive json.loads(). Eliminates 90%+ of parse cost.
+    3. Time budget: bail after 800ms — suggestions aren't worth blocking the user
+    4. Smaller initial chunk (512KB) — user messages are near the end in most cases
     """
     if not transcript_path:
         return ""
@@ -185,11 +187,11 @@ def extract_previous_user_message(transcript_path: str) -> str:
     if not transcript_file.exists():
         return ""
 
-    # Chunk sizing: start small, double until we find what we need.
-    # 4MB handles most cases (user messages are small, even if surrounding
-    # assistant entries contain 3.6MB base64 images).
-    INITIAL_CHUNK = 4 * 1024 * 1024
-    MAX_CHUNK = 256 * 1024 * 1024  # 256MB hard cap — stop before OOM
+    import time
+    deadline = time.monotonic() + 0.8  # 800ms time budget
+
+    INITIAL_CHUNK = 512 * 1024  # 512KB — much smaller start, user msgs are small
+    MAX_CHUNK = 32 * 1024 * 1024  # 32MB cap — beyond this, bail out
 
     try:
         file_size = transcript_file.stat().st_size
@@ -201,23 +203,46 @@ def extract_previous_user_message(transcript_path: str) -> str:
 
     chunk_size = min(INITIAL_CHUNK, file_size)
     while chunk_size <= min(MAX_CHUNK, file_size):
+        if time.monotonic() > deadline:
+            return ""  # Time budget exceeded — bail out
+
         with open(transcript_file, "rb") as f:
             f.seek(max(0, file_size - chunk_size))
             data = f.read()
 
-        # Decode and split into JSONL lines
-        text = data.decode("utf-8", errors="replace")
-        lines = text.splitlines()
-
-        # Drop first line if we seeked mid-file (it's likely a partial JSON block)
-        if file_size > chunk_size and lines:
-            lines = lines[1:]
-
-        # Scan backwards for 2nd user message — that's all we need
+        # Scan raw bytes backwards for user message lines.
+        # Pre-filter: only parse lines containing "human" or "user" role markers.
+        # This skips 3.6MB base64 image lines without json.loads() overhead.
         user_messages_found = 0
-        for line in reversed(lines):
+        pos = len(data)
+        first_line = file_size > chunk_size  # True if we seeked mid-file
+
+        while pos > 0:
+            if time.monotonic() > deadline:
+                return ""  # Time budget exceeded
+
+            # Find the previous newline to extract one JSONL line
+            nl = data.rfind(b"\n", 0, pos)
+            line_start = nl + 1 if nl >= 0 else 0
+            line_bytes = data[line_start:pos]
+            pos = nl  # Move cursor before the newline for next iteration
+
+            if not line_bytes or len(line_bytes) < 20:
+                continue
+
+            # Skip first line if we seeked mid-file (partial JSON)
+            if first_line and line_start == 0:
+                continue
+
+            # Pre-filter: skip lines that can't be user messages.
+            # User messages have "role":"human" or "role":"user" in the JSON.
+            # This avoids json.loads() on multi-MB assistant/tool lines.
+            if b'"human"' not in line_bytes and b'"user"' not in line_bytes:
+                continue
+
+            # Now parse — this line likely contains a user message
             try:
-                entry = json.loads(line.strip())
+                entry = json.loads(line_bytes)
             except (json.JSONDecodeError, ValueError):
                 continue
             if "message" not in entry:
@@ -228,11 +253,12 @@ def extract_previous_user_message(transcript_path: str) -> str:
             user_messages_found += 1
             # Skip 1st (current prompt already in transcript), return 2nd
             if user_messages_found >= 2:
-                return user_text
+                # Cap the returned text — we only need it for intent context
+                return user_text[:MAX_PROMPT_CHARS] if len(user_text) > MAX_PROMPT_CHARS else user_text
 
         # Found fewer than 2 user messages — read a bigger chunk
         if chunk_size >= file_size:
-            break  # Already read the whole file
+            break
         chunk_size = min(chunk_size * 2, file_size)
 
     return ""
