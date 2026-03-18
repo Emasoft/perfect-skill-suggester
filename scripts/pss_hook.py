@@ -26,7 +26,6 @@ from typing import Any
 # Configuration
 MAX_SUGGESTIONS = 4  # Maximum skill suggestions per message
 MIN_SCORE = 0.5  # Minimum score threshold
-MAX_TRANSCRIPT_LINES = 200  # Recent transcript lines to scan for previous message
 SUBPROCESS_TIMEOUT = (
     4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
 )

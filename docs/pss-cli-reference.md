@@ -340,6 +340,16 @@ Starting with Claude Code v2.1.78, plugins receive a dedicated persistent data d
 
 **Migration:** No manual migration is needed. When PSS first runs under CC v2.1.78+ with `CLAUDE_PLUGIN_DATA` set, `/pss-reindex-skills` writes the index to the new location automatically.
 
+## Binary Flags
+
+### `--extract-prev-msg <PATH>`
+
+Extract the 2nd most recent user message from a JSONL transcript file. Uses mmap + backward scan. Zero-copy, constant memory. Returns empty string if not found. Used internally by the Python hook.
+
+```bash
+pss --extract-prev-msg /path/to/transcript.jsonl
+```
+
 ## Output Formats
 
 All commands support `--format json` (default) and `--format table`. JSON is intended for programmatic consumption by agents. Table format is for human inspection.
