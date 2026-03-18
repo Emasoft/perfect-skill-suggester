@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.4.7] - 2026-03-18
+
+### Bug Fixes
+
+- Prevent hook timeout on long prompts (system-reminders, session continuations)
+
 ## [2.4.6] - 2026-03-18
 
 ### Features
 
 - CC v2.1.76-2.1.78 compatibility update
+
+### Bump
+
+- Version 2.4.5 → 2.4.6
 
 ## [2.4.5] - 2026-03-16
 
