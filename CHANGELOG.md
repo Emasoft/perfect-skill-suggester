@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.5.2] - 2026-03-19
+
+### Miscellaneous Tasks
+
+- Update all dependencies to latest versions
+
 ## [2.5.1] - 2026-03-19
 
 ### Bug Fixes
 
 - Correct Cargo workspace target paths after submodule migration
+
+### Bump
+
+- Version 2.5.0 → 2.5.1
 
 ## [2.5.0] - 2026-03-19
 
