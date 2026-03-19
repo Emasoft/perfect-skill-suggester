@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.5.3] - 2026-03-19
+
+### Miscellaneous Tasks
+
+- Remove redundant files, update .gitignore
+
 ## [2.5.2] - 2026-03-19
 
 ### Miscellaneous Tasks
 
 - Update all dependencies to latest versions
+
+### Bump
+
+- Version 2.5.1 → 2.5.2
 
 ## [2.5.1] - 2026-03-19
 
