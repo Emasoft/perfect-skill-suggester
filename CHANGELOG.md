@@ -2,11 +2,38 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.7.0] - 2026-03-19
+
+### Bug Fixes
+
+- Enable domain gate filtering (was completely dead)
+
+### Features
+
+- Add --fast mode for agent profiling + Rust pre-optimizations
+- LOC-based domain taxonomy for skill classification
+- Add computer-graphics domain (LOC: Graphics processing units, WebGL, SVG, Rendering)
+- Enrich taxonomy with LOC software headings (malware, agents, quality, containers)
+- LOC-sourced languages (60) and platforms (30) for domain gates
+- ACM CCS 2012 taxonomy enrichment for domain classification
+
+### Refactor
+
+- Shared domain taxonomy for enrichment + scoring
+
+### Bump
+
+- Version 2.5.3 → 2.6.0
+
 ## [2.5.3] - 2026-03-19
 
 ### Miscellaneous Tasks
 
 - Remove redundant files, update .gitignore
+
+### Bump
+
+- Version 2.5.2 → 2.5.3
 
 ## [2.5.2] - 2026-03-19
 
