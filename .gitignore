@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyc
 *$py.class
 *.so
 .Python
@@ -53,12 +54,15 @@ CLAUDE.md
 # Node
 node_modules/
 
-# Rust
+# Rust build artifacts (covers both main repo and submodule)
 target/
-# Note: Cargo.lock is tracked (binary crate needs reproducible builds)
 
 # bin/ is TRACKED — contains pre-built PSS binaries for all platforms
 # (binaries moved from src/skill-suggester/bin/ to top-level bin/ in v2.5.0)
 
 # LLM Externalizer MCP output
 llm_externalizer_output/
+
+# Deprecated files (moved to *_dev/ folders)
+# pss_release.py → scripts_dev/ (superseded by pss_ship.py)
+# requirements.txt → docs_dev/ (superseded by pyproject.toml + uv)
