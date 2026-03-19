@@ -47,7 +47,7 @@ def detect_binary(project_root: Path) -> str:
         p = bin_dir / binary_name
         if p.exists():
             return str(p)
-    release = project_root / "rust" / "skill-suggester" / "target" / "release" / "pss"
+    release = project_root / "rust" / "target" / "release" / "pss"
     if release.exists():
         return str(release)
     print(f"ERROR: No binary found for {system}/{machine}", file=sys.stderr)

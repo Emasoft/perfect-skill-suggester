@@ -118,11 +118,17 @@ def _copy_binary(
     triple: str,
 ) -> Path | None:
     """Copy built binary to bin/ with platform-specific name. Returns dest path."""
+    # Cargo workspace puts binaries under workspace root target/, not crate target/
+    workspace_root = crate_dir.parent
     if target_name == "darwin-arm64":
-        src = crate_dir / "target" / "release" / binary_name
+        src = workspace_root / "target" / "release" / binary_name
+        if not src.exists():
+            src = crate_dir / "target" / "release" / binary_name
     else:
         ext = ".exe" if "windows" in triple else ""
-        src = crate_dir / "target" / triple / "release" / (binary_name + ext)
+        src = workspace_root / "target" / triple / "release" / (binary_name + ext)
+        if not src.exists():
+            src = crate_dir / "target" / triple / "release" / (binary_name + ext)
 
     if not src.exists():
         return None

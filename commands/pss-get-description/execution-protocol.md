@@ -8,7 +8,7 @@ Find the PSS binary using the standard discovery order:
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$(dirname "$0")")}"
 PSS_BIN="${PLUGIN_ROOT}/bin/pss-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/arm64/arm64/;s/x86_64/x86_64/')"
 if [ ! -x "$PSS_BIN" ]; then
-    PSS_BIN="${PLUGIN_ROOT}/rust/skill-suggester/target/release/pss"
+    PSS_BIN="${PLUGIN_ROOT}/rust/target/release/pss"
 fi
 ```
 

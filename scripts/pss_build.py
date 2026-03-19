@@ -260,7 +260,12 @@ def build_native(release: bool = True) -> bool:
     binary_name = get_binary_name(system, machine)
 
     target_subdir = "release" if release else "debug"
-    source = rust_dir / "target" / target_subdir / "pss"
+    # Cargo workspace puts binaries under the workspace root's target/, not the crate's
+    workspace_root = rust_dir.parent  # rust/ (workspace root with Cargo.toml)
+    source = workspace_root / "target" / target_subdir / "pss"
+    # Fallback: check crate-level target/ for non-workspace builds
+    if not source.exists():
+        source = rust_dir / "target" / target_subdir / "pss"
     if system == "windows":
         source = source.with_suffix(".exe")
 
@@ -324,7 +329,11 @@ def build_darwin_cross(target_key: str, release: bool = True) -> bool:
     system, machine = target_key.split("-")
     binary_name = get_binary_name(system, machine)
     target_subdir = "release" if release else "debug"
-    source = rust_dir / "target" / rust_target / target_subdir / "pss"
+    # Cargo workspace: target/ is under workspace root, not crate dir
+    workspace_root = rust_dir.parent
+    source = workspace_root / "target" / rust_target / target_subdir / "pss"
+    if not source.exists():
+        source = rust_dir / "target" / rust_target / target_subdir / "pss"
     dest = bin_dir / binary_name
 
     if source.exists():
@@ -381,7 +390,10 @@ def build_zigbuild(target_key: str, release: bool = True) -> bool:
     system, machine = target_key.split("-")
     binary_name = get_binary_name(system, machine)
     target_subdir = "release" if release else "debug"
-    source = rust_dir / "target" / rust_target / target_subdir / "pss"
+    workspace_root = rust_dir.parent
+    source = workspace_root / "target" / rust_target / target_subdir / "pss"
+    if not source.exists():
+        source = rust_dir / "target" / rust_target / target_subdir / "pss"
     if "windows" in target_key:
         source = source.with_suffix(".exe")
     dest = bin_dir / binary_name
@@ -434,7 +446,10 @@ def build_cross(target_key: str, release: bool = True) -> bool:
     binary_name = get_binary_name(system, machine)
 
     target_subdir = "release" if release else "debug"
-    source = rust_dir / "target" / rust_target / target_subdir / "pss"
+    workspace_root = rust_dir.parent
+    source = workspace_root / "target" / rust_target / target_subdir / "pss"
+    if not source.exists():
+        source = rust_dir / "target" / rust_target / target_subdir / "pss"
     if "windows" in target_key:
         source = source.with_suffix(".exe")
 

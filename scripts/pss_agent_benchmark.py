@@ -67,7 +67,7 @@ def detect_binary() -> str:
     binary_name = platform_map.get((system, machine))
     if binary_name is None:
         # Fallback to release build
-        release_bin = project_root / "rust" / "skill-suggester" / "target" / "release" / "pss"
+        release_bin = project_root / "rust" / "target" / "release" / "pss"
         if release_bin.exists():
             return str(release_bin)
         print(f"ERROR: Unsupported platform: {system}/{machine}", file=sys.stderr)
@@ -76,7 +76,7 @@ def detect_binary() -> str:
     binary_path = bin_dir / binary_name
     if not binary_path.exists():
         # Try release build as fallback
-        release_bin = project_root / "rust" / "skill-suggester" / "target" / "release" / "pss"
+        release_bin = project_root / "rust" / "target" / "release" / "pss"
         if release_bin.exists():
             return str(release_bin)
         print(f"ERROR: Binary not found: {binary_path}", file=sys.stderr)

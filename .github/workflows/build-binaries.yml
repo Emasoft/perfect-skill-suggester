@@ -19,6 +19,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_SOURCE: rust/skill-suggester
+  # Cargo workspace root — binaries go to rust/target/, not rust/skill-suggester/target/
+  WORKSPACE_TARGET: rust/target
   BIN_DIR: bin
 
 jobs:
@@ -51,7 +53,7 @@ jobs:
 
       - name: Copy binary to bin/
         run: |
-          cp "${{ env.RUST_SOURCE }}/target/${{ matrix.target }}/release/pss" \
+          cp "${{ env.WORKSPACE_TARGET }}/${{ matrix.target }}/release/pss" \
              "${{ env.BIN_DIR }}/${{ matrix.binary }}"
           chmod +x "${{ env.BIN_DIR }}/${{ matrix.binary }}"
 
@@ -93,7 +95,7 @@ jobs:
 
       - name: Copy binary to bin/
         run: |
-          src="${{ env.RUST_SOURCE }}/target/${{ matrix.target }}/release/pss"
+          src="${{ env.WORKSPACE_TARGET }}/${{ matrix.target }}/release/pss"
           # Windows binaries have .exe extension in the release dir
           if [[ "${{ matrix.binary }}" == *.exe ]]; then
             src="${src}.exe"
