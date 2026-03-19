@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.7.1] - 2026-03-19
+
+### Bug Fixes
+
+- Punctuation-aware tokenization + smarter context augmentation
+
+### Miscellaneous Tasks
+
+- Update uv.lock
+
 ## [2.7.0] - 2026-03-19
 
 ### Bug Fixes
@@ -24,6 +34,7 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Bump
 
 - Version 2.5.3 → 2.6.0
+- Version 2.6.0 → 2.7.0
 
 ## [2.5.3] - 2026-03-19
 
