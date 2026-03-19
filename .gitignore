@@ -57,8 +57,8 @@ node_modules/
 target/
 # Note: Cargo.lock is tracked (binary crate needs reproducible builds)
 
-# Root bin/ convenience copies (real binaries are in src/skill-suggester/bin/)
-/bin/
+# bin/ is TRACKED — contains pre-built PSS binaries for all platforms
+# (binaries moved from src/skill-suggester/bin/ to top-level bin/ in v2.5.0)
 
 # LLM Externalizer MCP output
 llm_externalizer_output/
