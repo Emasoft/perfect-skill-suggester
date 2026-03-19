@@ -314,12 +314,25 @@ def augment_prompt_with_context(prompt: str, transcript_path: str) -> str:
     The result is capped at MAX_PROMPT_CHARS because the Rust binary only needs
     the first few thousand chars for intent/keyword extraction.  Piping 100KB+
     through subprocess stdin → JSON parse → tokenize → score blows the 4s timeout.
+
+    Previous message is ONLY prepended when the current prompt is too short to
+    carry clear intent on its own (<30 non-trivial chars).  Longer prompts like
+    "developing a software with bun" have enough signal; prepending unrelated
+    previous messages (e.g. "bump and publish") pollutes scoring with generic
+    keywords that outweigh the specific intent.
     """
     prompt_stripped = prompt.strip()
 
     # Cap current prompt first — if it's already huge, prev_msg won't help
     if len(prompt_stripped) > MAX_PROMPT_CHARS:
         prompt_stripped = prompt_stripped[:MAX_PROMPT_CHARS]
+
+    # Only augment with previous message when current prompt is too short
+    # to carry clear intent.  Count non-trivial chars (letters/digits only).
+    non_trivial = sum(1 for c in prompt_stripped if c.isalnum())
+    if non_trivial >= 30:
+        # Current prompt has enough signal — don't pollute with previous message
+        return prompt_stripped
 
     prev_msg = extract_previous_user_message(transcript_path)
     if prev_msg:
