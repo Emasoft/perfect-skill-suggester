@@ -41,7 +41,7 @@ For EACH element to process, pipe it through the discovery and enrichment pipeli
 
 ```bash
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
-BINARY="${PLUGIN_ROOT}/src/skill-suggester/bin/pss-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
+BINARY="${PLUGIN_ROOT}/bin/pss-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
 
 # Discover the element and pipe through Rust enrichment
 uv run "${PLUGIN_ROOT}/scripts/pss_discover.py" --jsonl --name "<element-name>" \

@@ -22,9 +22,9 @@ from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PSS_RUST_DIR = REPO_ROOT / "src" / "skill-suggester"
-NLP_RUST_DIR = REPO_ROOT / "src" / "negation-detector"
-BIN_DIR = PSS_RUST_DIR / "bin"
+PSS_RUST_DIR = REPO_ROOT / "rust" / "skill-suggester"
+NLP_RUST_DIR = REPO_ROOT / "rust" / "negation-detector"
+BIN_DIR = REPO_ROOT / "bin"
 LOG_DIR = REPO_ROOT / "builds_dev"
 
 # ── Targets ────────────────────────────────────────────────────────────────

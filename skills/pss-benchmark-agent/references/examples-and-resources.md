@@ -11,7 +11,7 @@
 
 - `docs_dev/worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections
 - `docs_dev/worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only)
-- Modified `src/skill-suggester/src/main.rs` -- with improvements to the scoring engine
+- Modified `rust/skill-suggester/src/main.rs` -- with improvements to the scoring engine
 
 ## Error Handling
 
@@ -24,7 +24,7 @@
 
 Run baseline benchmark:
 ```bash
-cd src/skill-suggester && cargo build --release
+cd rust/skill-suggester && cargo build --release
 python3 scripts/pss_benchmark.py --prompts docs_dev/benchmark-v2-prompts-100.jsonl --gold docs_dev/benchmark-v2-gold-100.json
 ```
 

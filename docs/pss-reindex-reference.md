@@ -113,7 +113,7 @@ Backup: /tmp/pss-backup-20260310_143000
 
 ## Rust Skill Suggester
 
-For maximum performance, a native Rust binary is bundled at `src/skill-suggester/bin/`.
+For maximum performance, a native Rust binary is bundled at `bin/`.
 
 **No installation required** - Pre-built binaries for all major platforms are included with the plugin.
 
@@ -148,13 +148,13 @@ For maximum performance, a native Rust binary is bundled at `src/skill-suggester
 
 ```bash
 # Test with sample prompt (use your platform's binary)
-echo '{"prompt":"help me set up github actions"}' | ./src/skill-suggester/bin/pss-darwin-arm64
+echo '{"prompt":"help me set up github actions"}' | ./bin/pss-darwin-arm64
 ```
 
 ### Debugging
 
 ```bash
-RUST_LOG=debug ./src/skill-suggester/bin/pss-darwin-arm64 < payload.json
+RUST_LOG=debug ./bin/pss-darwin-arm64 < payload.json
 ```
 
 ## Why AI-Analyzed Keywords Matter

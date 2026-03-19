@@ -73,13 +73,18 @@ def get_script_root() -> Path:
 
 
 def get_rust_dir() -> Path:
-    """Get the Rust project directory."""
-    return get_script_root() / "src" / "skill-suggester"
+    """Get the Rust project directory (inside submodule)."""
+    rust_dir = get_script_root() / "rust" / "skill-suggester"
+    if not (rust_dir / "Cargo.toml").exists():
+        print("ERROR: Rust source not available.", file=sys.stderr)
+        print("  Initialize the submodule: git submodule update --init", file=sys.stderr)
+        sys.exit(1)
+    return rust_dir
 
 
 def get_bin_dir() -> Path:
-    """Get the binary output directory."""
-    return get_rust_dir() / "bin"
+    """Get the binary output directory (top-level bin/)."""
+    return get_script_root() / "bin"
 
 
 def detect_platform() -> tuple[str, str]:

@@ -414,10 +414,10 @@ def detect_platform() -> str:
 def find_binary() -> Path:
     """Locate the PSS binary relative to this script."""
     # This script is in: perfect-skill-suggester/scripts/pss_hook.py
-    # Binary is in: perfect-skill-suggester/src/skill-suggester/bin/
+    # Binary is in: perfect-skill-suggester/bin/
     script_dir = Path(__file__).parent.resolve()
     binary_name = detect_platform()
-    binary_path = script_dir.parent / "src" / "skill-suggester" / "bin" / binary_name
+    binary_path = script_dir.parent / "bin" / binary_name
 
     if not binary_path.exists():
         raise FileNotFoundError(

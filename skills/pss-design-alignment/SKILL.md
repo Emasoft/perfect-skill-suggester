@@ -30,7 +30,7 @@ Takes an existing `.agent.toml` (or baseline candidate pool) and a project requi
 - Existing `.agent.toml` profile (from `pss-agent-toml` / `/pss-setup-agent`)
 - Requirements/design document (`.md` file describing the project)
 - Skill index at `~/.claude/cache/skill-index.json`
-- Rust binary at `$CLAUDE_PLUGIN_ROOT/src/skill-suggester/bin/<platform>`
+- Rust binary at `$CLAUDE_PLUGIN_ROOT/bin/<platform>`
 
 ### Checklist
 

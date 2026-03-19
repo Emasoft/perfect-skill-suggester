@@ -38,7 +38,7 @@ This reads `enabledPlugins` from `~/.claude/settings.json` and skips any plugin 
 
 ## Error Handling
 
-- **Binary not found**: Run `cargo build --release` in `$PLUGIN_ROOT/src/skill-suggester/` or check platform detection
+- **Binary not found**: Run `cargo build --release` in `$PLUGIN_ROOT/rust/skill-suggester/` or check platform detection
 - **Discovery warnings**: Check `/tmp/pss-discover-warnings.txt` for non-existent project paths
 - **Merge errors**: Check that `~/.claude/cache/` directory exists and is writable
 - **Restore from backup**: `cp $BACKUP_DIR/skill-index.json ~/.claude/cache/`
@@ -60,7 +60,7 @@ Output: `PSS Reindex Complete — Elements: 9275, Index: 12M, 7 seconds`
 
 ## Resources
 
-- **Rust binary**: `$PLUGIN_ROOT/src/skill-suggester/bin/pss-<platform>`
+- **Rust binary**: `$PLUGIN_ROOT/bin/pss-<platform>`
 - **Discovery script**: `$PLUGIN_ROOT/scripts/pss_discover.py`
 - **Merge script**: `$PLUGIN_ROOT/scripts/pss_merge_queue.py`
 - **Architecture**: `docs/PSS-ARCHITECTURE.md`

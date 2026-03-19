@@ -41,7 +41,7 @@ PYPROJECT_TOML = ROOT / "pyproject.toml"
 README_MD = ROOT / "README.md"
 CHANGELOG_MD = ROOT / "CHANGELOG.md"
 BUILD_SCRIPT = ROOT / "scripts" / "pss_build.py"
-BIN_DIR = ROOT / "rust" / "skill-suggester" / "bin"
+BIN_DIR = ROOT / "bin"
 
 # -- ANSI color helpers (no external deps) --
 GREEN = "\033[32m"

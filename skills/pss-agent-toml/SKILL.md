@@ -27,7 +27,7 @@ user-invocable: false
 ## Prerequisites
 
 - Skill index at `~/.claude/cache/skill-index.json`
-- Rust binary at `$CLAUDE_PLUGIN_ROOT/src/skill-suggester/bin/<platform>`
+- Rust binary at `$CLAUDE_PLUGIN_ROOT/bin/<platform>`
 
 ### Checklist
 

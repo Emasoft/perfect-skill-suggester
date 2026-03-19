@@ -1,5 +1,5 @@
 # Build PSS binaries for all supported platforms
-# Triggered on Rust source changes or manually via workflow_dispatch
+# Triggered on submodule pointer changes, CI workflow changes, or manually
 
 name: Build Multi-Platform Binaries
 
@@ -7,19 +7,19 @@ on:
   push:
     branches: [main, master]
     paths:
-      - 'src/skill-suggester/src/**'
-      - 'src/skill-suggester/Cargo.toml'
-      - 'src/skill-suggester/Cargo.lock'
+      - '.gitmodules'
       - '.github/workflows/build-binaries.yml'
   workflow_dispatch:
+  repository_dispatch:
+    types: [rust-source-updated]
 
 permissions:
   contents: write
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_SOURCE: src/skill-suggester
-  BIN_DIR: src/skill-suggester/bin
+  RUST_SOURCE: rust/skill-suggester
+  BIN_DIR: bin
 
 jobs:
   # Native macOS builds (cannot use cross for macOS)
@@ -37,6 +37,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -74,6 +76,8 @@ jobs:
             binary: pss-windows-x86_64.exe
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

@@ -73,7 +73,7 @@ def resolve_binary(plugin_root: Path) -> Path:
         name = "pss-linux-arm64"
     else:
         sys.exit(f"ERROR: Unsupported platform: {system}/{machine}")
-    binary = plugin_root / "src" / "skill-suggester" / "bin" / name
+    binary = plugin_root / "bin" / name
     if not binary.exists() or not os.access(binary, os.X_OK):
         sys.exit(f"ERROR: Binary not found or not executable: {binary}")
     return binary

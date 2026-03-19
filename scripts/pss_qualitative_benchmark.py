@@ -33,7 +33,7 @@ from typing import Any
 
 def detect_binary(project_root: Path) -> str:
     """Detect the platform-specific PSS binary path."""
-    bin_dir = project_root / "rust" / "skill-suggester" / "bin"
+    bin_dir = project_root / "bin"
     system = platform.system()
     machine = platform.machine()
     platform_map = {

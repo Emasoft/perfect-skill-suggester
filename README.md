@@ -253,7 +253,7 @@ claude plugin install perfect-skill-suggester@emasoft-plugins
 
 **Solution:** Pre-built binaries are included for all major platforms. If yours is missing:
 ```bash
-cd src/skill-suggester
+cd rust/skill-suggester
 cargo build --release
 # Copy binary to bin/ with appropriate name
 ```
@@ -462,7 +462,7 @@ View current status and test matching.
 
 ### Scoring Weights
 
-Weights are defined in `src/skill-suggester/src/main.rs` in the `MatchWeights` struct. Key values:
+Weights are defined in `rust/skill-suggester/src/main.rs` in the `MatchWeights` struct. Key values:
 
 | Weight | Value | Tier |
 |--------|-------|------|

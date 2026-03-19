@@ -26,13 +26,13 @@ def get_plugin_root() -> Path:
 
 
 def get_rust_dir() -> Path:
-    """Get the Rust project directory."""
-    return get_plugin_root() / "src" / "skill-suggester"
+    """Get the Rust project directory (inside submodule)."""
+    return get_plugin_root() / "rust" / "skill-suggester"
 
 
 def get_bin_dir() -> Path:
-    """Get the binary output directory."""
-    return get_rust_dir() / "bin"
+    """Get the binary output directory (top-level bin/)."""
+    return get_plugin_root() / "bin"
 
 
 def detect_platform() -> tuple[str, str]:

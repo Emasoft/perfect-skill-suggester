@@ -256,7 +256,7 @@ def detect_platform_binary() -> str:
 def find_binary(plugin_root: Path) -> Path:
     """Locate PSS binary relative to plugin root."""
     binary_name = detect_platform_binary()
-    binary_path = plugin_root / "rust" / "skill-suggester" / "bin" / binary_name
+    binary_path = plugin_root / "bin" / binary_name
     if not binary_path.exists():
         raise FileNotFoundError(
             f"PSS binary not found for platform {binary_name}. "

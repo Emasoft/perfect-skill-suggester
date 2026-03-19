@@ -57,7 +57,7 @@ Detect platform binary:
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 case "$ARCH" in x86_64) ARCH="x86_64" ;; arm64|aarch64) ARCH="arm64" ;; esac
-BINARY_PATH="${PLUGIN_ROOT}/src/skill-suggester/bin/pss-${OS}-${ARCH}"
+BINARY_PATH="${PLUGIN_ROOT}/bin/pss-${OS}-${ARCH}"
 ```
 
 Set paths:

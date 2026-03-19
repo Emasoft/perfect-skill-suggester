@@ -36,7 +36,7 @@ The Rust binary uses weighted scoring to generate candidates:
 | Problem | Solution |
 |---------|----------|
 | "Skill index not found" | Run `/pss-reindex-skills` to build the index |
-| "Binary not found" | Build with `cd src/skill-suggester && cargo build --release` |
+| "Binary not found" | Build with `cd rust/skill-suggester && cargo build --release` |
 | "Unsupported platform" | Check `platform.system()` and `platform.machine()` match PLATFORM_MAP |
 | "TOML validation failed" | Read validator errors — common: missing quotes, duplicate skills across tiers |
 | "No candidates returned" | Agent description too vague — add more specific duties and domains |

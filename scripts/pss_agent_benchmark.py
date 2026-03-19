@@ -50,7 +50,7 @@ def detect_binary() -> str:
     """Detect the platform-specific PSS binary path."""
     script_dir = Path(__file__).resolve().parent
     project_root = script_dir.parent
-    bin_dir = project_root / "rust" / "skill-suggester" / "bin"
+    bin_dir = project_root / "bin"
 
     system = platform.system()
     machine = platform.machine()

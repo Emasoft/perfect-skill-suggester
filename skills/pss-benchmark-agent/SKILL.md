@@ -12,10 +12,10 @@ Benchmark protocol for Opus agents competing to improve the PSS scoring engine. 
 
 ## Prerequisites
 
-- Access to the PSS scoring engine source: `src/skill-suggester/src/main.rs`
+- Access to the PSS scoring engine source: `rust/skill-suggester/src/main.rs`
 - Benchmark files: `docs_dev/benchmark-v2-prompts-100.jsonl` and `docs_dev/benchmark-v2-gold-100.json`
 - History file: `docs_dev/methodology-improvement-history.md`
-- Built binary: `cargo build --release` in `src/skill-suggester/`
+- Built binary: `cargo build --release` in `rust/skill-suggester/`
 
 ## Instructions
 
@@ -84,7 +84,7 @@ cargo build --release && uv run scripts/pss_benchmark.py --binary target/release
 
 - `docs_dev/worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections
 - `docs_dev/worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only)
-- Modified `src/skill-suggester/src/main.rs` -- with improvements to the scoring engine
+- Modified `rust/skill-suggester/src/main.rs` -- with improvements to the scoring engine
 
 ## Error Handling
 
@@ -92,7 +92,7 @@ If the benchmark script fails or produces unexpected output, check `docs_dev/met
 
 ## Resources
 
-- `src/skill-suggester/src/main.rs` — scoring engine
+- `rust/skill-suggester/src/main.rs` — scoring engine
 - `docs_dev/benchmark-v2-prompts-100.jsonl` — prompts
 - `docs_dev/benchmark-v2-gold-100.json` — gold standard
 - `docs_dev/methodology-improvement-history.md` — history
