@@ -39,9 +39,10 @@
    binary_name = PLATFORM_MAP.get((system, machine))
    if binary_name is None:
        raise RuntimeError(f"Unsupported platform: {system}/{machine}")
-   BINARY = os.path.join(plugin_root, "src", "skill-suggester", "bin", binary_name)
+   BINARY = os.path.join(plugin_root, "bin", binary_name)
    ```
 7. Extract optional flags from command arguments:
+   - `--fast`: boolean (present or absent) → enables fast mode (skip AI agent)
    - `--interactive`: boolean (present or absent) → pass as `INTERACTIVE=true/false`
    - `--include NAME...`: list of element names to force-include → pass as `INCLUDE_ELEMENTS`
    - `--exclude NAME...`: list of element names to force-exclude → pass as `EXCLUDE_ELEMENTS`
@@ -51,25 +52,62 @@
    - `--domains D...`: domain constraints → pass as `DOMAIN_CONSTRAINTS`
    - `--languages L...`: language constraints → pass as `LANGUAGE_CONSTRAINTS`
    - `--platforms P...`: platform constraints → pass as `PLATFORM_CONSTRAINTS`
-8. Spawn the `pss-agent-profiler` agent using the Task tool
 
-   The profiler agent is MANDATORY — it applies AI reasoning (conflict detection, mutual exclusivity, cross-type coherence, stack compatibility) that no script can replicate. Do NOT attempt to generate `.agent.toml` without an AI agent.
+8. **If `--fast` is set**: Run fast mode (Rust binary only, no AI agent)
 
-The prompt to the agent MUST include:
-- `AGENT_PATH` — the resolved absolute path to the <agent-name>.md file
-- `REQUIREMENTS_PATHS` — the list of requirements file paths (may be empty). When non-empty, the profiler uses two-pass scoring: Pass 1 scores the agent alone, Pass 2 scores requirements separately via the `pss-design-alignment` skill, then cherry-picks by agent specialization
-- `INDEX_PATH` — the path to skill-index.json (`~/.claude/cache/skill-index.json`)
-- `BINARY_PATH` — the absolute path to the Rust binary (resolved in step 6)
-- `OUTPUT_PATH` — the desired output path for the .agent.toml file
-- Instructions to follow the workflow defined in `${CLAUDE_PLUGIN_ROOT}/agents/pss-agent-profiler.md`
-- `INTERACTIVE` — whether interactive mode is enabled (`true/false`)
-- `INCLUDE_ELEMENTS` — list of elements to force-include (from `--include`, may be empty)
-- `EXCLUDE_ELEMENTS` — list of elements to force-exclude (from `--exclude`, may be empty)
-- Tier size overrides if specified (`MAX_PRIMARY`, `MAX_SECONDARY`, `MAX_SPECIALIZED`)
-- Domain/language/platform constraints if specified
+   **Validation**: `--fast` cannot be combined with `--interactive` or `--requirements`. If combined, error:
+   `ERROR: --fast cannot be combined with --interactive or --requirements (those require AI agent)`
 
-**CRITICAL**: Resolve `${CLAUDE_PLUGIN_ROOT}` to an absolute path BEFORE passing to the agent.
+   a. Invoke the Rust binary directly:
+   ```bash
+   "${BINARY}" --agent "${AGENT_PATH}" --format json --top 30
+   ```
+   The binary handles: scoring, mutual exclusivity filtering, non-coding agent detection,
+   auto_skills pinning, co-usage discovery, domain affinity re-ranking, and TOML generation.
+   It outputs the path of the written `.agent.toml` file to stdout.
 
-9. Report the result:
-   - On success: `[DONE] Agent profile written to: <output-path>`
-   - On failure: `[FAILED] <reason>`
+   b. If `--output` was specified, move the generated file to the desired path:
+   ```bash
+   mv "${GENERATED_TOML}" "${OUTPUT_PATH}"
+   ```
+
+   c. Validate the generated TOML:
+   ```bash
+   uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH}" --check-index --verbose
+   ```
+
+   d. Verify element names (anti-hallucination):
+   ```bash
+   uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_verify_profile.py" "${OUTPUT_PATH}" --agent-def "${AGENT_PATH}" --verbose
+   ```
+
+   e. Report result:
+   - On success: `Profile generated (fast mode): <output-path>`
+   - On validation failure: show errors (fast mode has no fix loop — user should re-run without `--fast` for AI-assisted fixes)
+
+9. **If `--fast` is NOT set**: Run AI mode (spawn profiler agent)
+
+   Spawn the `pss-agent-profiler` agent using the Task tool.
+
+   The profiler agent applies AI reasoning (conflict detection, mutual exclusivity, cross-type coherence,
+   stack compatibility) on top of the Rust pre-optimizations. This produces higher-quality profiles
+   but takes significantly longer.
+
+   The prompt to the agent MUST include:
+   - `AGENT_PATH` — the resolved absolute path to the <agent-name>.md file
+   - `REQUIREMENTS_PATHS` — the list of requirements file paths (may be empty)
+   - `INDEX_PATH` — the path to skill-index.json (`~/.claude/cache/skill-index.json`)
+   - `BINARY_PATH` — the absolute path to the Rust binary (resolved in step 6)
+   - `OUTPUT_PATH` — the desired output path for the .agent.toml file
+   - Instructions to follow the workflow defined in `${CLAUDE_PLUGIN_ROOT}/agents/pss-agent-profiler.md`
+   - `INTERACTIVE` — whether interactive mode is enabled (`true/false`)
+   - `INCLUDE_ELEMENTS` — list of elements to force-include (from `--include`, may be empty)
+   - `EXCLUDE_ELEMENTS` — list of elements to force-exclude (from `--exclude`, may be empty)
+   - Tier size overrides if specified (`MAX_PRIMARY`, `MAX_SECONDARY`, `MAX_SPECIALIZED`)
+   - Domain/language/platform constraints if specified
+
+   **CRITICAL**: Resolve `${CLAUDE_PLUGIN_ROOT}` to an absolute path BEFORE passing to the agent.
+
+10. Report the result:
+    - On success: `[DONE] Agent profile written to: <output-path>`
+    - On failure: `[FAILED] <reason>`
