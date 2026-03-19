@@ -500,12 +500,37 @@ def build_binaries(dry_run: bool, force_build: bool = False) -> None:
 
 
 def git_commit(old: str, new: str) -> None:
-    """Stage versioned files and commit."""
+    """Stage versioned files and commit.
+
+    Handles Cargo.toml inside the rust/ git submodule: commits the version
+    bump inside the submodule first, then stages the submodule ref in the
+    parent repo alongside the other version files.
+    """
     info("Committing changes...")
 
+    # -- Submodule handling: Cargo.toml lives inside rust/ submodule --
+    rust_submodule = ROOT / "rust"
+    cargo_is_submodule = (rust_submodule / ".git").exists()
+
+    if cargo_is_submodule:
+        # Commit Cargo.toml version bump inside the submodule
+        info("  Committing Cargo.toml inside rust/ submodule...")
+        result = run(
+            ["git", "-C", str(rust_submodule), "add", str(CARGO_TOML)],
+        )
+        if result.returncode != 0:
+            fatal(f"submodule git add failed: {result.stderr.strip()}")
+        sub_msg = f"bump: version {old} \u2192 {new}"
+        result = run(
+            ["git", "-C", str(rust_submodule), "commit", "-m", sub_msg],
+        )
+        if result.returncode != 0:
+            fatal(f"submodule git commit failed: {result.stderr.strip()}")
+        success("  Submodule rust/ committed.")
+
+    # -- Parent repo: stage version files --
     files_to_add = [
         str(VERSION_FILE),
-        str(CARGO_TOML),
         str(PLUGIN_JSON),
         str(PYPROJECT_TOML),
         str(README_MD),
@@ -515,6 +540,12 @@ def git_commit(old: str, new: str) -> None:
         files_to_add.append(str(CHANGELOG_MD))
     if BIN_DIR.exists():
         files_to_add.append(str(BIN_DIR))
+
+    # Stage the submodule ref (updated commit pointer) instead of Cargo.toml directly
+    if cargo_is_submodule:
+        files_to_add.append(str(rust_submodule))
+    else:
+        files_to_add.append(str(CARGO_TOML))
 
     result = run(["git", "add"] + files_to_add)
     if result.returncode != 0:
@@ -539,8 +570,21 @@ def git_tag(new: str) -> None:
 
 
 def git_push() -> None:
-    """Push commits and tags to remote. Never skips pre-push hook."""
+    """Push commits and tags to remote. Never skips pre-push hook.
+
+    Also pushes the rust/ submodule if it exists, so the parent repo's
+    submodule ref stays resolvable on the remote.
+    """
     info("Pushing to remote...")
+
+    # Push rust/ submodule first (so parent's ref is resolvable on remote)
+    rust_submodule = ROOT / "rust"
+    if (rust_submodule / ".git").exists():
+        info("  Pushing rust/ submodule...")
+        result = run(["git", "-C", str(rust_submodule), "push"])
+        if result.returncode != 0:
+            fatal(f"submodule push failed: {result.stderr.strip()}")
+        success("  Submodule rust/ pushed.")
 
     result = run(["git", "push"])
     if result.returncode != 0:

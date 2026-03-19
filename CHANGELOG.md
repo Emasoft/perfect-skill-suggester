@@ -2,11 +2,22 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.5.0] - 2026-03-19
+
+### Refactor
+
+- Move Rust source to git submodule, binaries to top-level bin/
+- Update all path references for bin/ and rust/ submodule structure
+
 ## [2.4.11] - 2026-03-18
 
 ### Bug Fixes
 
 - Audit fixes — error handling, dead code removal, documentation gaps
+
+### Bump
+
+- Version 2.4.10 → 2.4.11
 
 ## [2.4.10] - 2026-03-18
 
