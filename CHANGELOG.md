@@ -2,12 +2,22 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.5.1] - 2026-03-19
+
+### Bug Fixes
+
+- Correct Cargo workspace target paths after submodule migration
+
 ## [2.5.0] - 2026-03-19
 
 ### Refactor
 
 - Move Rust source to git submodule, binaries to top-level bin/
 - Update all path references for bin/ and rust/ submodule structure
+
+### Bump
+
+- Version 2.4.11 → 2.5.0
 
 ## [2.4.11] - 2026-03-18
 
