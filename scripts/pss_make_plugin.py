@@ -242,7 +242,7 @@ def generate_readme(
         "",
         f"- **Date**: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
         f"- **Source profile**: `{agent_name}.agent.toml`",
-        f"- **Generator**: PSS `/pss-make-plugin-from-profile`",
+        "- **Generator**: PSS `/pss-make-plugin-from-profile`",
         "",
     ])
 
@@ -271,7 +271,7 @@ def main():
 
     # Check output doesn't already have a plugin
     if (output_dir / ".claude-plugin").exists():
-        print(f"ERROR: Output directory already contains .claude-plugin/. Use a fresh directory.", file=sys.stderr)
+        print("ERROR: Output directory already contains .claude-plugin/. Use a fresh directory.", file=sys.stderr)
         sys.exit(1)
 
     # Load profile
@@ -384,13 +384,7 @@ def main():
         for name in mcp_names:
             path = resolve_element_path(name, index)
             if path and Path(path).exists():
-                # Try to read MCP config from the element's source
-                try:
-                    content = Path(path).read_text()
-                    # Look for .mcp.json reference in the content
-                    mcp_configs[name] = {"comment": f"MCP server: {name} — configure manually"}
-                except OSError:
-                    pass
+                mcp_configs[name] = {"comment": f"MCP server: {name} — configure manually"}
             mcp_configs[name] = {"comment": f"MCP server: {name} — configure in .mcp.json"}
         if mcp_configs:
             mcp_json = {"mcpServers": {}}
@@ -417,7 +411,7 @@ def main():
     with open(output_dir / ".claude-plugin" / "plugin.json", "w") as f:
         json.dump(manifest, f, indent=2)
         f.write("\n")
-    print(f"  ✓ .claude-plugin/plugin.json")
+    print("  ✓ .claude-plugin/plugin.json")
 
     # Copy the .agent.toml itself for reference
     shutil.copy2(profile_path, output_dir / profile_path.name)
@@ -427,7 +421,7 @@ def main():
     readme = generate_readme(plugin_name, agent_name, description, profile, stats)
     with open(output_dir / "README.md", "w") as f:
         f.write(readme)
-    print(f"  ✓ README.md")
+    print("  ✓ README.md")
 
     # Summary
     total = sum(stats.values())
