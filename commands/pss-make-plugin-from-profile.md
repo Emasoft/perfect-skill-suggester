@@ -48,6 +48,9 @@ uv run "$PLUGIN_ROOT/scripts/pss_make_plugin.py" "<profile-path>" --output "<out
 <plugin-name>/
 ├── .claude-plugin/
 │   └── plugin.json          # Generated from agent metadata
+├── .claude/
+│   └── rules/               # Rules (auto-loaded by Claude Code)
+│       └── <rule-name>.md
 ├── agents/
 │   └── <agent-name>.md      # The agent definition (copied from [agent].path)
 ├── skills/

@@ -153,12 +153,13 @@ def generate_plugin_json(
     agent_name: str,
     description: str,
     profile: dict,
+    version: str = "0.1.0",
 ) -> dict:
     """Generate the plugin.json manifest."""
     manifest = {
         "name": plugin_name,
         "description": description,
-        "version": "1.0.0",
+        "version": version,
         "author": {
             "name": os.environ.get("GIT_AUTHOR", os.environ.get("USER", "Unknown")),
         },
@@ -353,10 +354,11 @@ def main():
             else:
                 print(f"  ✗ command: {name} — not found in index", file=sys.stderr)
 
-    # Copy rules
+    # Copy rules — placed in .claude/rules/ per Anthropic convention
+    # (rules are auto-loaded from .claude/rules/ at project level)
     if rule_names:
-        rules_dir = output_dir / "rules"
-        rules_dir.mkdir(exist_ok=True)
+        rules_dir = output_dir / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
         for name in rule_names:
             path = resolve_element_path(name, index)
             if path:
