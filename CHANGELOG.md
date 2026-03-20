@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.7.3] - 2026-03-20
+
+### Bug Fixes
+
+- Constant-time scoring regardless of prompt size
+
+### Miscellaneous Tasks
+
+- Update uv.lock
+
 ## [2.7.2] - 2026-03-19
 
 ### Features
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update uv.lock
+
+### Bump
+
+- Version 2.7.1 → 2.7.2
 
 ## [2.7.1] - 2026-03-19
 
