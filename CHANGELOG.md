@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.8.3] - 2026-03-20
+
+### Bug Fixes
+
+- Plugin rules via SessionStart/SessionEnd hook symlinks
+
 ## [2.8.2] - 2026-03-20
 
 ### Bug Fixes
@@ -11,6 +17,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update uv.lock
+
+### Bump
+
+- Version 2.8.1 → 2.8.2
 
 ## [2.8.1] - 2026-03-20
 
