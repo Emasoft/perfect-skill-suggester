@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.8.1] - 2026-03-20
+
+### Bug Fixes
+
+- Audit fixes — perf regression hoisted, profiler 1.6s → 1.0s
+
+### Miscellaneous Tasks
+
+- Update uv.lock
+
 ## [2.8.0] - 2026-03-20
 
 ### Bug Fixes
@@ -16,6 +26,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update uv.lock
+
+### Bump
+
+- Version 2.7.3 → 2.8.0
 
 ## [2.7.3] - 2026-03-20
 
