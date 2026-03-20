@@ -15,14 +15,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    import tomllib  # Python 3.11+
-except ImportError:
-    try:
-        import tomli as tomllib  # Fallback for older Python
-    except ImportError:
-        print("ERROR: Python 3.11+ required (for tomllib), or install tomli: pip install tomli", file=sys.stderr)
-        sys.exit(1)
+import tomllib  # Python 3.11+ (required)
 
 
 def load_profile(profile_path: Path) -> dict:
