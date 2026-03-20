@@ -2,6 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.8.0] - 2026-03-20
+
+### Bug Fixes
+
+- Lint fixes in pss_make_plugin.py
+- Remove tomli fallback (require Python 3.11+)
+
+### Features
+
+- /pss-make-plugin-from-profile command
+
+### Miscellaneous Tasks
+
+- Update uv.lock
+
 ## [2.7.3] - 2026-03-20
 
 ### Bug Fixes
@@ -11,6 +26,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update uv.lock
+
+### Bump
+
+- Version 2.7.2 → 2.7.3
 
 ## [2.7.2] - 2026-03-19
 
