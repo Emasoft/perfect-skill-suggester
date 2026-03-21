@@ -2,11 +2,25 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.8.4] - 2026-03-21
+
+### Features
+
+- Add [description], [output_styles] sections and expand [dependencies] in .agent.toml schema
+
+### Miscellaneous Tasks
+
+- Update rust submodule (schema output changes)
+
 ## [2.8.3] - 2026-03-20
 
 ### Bug Fixes
 
 - Plugin rules via SessionStart/SessionEnd hook symlinks
+
+### Bump
+
+- Version 2.8.2 → 2.8.3
 
 ## [2.8.2] - 2026-03-20
 
