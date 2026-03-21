@@ -46,6 +46,18 @@
       },
       "additionalProperties": false
     },
+    "description": {
+      "type": "object",
+      "description": "Human-readable description of the agent role, used for plugin.json and README generation",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Description of the role-plugin for README and plugin.json",
+          "default": ""
+        }
+      },
+      "additionalProperties": false
+    },
     "requirements": {
       "type": "object",
       "description": "Design requirements context used for profiling (empty if none provided)",
@@ -183,6 +195,19 @@
       },
       "additionalProperties": false
     },
+    "output_styles": {
+      "type": "object",
+      "description": "Output formatting styles for this agent",
+      "properties": {
+        "recommended": {
+          "type": "array",
+          "description": "Output style names that customize this agent's output formatting",
+          "items": { "type": "string" },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
     "dependencies": {
       "type": "object",
       "description": "External plugins, skills, or tools required for this agent to function. Used to validate that prerequisites are installed before creating the agent from the TOML.",
@@ -222,6 +247,42 @@
           "description": "Hook configurations that must be installed globally (e.g., hook names from settings.json)",
           "items": { "type": "string" },
           "default": []
+        },
+        "rules": {
+          "type": "array",
+          "description": "Rule names that must be available",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "agents": {
+          "type": "array",
+          "description": "Agent names that must be available",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "commands": {
+          "type": "array",
+          "description": "Command names that must be available",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "lsp_servers": {
+          "type": "array",
+          "description": "LSP server names that must be configured",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "output_styles": {
+          "type": "array",
+          "description": "Output style names that must be available",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "frameworks": {
+          "type": "array",
+          "description": "Frameworks that must be installed (e.g., 'django', 'react')",
+          "items": { "type": "string" },
+          "default": []
         }
       },
       "additionalProperties": false
@@ -235,6 +296,9 @@
         "name": "security-auditor",
         "source": "path",
         "path": "/path/to/agents/security-auditor.md"
+      },
+      "description": {
+        "text": "Security auditor agent that performs vulnerability scanning, code review, and compliance checks"
       },
       "requirements": {
         "files": ["prd.md", "tech-spec.md"],
@@ -255,13 +319,17 @@
       "mcp": { "recommended": ["chrome-devtools"] },
       "hooks": { "recommended": [] },
       "lsp": { "recommended": ["pyright-lsp"] },
-      "dependencies": { "plugins": [], "skills": [], "mcp_servers": ["chrome-devtools"], "tools": ["gh"], "scripts": [], "hooks": [] }
+      "output_styles": { "recommended": [] },
+      "dependencies": { "plugins": [], "skills": [], "mcp_servers": ["chrome-devtools"], "tools": ["gh"], "scripts": [], "hooks": [], "rules": [], "agents": [], "commands": [], "lsp_servers": [], "output_styles": [], "frameworks": [] }
     },
     {
       "agent": {
         "name": "frontend-developer",
         "source": "plugin:multi-platform-apps",
         "path": "~/.claude/plugins/cache/abc/multi-platform-apps/1.0/agents/frontend-developer.md"
+      },
+      "description": {
+        "text": "Frontend developer agent specialized in React/Next.js web applications with TypeScript and Tailwind CSS"
       },
       "requirements": {
         "files": ["prd.md", "design-system.md"],
@@ -285,7 +353,8 @@
       "mcp": { "recommended": ["chrome-devtools"] },
       "hooks": { "recommended": [] },
       "lsp": { "recommended": ["typescript-lsp"] },
-      "dependencies": { "plugins": [], "skills": [], "mcp_servers": ["chrome-devtools"], "tools": ["bun", "gh"], "scripts": [], "hooks": [] }
+      "output_styles": { "recommended": [] },
+      "dependencies": { "plugins": [], "skills": [], "mcp_servers": ["chrome-devtools"], "tools": ["bun", "gh"], "scripts": [], "hooks": [], "rules": [], "agents": [], "commands": [], "lsp_servers": [], "output_styles": [], "frameworks": [] }
     }
   ]
 }

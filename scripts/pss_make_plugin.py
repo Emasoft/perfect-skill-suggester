@@ -350,6 +350,10 @@ def main():
     agent_path = agent_section.get("path", "")
     plugin_name = args.name or agent_name
 
+    # Quad-match check: plugin name should match agent name for AI Maestro compatibility
+    if plugin_name != agent_name:
+        print(f"WARNING: Plugin name '{plugin_name}' differs from agent name '{agent_name}'. AI Maestro requires these to match.", file=sys.stderr)
+
     # Validate plugin name is kebab-case
     if not re.match(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", plugin_name):
         print(f"ERROR: Plugin name must be kebab-case: '{plugin_name}'", file=sys.stderr)
@@ -376,7 +380,7 @@ def main():
     (output_dir / ".claude-plugin").mkdir(exist_ok=True)
 
     # Track stats for README
-    stats = {"skills": 0, "agents": 0, "commands": 0, "rules": 0, "mcp": 0}
+    stats = {"skills": 0, "agents": 0, "commands": 0, "rules": 0, "mcp": 0, "output_styles": 0}
 
     # Copy skills
     if all_skill_names:
@@ -440,6 +444,20 @@ def main():
                     print(f"  ✓ rule: {name} (from user rules)")
                 else:
                     print(f"  ✗ rule: {name} — not found", file=sys.stderr)
+
+    # Copy output styles to plugin's output-styles/ dir
+    output_style_names = profile.get("output_styles", {}).get("recommended", [])
+    if output_style_names:
+        output_styles_dir = output_dir / "output-styles"
+        output_styles_dir.mkdir(exist_ok=True)
+        for name in output_style_names:
+            path = resolve_element_path(name, index)
+            if path and Path(path).exists():
+                shutil.copy2(Path(path), output_styles_dir / Path(path).name)
+                stats["output_styles"] += 1
+                print(f"  ✓ output-style: {name}")
+            else:
+                print(f"  ✗ output-style: {name} — not found in index", file=sys.stderr)
 
     # Generate MCP config from index metadata
     if mcp_names:
@@ -505,7 +523,9 @@ def main():
         print("  ✓ hooks/hooks.json")
 
     # Generate plugin.json
-    description = f"Plugin for {agent_name} agent — auto-generated from .agent.toml profile"
+    # Use [description].text from profile if available, otherwise generate default
+    desc_section = profile.get("description", {})
+    description = desc_section.get("text", "").strip() or f"Plugin for {agent_name} agent — auto-generated from .agent.toml profile"
     manifest = generate_plugin_json(plugin_name, agent_name, description, profile)
     with open(output_dir / ".claude-plugin" / "plugin.json", "w") as f:
         json.dump(manifest, f, indent=2)
