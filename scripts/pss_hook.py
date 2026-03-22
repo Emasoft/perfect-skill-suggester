@@ -26,9 +26,7 @@ from typing import Any
 # Configuration
 MAX_SUGGESTIONS = 4  # Maximum skill suggestions per message
 MIN_SCORE = 0.5  # Minimum score threshold
-SUBPROCESS_TIMEOUT = (
-    4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
-)
+SUBPROCESS_TIMEOUT = 4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
 SKILL_INDEX_FILE = "skill-index.json"
 # Prompt length cap for the Rust binary — the scorer only needs the first few
 # thousand chars to determine intent.  Piping 100KB+ prompts causes timeouts
@@ -345,6 +343,33 @@ def augment_prompt_with_context(prompt: str, transcript_path: str) -> str:
     return prompt_stripped
 
 
+def _strip_system_reminders(text: str) -> str:
+    """Remove <system-reminder>...</system-reminder> blocks using str.find().
+
+    O(n) with no regex backtracking — critical for 200KB+ prompts where
+    re.sub with re.DOTALL causes >1s overhead.
+    """
+    open_tag = "<system-reminder>"
+    close_tag = "</system-reminder>"
+    open_len = len(open_tag)
+    close_len = len(close_tag)
+
+    parts: list[str] = []
+    pos = 0
+    while pos < len(text):
+        start = text.find(open_tag, pos)
+        if start == -1:
+            parts.append(text[pos:])
+            break
+        if start > pos:
+            parts.append(text[pos:start])
+        end = text.find(close_tag, start + open_len)
+        if end == -1:
+            break  # Unclosed tag — discard rest (contains system content)
+        pos = end + close_len
+    return "".join(parts).strip()
+
+
 def should_skip_prompt(prompt: str) -> bool:
     """Check if this prompt should skip skill suggestion."""
     if not prompt:
@@ -419,9 +444,7 @@ def detect_platform() -> str:
         return "pss-windows-x86_64.exe"
 
     # Unsupported platform
-    raise RuntimeError(
-        f"Unsupported platform: {system} {machine}. Supported: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64, windows-x86_64. Build from source for other platforms."
-    )
+    raise RuntimeError(f"Unsupported platform: {system} {machine}. Supported: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64, windows-x86_64. Build from source for other platforms.")
 
 
 def find_binary() -> Path:
@@ -433,9 +456,7 @@ def find_binary() -> Path:
     binary_path = script_dir.parent / "bin" / binary_name
 
     if not binary_path.exists():
-        raise FileNotFoundError(
-            f"PSS binary not found at: {binary_path}. Build it with: uv run python {script_dir / 'pss_build.py'}"
-        )
+        raise FileNotFoundError(f"PSS binary not found at: {binary_path}. Build it with: uv run python {script_dir / 'pss_build.py'}")
 
     return binary_path
 
@@ -500,9 +521,7 @@ def _maybe_auto_reindex(index_path: Path) -> None:
     script_dir = Path(__file__).parent.resolve()
     reindex_script = script_dir / "pss_reindex.py"
     if not reindex_script.exists():
-        _exit_warning(
-            f"skill-index.json not found and reindex script missing at {reindex_script} — run /pss-reindex-skills manually"
-        )
+        _exit_warning(f"skill-index.json not found and reindex script missing at {reindex_script} — run /pss-reindex-skills manually")
         return
 
     try:
@@ -522,9 +541,7 @@ def _maybe_auto_reindex(index_path: Path) -> None:
             proc.kill()
             _exit_warning("skill index not found — auto-reindex already in progress")
             return
-        _exit_warning(
-            "skill index not found — auto-reindex started, suggestions available shortly"
-        )
+        _exit_warning("skill index not found — auto-reindex started, suggestions available shortly")
     except OSError as e:
         _exit_warning(f"skill-index.json not found, auto-reindex failed: {e}")
 
@@ -533,9 +550,7 @@ def main() -> None:
     """Main entry point - read stdin, call binary, output result."""
     try:
         # Read JSON input from stdin
-        stdin_data = sys.stdin.read(
-            1_048_576
-        )  # 1MB cap to prevent memory exhaustion from oversized input
+        stdin_data = sys.stdin.read(1_048_576)  # 1MB cap to prevent memory exhaustion from oversized input
 
         # Parse input to check if we should skip
         input_json: dict[str, Any] = {}
@@ -597,16 +612,11 @@ def main() -> None:
             _exit_warning(str(e))
             return
 
-        # Strip <system-reminder>...</system-reminder> blocks from the prompt before
-        # processing — these are injected by Claude Code (hook context, file change
-        # notifications, skill lists, etc.) and can be 50KB+.  They contain no user
-        # intent and bloat the prompt beyond the binary's 4s timeout.
-        clean_prompt = re.sub(
-            r"<system-reminder>.*?</system-reminder>",
-            "",
-            prompt,
-            flags=re.DOTALL,
-        ).strip()
+        # Strip <system-reminder>...</system-reminder> blocks from the prompt.
+        # These are injected by Claude Code (file change notifications, skill lists,
+        # etc.) and can be 200KB+.  Using str.find() instead of regex — regex with
+        # re.DOTALL on 200KB+ causes >1s overhead that contributes to the 4s timeout.
+        clean_prompt = _strip_system_reminders(prompt)
         if not clean_prompt:
             _exit_empty()
             return
@@ -645,9 +655,7 @@ def main() -> None:
             # User-visible notification only in --debug mode (silent otherwise)
             if _is_debug_mode():
                 try:
-                    ctx = (hook_out.get("hookSpecificOutput") or {}).get(
-                        "additionalContext", ""
-                    )
+                    ctx = (hook_out.get("hookSpecificOutput") or {}).get("additionalContext", "")
                     if ctx:
                         # Extract "name [type]" pairs from SUGGESTED lines
                         names = re.findall(r"SUGGESTED:\s+(.+?)\s+\[(\w+)\]", ctx)
@@ -663,16 +671,12 @@ def main() -> None:
             print(json.dumps(hook_out))
         else:
             build_script = Path(__file__).parent / "pss_build.py"
-            _exit_warning(
-                f"binary exited with code {result.returncode}: {result.stderr[:300]}. Try rebuilding: uv run python {build_script}"
-            )
+            _exit_warning(f"binary exited with code {result.returncode}: {result.stderr[:300]}. Try rebuilding: uv run python {build_script}")
 
         sys.exit(0)  # Always exit 0 to not block Claude
 
     except subprocess.TimeoutExpired:
-        _exit_warning(
-            f"binary timed out after {SUBPROCESS_TIMEOUT}s. The skill index may be too large or the binary may be stuck. Check: uv run python {Path(__file__).parent / 'pss_test_e2e.py'}"
-        )
+        _exit_warning(f"binary timed out after {SUBPROCESS_TIMEOUT}s. The skill index may be too large or the binary may be stuck. Check: uv run python {Path(__file__).parent / 'pss_test_e2e.py'}")
     except Exception as e:
         _exit_warning(str(e))
 
