@@ -388,20 +388,17 @@ def should_skip_prompt(prompt: str) -> bool:
         return True
 
     # Skip system-generated prompts (task notifications, session continuations,
-    # hook outputs, release notes, local commands).  These are often 50KB+ and
-    # don't represent user intent that needs skill suggestions.
-    if "<task-notification>" in prompt:
+    # hook outputs, release notes, local commands).
+    # NOTE: system-reminder blocks are already stripped before this function is
+    # called, so we only check for other system tags in the clean prompt.
+    if "<task-notification>" in prompt_stripped:
         return True
-    if "<local-command-caveat>" in prompt:
+    if "<local-command-caveat>" in prompt_stripped:
         return True
-    if "<local-command-stdout>" in prompt:
-        return True
-    # Session continuation summaries start with a system-reminder containing the
-    # full prior conversation context — skip these entirely
-    if prompt_stripped.startswith("<system-reminder>"):
+    if "<local-command-stdout>" in prompt_stripped:
         return True
     # Claude Code release notes pasted by /release-notes command
-    if prompt_stripped.startswith("Version ") and "\n• " in prompt[:500]:
+    if prompt_stripped.startswith("Version ") and "\n• " in prompt_stripped[:500]:
         return True
 
     return False
@@ -576,8 +573,17 @@ def main() -> None:
             _exit_empty()
             return  # unreachable but satisfies type checker
 
-        # Skip prompts that don't need skill suggestions (BEFORE any file I/O)
-        if should_skip_prompt(prompt):
+        # Strip system-reminders FIRST — they can be 200KB+ and must be removed
+        # before any string scanning (should_skip_prompt, augmentation, etc.).
+        # Using str.find() loop, not regex — regex re.DOTALL on 200KB+ causes >1s.
+        clean_prompt = _strip_system_reminders(prompt)
+        if not clean_prompt:
+            _exit_empty()
+            return
+
+        # Skip prompts that don't need skill suggestions (BEFORE any file I/O).
+        # Now runs on the clean (small) prompt, not the raw 200KB+ one.
+        if should_skip_prompt(clean_prompt):
             _exit_empty()
             return
 
@@ -612,19 +618,18 @@ def main() -> None:
             _exit_warning(str(e))
             return
 
-        # Strip <system-reminder>...</system-reminder> blocks from the prompt.
-        # These are injected by Claude Code (file change notifications, skill lists,
-        # etc.) and can be 200KB+.  Using str.find() instead of regex — regex with
-        # re.DOTALL on 200KB+ causes >1s overhead that contributes to the 4s timeout.
-        clean_prompt = _strip_system_reminders(prompt)
-        if not clean_prompt:
-            _exit_empty()
-            return
-
         # Augment prompt with previous user message for conversational context
         # (Rust binary handles all project/domain/tool/file-type detection itself)
-        input_json["prompt"] = augment_prompt_with_context(clean_prompt, transcript_path)
-        augmented_stdin = json.dumps(input_json)
+        augmented_prompt = augment_prompt_with_context(clean_prompt, transcript_path)
+
+        # Build minimal JSON for the binary — only fields it needs (prompt, cwd,
+        # transcriptPath). Avoids re-serializing 200KB+ of other hook input fields.
+        binary_input = {
+            "prompt": augmented_prompt,
+            "cwd": cwd,
+            "transcriptPath": transcript_path,
+        }
+        augmented_stdin = json.dumps(binary_input)
 
         # Call the binary with --format hook, --top to limit count,
         # --min-score to filter low quality matches.
