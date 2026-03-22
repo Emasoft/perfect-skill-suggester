@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.8.5] - 2026-03-22
+
+### Miscellaneous Tasks
+
+- Update uv.lock and rust submodule
+
+### Performance
+
+- Replace regex with str.find() for system-reminder stripping
+
 ## [2.8.4] - 2026-03-21
 
 ### Features
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update rust submodule (schema output changes)
+
+### Bump
+
+- Version 2.8.3 → 2.8.4
 
 ## [2.8.3] - 2026-03-20
 
