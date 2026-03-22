@@ -66,3 +66,4 @@ llm_externalizer_output/
 # Deprecated files (moved to *_dev/ folders)
 # pss_release.py → scripts_dev/ (superseded by pss_ship.py)
 # requirements.txt → docs_dev/ (superseded by pyproject.toml + uv)
+.rechecker/
