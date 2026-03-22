@@ -2,6 +2,17 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.8.6] - 2026-03-22
+
+### Miscellaneous Tasks
+
+- Update changelog and uv.lock
+- Gitignore .rechecker/
+
+### Performance
+
+- Strip system-reminders before should_skip_prompt, minimize binary stdin
+
 ## [2.8.5] - 2026-03-22
 
 ### Miscellaneous Tasks
@@ -11,6 +22,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Performance
 
 - Replace regex with str.find() for system-reminder stripping
+
+### Bump
+
+- Version 2.8.4 → 2.8.5
 
 ## [2.8.4] - 2026-03-21
 
@@ -146,13 +161,8 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 ### Bump
 
-- Version 2.6.0 → 2.7.0
-
-## [2.6.0] - 2026-03-19
-
-### Bump
-
 - Version 2.5.3 → 2.6.0
+- Version 2.6.0 → 2.7.0
 
 ## [2.5.3] - 2026-03-19
 
@@ -839,6 +849,8 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Features
 
 - Add interactive review & refinement to agent profiler (Step 8b)
+- Add interactive review & refinement to agent profiler
+- Add interactive review & refinement to agent profiler
 
 ### Bump
 
@@ -1134,7 +1146,6 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Bump
 
 - Version 2.2.4 → 2.2.5
-- Version 2.2.5 → 2.3.2
 
 ### Release
 
@@ -1263,60 +1274,6 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 - Bump version to 2.1.0, update changelog and readme
 
-## [2.2.1] - 2026-02-28
-
-### Bump
-
-- Version 2.2.0 → 2.2.1
-
-## [2.2.0] - 2026-02-28
-
-### Bump
-
-- Version 2.1.0 → 2.2.0
-
-## [2.1.0] - 2026-02-27
-
-### Bump
-
-- Version 1.9.5 → 2.1.0
-
-## [1.9.5] - 2026-02-15
-
-### Bump
-
-- Version 1.9.4 → 1.9.5
-
-## [1.9.4] - 2026-02-15
-
-### Bump
-
-- Version 1.9.3 → 1.9.4
-
-## [1.9.3] - 2026-02-15
-
-### Bump
-
-- Version 1.9.2 → 1.9.3
-
-## [1.9.2] - 2026-02-15
-
-### Bump
-
-- Version 1.9.1 → 1.9.2
-
-## [1.9.1] - 2026-02-14
-
-### Bump
-
-- Version 1.9.0 → 1.9.1
-
-## [1.9.0] - 2026-02-13
-
-### Bump
-
-- Version 1.6.1 → 1.9.0
-
 ## [1.6.1] - 2026-02-08
 
 ### Bug Fixes
@@ -1357,9 +1314,7 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 - Trigger marketplace pipeline
 
-## [1.5.0] - 2026-02-01
-
-### Features
+### V1.5.0
 
 - Dewey-like domain classification + dynamic tool catalog
 
