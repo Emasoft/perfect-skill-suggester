@@ -40,7 +40,7 @@
    binary_name = PLATFORM_MAP.get((system, machine))
    if binary_name is None:
        raise RuntimeError(f"Unsupported platform: {system}/{machine}")
-   BINARY = os.path.join(plugin_root, "src", "skill-suggester", "bin", binary_name)
+   BINARY = os.path.join(plugin_root, "bin", binary_name)
    ```
 8. Spawn the `pss-agent-profiler` agent with a CHANGE MODE prompt.
 

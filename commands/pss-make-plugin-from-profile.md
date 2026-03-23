@@ -38,7 +38,8 @@ The generated plugin contains **copies** of all referenced elements (skills, age
 Run the Python generator script:
 
 ```bash
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(uv run python3 -c "from pathlib import Path; dirs=[d for d in (Path.home()/'.claude/plugins/cache/emasoft-plugins/perfect-skill-suggester').iterdir() if d.is_dir()]; print(sorted(dirs,key=lambda p:tuple(int(x) for x in p.name.split('.')))[-1])")}"
+if [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then echo "ERROR: CLAUDE_PLUGIN_ROOT is not set." >&2; exit 1; fi
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
 uv run "$PLUGIN_ROOT/scripts/pss_make_plugin.py" "<profile-path>" --output "<output-path>" [--name "<plugin-name>"]
 ```
 
