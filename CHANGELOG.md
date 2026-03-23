@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.8.7] - 2026-03-23
+
+### Bug Fixes
+
+- Wrong binary path, missing allowed-tools, fragile PLUGIN_ROOT fallback
+
+### Miscellaneous Tasks
+
+- Update gitignore and uv.lock
+
 ## [2.8.6] - 2026-03-22
 
 ### Miscellaneous Tasks
@@ -12,6 +22,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Performance
 
 - Strip system-reminders before should_skip_prompt, minimize binary stdin
+
+### Bump
+
+- Version 2.8.5 → 2.8.6
 
 ## [2.8.5] - 2026-03-22
 
