@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 # Configuration
-MAX_SUGGESTIONS = 4  # Maximum skill suggestions per message
+MAX_SUGGESTIONS = 5  # Maximum skill suggestions per message (one line each)
 MIN_SCORE = 0.5  # Minimum score threshold
 SUBPROCESS_TIMEOUT = 4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
 SKILL_INDEX_FILE = "skill-index.json"
@@ -662,8 +662,8 @@ def main() -> None:
                 try:
                     ctx = (hook_out.get("hookSpecificOutput") or {}).get("additionalContext", "")
                     if ctx:
-                        # Extract "name [type]" pairs from SUGGESTED lines
-                        names = re.findall(r"SUGGESTED:\s+(.+?)\s+\[(\w+)\]", ctx)
+                        # Extract "name [type]" pairs from compact format lines
+                        names = re.findall(r"^\s+(.+?)\s+\[(\w+)\]", ctx, re.MULTILINE)
                         if names:
                             # Names in bold bright green, types in dim green, wrapped in guillemets
                             parts = [f"\033[1;92m{n}\033[0;32m ({t})" for n, t in names]
