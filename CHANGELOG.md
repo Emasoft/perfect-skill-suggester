@@ -2,6 +2,14 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.1] - 2026-03-25
+
+### Miscellaneous Tasks
+
+- Remove .serena/ from gitignore
+- Track .serena/ project config
+- Update uv.lock and rust submodule
+
 ## [2.9.0] - 2026-03-25
 
 ### Features
@@ -11,6 +19,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Gitignore .serena/
+
+### Bump
+
+- Version 2.8.7 → 2.9.0
 
 ## [2.8.7] - 2026-03-23
 
