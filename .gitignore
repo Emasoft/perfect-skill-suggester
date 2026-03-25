@@ -69,5 +69,5 @@ llm_externalizer_output/
 .rechecker/
 # TLDR artifacts (added by rechecker)
 .tldr_session_*
-.serena/
+
 rck-*-merge-pending.md
