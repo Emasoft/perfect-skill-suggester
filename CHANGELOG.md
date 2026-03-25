@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.0] - 2026-03-25
+
+### Features
+
+- Merge 3 worktree branches — scoring improvements, infrastructure queries, name affinity boost
+
+### Miscellaneous Tasks
+
+- Gitignore .serena/
+
 ## [2.8.7] - 2026-03-23
 
 ### Bug Fixes
@@ -11,6 +21,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 ### Miscellaneous Tasks
 
 - Update gitignore and uv.lock
+
+### Bump
+
+- Version 2.8.6 → 2.8.7
 
 ## [2.8.6] - 2026-03-22
 
