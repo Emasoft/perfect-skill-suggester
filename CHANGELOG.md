@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.2] - 2026-03-25
+
+### Features
+
+- Compact skills-only hook output (5 lines max)
+
 ## [2.9.1] - 2026-03-25
 
 ### Miscellaneous Tasks
@@ -9,6 +15,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 - Remove .serena/ from gitignore
 - Track .serena/ project config
 - Update uv.lock and rust submodule
+
+### Bump
+
+- Version 2.9.0 → 2.9.1
 
 ## [2.9.0] - 2026-03-25
 
