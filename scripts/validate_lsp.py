@@ -33,7 +33,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from cpv_validation_common import COLORS, VALID_PLUGIN_ENV_VARS, ValidationReport, save_report_and_print_summary
+from cpv_validation_common import (
+    COLORS,
+    VALID_PLUGIN_ENV_VARS,
+    ValidationReport,
+    save_report_and_print_summary,
+)
 
 # Known LSP server configuration fields
 KNOWN_LSP_FIELDS = {
@@ -100,7 +105,9 @@ def validate_env_var_syntax(value: str, report: ValidationReport, context: str) 
             default = match.group(2)
 
             if default is None and var_name not in PLUGIN_ENV_VARS:
-                report.info(f"Env var ${{{var_name}}} has no default value in {context}")
+                report.info(
+                    f"Env var ${{{var_name}}} has no default value in {context}"
+                )
 
 
 def validate_path_value(
@@ -111,7 +118,9 @@ def validate_path_value(
 ) -> None:
     """Validate a path value in LSP configuration."""
     if is_absolute_path(value):
-        report.major(f"Absolute path found in {context}: {value} - use ${{CLAUDE_PLUGIN_ROOT}} for portability")
+        report.major(
+            f"Absolute path found in {context}: {value} - use ${{CLAUDE_PLUGIN_ROOT}} for portability"
+        )
         return
 
     validate_env_var_syntax(value, report, context)
@@ -148,7 +157,9 @@ def validate_lsp_server(
             report.critical(f"Server {server_name} 'command' must be a string")
         else:
             # Check if command is known language server
-            cmd_base = Path(command).name if "/" in command or "\\" in command else command
+            cmd_base = (
+                Path(command).name if "/" in command or "\\" in command else command
+            )
             if cmd_base in KNOWN_LANGUAGE_SERVERS.values():
                 report.passed(f"Server {server_name} uses known LSP: {cmd_base}")
 
@@ -165,7 +176,9 @@ def validate_lsp_server(
             elif command in ("npx", "node", "python", "python3"):
                 report.passed(f"Server {server_name} uses runtime: {command}")
             else:
-                report.info(f"Server {server_name} command '{command}' not found in PATH")
+                report.info(
+                    f"Server {server_name} command '{command}' not found in PATH"
+                )
 
             validate_path_value(command, report, f"{ctx}:command", plugin_root)
 
@@ -192,7 +205,9 @@ def validate_lsp_server(
                         f"Server '{server_name}' language for '{ext}' must be a string",
                     )
             if etl:
-                report.passed(f"Server '{server_name}' has extensionToLanguage with {len(etl)} mapping(s)")
+                report.passed(
+                    f"Server '{server_name}' has extensionToLanguage with {len(etl)} mapping(s)"
+                )
 
     # Validate args
     if "args" in config:
@@ -232,7 +247,9 @@ def validate_lsp_server(
     if "initializationOptions" in config:
         init_opts = config["initializationOptions"]
         if not isinstance(init_opts, dict):
-            report.major(f"Server {server_name} 'initializationOptions' must be an object")
+            report.major(
+                f"Server {server_name} 'initializationOptions' must be an object"
+            )
 
     # Validate settings
     if "settings" in config:
@@ -273,9 +290,13 @@ def validate_lsp_server(
         if timeout_field in config:
             val = config[timeout_field]
             if not isinstance(val, (int, float)):
-                report.major(f"Server '{server_name}' '{timeout_field}' must be a number (milliseconds)")
+                report.major(
+                    f"Server '{server_name}' '{timeout_field}' must be a number (milliseconds)"
+                )
             elif val <= 0:
-                report.major(f"Server '{server_name}' '{timeout_field}' must be positive")
+                report.major(
+                    f"Server '{server_name}' '{timeout_field}' must be positive"
+                )
 
     # Validate maxRestarts
     if "maxRestarts" in config:
@@ -406,7 +427,15 @@ def print_results(report: ValidationReport, verbose: bool = False) -> None:
     """Print validation results in human-readable format."""
     colors = COLORS
 
-    counts = {"CRITICAL": 0, "MAJOR": 0, "MINOR": 0, "NIT": 0, "WARNING": 0, "INFO": 0, "PASSED": 0}
+    counts = {
+        "CRITICAL": 0,
+        "MAJOR": 0,
+        "MINOR": 0,
+        "NIT": 0,
+        "WARNING": 0,
+        "INFO": 0,
+        "PASSED": 0,
+    }
     for r in report.results:
         counts[r.level] += 1
 
@@ -460,9 +489,16 @@ def main() -> int:
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Show all results")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
-    parser.add_argument("--strict", action="store_true", help="Strict mode — NIT issues also block validation")
     parser.add_argument(
-        "--report", type=str, default=None, help="Save detailed report to file, print only summary to stdout"
+        "--strict",
+        action="store_true",
+        help="Strict mode — NIT issues also block validation",
+    )
+    parser.add_argument(
+        "--report",
+        type=str,
+        default=None,
+        help="Save detailed report to file, print only summary to stdout",
     )
     parser.add_argument(
         "path",
@@ -486,7 +522,11 @@ def main() -> int:
         print(f"Error: {path} is not a JSON config file", file=sys.stderr)
         return 1
     if path.is_dir():
-        has_lsp = (path / ".claude-plugin").is_dir() or any(path.glob("*.lsp.json")) or (path / "lsp").is_dir()
+        has_lsp = (
+            (path / ".claude-plugin").is_dir()
+            or any(path.glob("*.lsp.json"))
+            or (path / "lsp").is_dir()
+        )
         if not has_lsp:
             print(
                 f"Error: No LSP configuration found at {path}\n"
@@ -527,7 +567,14 @@ def main() -> int:
         print(json.dumps(output, indent=2))
     else:
         if args.report:
-            save_report_and_print_summary(report, Path(args.report), "LSP Validation", print_results, args.verbose, plugin_path=args.path)
+            save_report_and_print_summary(
+                report,
+                Path(args.report),
+                "LSP Validation",
+                print_results,
+                args.verbose,
+                plugin_path=args.path,
+            )
         else:
             print_results(report, args.verbose)
 

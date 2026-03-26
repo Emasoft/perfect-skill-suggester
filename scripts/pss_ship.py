@@ -234,7 +234,10 @@ def detect_plugin_changes() -> bool:
             ".mcp.json",
         )
         for changed_file in result.stdout.strip().splitlines():
-            if any(changed_file.startswith(p) or changed_file.endswith(p) for p in plugin_patterns):
+            if any(
+                changed_file.startswith(p) or changed_file.endswith(p)
+                for p in plugin_patterns
+            ):
                 return True
 
     # Defensive fallback: if stdin was piped but produced no valid lines,

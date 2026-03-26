@@ -68,7 +68,9 @@ CATEGORY_WEIGHTS = {
 REQUIRED_MARKETPLACE_FIELDS = {"name", "version", "plugins"}
 
 # GitHub repo HTTPS URL pattern
-GITHUB_HTTPS_URL_PATTERN = re.compile(r"^https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(\.git)?$")
+GITHUB_HTTPS_URL_PATTERN = re.compile(
+    r"^https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(\.git)?$"
+)
 
 
 # =============================================================================
@@ -255,15 +257,23 @@ class PipelineValidationReport:
 
     def has_critical(self) -> bool:
         """Check if there are critical issues."""
-        return any(r.level == "CRITICAL" for cat in self.categories.values() for r in cat.results)
+        return any(
+            r.level == "CRITICAL"
+            for cat in self.categories.values()
+            for r in cat.results
+        )
 
     def has_major(self) -> bool:
         """Check if there are major issues."""
-        return any(r.level == "MAJOR" for cat in self.categories.values() for r in cat.results)
+        return any(
+            r.level == "MAJOR" for cat in self.categories.values() for r in cat.results
+        )
 
     def has_minor(self) -> bool:
         """Check if there are minor issues."""
-        return any(r.level == "MINOR" for cat in self.categories.values() for r in cat.results)
+        return any(
+            r.level == "MINOR" for cat in self.categories.values() for r in cat.results
+        )
 
     def exit_code(self) -> int:
         """Return appropriate exit code based on score."""
@@ -463,7 +473,12 @@ def validate_marketplace_structure(
         try:
             with open(marketplace_json_path, encoding="utf-8") as f:
                 marketplace_data = json.load(f)
-            report.passed(category, "marketplace.json is valid JSON", 3.0, str(marketplace_json_path))
+            report.passed(
+                category,
+                "marketplace.json is valid JSON",
+                3.0,
+                str(marketplace_json_path),
+            )
         except json.JSONDecodeError as e:
             report.critical(
                 category,
@@ -530,7 +545,10 @@ def validate_marketplace_structure(
             # Check if plugin has a corresponding submodule (by name or path)
             # Common patterns: plugins/<name>, <name>
             possible_paths = [plugin_name, f"plugins/{plugin_name}"]
-            if not any(p in submodule_paths for p in possible_paths) and plugin_name not in submodules:
+            if (
+                not any(p in submodule_paths for p in possible_paths)
+                and plugin_name not in submodules
+            ):
                 missing_submodules.append(plugin_name)
 
         if missing_submodules:
@@ -579,7 +597,11 @@ def validate_marketplace_structure(
             # Try to find plugin.json in submodule path
             plugin_json_search_paths: list[Path] = [
                 marketplace_path / plugin_name / ".claude-plugin" / "plugin.json",
-                marketplace_path / "plugins" / plugin_name / ".claude-plugin" / "plugin.json",
+                marketplace_path
+                / "plugins"
+                / plugin_name
+                / ".claude-plugin"
+                / "plugin.json",
                 marketplace_path / plugin_name / "plugin.json",
                 marketplace_path / "plugins" / plugin_name / "plugin.json",
             ]
@@ -799,14 +821,18 @@ def validate_marketplace_workflows(
             "Create .github/workflows/ and add automation workflows",
         )
         # Can't check other workflow-related items
-        report.major(category, "Cannot check update-submodules.yml - no workflows dir", 5.0)
+        report.major(
+            category, "Cannot check update-submodules.yml - no workflows dir", 5.0
+        )
         report.major(category, "Cannot check repository_dispatch trigger", 4.0)
         report.minor(category, "Cannot check workflow_dispatch trigger", 2.0)
         report.major(category, "Cannot check sync script execution", 3.0)
         report.minor(category, "Cannot check validate.yml", 3.0)
         return
 
-    report.passed(category, ".github/workflows/ directory exists", 3.0, str(workflows_dir))
+    report.passed(
+        category, ".github/workflows/ directory exists", 3.0, str(workflows_dir)
+    )
 
     # Check 2: update-submodules.yml exists (5 pts, MAJOR)
     update_workflow_path = workflows_dir / "update-submodules.yml"
@@ -837,8 +863,12 @@ def validate_marketplace_workflows(
                 "Create workflow to handle plugin update notifications",
             )
             # Can't check workflow contents
-            report.major(category, "Cannot check repository_dispatch - workflow missing", 4.0)
-            report.minor(category, "Cannot check workflow_dispatch - workflow missing", 2.0)
+            report.major(
+                category, "Cannot check repository_dispatch - workflow missing", 4.0
+            )
+            report.minor(
+                category, "Cannot check workflow_dispatch - workflow missing", 2.0
+            )
             report.major(category, "Cannot check sync script - workflow missing", 3.0)
             # Still check validate.yml
             validate_workflow_path = workflows_dir / "validate.yml"
@@ -853,7 +883,9 @@ def validate_marketplace_workflows(
                 )
             return
     else:
-        report.passed(category, "update-submodules.yml exists", 5.0, str(update_workflow_path))
+        report.passed(
+            category, "update-submodules.yml exists", 5.0, str(update_workflow_path)
+        )
 
     # Load and parse the workflow
     workflow_data = load_yaml_file(update_workflow_path)
@@ -917,7 +949,10 @@ def validate_marketplace_workflows(
             r"update.*submodule",
             r"git\s+submodule\s+update",
         ]
-        runs_sync = any(re.search(pattern, workflow_content, re.IGNORECASE) for pattern in sync_patterns)
+        runs_sync = any(
+            re.search(pattern, workflow_content, re.IGNORECASE)
+            for pattern in sync_patterns
+        )
 
         if runs_sync:
             report.passed(
@@ -940,7 +975,9 @@ def validate_marketplace_workflows(
     ci_workflow = workflows_dir / "ci.yml"
     if validate_workflow.exists() or ci_workflow.exists():
         found = validate_workflow if validate_workflow.exists() else ci_workflow
-        report.passed(category, f"CI validation workflow exists ({found.name})", 3.0, str(found))
+        report.passed(
+            category, f"CI validation workflow exists ({found.name})", 3.0, str(found)
+        )
     else:
         report.minor(
             category,
@@ -1020,7 +1057,11 @@ def validate_plugin_workflows(
             notify_workflow = workflows_dir / "notify-marketplace.yml"
             if not notify_workflow.exists():
                 # Try alternatives
-                alternatives = ["notify.yml", "marketplace-notify.yml", "update-marketplace.yml"]
+                alternatives = [
+                    "notify.yml",
+                    "marketplace-notify.yml",
+                    "update-marketplace.yml",
+                ]
                 for alt in alternatives:
                     alt_path = workflows_dir / alt
                     if alt_path.exists():
@@ -1034,15 +1075,22 @@ def validate_plugin_workflows(
                 workflow_data = load_yaml_file(notify_workflow)
                 if workflow_data:
                     # YAML 1.1 treats 'on' as boolean True, so check both keys
-                    triggers_value = workflow_data.get("on") or workflow_data.get(True, {})  # type: ignore[call-overload]
-                    triggers = triggers_value if isinstance(triggers_value, dict) else {}
+                    triggers_value = workflow_data.get("on") or workflow_data.get(
+                        True, {}
+                    )  # type: ignore[call-overload]
+                    triggers = (
+                        triggers_value if isinstance(triggers_value, dict) else {}
+                    )
                     # Check push trigger
                     if "push" in triggers:
                         plugins_with_push_trigger += 1
 
                     # Check for repository_dispatch action
                     workflow_content = notify_workflow.read_text(encoding="utf-8")
-                    if "repository_dispatch" in workflow_content or "repository-dispatch" in workflow_content:
+                    if (
+                        "repository_dispatch" in workflow_content
+                        or "repository-dispatch" in workflow_content
+                    ):
                         plugins_with_dispatch += 1
 
     # Report results
@@ -1218,14 +1266,18 @@ def validate_sync_scripts(
             report.minor(category, "Cannot check syntax - script missing", 2.0)
             return
     else:
-        report.passed(category, "sync_marketplace_versions.py exists", 4.0, str(sync_script))
+        report.passed(
+            category, "sync_marketplace_versions.py exists", 4.0, str(sync_script)
+        )
 
     # Check 3: Script is executable (2 pts, MINOR)
     import os
     import stat
 
     file_stat = os.stat(sync_script)
-    is_executable = bool(file_stat.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH))
+    is_executable = bool(
+        file_stat.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    )
 
     if is_executable:
         report.passed(category, "Sync script is executable", 2.0, str(sync_script))
@@ -1240,7 +1292,9 @@ def validate_sync_scripts(
 
     # Check 4: Valid Python syntax (2 pts, MINOR)
     if check_python_syntax(sync_script):
-        report.passed(category, "Sync script has valid Python syntax", 2.0, str(sync_script))
+        report.passed(
+            category, "Sync script has valid Python syntax", 2.0, str(sync_script)
+        )
     else:
         report.minor(
             category,
@@ -1281,7 +1335,9 @@ def validate_documentation(
         )
         # Can't check other items
         report.minor(category, "Cannot check for architecture diagram - no README", 4.0)
-        report.minor(category, "Cannot check installation instructions - no README", 3.0)
+        report.minor(
+            category, "Cannot check installation instructions - no README", 3.0
+        )
         return
 
     report.passed(category, "README.md exists", 3.0, str(readme_path))
@@ -1292,9 +1348,13 @@ def validate_documentation(
     # Check 2: Architecture diagram (4 pts, MINOR)
     has_mermaid = "```mermaid" in readme_content
     has_flowchart = re.search(
-        r"```[^\n]*\n.*(?:graph|flowchart|sequenceDiagram)", readme_content, re.IGNORECASE | re.DOTALL
+        r"```[^\n]*\n.*(?:graph|flowchart|sequenceDiagram)",
+        readme_content,
+        re.IGNORECASE | re.DOTALL,
     )
-    has_diagram_image = re.search(r"!\[.*(?:diagram|architecture|flow).*\]", readme_content, re.IGNORECASE)
+    has_diagram_image = re.search(
+        r"!\[.*(?:diagram|architecture|flow).*\]", readme_content, re.IGNORECASE
+    )
 
     if has_mermaid or has_flowchart or has_diagram_image:
         report.passed(
@@ -1313,8 +1373,12 @@ def validate_documentation(
         )
 
     # Check 3: Installation instructions (3 pts, MINOR)
-    has_install_heading = re.search(r"^#{1,3}\s*installation", readme_content, re.IGNORECASE | re.MULTILINE)
-    has_install_content = re.search(r"(?:claude\s+plugin|marketplace\s+add|install)", readme_content, re.IGNORECASE)
+    has_install_heading = re.search(
+        r"^#{1,3}\s*installation", readme_content, re.IGNORECASE | re.MULTILINE
+    )
+    has_install_content = re.search(
+        r"(?:claude\s+plugin|marketplace\s+add|install)", readme_content, re.IGNORECASE
+    )
 
     if has_install_heading or has_install_content:
         report.passed(
@@ -1402,7 +1466,9 @@ def format_text_report(report: PipelineValidationReport, verbose: bool = False) 
     lines.append("CATEGORY BREAKDOWN:")
     lines.append("")
     for name, cat in report.categories.items():
-        status_icon = "[OK]" if cat.percentage >= 90 else "[!!]" if cat.percentage < 70 else "[!]"
+        status_icon = (
+            "[OK]" if cat.percentage >= 90 else "[!!]" if cat.percentage < 70 else "[!]"
+        )
         lines.append(
             f"  {status_icon} {name.replace('_', ' ').title()}: "
             f"{cat.points_earned:.1f}/{cat.points_possible:.1f} ({cat.percentage:.0f}%) "
@@ -1425,7 +1491,9 @@ def format_text_report(report: PipelineValidationReport, verbose: bool = False) 
 
         if issues:
             for result in issues:
-                icon = {"CRITICAL": "[X]", "MAJOR": "[!]", "MINOR": "[~]"}.get(result.level, "[-]")
+                icon = {"CRITICAL": "[X]", "MAJOR": "[!]", "MINOR": "[~]"}.get(
+                    result.level, "[-]"
+                )
                 lines.append(f"  {icon} {result.level}: {result.message}")
                 if result.file_path:
                     lines.append(f"      File: {result.file_path}")
@@ -1440,12 +1508,34 @@ def format_text_report(report: PipelineValidationReport, verbose: bool = False) 
 
     # Summary
     lines.append("=" * 70)
-    total_critical = sum(1 for cat in report.categories.values() for r in cat.results if r.level == "CRITICAL")
-    total_major = sum(1 for cat in report.categories.values() for r in cat.results if r.level == "MAJOR")
-    total_minor = sum(1 for cat in report.categories.values() for r in cat.results if r.level == "MINOR")
-    total_passed = sum(1 for cat in report.categories.values() for r in cat.results if r.level == "PASSED")
+    total_critical = sum(
+        1
+        for cat in report.categories.values()
+        for r in cat.results
+        if r.level == "CRITICAL"
+    )
+    total_major = sum(
+        1
+        for cat in report.categories.values()
+        for r in cat.results
+        if r.level == "MAJOR"
+    )
+    total_minor = sum(
+        1
+        for cat in report.categories.values()
+        for r in cat.results
+        if r.level == "MINOR"
+    )
+    total_passed = sum(
+        1
+        for cat in report.categories.values()
+        for r in cat.results
+        if r.level == "PASSED"
+    )
 
-    lines.append(f"SUMMARY: {total_critical} CRITICAL, {total_major} MAJOR, {total_minor} MINOR, {total_passed} PASSED")
+    lines.append(
+        f"SUMMARY: {total_critical} CRITICAL, {total_major} MAJOR, {total_minor} MINOR, {total_passed} PASSED"
+    )
     lines.append("=" * 70)
 
     return "\n".join(lines)
@@ -1492,9 +1582,16 @@ Exit Codes:
         action="store_true",
         help="Output results as JSON",
     )
-    parser.add_argument("--strict", action="store_true", help="Strict mode — NIT issues also block validation")
     parser.add_argument(
-        "--report", type=str, default=None, help="Save detailed report to file, print only summary to stdout"
+        "--strict",
+        action="store_true",
+        help="Strict mode — NIT issues also block validation",
+    )
+    parser.add_argument(
+        "--report",
+        type=str,
+        default=None,
+        help="Save detailed report to file, print only summary to stdout",
     )
 
     args = parser.parse_args()
@@ -1540,7 +1637,9 @@ Exit Codes:
             verdict = f"{COLORS['PASSED']}PASS{COLORS['RESET']}"
         else:
             verdict = f"{COLORS['MINOR']}WARN ({grade}){COLORS['RESET']}"
-        print(f"{COLORS['BOLD']}Marketplace Pipeline Validation{COLORS['RESET']}: {verdict}")
+        print(
+            f"{COLORS['BOLD']}Marketplace Pipeline Validation{COLORS['RESET']}: {verdict}"
+        )
         print(f"  Score: {score:.1f}/100 ({grade})")
         print(f"  Report: {Path(args.report)}")
     else:

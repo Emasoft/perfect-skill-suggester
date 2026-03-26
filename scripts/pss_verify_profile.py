@@ -144,7 +144,9 @@ def build_type_index(index: dict[str, dict]) -> dict[str, set[str]]:
     result: dict[str, set[str]] = {}
     for key, entry in index.items():
         # Extract element name: prefer entry["name"], fall back to key parsing
-        element_name = entry.get("name") or (key.split("::", 1)[-1] if "::" in key else key)
+        element_name = entry.get("name") or (
+            key.split("::", 1)[-1] if "::" in key else key
+        )
         etype = entry.get("type", "skill")
         result.setdefault(etype, set()).add(element_name)
     return result
@@ -677,6 +679,7 @@ def main() -> int:
 
     if args.index is None:
         from pss_paths import get_index_path
+
         index_path = get_index_path()
     else:
         index_path = Path(args.index)

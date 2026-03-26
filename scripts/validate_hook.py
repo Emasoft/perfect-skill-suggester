@@ -139,7 +139,9 @@ class HookValidationReport(ValidationReport):
     hook_path: str = ""
 
 
-def validate_json_structure(hook_path: Path, report: ValidationReport) -> dict[str, Any] | None:
+def validate_json_structure(
+    hook_path: Path, report: ValidationReport
+) -> dict[str, Any] | None:
     """Validate hooks.json exists and is valid JSON."""
     if not hook_path.exists():
         report.critical(f"Hook file not found: {hook_path}")
@@ -187,14 +189,18 @@ def validate_event_name(event_name: str, report: ValidationReport) -> bool:
     """Validate a hook event name."""
     if event_name not in VALID_HOOK_EVENTS:
         # Fuzzy match for "did you mean?" suggestions
-        close = difflib.get_close_matches(event_name, sorted(VALID_HOOK_EVENTS), n=1, cutoff=0.6)
+        close = difflib.get_close_matches(
+            event_name, sorted(VALID_HOOK_EVENTS), n=1, cutoff=0.6
+        )
         if close:
             report.critical(
                 f"Unknown hook event: '{event_name}' — did you mean '{close[0]}'? "
                 f"Valid events: {sorted(VALID_HOOK_EVENTS)}"
             )
         else:
-            report.critical(f"Unknown hook event: '{event_name}'. Valid events: {sorted(VALID_HOOK_EVENTS)}")
+            report.critical(
+                f"Unknown hook event: '{event_name}'. Valid events: {sorted(VALID_HOOK_EVENTS)}"
+            )
         return False
     return True
 
@@ -225,7 +231,9 @@ def validate_matcher(matcher: Any, event_name: str, report: ValidationReport) ->
     # Events without matchers - warn if matcher provided
     if event_name in EVENTS_WITHOUT_MATCHERS:
         if matcher is not None and matcher != "":
-            report.info(f"Matcher '{matcher}' provided for {event_name} (matchers are ignored for this event)")
+            report.info(
+                f"Matcher '{matcher}' provided for {event_name} (matchers are ignored for this event)"
+            )
         return True
 
     # Matcher is optional - empty or missing means "match all"
@@ -252,15 +260,23 @@ def validate_matcher(matcher: Any, event_name: str, report: ValidationReport) ->
             if part and part not in COMMON_TOOL_NAMES and not part.startswith("mcp__"):
                 # Could be a regex pattern or custom tool
                 if re.match(r"^[A-Z][a-zA-Z]+$", part):
-                    report.info(f"Matcher '{part}' is not a common tool name (may be custom or MCP tool)")
+                    report.info(
+                        f"Matcher '{part}' is not a common tool name (may be custom or MCP tool)"
+                    )
 
     # Validate matcher values against known sets for specific event types
     if event_name == "Notification":
-        _check_matcher_values(matcher, COMMON_NOTIFICATION_TYPES, "Notification", "type", report)
+        _check_matcher_values(
+            matcher, COMMON_NOTIFICATION_TYPES, "Notification", "type", report
+        )
     if event_name == "SessionStart":
-        _check_matcher_values(matcher, SESSION_START_SOURCES, "SessionStart", "source", report)
+        _check_matcher_values(
+            matcher, SESSION_START_SOURCES, "SessionStart", "source", report
+        )
     if event_name == "PreCompact":
-        _check_matcher_values(matcher, COMPACT_TRIGGERS, "PreCompact", "trigger", report)
+        _check_matcher_values(
+            matcher, COMPACT_TRIGGERS, "PreCompact", "trigger", report
+        )
 
     return True
 
@@ -315,7 +331,9 @@ def lint_bash_script(script_path: Path, report: ValidationReport) -> None:
     """Lint a bash script using shellcheck."""
     shellcheck_cmd = resolve_tool_command("shellcheck")
     if not shellcheck_cmd:
-        report.minor(f"shellcheck not available locally or via bunx/npx, skipping lint for {script_path.name}")
+        report.minor(
+            f"shellcheck not available locally or via bunx/npx, skipping lint for {script_path.name}"
+        )
         return
 
     try:
@@ -398,7 +416,9 @@ def lint_python_script(script_path: Path, report: ValidationReport) -> None:
         except Exception as e:
             report.minor(f"ruff error: {e}")
     else:
-        report.minor(f"ruff not available locally or via uvx, skipping lint for {script_path.name}")
+        report.minor(
+            f"ruff not available locally or via uvx, skipping lint for {script_path.name}"
+        )
 
     # Mypy check
     mypy_cmd = resolve_tool_command("mypy")
@@ -438,14 +458,18 @@ def lint_python_script(script_path: Path, report: ValidationReport) -> None:
         except Exception as e:
             report.minor(f"mypy error: {e}")
     else:
-        report.minor(f"mypy not available locally or via uvx, skipping type check for {script_path.name}")
+        report.minor(
+            f"mypy not available locally or via uvx, skipping type check for {script_path.name}"
+        )
 
 
 def lint_js_script(script_path: Path, report: ValidationReport) -> None:
     """Lint a JavaScript/TypeScript script using eslint."""
     eslint_cmd = resolve_tool_command("eslint")
     if not eslint_cmd:
-        report.minor(f"eslint not available locally or via bunx/npx, skipping lint for {script_path.name}")
+        report.minor(
+            f"eslint not available locally or via bunx/npx, skipping lint for {script_path.name}"
+        )
         return
 
     try:
@@ -556,12 +580,25 @@ def validate_command_hook(
 
     # 3a: Script file as first token without an explicit interpreter prefix
     script_extensions = {".py", ".js", ".ts", ".sh", ".rb", ".pl"}
-    if cmd_first_token and any(cmd_first_token.endswith(ext) for ext in script_extensions):
+    if cmd_first_token and any(
+        cmd_first_token.endswith(ext) for ext in script_extensions
+    ):
         # Check if the script is being invoked directly (first token) vs via an interpreter
         # e.g. "python3 script.py" -> first token is "python3", second is script -> OK
         # e.g. "./script.py" -> first token IS the script -> warn
         cmd_tokens = command.strip().split()
-        interpreter_names = {"python", "python3", "node", "bun", "deno", "bash", "sh", "ruby", "perl", "env"}
+        interpreter_names = {
+            "python",
+            "python3",
+            "node",
+            "bun",
+            "deno",
+            "bash",
+            "sh",
+            "ruby",
+            "perl",
+            "env",
+        }
         has_interpreter = len(cmd_tokens) >= 2 and cmd_tokens[0] in interpreter_names
         if not has_interpreter:
             report.minor(
@@ -630,14 +667,20 @@ def validate_command_hook(
         elif timeout <= 0:
             report.major("'timeout' must be positive")
         elif timeout > 600000:  # 10 minutes in milliseconds
-            report.warning(f"Command hook timeout is {timeout}ms ({timeout / 1000:.0f}s) — unusually long")
+            report.warning(
+                f"Command hook timeout is {timeout}ms ({timeout / 1000:.0f}s) — unusually long"
+            )
         elif timeout < 100:
-            report.warning(f"Command hook timeout is {timeout}ms — very short, may cause premature timeouts")
+            report.warning(
+                f"Command hook timeout is {timeout}ms — very short, may cause premature timeouts"
+            )
 
     # Check for environment variable usage
     if "CLAUDE_ENV_FILE" in command:
         if event_name not in {"SessionStart", "Setup"}:
-            report.major("CLAUDE_ENV_FILE is only available in SessionStart and Setup hooks")
+            report.major(
+                "CLAUDE_ENV_FILE is only available in SessionStart and Setup hooks"
+            )
 
     # Extract and validate script path
     script_path = extract_script_path(command, plugin_root)
@@ -679,11 +722,15 @@ def validate_prompt_hook(
         "PreToolUse",
         "PermissionRequest",
     }:
-        report.info(f"Prompt hooks for {event_name} may not be as effective as command hooks")
+        report.info(
+            f"Prompt hooks for {event_name} may not be as effective as command hooks"
+        )
 
     # Check for $ARGUMENTS placeholder
     if "$ARGUMENTS" not in prompt:
-        report.info("Prompt doesn't contain $ARGUMENTS placeholder (input JSON will be appended automatically)")
+        report.info(
+            "Prompt doesn't contain $ARGUMENTS placeholder (input JSON will be appended automatically)"
+        )
 
     report.passed(f"Prompt: {prompt[:60]}...")
 
@@ -700,9 +747,13 @@ def validate_prompt_hook(
         elif timeout <= 0:
             report.major("'timeout' must be positive")
         elif timeout > 600000:  # 10 minutes in milliseconds
-            report.warning(f"Prompt hook timeout is {timeout}ms ({timeout / 1000:.0f}s) — unusually long")
+            report.warning(
+                f"Prompt hook timeout is {timeout}ms ({timeout / 1000:.0f}s) — unusually long"
+            )
         elif timeout < 100:
-            report.warning(f"Prompt hook timeout is {timeout}ms — very short, may cause premature timeouts")
+            report.warning(
+                f"Prompt hook timeout is {timeout}ms — very short, may cause premature timeouts"
+            )
 
     return True
 
@@ -725,7 +776,9 @@ def validate_single_hook(
 
     hook_type = hook["type"]
     if hook_type not in VALID_HOOK_TYPES:
-        report.critical(f"Invalid hook type: '{hook_type}'. Valid types: {sorted(VALID_HOOK_TYPES)}")
+        report.critical(
+            f"Invalid hook type: '{hook_type}'. Valid types: {sorted(VALID_HOOK_TYPES)}"
+        )
         return False
 
     # Validate hook type is allowed for this event
@@ -769,12 +822,16 @@ def validate_single_hook(
         # Validate optional model field
         if "model" in hook:
             if not isinstance(hook["model"], str) or not hook["model"].strip():
-                report.major("Agent hook 'model' must be a non-empty string", hook_path_str)
+                report.major(
+                    "Agent hook 'model' must be a non-empty string", hook_path_str
+                )
         # Agent hooks have a default timeout of 60s
         if "timeout" in hook:
             timeout = hook["timeout"]
             if not isinstance(timeout, (int, float)):
-                report.major("Agent hook 'timeout' must be a number (seconds)", hook_path_str)
+                report.major(
+                    "Agent hook 'timeout' must be a number (seconds)", hook_path_str
+                )
             elif timeout <= 0:
                 report.major("Agent hook 'timeout' must be positive", hook_path_str)
             elif timeout > 600:
@@ -825,7 +882,9 @@ def validate_matcher_block(
 ) -> bool:
     """Validate a matcher block (contains matcher and hooks array)."""
     if not isinstance(matcher_block, dict):
-        report.critical(f"Matcher block must be an object, got {type(matcher_block).__name__}")
+        report.critical(
+            f"Matcher block must be an object, got {type(matcher_block).__name__}"
+        )
         return False
 
     # Validate matcher (optional)
@@ -865,7 +924,9 @@ def validate_event_hooks(
 ) -> bool:
     """Validate all hooks for a specific event."""
     if not isinstance(event_config, list):
-        report.critical(f"Event config for '{event_name}' must be an array, got {type(event_config).__name__}")
+        report.critical(
+            f"Event config for '{event_name}' must be an array, got {type(event_config).__name__}"
+        )
         return False
 
     if not event_config:
@@ -927,7 +988,15 @@ def print_results(report: HookValidationReport, verbose: bool = False) -> None:
     colors = COLORS
 
     # Count by level
-    counts = {"CRITICAL": 0, "MAJOR": 0, "MINOR": 0, "NIT": 0, "WARNING": 0, "INFO": 0, "PASSED": 0}
+    counts = {
+        "CRITICAL": 0,
+        "MAJOR": 0,
+        "MINOR": 0,
+        "NIT": 0,
+        "WARNING": 0,
+        "INFO": 0,
+        "PASSED": 0,
+    }
     for r in report.results:
         counts[r.level] += 1
 
@@ -1030,9 +1099,16 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(
-        "--report", type=str, default=None, help="Save detailed report to file, print only summary to stdout"
+        "--report",
+        type=str,
+        default=None,
+        help="Save detailed report to file, print only summary to stdout",
     )
-    parser.add_argument("--strict", action="store_true", help="Strict mode — NIT issues also block validation")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Strict mode — NIT issues also block validation",
+    )
     args = parser.parse_args()
 
     hook_path = Path(args.hook_path).resolve()
@@ -1051,7 +1127,9 @@ def main() -> int:
         if args.report:
             report_path = Path(args.report)
             report_path.parent.mkdir(parents=True, exist_ok=True)
-            report_path.write_text(f"# Hook Validation\n\nCRITICAL: {early_error}\n", encoding="utf-8")
+            report_path.write_text(
+                f"# Hook Validation\n\nCRITICAL: {early_error}\n", encoding="utf-8"
+            )
             print("Hook Validation: FAIL (critical)")
             print("  CRITICAL:1")
             print(f"  Report: {report_path}")
@@ -1065,7 +1143,11 @@ def main() -> int:
         print_json(report)
     elif args.report:
         save_report_and_print_summary(
-            report, Path(args.report), f"Hook Validation: {hook_path}", print_results, args.verbose,
+            report,
+            Path(args.report),
+            f"Hook Validation: {hook_path}",
+            print_results,
+            args.verbose,
             plugin_path=args.hook_path,
         )
     else:

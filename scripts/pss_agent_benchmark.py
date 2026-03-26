@@ -85,7 +85,9 @@ def detect_binary() -> str:
     return str(binary_path)
 
 
-def run_agent_profile(binary: str, agent_name: str, prompt: str, cwd: str, timeout: int = 30) -> dict[str, Any]:
+def run_agent_profile(
+    binary: str, agent_name: str, prompt: str, cwd: str, timeout: int = 30
+) -> dict[str, Any]:
     """Run the binary in --agent-profile mode for a single agent.
 
     Returns the parsed JSON output from the binary.
@@ -103,7 +105,9 @@ def run_agent_profile(binary: str, agent_name: str, prompt: str, cwd: str, timeo
     }
 
     # Write descriptor to temp file
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, prefix="pss-bench-") as f:
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, prefix="pss-bench-"
+    ) as f:
         json.dump(descriptor, f)
         descriptor_path = f.name
 
@@ -112,7 +116,15 @@ def run_agent_profile(binary: str, agent_name: str, prompt: str, cwd: str, timeo
     try:
         with open(output_file, "w") as stdout_f, open(os.devnull, "w") as devnull:
             proc = subprocess.run(
-                [binary, "--agent-profile", descriptor_path, "--format", "json", "--top", "30"],
+                [
+                    binary,
+                    "--agent-profile",
+                    descriptor_path,
+                    "--format",
+                    "json",
+                    "--top",
+                    "30",
+                ],
                 stdout=stdout_f,
                 stderr=devnull,
                 timeout=timeout,
@@ -151,7 +163,7 @@ def extract_names_from_profile(profile: dict[str, Any]) -> dict[str, list[str]]:
             name = item.get("name", "") if isinstance(item, dict) else str(item)
             if name and name not in all_skills:
                 all_skills.append(name)
-    result["skills"] = all_skills[:TYPE_LIMITS["skills"]]
+    result["skills"] = all_skills[: TYPE_LIMITS["skills"]]
 
     # Complementary agents
     comp_agents = profile.get("complementary_agents", [])
@@ -160,7 +172,7 @@ def extract_names_from_profile(profile: dict[str, Any]) -> dict[str, list[str]]:
         name = item.get("name", "") if isinstance(item, dict) else str(item)
         if name and name not in agent_names:
             agent_names.append(name)
-    result["agents"] = agent_names[:TYPE_LIMITS["agents"]]
+    result["agents"] = agent_names[: TYPE_LIMITS["agents"]]
 
     # Commands, rules, mcp
     for key in ("commands", "rules", "mcp"):
@@ -170,12 +182,14 @@ def extract_names_from_profile(profile: dict[str, Any]) -> dict[str, list[str]]:
             name = item.get("name", "") if isinstance(item, dict) else str(item)
             if name and name not in names:
                 names.append(name)
-        result[key] = names[:TYPE_LIMITS[key]]
+        result[key] = names[: TYPE_LIMITS[key]]
 
     return result
 
 
-def score_agent(suggested: dict[str, list[str]], gold: dict[str, list[str]]) -> dict[str, int]:
+def score_agent(
+    suggested: dict[str, list[str]], gold: dict[str, list[str]]
+) -> dict[str, int]:
     """Score a single agent's suggestions against gold, per type.
 
     Returns dict with hit counts per type.
@@ -244,7 +258,13 @@ def run_benchmark(
         hits = score_agent(suggested, gold)
 
         # Accumulate
-        agent_result = {"id": agent_id, "name": agent_name, "hits": {}, "suggested": {}, "gold": {}}
+        agent_result = {
+            "id": agent_id,
+            "name": agent_name,
+            "hits": {},
+            "suggested": {},
+            "gold": {},
+        }
         for etype in TYPE_LIMITS:
             gold_count = len(gold.get(etype, []))
             total_hits[etype] += hits[etype]
@@ -256,7 +276,9 @@ def run_benchmark(
         per_agent_results.append(agent_result)
 
         if verbose:
-            type_scores = " | ".join(f"{k}:{hits[k]}/{len(gold.get(k, []))}" for k in TYPE_LIMITS)
+            type_scores = " | ".join(
+                f"{k}:{hits[k]}/{len(gold.get(k, []))}" for k in TYPE_LIMITS
+            )
             print(f"  A{agent_id}: {type_scores}")
 
     # Summary
@@ -273,7 +295,9 @@ def run_benchmark(
     }
 
 
-def print_results(results: dict[str, Any], label: str = "Agent Profiling Benchmark") -> None:
+def print_results(
+    results: dict[str, Any], label: str = "Agent Profiling Benchmark"
+) -> None:
     """Print formatted benchmark results."""
     print(f"\n{label}")
     print("=" * len(label))
@@ -307,7 +331,9 @@ def save_per_agent_results(results: dict[str, Any], output_path: str) -> None:
             hits = total_hits[etype]
             mx = total_max[etype]
             f.write(f"  {etype:10}: {hits}/{mx}\n")
-        f.write(f"  combined  : {results['combined_hits']}/{results['combined_max']}\n\n")
+        f.write(
+            f"  combined  : {results['combined_hits']}/{results['combined_max']}\n\n"
+        )
 
         f.write("## Per-Agent Details\n\n")
         for agent in results["per_agent"]:
@@ -329,20 +355,29 @@ def save_per_agent_results(results: dict[str, Any], output_path: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="PSS Agent Profiling Benchmark")
-    parser.add_argument("--prompts", default="docs_dev/agent-benchmark-prompts-100.jsonl",
-                        help="Path to agent prompts JSONL file")
-    parser.add_argument("--gold", default="docs_dev/agent-benchmark-gold-100.json",
-                        help="Path to gold answers JSON file")
-    parser.add_argument("--binary", default=None,
-                        help="Path to PSS binary (auto-detected if not set)")
-    parser.add_argument("--range", default=None,
-                        help="Agent ID range to benchmark (e.g., '1-100', '101-200')")
-    parser.add_argument("--output", default=None,
-                        help="Save per-agent results to file")
-    parser.add_argument("--verbose", "-v", action="store_true",
-                        help="Print per-agent results")
-    parser.add_argument("--json", action="store_true",
-                        help="Output results as JSON")
+    parser.add_argument(
+        "--prompts",
+        default="docs_dev/agent-benchmark-prompts-100.jsonl",
+        help="Path to agent prompts JSONL file",
+    )
+    parser.add_argument(
+        "--gold",
+        default="docs_dev/agent-benchmark-gold-100.json",
+        help="Path to gold answers JSON file",
+    )
+    parser.add_argument(
+        "--binary", default=None, help="Path to PSS binary (auto-detected if not set)"
+    )
+    parser.add_argument(
+        "--range",
+        default=None,
+        help="Agent ID range to benchmark (e.g., '1-100', '101-200')",
+    )
+    parser.add_argument("--output", default=None, help="Save per-agent results to file")
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Print per-agent results"
+    )
+    parser.add_argument("--json", action="store_true", help="Output results as JSON")
     args = parser.parse_args()
 
     # Resolve binary
@@ -353,8 +388,14 @@ def main() -> None:
 
     # Resolve paths relative to project root
     project_root = Path(__file__).resolve().parent.parent
-    prompts_path = str(project_root / args.prompts) if not os.path.isabs(args.prompts) else args.prompts
-    gold_path = str(project_root / args.gold) if not os.path.isabs(args.gold) else args.gold
+    prompts_path = (
+        str(project_root / args.prompts)
+        if not os.path.isabs(args.prompts)
+        else args.prompts
+    )
+    gold_path = (
+        str(project_root / args.gold) if not os.path.isabs(args.gold) else args.gold
+    )
 
     if not os.path.isfile(prompts_path):
         print(f"ERROR: Prompts file not found: {prompts_path}", file=sys.stderr)
@@ -378,7 +419,9 @@ def main() -> None:
     if agent_range:
         print(f"Range: {agent_range[0]}-{agent_range[1]}")
 
-    results = run_benchmark(prompts_path, gold_path, binary, verbose=args.verbose, agent_range=agent_range)
+    results = run_benchmark(
+        prompts_path, gold_path, binary, verbose=args.verbose, agent_range=agent_range
+    )
 
     if args.json:
         # Strip per_agent for compact output

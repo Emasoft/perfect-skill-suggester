@@ -41,10 +41,16 @@ def resolve_cargo() -> str:
     cargo_path = shutil.which("cargo")
     if cargo_path and "/homebrew/" in cargo_path.lower():
         # Homebrew cargo detected — use rustup's cargo + rustc directly
-        rustup_cargo = Path.home() / ".rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo"
-        rustup_rustc = Path.home() / ".rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+        rustup_cargo = (
+            Path.home() / ".rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo"
+        )
+        rustup_rustc = (
+            Path.home() / ".rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+        )
         if rustup_cargo.exists():
-            print("  Note: Using rustup cargo (Homebrew cargo in PATH lacks cross targets)")
+            print(
+                "  Note: Using rustup cargo (Homebrew cargo in PATH lacks cross targets)"
+            )
             # CRITICAL: also set RUSTC so cargo uses rustup's rustc, not Homebrew's
             if rustup_rustc.exists():
                 os.environ["RUSTC"] = str(rustup_rustc)
@@ -77,7 +83,9 @@ def get_rust_dir() -> Path:
     rust_dir = get_script_root() / "rust" / "skill-suggester"
     if not (rust_dir / "Cargo.toml").exists():
         print("ERROR: Rust source not available.", file=sys.stderr)
-        print("  Initialize the submodule: git submodule update --init", file=sys.stderr)
+        print(
+            "  Initialize the submodule: git submodule update --init", file=sys.stderr
+        )
         sys.exit(1)
     return rust_dir
 
@@ -297,7 +305,9 @@ def build_darwin_cross(target_key: str, release: bool = True) -> bool:
     try:
         check_result = subprocess.run(
             ["rustup", "target", "list", "--installed"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if rust_target not in check_result.stdout:
             print(f"Installing Rust target: {rust_target}")
@@ -306,7 +316,10 @@ def build_darwin_cross(target_key: str, release: bool = True) -> bool:
                 timeout=60,
             )
     except FileNotFoundError:
-        print("Error: rustup not found. Darwin cross-compilation requires rustup.", file=sys.stderr)
+        print(
+            "Error: rustup not found. Darwin cross-compilation requires rustup.",
+            file=sys.stderr,
+        )
         return False
 
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -360,7 +373,9 @@ def build_zigbuild(target_key: str, release: bool = True) -> bool:
     try:
         check_result = subprocess.run(
             ["rustup", "target", "list", "--installed"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if rust_target not in check_result.stdout:
             print(f"  Installing Rust target: {rust_target}")
@@ -371,7 +386,10 @@ def build_zigbuild(target_key: str, release: bool = True) -> bool:
 
     zigbuild = shutil.which("cargo-zigbuild")
     if not zigbuild:
-        print("Error: cargo-zigbuild not found. Install: cargo install cargo-zigbuild", file=sys.stderr)
+        print(
+            "Error: cargo-zigbuild not found. Install: cargo install cargo-zigbuild",
+            file=sys.stderr,
+        )
         return False
 
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -423,6 +441,7 @@ def build_cross(target_key: str, release: bool = True) -> bool:
 
     # Ensure rustup's toolchain is visible to cross (Homebrew breaks it)
     import os
+
     rustup_bin = Path.home() / ".rustup/toolchains/stable-aarch64-apple-darwin/bin"
     cargo_bin = Path.home() / ".cargo/bin"
     env = os.environ.copy()
@@ -438,7 +457,10 @@ def build_cross(target_key: str, release: bool = True) -> bool:
 
     if result.returncode != 0:
         # Fallback to zigbuild if cross fails (common on Apple Silicon for arm64 targets)
-        print(f"  cross failed for {target_key}, trying zigbuild fallback...", file=sys.stderr)
+        print(
+            f"  cross failed for {target_key}, trying zigbuild fallback...",
+            file=sys.stderr,
+        )
         return build_zigbuild(target_key, release)
 
     # Copy binary to bin directory

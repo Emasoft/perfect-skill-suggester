@@ -91,9 +91,7 @@ def _load_inactive_plugin_ids() -> tuple[set[str], set[str]]:
             if len(parts) == 2:
                 mp_statuses.setdefault(parts[1], []).append(bool(is_active))
         disabled_marketplaces = {
-            mp
-            for mp, statuses in mp_statuses.items()
-            if statuses and not any(statuses)
+            mp for mp, statuses in mp_statuses.items() if statuses and not any(statuses)
         }
 
         return inactive_ids, disabled_marketplaces
@@ -127,9 +125,7 @@ def _build_marketplace_plugin_map(marketplace_root: Path) -> dict[Path, str]:
     return plugin_map
 
 
-def _get_plugin_id_for_path(
-    path: Path, plugin_map: dict[Path, str]
-) -> str | None:
+def _get_plugin_id_for_path(path: Path, plugin_map: dict[Path, str]) -> str | None:
     """Find which plugin a given path belongs to by walking up the tree."""
     current = path
     while current != current.parent:
@@ -554,7 +550,11 @@ def _discover_marketplace_mcps(
                 # Skip MCPs from inactive plugins
                 if inactive_plugin_ids:
                     root_path = Path(root)
-                    pid = _get_plugin_id_for_path(root_path, plugin_map) if plugin_map else None
+                    pid = (
+                        _get_plugin_id_for_path(root_path, plugin_map)
+                        if plugin_map
+                        else None
+                    )
                     if pid and pid in inactive_plugin_ids:
                         continue
                     # Fallback: check if entire marketplace is disabled

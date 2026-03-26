@@ -221,7 +221,10 @@ def validate_agent_task_refs(
         try:
             content = agent_file.read_text(errors="ignore")
         except Exception as e:
-            report.minor(f"Could not read agent file: {e}", str(agent_file.relative_to(plugin_root)))
+            report.minor(
+                f"Could not read agent file: {e}",
+                str(agent_file.relative_to(plugin_root)),
+            )
             continue
 
         # Find all subagent_type references
@@ -360,7 +363,9 @@ def validate_version_sync(
     report.version_sources = versions_found
 
     if len(versions_found) < 2:
-        report.info(f"Only {len(versions_found)} version source(s) found - sync check skipped")
+        report.info(
+            f"Only {len(versions_found)} version source(s) found - sync check skipped"
+        )
         return
 
     # Check for version mismatches
@@ -402,7 +407,10 @@ def validate_command_agent_refs(
         try:
             content = cmd_file.read_text(errors="ignore")
         except Exception as e:
-            report.minor(f"Could not read command file: {e}", str(cmd_file.relative_to(plugin_root)))
+            report.minor(
+                f"Could not read command file: {e}",
+                str(cmd_file.relative_to(plugin_root)),
+            )
             continue
 
         rel_path = str(cmd_file.relative_to(plugin_root))
@@ -428,7 +436,16 @@ def validate_command_agent_refs(
             ref_agent_normalized = ref_agent.lower().strip()
             if ref_agent_normalized not in available_agents:
                 # Check if it might be a built-in agent type
-                builtin_types = {"basic", "task", "explore", "scout", "oracle", "haiku", "sonnet", "opus"}
+                builtin_types = {
+                    "basic",
+                    "task",
+                    "explore",
+                    "scout",
+                    "oracle",
+                    "haiku",
+                    "sonnet",
+                    "opus",
+                }
                 if ref_agent_normalized not in builtin_types:
                     report.major(
                         f"Command mentions unknown agent '{ref_agent}'",
@@ -539,7 +556,10 @@ def validate_hook_script_refs(
             hooks_content = hooks_file.read_text(encoding="utf-8")
             hooks_config = json.loads(hooks_content)
         except (json.JSONDecodeError, Exception) as e:
-            report.minor(f"Could not parse hooks file: {e}", str(hooks_file.relative_to(plugin_root)))
+            report.minor(
+                f"Could not parse hooks file: {e}",
+                str(hooks_file.relative_to(plugin_root)),
+            )
             continue
 
         rel_hooks_path = str(hooks_file.relative_to(plugin_root))
@@ -620,7 +640,9 @@ def extract_script_paths_from_hooks(hooks_config: dict[str, Any]) -> list[str]:
 # =============================================================================
 
 
-def validate_cross_references(plugin_path: str | Path) -> CrossReferenceValidationReport:
+def validate_cross_references(
+    plugin_path: str | Path,
+) -> CrossReferenceValidationReport:
     """Validate all cross-references in a plugin.
 
     Args:
@@ -758,7 +780,11 @@ Exit codes:
             print_results_by_level(report, verbose=verbose)
 
         save_report_and_print_summary(
-            report, Path(args.report), "Cross-Reference Validation", _print_full, args.verbose,
+            report,
+            Path(args.report),
+            "Cross-Reference Validation",
+            _print_full,
+            args.verbose,
             plugin_path=args.plugin_path,
         )
     else:

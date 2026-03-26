@@ -32,7 +32,9 @@ class GitignoreFilter:
     def __init__(self, plugin_root: Path) -> None:
         self.root = plugin_root.resolve()
         gitignore_path = self.root / ".gitignore"
-        self.patterns = parse_gitignore(gitignore_path) if gitignore_path.is_file() else []
+        self.patterns = (
+            parse_gitignore(gitignore_path) if gitignore_path.is_file() else []
+        )
 
     def is_ignored(self, path: Path) -> bool:
         """Check if a path should be skipped based on .gitignore patterns."""
@@ -54,7 +56,9 @@ class GitignoreFilter:
         except ValueError:
             return False
         # Check both with and without trailing slash (gitignore treats dir/ specially)
-        return is_path_gitignored(rel, self.patterns) or is_path_gitignored(rel + "/", self.patterns)
+        return is_path_gitignored(rel, self.patterns) or is_path_gitignored(
+            rel + "/", self.patterns
+        )
 
     def _walk_pathlib(
         self,
@@ -92,7 +96,9 @@ class GitignoreFilter:
 
         # Recurse into non-ignored subdirectories
         for subdir_name in subdirs:
-            yield from self._walk_pathlib(directory / subdir_name, skip_dirs, skip_hidden)
+            yield from self._walk_pathlib(
+                directory / subdir_name, skip_dirs, skip_hidden
+            )
 
     def walk(
         self,

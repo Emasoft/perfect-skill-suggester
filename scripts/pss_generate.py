@@ -504,7 +504,9 @@ def import_from_index(
 
     for key, skill_data in skills.items():
         # Handle both legacy (name-keyed) and new (source::name-keyed) formats
-        skill_name = skill_data.get("name") or (key.split("::", 1)[-1] if "::" in key else key)
+        skill_name = skill_data.get("name") or (
+            key.split("::", 1)[-1] if "::" in key else key
+        )
         pss_path = output_dir / f"{skill_name}.pss"
 
         if pss_path.exists() and not force:
@@ -636,9 +638,7 @@ def main() -> int:
             return 1
 
         try:
-            pss_data = generate_pss(
-                skill_path, args.tier, args.category, args.source
-            )
+            pss_data = generate_pss(skill_path, args.tier, args.category, args.source)
 
             # Determine output path — default to system temp pss-queue to avoid
             # polluting skill directories with .pss files

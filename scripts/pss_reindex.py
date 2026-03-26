@@ -261,7 +261,10 @@ def main() -> None:
     try:
         build_db(binary)
     except subprocess.CalledProcessError as e:
-        print(f"WARNING: CozoDB build failed (code {e.returncode}). Index is valid but DB needs rebuild.", file=sys.stderr)
+        print(
+            f"WARNING: CozoDB build failed (code {e.returncode}). Index is valid but DB needs rebuild.",
+            file=sys.stderr,
+        )
     except subprocess.TimeoutExpired:
         print("WARNING: CozoDB build timed out after 120s.", file=sys.stderr)
 
@@ -269,7 +272,10 @@ def main() -> None:
     try:
         aggregate_domains(scripts_dir)
     except subprocess.CalledProcessError as e:
-        print(f"WARNING: Domain aggregation failed (code {e.returncode}).", file=sys.stderr)
+        print(
+            f"WARNING: Domain aggregation failed (code {e.returncode}).",
+            file=sys.stderr,
+        )
     except subprocess.TimeoutExpired:
         print("WARNING: Domain aggregation timed out after 120s.", file=sys.stderr)
 

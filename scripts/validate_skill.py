@@ -92,7 +92,9 @@ def parse_frontmatter(content: str) -> tuple[dict[str, Any] | None, str, int]:
         return None, content, 0
 
 
-def validate_frontmatter(_skill_path: Path, content: str, report: ValidationReport) -> dict[str, Any] | None:
+def validate_frontmatter(
+    _skill_path: Path, content: str, report: ValidationReport
+) -> dict[str, Any] | None:
     """Validate YAML frontmatter structure and content."""
     del _skill_path  # parameter reserved for per-file reporting
     # Check frontmatter exists
@@ -128,7 +130,9 @@ def validate_frontmatter(_skill_path: Path, content: str, report: ValidationRepo
     return frontmatter
 
 
-def validate_name_field(frontmatter: dict[str, Any], skill_dir_name: str, report: ValidationReport) -> None:
+def validate_name_field(
+    frontmatter: dict[str, Any], skill_dir_name: str, report: ValidationReport
+) -> None:
     """Validate the 'name' frontmatter field."""
     if "name" not in frontmatter:
         report.info(
@@ -142,14 +146,23 @@ def validate_name_field(frontmatter: dict[str, Any], skill_dir_name: str, report
         report.passed(f"'name' field present: {name}", "SKILL.md")
 
     if not isinstance(name, str):
-        report.critical(f"'name' must be a string, got {type(name).__name__}", "SKILL.md")
+        report.critical(
+            f"'name' must be a string, got {type(name).__name__}", "SKILL.md"
+        )
         return
 
     # Uniform naming validation via shared function (includes dir-name match as MAJOR)
-    validate_component_name(name, "skill", report, directory_name=skill_dir_name if "name" in frontmatter else None)
+    validate_component_name(
+        name,
+        "skill",
+        report,
+        directory_name=skill_dir_name if "name" in frontmatter else None,
+    )
 
 
-def validate_description_field(frontmatter: dict[str, Any], body: str, report: ValidationReport) -> None:
+def validate_description_field(
+    frontmatter: dict[str, Any], body: str, report: ValidationReport
+) -> None:
     """Validate the 'description' frontmatter field."""
     if "description" not in frontmatter:
         # Check if body has content that could serve as description
@@ -188,7 +201,9 @@ def validate_description_field(frontmatter: dict[str, Any], body: str, report: V
     report.passed("'description' field present", "SKILL.md")
 
 
-def validate_context_field(frontmatter: dict[str, Any], report: ValidationReport) -> None:
+def validate_context_field(
+    frontmatter: dict[str, Any], report: ValidationReport
+) -> None:
     """Validate the 'context' frontmatter field."""
     if "context" not in frontmatter:
         return
@@ -271,7 +286,9 @@ def validate_boolean_field(
     report.passed(f"'{field_name}' field valid: {value}", "SKILL.md")
 
 
-def validate_allowed_tools_field(frontmatter: dict[str, Any], report: ValidationReport) -> None:
+def validate_allowed_tools_field(
+    frontmatter: dict[str, Any], report: ValidationReport
+) -> None:
     """Validate the 'allowed-tools' frontmatter field."""
     if "allowed-tools" not in frontmatter:
         return
@@ -337,7 +354,9 @@ def validate_model_field(frontmatter: dict[str, Any], report: ValidationReport) 
     report.passed(f"'model' field present: {model}", "SKILL.md")
 
 
-def validate_argument_hint_field(frontmatter: dict[str, Any], report: ValidationReport) -> None:
+def validate_argument_hint_field(
+    frontmatter: dict[str, Any], report: ValidationReport
+) -> None:
     """Validate the 'argument-hint' frontmatter field."""
     if "argument-hint" not in frontmatter:
         return
@@ -516,7 +535,15 @@ def print_results(report: SkillValidationReport, verbose: bool = False) -> None:
     colors = COLORS
 
     # Count by level
-    counts = {"CRITICAL": 0, "MAJOR": 0, "MINOR": 0, "NIT": 0, "WARNING": 0, "INFO": 0, "PASSED": 0}
+    counts = {
+        "CRITICAL": 0,
+        "MAJOR": 0,
+        "MINOR": 0,
+        "NIT": 0,
+        "WARNING": 0,
+        "INFO": 0,
+        "PASSED": 0,
+    }
     for r in report.results:
         counts[r.level] += 1
 
@@ -584,7 +611,10 @@ def print_json(report: SkillValidationReport) -> None:
             "info": sum(1 for r in report.results if r.level == "INFO"),
             "passed": sum(1 for r in report.results if r.level == "PASSED"),
         },
-        "results": [{"level": r.level, "message": r.message, "file": r.file, "line": r.line} for r in report.results],
+        "results": [
+            {"level": r.level, "message": r.message, "file": r.file, "line": r.line}
+            for r in report.results
+        ],
     }
     print(json.dumps(output, indent=2))
 
@@ -605,9 +635,16 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(
-        "--report", type=str, default=None, help="Save detailed report to file, print only summary to stdout"
+        "--report",
+        type=str,
+        default=None,
+        help="Save detailed report to file, print only summary to stdout",
     )
-    parser.add_argument("--strict", action="store_true", help="Strict mode — NIT issues also block validation")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Strict mode — NIT issues also block validation",
+    )
     args = parser.parse_args()
 
     skill_path = Path(args.skill_path).resolve()
@@ -617,11 +654,17 @@ def main() -> int:
         return 1
 
     if not skill_path.is_dir():
-        print(f"Error: {skill_path} is not a directory (expected a skill directory)", file=sys.stderr)
+        print(
+            f"Error: {skill_path} is not a directory (expected a skill directory)",
+            file=sys.stderr,
+        )
         return 1
 
     # Verify content type — skill directory must contain SKILL.md
-    if not (skill_path / "SKILL.md").exists() and not (skill_path / "skill.md").exists():
+    if (
+        not (skill_path / "SKILL.md").exists()
+        and not (skill_path / "skill.md").exists()
+    ):
         print(
             f"Error: No SKILL.md found in {skill_path}\nA valid skill directory must contain a SKILL.md file.",
             file=sys.stderr,
@@ -634,7 +677,14 @@ def main() -> int:
         print_json(report)
     else:
         if args.report:
-            save_report_and_print_summary(report, Path(args.report), "Skill Validation", print_results, args.verbose, plugin_path=args.skill_path)
+            save_report_and_print_summary(
+                report,
+                Path(args.report),
+                "Skill Validation",
+                print_results,
+                args.verbose,
+                plugin_path=args.skill_path,
+            )
         else:
             print_results(report, args.verbose)
 

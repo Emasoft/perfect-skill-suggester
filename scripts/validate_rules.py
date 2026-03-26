@@ -225,7 +225,9 @@ def validate_rule_file(rule_path: Path, report: ValidationReport, rel_path: str)
     return content
 
 
-def _validate_frontmatter(frontmatter: dict[str, Any], report: ValidationReport, rel_path: str) -> None:
+def _validate_frontmatter(
+    frontmatter: dict[str, Any], report: ValidationReport, rel_path: str
+) -> None:
     """Validate rule frontmatter fields."""
     # Check for unknown fields
     for key in frontmatter:
@@ -243,7 +245,9 @@ def _validate_frontmatter(frontmatter: dict[str, Any], report: ValidationReport,
         else:
             for i, p in enumerate(paths):
                 if not isinstance(p, str):
-                    report.major(f"paths[{i}] must be a string, got {type(p).__name__}", rel_path)
+                    report.major(
+                        f"paths[{i}] must be a string, got {type(p).__name__}", rel_path
+                    )
                 elif not p.strip():
                     report.minor(f"paths[{i}] is empty", rel_path)
 
@@ -326,7 +330,15 @@ def print_results(report: ValidationReport, verbose: bool = False) -> None:
     """Print validation results in human-readable format."""
     colors = COLORS
 
-    counts: dict[str, int] = {"CRITICAL": 0, "MAJOR": 0, "MINOR": 0, "NIT": 0, "WARNING": 0, "INFO": 0, "PASSED": 0}
+    counts: dict[str, int] = {
+        "CRITICAL": 0,
+        "MAJOR": 0,
+        "MINOR": 0,
+        "NIT": 0,
+        "WARNING": 0,
+        "INFO": 0,
+        "PASSED": 0,
+    }
     for r in report.results:
         counts[r.level] += 1
 
@@ -361,7 +373,9 @@ def print_results(report: ValidationReport, verbose: bool = False) -> None:
     if report.exit_code == 0:
         print(f"{colors['PASSED']}✓ All rules checks passed{colors['RESET']}")
     elif report.exit_code == 1:
-        print(f"{colors['CRITICAL']}✗ CRITICAL issues — rules will not load{colors['RESET']}")
+        print(
+            f"{colors['CRITICAL']}✗ CRITICAL issues — rules will not load{colors['RESET']}"
+        )
     elif report.exit_code == 2:
         print(f"{colors['MAJOR']}✗ MAJOR issues found{colors['RESET']}")
     else:
@@ -383,7 +397,10 @@ def print_json(report: ValidationReport) -> None:
             "info": sum(1 for r in report.results if r.level == "INFO"),
             "passed": sum(1 for r in report.results if r.level == "PASSED"),
         },
-        "results": [{"level": r.level, "message": r.message, "file": r.file, "line": r.line} for r in report.results],
+        "results": [
+            {"level": r.level, "message": r.message, "file": r.file, "line": r.line}
+            for r in report.results
+        ],
     }
     print(json.dumps(output, indent=2))
 
@@ -403,9 +420,16 @@ def main() -> int:
     parser.add_argument("path", help="Path to rules/ directory or plugin root")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show all results")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
-    parser.add_argument("--strict", action="store_true", help="Strict mode — NIT issues also block validation")
     parser.add_argument(
-        "--report", type=str, default=None, help="Save detailed report to file, print only summary to stdout"
+        "--strict",
+        action="store_true",
+        help="Strict mode — NIT issues also block validation",
+    )
+    parser.add_argument(
+        "--report",
+        type=str,
+        default=None,
+        help="Save detailed report to file, print only summary to stdout",
     )
     args = parser.parse_args()
 
@@ -436,7 +460,14 @@ def main() -> int:
         print_json(report)
     else:
         if args.report:
-            save_report_and_print_summary(report, Path(args.report), "Rules Validation", print_results, args.verbose, plugin_path=args.path)
+            save_report_and_print_summary(
+                report,
+                Path(args.report),
+                "Rules Validation",
+                print_results,
+                args.verbose,
+                plugin_path=args.path,
+            )
         else:
             print_results(report, args.verbose)
 

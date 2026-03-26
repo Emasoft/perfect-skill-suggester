@@ -36,13 +36,20 @@ def load_skill_index() -> dict:
             if index_path.exists():
                 with open(index_path) as f:
                     return json.load(f)
-    print("ERROR: skill-index.json not found. Run /pss-reindex-skills first.", file=sys.stderr)
+    print(
+        "ERROR: skill-index.json not found. Run /pss-reindex-skills first.",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 
 def resolve_element_path(name: str, index: dict) -> str | None:
     """Resolve an element name to its file path via the skill index."""
-    skills = index if isinstance(index, dict) and "skills" not in index else index.get("skills", index)
+    skills = (
+        index
+        if isinstance(index, dict) and "skills" not in index
+        else index.get("skills", index)
+    )
     for _id, entry in skills.items():
         if isinstance(entry, dict) and entry.get("name") == name:
             path = entry.get("path", "")
@@ -53,7 +60,11 @@ def resolve_element_path(name: str, index: dict) -> str | None:
 
 def resolve_element_type(name: str, index: dict) -> str:
     """Get the type of an element from the index."""
-    skills = index if isinstance(index, dict) and "skills" not in index else index.get("skills", index)
+    skills = (
+        index
+        if isinstance(index, dict) and "skills" not in index
+        else index.get("skills", index)
+    )
     for _id, entry in skills.items():
         if isinstance(entry, dict) and entry.get("name") == name:
             return entry.get("type", "skill")
@@ -77,7 +88,10 @@ def copy_skill(name: str, source_path: str, dest_skills_dir: Path) -> bool:
     # Use the skill directory name as the destination name
     dest_dir = dest_skills_dir / skill_dir.name
     if dest_dir.exists():
-        print(f"  WARNING: Skill directory already exists, skipping: {dest_dir.name}", file=sys.stderr)
+        print(
+            f"  WARNING: Skill directory already exists, skipping: {dest_dir.name}",
+            file=sys.stderr,
+        )
         return False
 
     # Copy the entire skill directory (SKILL.md + references/ + scripts/ + assets/)
@@ -94,7 +108,10 @@ def copy_agent(name: str, source_path: str, dest_agents_dir: Path) -> bool:
 
     dest = dest_agents_dir / source.name
     if dest.exists():
-        print(f"  WARNING: Agent file already exists, skipping: {source.name}", file=sys.stderr)
+        print(
+            f"  WARNING: Agent file already exists, skipping: {source.name}",
+            file=sys.stderr,
+        )
         return False
 
     shutil.copy2(source, dest)
@@ -110,7 +127,10 @@ def copy_command(name: str, source_path: str, dest_commands_dir: Path) -> bool:
 
     dest = dest_commands_dir / source.name
     if dest.exists():
-        print(f"  WARNING: Command file already exists, skipping: {source.name}", file=sys.stderr)
+        print(
+            f"  WARNING: Command file already exists, skipping: {source.name}",
+            file=sys.stderr,
+        )
         return False
 
     shutil.copy2(source, dest)
@@ -224,8 +244,12 @@ def generate_readme(
         for name in profile.get("rules", {}).get("recommended", []):
             lines.append(f"- {name}")
         lines.append("")
-        lines.append("> Rules are symlinked into `.claude/rules/` at session start and cleaned up at session end.")
-        lines.append(f"> Symlinks are prefixed with `_plugin_{plugin_name}_` for identification.")
+        lines.append(
+            "> Rules are symlinked into `.claude/rules/` at session start and cleaned up at session end."
+        )
+        lines.append(
+            f"> Symlinks are prefixed with `_plugin_{plugin_name}_` for identification."
+        )
         lines.append("")
 
     lines.extend(
@@ -319,9 +343,13 @@ exit 0
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate a Claude Code plugin from an .agent.toml profile")
+    parser = argparse.ArgumentParser(
+        description="Generate a Claude Code plugin from an .agent.toml profile"
+    )
     parser.add_argument("profile", help="Path to .agent.toml file")
-    parser.add_argument("--output", required=True, help="Output directory for the plugin")
+    parser.add_argument(
+        "--output", required=True, help="Output directory for the plugin"
+    )
     parser.add_argument("--name", help="Override plugin name (default: agent name)")
     args = parser.parse_args()
 
@@ -333,12 +361,18 @@ def main():
         print(f"ERROR: Profile not found: {profile_path}", file=sys.stderr)
         sys.exit(1)
     if not profile_path.suffix == ".toml":
-        print(f"ERROR: Expected .agent.toml file, got: {profile_path.name}", file=sys.stderr)
+        print(
+            f"ERROR: Expected .agent.toml file, got: {profile_path.name}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # Check output doesn't already have a plugin
     if (output_dir / ".claude-plugin").exists():
-        print("ERROR: Output directory already contains .claude-plugin/. Use a fresh directory.", file=sys.stderr)
+        print(
+            "ERROR: Output directory already contains .claude-plugin/. Use a fresh directory.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # Load profile
@@ -352,11 +386,16 @@ def main():
 
     # Quad-match check: plugin name should match agent name for AI Maestro compatibility
     if plugin_name != agent_name:
-        print(f"WARNING: Plugin name '{plugin_name}' differs from agent name '{agent_name}'. AI Maestro requires these to match.", file=sys.stderr)
+        print(
+            f"WARNING: Plugin name '{plugin_name}' differs from agent name '{agent_name}'. AI Maestro requires these to match.",
+            file=sys.stderr,
+        )
 
     # Validate plugin name is kebab-case
     if not re.match(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", plugin_name):
-        print(f"ERROR: Plugin name must be kebab-case: '{plugin_name}'", file=sys.stderr)
+        print(
+            f"ERROR: Plugin name must be kebab-case: '{plugin_name}'", file=sys.stderr
+        )
         sys.exit(1)
 
     # Load skill index for path resolution
@@ -365,14 +404,22 @@ def main():
 
     # Collect all element names from the profile
     skills_section = profile.get("skills", {})
-    all_skill_names = skills_section.get("primary", []) + skills_section.get("secondary", []) + skills_section.get("specialized", [])
-    agent_names = profile.get("subagents", profile.get("agents", {})).get("recommended", [])
+    all_skill_names = (
+        skills_section.get("primary", [])
+        + skills_section.get("secondary", [])
+        + skills_section.get("specialized", [])
+    )
+    agent_names = profile.get("subagents", profile.get("agents", {})).get(
+        "recommended", []
+    )
     command_names = profile.get("commands", {}).get("recommended", [])
     rule_names = profile.get("rules", {}).get("recommended", [])
     mcp_names = profile.get("mcp", {}).get("recommended", [])
     hook_names = profile.get("hooks", {}).get("recommended", [])
 
-    print(f"Profile: {len(all_skill_names)} skills, {len(agent_names)} agents, {len(command_names)} commands, {len(rule_names)} rules, {len(mcp_names)} MCPs")
+    print(
+        f"Profile: {len(all_skill_names)} skills, {len(agent_names)} agents, {len(command_names)} commands, {len(rule_names)} rules, {len(mcp_names)} MCPs"
+    )
 
     # Create plugin directory structure
     print(f"Creating plugin at: {output_dir}")
@@ -380,7 +427,14 @@ def main():
     (output_dir / ".claude-plugin").mkdir(exist_ok=True)
 
     # Track stats for README
-    stats = {"skills": 0, "agents": 0, "commands": 0, "rules": 0, "mcp": 0, "output_styles": 0}
+    stats = {
+        "skills": 0,
+        "agents": 0,
+        "commands": 0,
+        "rules": 0,
+        "mcp": 0,
+        "output_styles": 0,
+    }
 
     # Copy skills
     if all_skill_names:
@@ -465,8 +519,12 @@ def main():
         for name in mcp_names:
             path = resolve_element_path(name, index)
             if path and Path(path).exists():
-                mcp_configs[name] = {"comment": f"MCP server: {name} — configure manually"}
-            mcp_configs[name] = {"comment": f"MCP server: {name} — configure in .mcp.json"}
+                mcp_configs[name] = {
+                    "comment": f"MCP server: {name} — configure manually"
+                }
+            mcp_configs[name] = {
+                "comment": f"MCP server: {name} — configure in .mcp.json"
+            }
         if mcp_configs:
             mcp_json = {"mcpServers": {}}
             # Write a placeholder .mcp.json — MCP servers need manual config
@@ -474,7 +532,9 @@ def main():
                 json.dump(mcp_json, f, indent=2)
                 f.write("\n")
             stats["mcp"] = len(mcp_names)
-            print(f"  ✓ .mcp.json placeholder ({len(mcp_names)} MCP servers — configure manually)")
+            print(
+                f"  ✓ .mcp.json placeholder ({len(mcp_names)} MCP servers — configure manually)"
+            )
 
     # Generate hooks.json — includes rules symlink hooks if rules exist
     has_rules = stats.get("rules", 0) > 0
@@ -512,10 +572,14 @@ def main():
                     ],
                 }
             ]
-            print("  ✓ scripts/install-rules.sh + cleanup-rules.sh (rule symlink hooks)")
+            print(
+                "  ✓ scripts/install-rules.sh + cleanup-rules.sh (rule symlink hooks)"
+            )
 
         if has_user_hooks:
-            print(f"  ✓ hooks/hooks.json placeholder ({len(hook_names)} hooks — configure manually)")
+            print(
+                f"  ✓ hooks/hooks.json placeholder ({len(hook_names)} hooks — configure manually)"
+            )
 
         with open(hooks_dir / "hooks.json", "w") as f:
             json.dump(hooks_json, f, indent=2)
@@ -525,7 +589,10 @@ def main():
     # Generate plugin.json
     # Use [description].text from profile if available, otherwise generate default
     desc_section = profile.get("description", {})
-    description = desc_section.get("text", "").strip() or f"Plugin for {agent_name} agent — auto-generated from .agent.toml profile"
+    description = (
+        desc_section.get("text", "").strip()
+        or f"Plugin for {agent_name} agent — auto-generated from .agent.toml profile"
+    )
     manifest = generate_plugin_json(plugin_name, agent_name, description, profile)
     with open(output_dir / ".claude-plugin" / "plugin.json", "w") as f:
         json.dump(manifest, f, indent=2)
@@ -546,7 +613,9 @@ def main():
     total = sum(stats.values())
     print(f"\n{'=' * 50}")
     print(f"Plugin '{plugin_name}' created at: {output_dir}")
-    print(f"  Skills: {stats['skills']}, Agents: {stats['agents']}, Commands: {stats['commands']}, Rules: {stats['rules']}, MCP: {stats['mcp']}")
+    print(
+        f"  Skills: {stats['skills']}, Agents: {stats['agents']}, Commands: {stats['commands']}, Rules: {stats['rules']}, MCP: {stats['mcp']}"
+    )
     print(f"  Total elements copied: {total}")
     print(f"\nInstall with: claude plugin install {output_dir}")
     print(f"Test with:    claude --plugin-dir {output_dir}")

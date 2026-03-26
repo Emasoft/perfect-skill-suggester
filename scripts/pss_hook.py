@@ -26,7 +26,9 @@ from typing import Any
 # Configuration
 MAX_SUGGESTIONS = 5  # Maximum skill suggestions per message (one line each)
 MIN_SCORE = 0.5  # Minimum score threshold
-SUBPROCESS_TIMEOUT = 4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
+SUBPROCESS_TIMEOUT = (
+    4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
+)
 SKILL_INDEX_FILE = "skill-index.json"
 # Prompt length cap for the Rust binary — the scorer only needs the first few
 # thousand chars to determine intent.  Piping 100KB+ prompts causes timeouts
@@ -277,7 +279,11 @@ def _extract_prev_msg_python(transcript_path: str) -> str:
                         if user_text:
                             user_messages_found += 1
                             if user_messages_found >= 2:
-                                return user_text[:MAX_PROMPT_CHARS] if len(user_text) > MAX_PROMPT_CHARS else user_text
+                                return (
+                                    user_text[:MAX_PROMPT_CHARS]
+                                    if len(user_text) > MAX_PROMPT_CHARS
+                                    else user_text
+                                )
 
                 line_end = abs_nl
                 search_end = nl
@@ -299,7 +305,11 @@ def _extract_prev_msg_python(transcript_path: str) -> str:
                     if user_text:
                         user_messages_found += 1
                         if user_messages_found >= 2:
-                            return user_text[:MAX_PROMPT_CHARS] if len(user_text) > MAX_PROMPT_CHARS else user_text
+                            return (
+                                user_text[:MAX_PROMPT_CHARS]
+                                if len(user_text) > MAX_PROMPT_CHARS
+                                else user_text
+                            )
                 except (json.JSONDecodeError, ValueError):
                     pass
 
@@ -441,7 +451,9 @@ def detect_platform() -> str:
         return "pss-windows-x86_64.exe"
 
     # Unsupported platform
-    raise RuntimeError(f"Unsupported platform: {system} {machine}. Supported: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64, windows-x86_64. Build from source for other platforms.")
+    raise RuntimeError(
+        f"Unsupported platform: {system} {machine}. Supported: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64, windows-x86_64. Build from source for other platforms."
+    )
 
 
 def find_binary() -> Path:
@@ -453,7 +465,9 @@ def find_binary() -> Path:
     binary_path = script_dir.parent / "bin" / binary_name
 
     if not binary_path.exists():
-        raise FileNotFoundError(f"PSS binary not found at: {binary_path}. Build it with: uv run python {script_dir / 'pss_build.py'}")
+        raise FileNotFoundError(
+            f"PSS binary not found at: {binary_path}. Build it with: uv run python {script_dir / 'pss_build.py'}"
+        )
 
     return binary_path
 
@@ -518,7 +532,9 @@ def _maybe_auto_reindex(index_path: Path) -> None:
     script_dir = Path(__file__).parent.resolve()
     reindex_script = script_dir / "pss_reindex.py"
     if not reindex_script.exists():
-        _exit_warning(f"skill-index.json not found and reindex script missing at {reindex_script} — run /pss-reindex-skills manually")
+        _exit_warning(
+            f"skill-index.json not found and reindex script missing at {reindex_script} — run /pss-reindex-skills manually"
+        )
         return
 
     try:
@@ -538,7 +554,9 @@ def _maybe_auto_reindex(index_path: Path) -> None:
             proc.kill()
             _exit_warning("skill index not found — auto-reindex already in progress")
             return
-        _exit_warning("skill index not found — auto-reindex started, suggestions available shortly")
+        _exit_warning(
+            "skill index not found — auto-reindex started, suggestions available shortly"
+        )
     except OSError as e:
         _exit_warning(f"skill-index.json not found, auto-reindex failed: {e}")
 
@@ -547,7 +565,9 @@ def main() -> None:
     """Main entry point - read stdin, call binary, output result."""
     try:
         # Read JSON input from stdin
-        stdin_data = sys.stdin.read(1_048_576)  # 1MB cap to prevent memory exhaustion from oversized input
+        stdin_data = sys.stdin.read(
+            1_048_576
+        )  # 1MB cap to prevent memory exhaustion from oversized input
 
         # Parse input to check if we should skip
         input_json: dict[str, Any] = {}
@@ -660,7 +680,9 @@ def main() -> None:
             # User-visible notification only in --debug mode (silent otherwise)
             if _is_debug_mode():
                 try:
-                    ctx = (hook_out.get("hookSpecificOutput") or {}).get("additionalContext", "")
+                    ctx = (hook_out.get("hookSpecificOutput") or {}).get(
+                        "additionalContext", ""
+                    )
                     if ctx:
                         # Extract "name [type]" pairs from compact format lines
                         names = re.findall(r"^\s+(.+?)\s+\[(\w+)\]", ctx, re.MULTILINE)
@@ -676,12 +698,16 @@ def main() -> None:
             print(json.dumps(hook_out))
         else:
             build_script = Path(__file__).parent / "pss_build.py"
-            _exit_warning(f"binary exited with code {result.returncode}: {result.stderr[:300]}. Try rebuilding: uv run python {build_script}")
+            _exit_warning(
+                f"binary exited with code {result.returncode}: {result.stderr[:300]}. Try rebuilding: uv run python {build_script}"
+            )
 
         sys.exit(0)  # Always exit 0 to not block Claude
 
     except subprocess.TimeoutExpired:
-        _exit_warning(f"binary timed out after {SUBPROCESS_TIMEOUT}s. The skill index may be too large or the binary may be stuck. Check: uv run python {Path(__file__).parent / 'pss_test_e2e.py'}")
+        _exit_warning(
+            f"binary timed out after {SUBPROCESS_TIMEOUT}s. The skill index may be too large or the binary may be stuck. Check: uv run python {Path(__file__).parent / 'pss_test_e2e.py'}"
+        )
     except Exception as e:
         _exit_warning(str(e))
 

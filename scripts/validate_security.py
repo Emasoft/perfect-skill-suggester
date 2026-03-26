@@ -121,7 +121,9 @@ def is_validator_script(file_path: str) -> bool:
     """
     file_lower = file_path.lower()
     # Validator scripts that contain intentional pattern definitions
-    return ("validate_" in file_lower and file_lower.endswith(".py")) or "cpv_validation_common" in file_lower
+    return (
+        "validate_" in file_lower and file_lower.endswith(".py")
+    ) or "cpv_validation_common" in file_lower
 
 
 def is_shell_like_file(file_path: str) -> bool:
@@ -147,7 +149,9 @@ def is_shell_like_file(file_path: str) -> bool:
     # GitHub Actions workflow YAML files contain shell commands in run: blocks
     # Also match template workflow directories (templates/github-workflows/)
     if file_lower.endswith((".yml", ".yaml")):
-        if "/workflows/" in file_normalized or file_normalized.startswith(".github/workflows/"):
+        if "/workflows/" in file_normalized or file_normalized.startswith(
+            ".github/workflows/"
+        ):
             return True
         if "github-workflows/" in file_normalized:
             return True
@@ -162,7 +166,9 @@ def _line_is_string_assignment(line: str) -> bool:
     """
     stripped = line.strip()
     # Match: IDENTIFIER = ''' or IDENTIFIER = \"\"\" (with optional space variations)
-    return bool(re.match(r"[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?:'''|\"\"\"|r'''|r\"\"\")", stripped))
+    return bool(
+        re.match(r"[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?:'''|\"\"\"|r'''|r\"\"\")", stripped)
+    )
 
 
 def scan_for_injection(content: str, file_path: str, report: ValidationReport) -> int:
@@ -218,7 +224,9 @@ def scan_for_injection(content: str, file_path: str, report: ValidationReport) -
         # This avoids flagging Python docstrings that use reStructuredText formatting
         if "`" in line and not is_markdown:
             backtick_segments = re.findall(r"`[^`]*`", line)
-            if backtick_segments and all(seg.startswith("``") and seg.endswith("``") for seg in backtick_segments):
+            if backtick_segments and all(
+                seg.startswith("``") and seg.endswith("``") for seg in backtick_segments
+            ):
                 continue
 
         # Check command substitution (CRITICAL) - but not in shell scripts where it's expected
@@ -228,8 +236,17 @@ def scan_for_injection(content: str, file_path: str, report: ValidationReport) -
                 # backticks in .py are usually RST/docstring formatting. BUT backticks
                 # inside shell-execution calls (os.system, os.popen, subprocess) are real threats.
                 if is_python_file and "`...`" in msg:
-                    shell_exec_indicators = ("os.system", "os.popen", "subprocess", "shell=", "Popen", "check_output")
-                    if not any(indicator in line for indicator in shell_exec_indicators):
+                    shell_exec_indicators = (
+                        "os.system",
+                        "os.popen",
+                        "subprocess",
+                        "shell=",
+                        "Popen",
+                        "check_output",
+                    )
+                    if not any(
+                        indicator in line for indicator in shell_exec_indicators
+                    ):
                         continue
                 if pattern.search(line):
                     report.critical(f"{msg}: {line.strip()[:80]}", file_path, line_num)
@@ -269,7 +286,9 @@ def scan_for_injection(content: str, file_path: str, report: ValidationReport) -
     return issues_found
 
 
-def scan_for_path_traversal(content: str, file_path: str, report: ValidationReport) -> int:
+def scan_for_path_traversal(
+    content: str, file_path: str, report: ValidationReport
+) -> int:
     """Scan content for path traversal patterns. Returns count of issues found.
 
     Note: Documentation files (.md) often contain examples showing path syntax.
@@ -314,7 +333,9 @@ def scan_for_path_traversal(content: str, file_path: str, report: ValidationRepo
             continue
 
         # Detect if this line is a Python string literal (help text, error messages, etc.)
-        is_python_string_line = file_lower.endswith(".py") and ('"' in stripped or "'" in stripped)
+        is_python_string_line = file_lower.endswith(".py") and (
+            '"' in stripped or "'" in stripped
+        )
 
         for pattern, msg in PATH_TRAVERSAL_PATTERNS:
             match = pattern.search(line)
@@ -325,7 +346,11 @@ def scan_for_path_traversal(content: str, file_path: str, report: ValidationRepo
                 if "..\\" in msg and "..\\" in matched_text:
                     # Check if the backslash is followed by a common Python escape char
                     pos = line.find("..\\")
-                    if pos >= 0 and pos + 3 < len(line) and line[pos + 3] in "nrtbf0'\"":
+                    if (
+                        pos >= 0
+                        and pos + 3 < len(line)
+                        and line[pos + 3] in "nrtbf0'\""
+                    ):
                         continue
 
                 # For Windows path matches (C:\...), skip if they contain example usernames
@@ -333,7 +358,9 @@ def scan_for_path_traversal(content: str, file_path: str, report: ValidationRepo
                 # Handle both single-backslash (C:\Users\you) and double-backslash (C:\\Users\\you)
                 # since raw file text may contain escaped backslashes
                 if "\\" in matched_text or "Windows" in msg:
-                    win_user_match = re.search(r"[A-Za-z]:\\\\?(?:Users|users)\\\\?([^\\]+)", line)
+                    win_user_match = re.search(
+                        r"[A-Za-z]:\\\\?(?:Users|users)\\\\?([^\\]+)", line
+                    )
                     if win_user_match:
                         username = win_user_match.group(1).lower()
                         if username in EXAMPLE_USERNAMES:
@@ -395,8 +422,14 @@ def scan_for_secrets(content: str, file_path: str, report: ValidationReport) -> 
                 if matched_text in KNOWN_EXAMPLE_SECRETS:
                     continue
                 # Mask the actual secret in the report
-                masked_line = line.strip()[:40] + "..." if len(line.strip()) > 40 else line.strip()
-                report.critical(f"{secret_type} detected: {masked_line}", file_path, line_num)
+                masked_line = (
+                    line.strip()[:40] + "..."
+                    if len(line.strip()) > 40
+                    else line.strip()
+                )
+                report.critical(
+                    f"{secret_type} detected: {masked_line}", file_path, line_num
+                )
                 issues_found += 1
 
     return issues_found
@@ -495,7 +528,10 @@ def check_script_permissions(plugin_path: Path, report: ValidationReport) -> int
                             report.minor(f"Shell script missing shebang: {rel_path}")
                             issues_found += 1
                         elif "bash" not in first_line and "sh" not in first_line:
-                            report.info(f"Shell script has non-standard shebang: {first_line.strip()}", str(rel_path))
+                            report.info(
+                                f"Shell script has non-standard shebang: {first_line.strip()}",
+                                str(rel_path),
+                            )
 
                 except (OSError, PermissionError) as e:
                     report.major(f"Cannot check script permissions: {rel_path} ({e})")
@@ -553,10 +589,16 @@ def scan_all_files(plugin_path: Path, report: ValidationReport) -> dict[str, int
 
                 # Run all content scans
                 # CRITICAL: Injection detection runs FIRST, before any allowlisting
-                stats["injection_issues"] += scan_for_injection(content, rel_path, report)
-                stats["path_traversal_issues"] += scan_for_path_traversal(content, rel_path, report)
+                stats["injection_issues"] += scan_for_injection(
+                    content, rel_path, report
+                )
+                stats["path_traversal_issues"] += scan_for_path_traversal(
+                    content, rel_path, report
+                )
                 stats["secret_issues"] += scan_for_secrets(content, rel_path, report)
-                stats["user_path_issues"] += scan_for_user_paths(content, rel_path, report)
+                stats["user_path_issues"] += scan_for_user_paths(
+                    content, rel_path, report
+                )
 
             except (OSError, PermissionError) as e:
                 report.minor(f"Cannot read file: {rel_path} ({e})")
@@ -615,7 +657,9 @@ def validate_security(plugin_path: Path) -> ValidationReport:
     scan_stats = scan_all_files(plugin_path, report)
 
     # Report scan statistics
-    report.info(f"Scanned {scan_stats['files_scanned']} files, skipped {scan_stats['files_skipped']} binary files")
+    report.info(
+        f"Scanned {scan_stats['files_scanned']} files, skipped {scan_stats['files_skipped']} binary files"
+    )
 
     # Add passed messages for clean categories
     if scan_stats["injection_issues"] == 0:
@@ -657,12 +701,26 @@ Exit Codes:
   3 - MINOR issues found (recommended to fix)
         """,
     )
-    parser.add_argument("plugin_path", type=Path, help="Path to the plugin directory to validate")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Show all results including INFO and PASSED")
-    parser.add_argument("--json", action="store_true", help="Output results as JSON")
-    parser.add_argument("--strict", action="store_true", help="Strict mode — NIT issues also block validation")
     parser.add_argument(
-        "--report", type=str, default=None, help="Save detailed report to file, print only summary to stdout"
+        "plugin_path", type=Path, help="Path to the plugin directory to validate"
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show all results including INFO and PASSED",
+    )
+    parser.add_argument("--json", action="store_true", help="Output results as JSON")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Strict mode — NIT issues also block validation",
+    )
+    parser.add_argument(
+        "--report",
+        type=str,
+        default=None,
+        help="Save detailed report to file, print only summary to stdout",
     )
 
     args = parser.parse_args()
@@ -695,7 +753,14 @@ Exit Codes:
             print_report_summary(report, "Security Validation Report")
             print_results_by_level(report, verbose=verbose)
 
-        save_report_and_print_summary(report, Path(args.report), "Security Validation", _print_full, args.verbose, plugin_path=args.plugin_path)
+        save_report_and_print_summary(
+            report,
+            Path(args.report),
+            "Security Validation",
+            _print_full,
+            args.verbose,
+            plugin_path=args.plugin_path,
+        )
     else:
         print_results_by_level(report, verbose=args.verbose)
         print_report_summary(report, title=f"Security Validation: {plugin_path.name}")

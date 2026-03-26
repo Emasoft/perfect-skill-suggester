@@ -33,7 +33,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from cpv_validation_common import COLORS, VALID_PLUGIN_ENV_VARS, ValidationReport, save_report_and_print_summary, validate_component_name
+from cpv_validation_common import (
+    COLORS,
+    VALID_PLUGIN_ENV_VARS,
+    ValidationReport,
+    save_report_and_print_summary,
+    validate_component_name,
+)
 
 # Valid transport types
 VALID_TRANSPORTS = {"stdio", "sse", "http"}
@@ -98,14 +104,20 @@ def validate_env_var_syntax(value: str, report: ValidationReport, context: str) 
 
             # Warn about required env vars without defaults (excluding plugin vars)
             if default is None and var_name not in PLUGIN_ENV_VARS:
-                report.info(f"Env var ${{{var_name}}} has no default value in {context} - config will fail if not set")
+                report.info(
+                    f"Env var ${{{var_name}}} has no default value in {context} - config will fail if not set"
+                )
 
 
-def validate_path_value(value: str, report: ValidationReport, context: str, plugin_root: Path | None = None) -> None:
+def validate_path_value(
+    value: str, report: ValidationReport, context: str, plugin_root: Path | None = None
+) -> None:
     """Validate a path value in MCP configuration."""
     # Check for absolute paths (without env var substitution)
     if is_absolute_path(value):
-        report.major(f"Absolute path found in {context}: {value} - use ${{{{CLAUDE_PLUGIN_ROOT}}}} for portability")
+        report.major(
+            f"Absolute path found in {context}: {value} - use ${{{{CLAUDE_PLUGIN_ROOT}}}} for portability"
+        )
         return
 
     # Check if path uses CLAUDE_PLUGIN_ROOT for plugin-relative paths
@@ -113,7 +125,9 @@ def validate_path_value(value: str, report: ValidationReport, context: str, plug
         # Could be a relative path or command name
         # Check if it looks like a file path
         if "/" in value or "\\" in value:
-            report.minor(f"Path in {context} should use ${{CLAUDE_PLUGIN_ROOT}}: {value}")
+            report.minor(
+                f"Path in {context} should use ${{CLAUDE_PLUGIN_ROOT}}: {value}"
+            )
 
     # Validate env var syntax in path
     validate_env_var_syntax(value, report, context)
@@ -126,7 +140,9 @@ def validate_path_value(value: str, report: ValidationReport, context: str, plug
         # Only check if it looks like a file (has extension) not a dir
         if "." in resolved_path.name or resolved_path.suffix:
             if not resolved_path.exists():
-                report.info(f"Referenced file may not exist: {value} (resolved: {resolved_path})")
+                report.info(
+                    f"Referenced file may not exist: {value} (resolved: {resolved_path})"
+                )
 
 
 def validate_mcp_server(
@@ -173,20 +189,26 @@ def validate_mcp_server(
                 resolved_path = Path(resolved)
                 if resolved_path.exists():
                     if not os.access(resolved_path, os.X_OK):
-                        report.major(f"Server {server_name} command not executable: {resolved}")
+                        report.major(
+                            f"Server {server_name} command not executable: {resolved}"
+                        )
                     else:
                         report.passed(f"Server {server_name} command is executable")
             elif shutil.which(command):
                 report.passed(f"Server {server_name} command '{command}' found in PATH")
             else:
-                report.info(f"Server {server_name} command '{command}' not found (may be resolved at runtime)")
+                report.info(
+                    f"Server {server_name} command '{command}' not found (may be resolved at runtime)"
+                )
 
             # Security warning for package executors running remote packages
             package_executors = {"npx", "bunx", "uvx", "pipx", "pnpx"}
             if command in package_executors:
                 # Check args to see if it's running a non-local package
                 cmd_args = config.get("args", [])
-                pkg_name = cmd_args[0] if cmd_args and isinstance(cmd_args[0], str) else None
+                pkg_name = (
+                    cmd_args[0] if cmd_args and isinstance(cmd_args[0], str) else None
+                )
                 if pkg_name and not pkg_name.startswith((".", "/", "${")):
                     report.warning(
                         f"Server {server_name} uses {command} to execute remote package "
@@ -196,7 +218,9 @@ def validate_mcp_server(
 
         # Warn about url field ignored for stdio transport
         if "url" in config and transport == "stdio":
-            report.info(f"Server {server_name} has 'url' but transport is stdio - url will be ignored")
+            report.info(
+                f"Server {server_name} has 'url' but transport is stdio - url will be ignored"
+            )
 
     elif transport in ("http", "sse"):
         # HTTP/SSE servers require 'url'
@@ -239,11 +263,15 @@ def validate_mcp_server(
 
         # SSE is deprecated
         if transport == "sse":
-            report.minor(f"Server {server_name} uses deprecated 'sse' transport - consider migrating to 'http'")
+            report.minor(
+                f"Server {server_name} uses deprecated 'sse' transport - consider migrating to 'http'"
+            )
 
         # Warn if command is set for http/sse
         if "command" in config:
-            report.info(f"Server {server_name} has 'command' but transport is {transport} - command will be ignored")
+            report.info(
+                f"Server {server_name} has 'command' but transport is {transport} - command will be ignored"
+            )
 
     # Validate args array
     if "args" in config:
@@ -258,7 +286,9 @@ def validate_mcp_server(
                     validate_env_var_syntax(arg, report, f"{ctx}:args[{i}]")
                     # Check for paths in args
                     if "/" in arg or "\\" in arg:
-                        validate_path_value(arg, report, f"{ctx}:args[{i}]", plugin_root)
+                        validate_path_value(
+                            arg, report, f"{ctx}:args[{i}]", plugin_root
+                        )
 
     # Validate env object
     if "env" in config:
@@ -290,7 +320,9 @@ def validate_mcp_server(
         else:
             for key, value in headers.items():
                 if not isinstance(value, str):
-                    report.major(f"Server {server_name} headers[{key}] must be a string")
+                    report.major(
+                        f"Server {server_name} headers[{key}] must be a string"
+                    )
                 else:
                     validate_env_var_syntax(value, report, f"{ctx}:headers[{key}]")
 
@@ -306,7 +338,9 @@ def validate_mcp_server(
     if "timeout" in config:
         timeout = config["timeout"]
         if not isinstance(timeout, (int, float)):
-            report.major(f"Server {server_name} 'timeout' must be a number, got {type(timeout).__name__}")
+            report.major(
+                f"Server {server_name} 'timeout' must be a number, got {type(timeout).__name__}"
+            )
         elif timeout <= 0:
             report.major(f"Server {server_name} 'timeout' must be positive")
         else:
@@ -316,16 +350,24 @@ def validate_mcp_server(
     if "oauth" in config:
         oauth = config["oauth"]
         if not isinstance(oauth, dict):
-            report.major(f"Server {server_name} 'oauth' must be an object, got {type(oauth).__name__}")
+            report.major(
+                f"Server {server_name} 'oauth' must be an object, got {type(oauth).__name__}"
+            )
         else:
             # clientId is the key field for OAuth
             if "clientId" in oauth and not isinstance(oauth["clientId"], str):
                 report.major(f"Server {server_name} 'oauth.clientId' must be a string")
             if "callbackPort" in oauth and not isinstance(oauth["callbackPort"], int):
-                report.major(f"Server {server_name} 'oauth.callbackPort' must be an integer")
+                report.major(
+                    f"Server {server_name} 'oauth.callbackPort' must be an integer"
+                )
             # authServerMetadataUrl: custom OAuth metadata discovery URL (v2.1.69+)
-            if "authServerMetadataUrl" in oauth and not isinstance(oauth["authServerMetadataUrl"], str):
-                report.major(f"Server {server_name} 'oauth.authServerMetadataUrl' must be a string")
+            if "authServerMetadataUrl" in oauth and not isinstance(
+                oauth["authServerMetadataUrl"], str
+            ):
+                report.major(
+                    f"Server {server_name} 'oauth.authServerMetadataUrl' must be a string"
+                )
             report.passed(f"Server {server_name} has OAuth configuration")
 
     report.passed(f"Server {server_name} configuration validated")
@@ -406,7 +448,9 @@ def validate_mcp_config(
     return report
 
 
-def validate_plugin_mcp(plugin_root: Path, report: ValidationReport | None = None) -> ValidationReport:
+def validate_plugin_mcp(
+    plugin_root: Path, report: ValidationReport | None = None
+) -> ValidationReport:
     """Validate all MCP configurations in a plugin.
 
     Checks both .mcp.json and inline mcpServers in plugin.json.
@@ -452,7 +496,9 @@ def validate_plugin_mcp(plugin_root: Path, report: ValidationReport | None = Non
 
                 elif isinstance(mcp_servers, dict):
                     # Inline definition
-                    report.info(f"Found inline mcpServers in plugin.json ({len(mcp_servers)} server(s))")
+                    report.info(
+                        f"Found inline mcpServers in plugin.json ({len(mcp_servers)} server(s))"
+                    )
                     for server_name, server_config in mcp_servers.items():
                         if isinstance(server_config, dict):
                             validate_mcp_server(
@@ -484,7 +530,15 @@ def print_results(report: ValidationReport, verbose: bool = False) -> None:
     """Print validation results in human-readable format."""
     colors = COLORS
 
-    counts = {"CRITICAL": 0, "MAJOR": 0, "MINOR": 0, "NIT": 0, "WARNING": 0, "INFO": 0, "PASSED": 0}
+    counts = {
+        "CRITICAL": 0,
+        "MAJOR": 0,
+        "MINOR": 0,
+        "NIT": 0,
+        "WARNING": 0,
+        "INFO": 0,
+        "PASSED": 0,
+    }
     for r in report.results:
         counts[r.level] += 1
 
@@ -519,7 +573,9 @@ def print_results(report: ValidationReport, verbose: bool = False) -> None:
     if report.exit_code == 0:
         print(f"{colors['PASSED']}✓ All MCP checks passed{colors['RESET']}")
     else:
-        status_color = colors[["PASSED", "CRITICAL", "MAJOR", "MINOR", "NIT"][min(report.exit_code, 4)]]
+        status_color = colors[
+            ["PASSED", "CRITICAL", "MAJOR", "MINOR", "NIT"][min(report.exit_code, 4)]
+        ]
         print(f"{status_color}✗ Issues found{colors['RESET']}")
 
     print()
@@ -532,10 +588,17 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Show all results")
-    parser.add_argument("--strict", action="store_true", help="Strict mode — NIT issues also block validation")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Strict mode — NIT issues also block validation",
+    )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(
-        "--report", type=str, default=None, help="Save detailed report to file, print only summary to stdout"
+        "--report",
+        type=str,
+        default=None,
+        help="Save detailed report to file, print only summary to stdout",
     )
     parser.add_argument(
         "path",
@@ -556,7 +619,10 @@ def main() -> int:
 
     # Verify content type — must be .mcp.json file or directory containing one
     if path.is_file() and not path.name.endswith(".mcp.json"):
-        print(f"Error: {path} is not an MCP config file (expected .mcp.json)", file=sys.stderr)
+        print(
+            f"Error: {path} is not an MCP config file (expected .mcp.json)",
+            file=sys.stderr,
+        )
         return 1
     if path.is_dir():
         has_mcp = (path / ".mcp.json").exists() or (path / ".claude-plugin").is_dir()
@@ -600,7 +666,14 @@ def main() -> int:
         print(json.dumps(output, indent=2))
     else:
         if args.report:
-            save_report_and_print_summary(report, Path(args.report), "MCP Validation", print_results, args.verbose, plugin_path=args.path)
+            save_report_and_print_summary(
+                report,
+                Path(args.report),
+                "MCP Validation",
+                print_results,
+                args.verbose,
+                plugin_path=args.path,
+            )
         else:
             print_results(report, args.verbose)
 

@@ -20,7 +20,9 @@ def run_cleanup(*args: str) -> subprocess.CompletedProcess[str]:
 class TestCleanupDryRun:
     """Tests for dry-run mode that should never delete files."""
 
-    def test_dry_run_no_files_exits_zero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_dry_run_no_files_exits_zero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Dry run with no .pss files exits with code 0 and reports nothing found."""
         # Create a fake skill dir with no .pss files
         skill_dir = tmp_path / "skills"
@@ -53,8 +55,13 @@ class TestCleanupDryRun:
 
         result = subprocess.run(
             [sys.executable, str(SCRIPT_PATH), "--dry-run"],
-            capture_output=True, text=True, timeout=30,
-            env={**__import__("os").environ, "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                **__import__("os").environ,
+                "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir),
+            },
         )
         # The script should handle gracefully even if real skill dirs are empty
         assert result.returncode == 0
@@ -68,8 +75,13 @@ class TestCleanupDryRun:
 
         result = subprocess.run(
             [sys.executable, str(SCRIPT_PATH), "--dry-run"],
-            capture_output=True, text=True, timeout=30,
-            env={**__import__("os").environ, "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                **__import__("os").environ,
+                "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir),
+            },
         )
         assert result.returncode == 0
         # File must still exist after dry run
@@ -84,8 +96,13 @@ class TestCleanupDryRun:
 
         result = subprocess.run(
             [sys.executable, str(SCRIPT_PATH), "--dry-run"],
-            capture_output=True, text=True, timeout=30,
-            env={**__import__("os").environ, "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                **__import__("os").environ,
+                "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir),
+            },
         )
         assert "[DRY RUN] Would delete:" in result.stdout
 
@@ -106,8 +123,13 @@ class TestCleanupActualDeletion:
 
         result = subprocess.run(
             [sys.executable, str(SCRIPT_PATH), "--verbose"],
-            capture_output=True, text=True, timeout=30,
-            env={**__import__("os").environ, "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                **__import__("os").environ,
+                "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir),
+            },
         )
         assert result.returncode == 0
         assert not pss1.exists(), ".pss file should be deleted"
@@ -124,8 +146,13 @@ class TestCleanupActualDeletion:
 
         result = subprocess.run(
             [sys.executable, str(SCRIPT_PATH)],
-            capture_output=True, text=True, timeout=30,
-            env={**__import__("os").environ, "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                **__import__("os").environ,
+                "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir),
+            },
         )
         assert result.returncode == 0
         assert not pss_file.exists(), "Nested .pss should be deleted"
@@ -139,8 +166,13 @@ class TestCleanupActualDeletion:
 
         result = subprocess.run(
             [sys.executable, str(SCRIPT_PATH), "--verbose"],
-            capture_output=True, text=True, timeout=30,
-            env={**__import__("os").environ, "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                **__import__("os").environ,
+                "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir),
+            },
         )
         assert result.returncode == 0
         assert "Deleted:" in result.stdout
@@ -149,7 +181,9 @@ class TestCleanupActualDeletion:
 class TestCleanupTmpQueue:
     """Tests for pss-queue temp directory scanning."""
 
-    def test_scans_tmp_queue(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_scans_tmp_queue(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Cleanup scans system temp pss-queue for .pss files (non-recursive)."""
         # Create a fake tmp queue dir
         queue_dir = tmp_path / "pss-queue"
@@ -164,7 +198,9 @@ class TestCleanupTmpQueue:
 
         result = subprocess.run(
             [sys.executable, str(SCRIPT_PATH), "--dry-run"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
             env={
                 **__import__("os").environ,
                 "PSS_CLEANUP_TEST_SKILL_DIRS": "",
@@ -189,7 +225,9 @@ class TestCleanupIdempotent:
 
         result = subprocess.run(
             [sys.executable, str(SCRIPT_PATH)],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
             env={
                 **__import__("os").environ,
                 "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir),
@@ -214,14 +252,20 @@ class TestCleanupIdempotent:
         # First run deletes
         r1 = subprocess.run(
             [sys.executable, str(SCRIPT_PATH)],
-            capture_output=True, text=True, timeout=30, env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
         )
         assert r1.returncode == 0
 
         # Second run finds nothing
         r2 = subprocess.run(
             [sys.executable, str(SCRIPT_PATH)],
-            capture_output=True, text=True, timeout=30, env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
         )
         assert r2.returncode == 0
         assert "No stale .pss files found" in r2.stdout
@@ -240,7 +284,9 @@ class TestCleanupSummary:
 
         result = subprocess.run(
             [sys.executable, str(SCRIPT_PATH)],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
             env={
                 **__import__("os").environ,
                 "PSS_CLEANUP_TEST_SKILL_DIRS": str(skill_dir),

@@ -144,7 +144,9 @@ def collect_domain_gates(
     skills = index.get("skills", {})
     for key, entry in skills.items():
         # Handle both legacy (name-keyed) and new (source::name-keyed) formats
-        skill_name = entry.get("name") or (key.split("::", 1)[-1] if "::" in key else key)
+        skill_name = entry.get("name") or (
+            key.split("::", 1)[-1] if "::" in key else key
+        )
         gates = entry.get("domain_gates")
         if not gates or not isinstance(gates, dict):
             continue
@@ -231,8 +233,7 @@ def build_registry(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Aggregate domain gates from skill-index.json"
-            " into domain-registry.json"
+            "Aggregate domain gates from skill-index.json into domain-registry.json"
         )
     )
     parser.add_argument(

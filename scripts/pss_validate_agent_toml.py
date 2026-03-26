@@ -96,7 +96,9 @@ class ValidationResult:
         return "\n".join(lines)
 
 
-def validate_agent_section(data: dict[str, Any], result: ValidationResult, toml_path: Path | None = None) -> None:
+def validate_agent_section(
+    data: dict[str, Any], result: ValidationResult, toml_path: Path | None = None
+) -> None:
     """Validate the [agent] section."""
     agent = data.get("agent")
     if agent is None:
@@ -123,7 +125,9 @@ def validate_agent_section(data: dict[str, Any], result: ValidationResult, toml_
         if not isinstance(name, str):
             result.error(f"[agent].name must be a string, got: {type(name).__name__}")
         elif not AGENT_NAME_PATTERN.match(name):
-            result.error(f"[agent].name must be kebab-case (a-z, 0-9, hyphens, underscores), got: '{name}'")
+            result.error(
+                f"[agent].name must be kebab-case (a-z, 0-9, hyphens, underscores), got: '{name}'"
+            )
 
     path = agent.get("path")
     if path is not None:
@@ -141,7 +145,12 @@ def validate_agent_section(data: dict[str, Any], result: ValidationResult, toml_
     # Role-Plugin triple-match validation:
     # When source starts with "plugin:", the plugin name, TOML filename stem,
     # and [agent].name must all match for AI Maestro to recognize it as a Role-Plugin.
-    if isinstance(source, str) and source.startswith("plugin:") and isinstance(name, str) and toml_path is not None:
+    if (
+        isinstance(source, str)
+        and source.startswith("plugin:")
+        and isinstance(name, str)
+        and toml_path is not None
+    ):
         # Extract plugin name from source (e.g. "plugin:my-plugin" → "my-plugin",
         # "plugin:owner/my-plugin" → "my-plugin")
         plugin_ref = source[len("plugin:") :]
@@ -154,34 +163,48 @@ def validate_agent_section(data: dict[str, Any], result: ValidationResult, toml_
             filename_stem = filename_stem[: -len(".toml")]
 
         if name != plugin_name:
-            result.warn(f"Role-Plugin triple-match: [agent].name '{name}' != plugin name '{plugin_name}' (from source '{source}'). AI Maestro requires all three to match.")
+            result.warn(
+                f"Role-Plugin triple-match: [agent].name '{name}' != plugin name '{plugin_name}' (from source '{source}'). AI Maestro requires all three to match."
+            )
         if filename_stem and name != filename_stem:
-            result.warn(f"Role-Plugin triple-match: [agent].name '{name}' != filename stem '{filename_stem}' (from '{toml_path.name}'). AI Maestro requires all three to match.")
+            result.warn(
+                f"Role-Plugin triple-match: [agent].name '{name}' != filename stem '{filename_stem}' (from '{toml_path.name}'). AI Maestro requires all three to match."
+            )
 
     # CC v2.1.78+ agent frontmatter fields
     effort = agent.get("effort")
     if effort is not None:
         if not isinstance(effort, str):
-            result.error(f"[agent].effort must be a string, got: {type(effort).__name__}")
+            result.error(
+                f"[agent].effort must be a string, got: {type(effort).__name__}"
+            )
         elif effort not in ("low", "medium", "high"):
-            result.error(f"[agent].effort must be 'low', 'medium', or 'high', got: '{effort}'")
+            result.error(
+                f"[agent].effort must be 'low', 'medium', or 'high', got: '{effort}'"
+            )
 
     max_turns = agent.get("maxTurns")
     if max_turns is not None:
         if not isinstance(max_turns, int):
-            result.error(f"[agent].maxTurns must be an integer, got: {type(max_turns).__name__}")
+            result.error(
+                f"[agent].maxTurns must be an integer, got: {type(max_turns).__name__}"
+            )
         elif max_turns < 1:
             result.error(f"[agent].maxTurns must be >= 1, got: {max_turns}")
 
     disallowed = agent.get("disallowedTools")
     if disallowed is not None:
         if not isinstance(disallowed, list):
-            result.error(f"[agent].disallowedTools must be an array, got: {type(disallowed).__name__}")
+            result.error(
+                f"[agent].disallowedTools must be an array, got: {type(disallowed).__name__}"
+            )
         elif not all(isinstance(t, str) for t in disallowed):
             result.error("[agent].disallowedTools must contain only strings")
 
 
-def validate_requirements_section(data: dict[str, Any], result: ValidationResult) -> None:
+def validate_requirements_section(
+    data: dict[str, Any], result: ValidationResult
+) -> None:
     """Validate the [requirements] section (optional)."""
     reqs = data.get("requirements")
     if reqs is None:
@@ -200,18 +223,24 @@ def validate_requirements_section(data: dict[str, Any], result: ValidationResult
     files = reqs.get("files")
     if files is not None:
         if not isinstance(files, list):
-            result.error(f"[requirements].files must be an array, got: {type(files).__name__}")
+            result.error(
+                f"[requirements].files must be an array, got: {type(files).__name__}"
+            )
         elif not all(isinstance(f, str) for f in files):
             result.error("[requirements].files must contain only strings")
 
     proj_type = reqs.get("project_type")
     if proj_type is not None and not isinstance(proj_type, str):
-        result.error(f"[requirements].project_type must be a string, got: {type(proj_type).__name__}")
+        result.error(
+            f"[requirements].project_type must be a string, got: {type(proj_type).__name__}"
+        )
 
     tech = reqs.get("tech_stack")
     if tech is not None:
         if not isinstance(tech, list):
-            result.error(f"[requirements].tech_stack must be an array, got: {type(tech).__name__}")
+            result.error(
+                f"[requirements].tech_stack must be an array, got: {type(tech).__name__}"
+            )
         elif not all(isinstance(t, str) for t in tech):
             result.error("[requirements].tech_stack must contain only strings")
 
@@ -249,7 +278,9 @@ def validate_skills_section(
             continue
 
         if not isinstance(tier_list, list):
-            result.error(f"[skills].{tier} must be an array, got: {type(tier_list).__name__}")
+            result.error(
+                f"[skills].{tier} must be an array, got: {type(tier_list).__name__}"
+            )
             continue
 
         if not all(isinstance(s, str) for s in tier_list):
@@ -259,11 +290,15 @@ def validate_skills_section(
         # Check max items
         max_items = TIER_MAX_ITEMS.get(tier)
         if max_items is not None and len(tier_list) > max_items:
-            result.error(f"[skills].{tier} has {len(tier_list)} items, max is {max_items}")
+            result.error(
+                f"[skills].{tier} has {len(tier_list)} items, max is {max_items}"
+            )
 
         # Check min items for primary (must have at least 1)
         if tier == "primary" and len(tier_list) == 0:
-            result.error("[skills].primary must have at least 1 skill (empty primary is not allowed)")
+            result.error(
+                "[skills].primary must have at least 1 skill (empty primary is not allowed)"
+            )
 
         # Check for empty skill names
         for skill_name in tier_list:
@@ -283,25 +318,33 @@ def validate_skills_section(
     seen: set[str] = set()
     for name in all_skill_names:
         if name in seen:
-            result.error(f"Skill '{name}' appears in multiple tiers (must be unique across primary/secondary/specialized)")
+            result.error(
+                f"Skill '{name}' appears in multiple tiers (must be unique across primary/secondary/specialized)"
+            )
         seen.add(name)
 
     # Verify skills exist in index (if index provided)
     if index_skills is not None:
         for name in all_skill_names:
             if name not in index_skills:
-                result.error(f"Skill '{name}' not found in skill-index.json (run /pss-reindex-skills or correct the skill name)")
+                result.error(
+                    f"Skill '{name}' not found in skill-index.json (run /pss-reindex-skills or correct the skill name)"
+                )
 
     # Validate excluded section (optional)
     excluded = skills.get("excluded")
     if excluded is not None:
         if not isinstance(excluded, dict):
-            result.error(f"[skills.excluded] must be a table/dict, got: {type(excluded).__name__}")
+            result.error(
+                f"[skills.excluded] must be a table/dict, got: {type(excluded).__name__}"
+            )
         elif not all(isinstance(v, str) for v in excluded.values()):
             result.error("[skills.excluded] values must be strings (exclusion reasons)")
 
 
-def validate_recommendation_section(data: dict[str, Any], section: str, result: ValidationResult) -> None:
+def validate_recommendation_section(
+    data: dict[str, Any], section: str, result: ValidationResult
+) -> None:
     """Validate a recommendation section (agents, mcp, hooks, lsp)."""
     sec = data.get(section)
     if sec is None:
@@ -314,7 +357,9 @@ def validate_recommendation_section(data: dict[str, Any], section: str, result: 
     rec = sec.get("recommended")
     if rec is not None:
         if not isinstance(rec, list):
-            result.error(f"[{section}].recommended must be an array, got: {type(rec).__name__}")
+            result.error(
+                f"[{section}].recommended must be an array, got: {type(rec).__name__}"
+            )
         elif not all(isinstance(r, str) for r in rec):
             result.error(f"[{section}].recommended must contain only strings")
 
@@ -324,10 +369,24 @@ def validate_recommendation_section(data: dict[str, Any], section: str, result: 
             result.warn(f"[{section}] has unknown field: '{field}'")
 
 
-DEPENDENCIES_FIELDS = ["plugins", "skills", "rules", "agents", "commands", "hooks", "mcp_servers", "lsp_servers", "output_styles", "tools", "frameworks"]
+DEPENDENCIES_FIELDS = [
+    "plugins",
+    "skills",
+    "rules",
+    "agents",
+    "commands",
+    "hooks",
+    "mcp_servers",
+    "lsp_servers",
+    "output_styles",
+    "tools",
+    "frameworks",
+]
 
 
-def validate_description_section(data: dict[str, Any], result: ValidationResult) -> None:
+def validate_description_section(
+    data: dict[str, Any], result: ValidationResult
+) -> None:
     """Validate the [description] section (optional)."""
     desc = data.get("description")
     if desc is None:
@@ -346,7 +405,9 @@ def validate_description_section(data: dict[str, Any], result: ValidationResult)
             result.warn(f"[description] has unknown field: '{field}'")
 
 
-def validate_dependencies_section(data: dict[str, Any], result: ValidationResult) -> None:
+def validate_dependencies_section(
+    data: dict[str, Any], result: ValidationResult
+) -> None:
     """Validate the [dependencies] section (optional)."""
     deps = data.get("dependencies")
     if deps is None:
@@ -364,7 +425,9 @@ def validate_dependencies_section(data: dict[str, Any], result: ValidationResult
         val = deps.get(field)
         if val is not None:
             if not isinstance(val, list):
-                result.error(f"[dependencies].{field} must be an array, got: {type(val).__name__}")
+                result.error(
+                    f"[dependencies].{field} must be an array, got: {type(val).__name__}"
+                )
             elif not all(isinstance(v, str) for v in val):
                 result.error(f"[dependencies].{field} must contain only strings")
 
@@ -385,7 +448,15 @@ def validate_toml(
     validate_requirements_section(data, result)
     validate_skills_section(data, result, index_skills)
     validate_description_section(data, result)
-    for section in ("agents", "commands", "rules", "mcp", "hooks", "lsp", "output_styles"):
+    for section in (
+        "agents",
+        "commands",
+        "rules",
+        "mcp",
+        "hooks",
+        "lsp",
+        "output_styles",
+    ):
         validate_recommendation_section(data, section, result)
     validate_dependencies_section(data, result)
 
@@ -413,8 +484,12 @@ def main() -> int:
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Validate .agent.toml files against the PSS schema")
-    parser.add_argument("toml_file", nargs="?", help="Path to the .agent.toml file to validate")
+    parser = argparse.ArgumentParser(
+        description="Validate .agent.toml files against the PSS schema"
+    )
+    parser.add_argument(
+        "toml_file", nargs="?", help="Path to the .agent.toml file to validate"
+    )
     parser.add_argument(
         "--check-index",
         action="store_true",
@@ -440,7 +515,9 @@ def main() -> int:
 
     # --schema flag: print schema path and exit
     if args.schema:
-        schema_path = Path(__file__).parent.parent / "schemas" / "pss-agent-toml-schema.json"
+        schema_path = (
+            Path(__file__).parent.parent / "schemas" / "pss-agent-toml-schema.json"
+        )
         print(str(schema_path))
         return 0
 
@@ -497,7 +574,9 @@ def main() -> int:
         for tier in ("primary", "secondary", "specialized"):
             count = len(skills.get(tier, []))
             skill_counts.append(f"{count} {tier}")
-        print(f"VALID: {toml_path.name} (agent: {agent_name}, {', '.join(skill_counts)})")
+        print(
+            f"VALID: {toml_path.name} (agent: {agent_name}, {', '.join(skill_counts)})"
+        )
         if args.verbose and result.warnings:
             print(result.report(verbose=True))
         return 0
