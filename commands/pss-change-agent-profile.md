@@ -137,9 +137,7 @@ If either fails, fix the issues and retry (max 2 cycles).
 ```
 mcp__plugin_llm-externalizer_llm-externalizer__code_task(
   instructions: "Verify this .agent.toml was correctly modified. Check: (1) TOML syntax valid, (2) no duplicate elements across tiers, (3) no empty names, (4) excluded entries have reasons. List any issues found.",
-  input_files_paths: "<PROFILE_PATH>",
-  max_tokens: 500,
-  ensemble: false
+  input_files_paths: "<PROFILE_PATH>"
 )
 ```
 

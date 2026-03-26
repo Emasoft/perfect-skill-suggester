@@ -270,9 +270,7 @@ When the `mcp__plugin_llm-externalizer_llm-externalizer__batch_check` tool is av
      4. REDUNDANT_WITH: Is it a strict subset of any of these candidates: <list>? (yes/no + which)
      5. RELEVANCE: Rate 1-5 how relevant this is to the agent's duties: <duties>
      Format: one line per question, e.g. 'MUTUAL_EXCLUSIVITY: no'",
-     input_files_paths: [<list of SKILL.md paths>],
-     max_tokens: 500,
-     ensemble: false
+     input_files_paths: [<list of SKILL.md paths>]
    )
    ```
 4. Read the output file to get per-candidate evaluations
@@ -688,9 +686,7 @@ mcp__plugin_llm-externalizer_llm-externalizer__code_task(
   4. COVERAGE: Every duty/domain from agent def has at least one supporting element
   5. EXCLUSION_QUALITY: Every [skills.excluded] entry has a specific reason
   Format: CHECK_NAME: PASS/FAIL - details",
-  input_files_paths: ["<OUTPUT_PATH>", "<AGENT_PATH>"],
-  max_tokens: 800,
-  ensemble: false
+  input_files_paths: ["<OUTPUT_PATH>", "<AGENT_PATH>"]
 )
 ```
 Read the output file. If all 5 checks pass, proceed to 8b-ii. If any fail, fix in-place and re-validate.
