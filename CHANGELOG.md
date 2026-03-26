@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.4] - 2026-03-26
+
+### Bug Fixes
+
+- Remove stale max_tokens/ensemble params from LLM Externalizer calls
+
 ## [2.9.3] - 2026-03-26
 
 ### Miscellaneous Tasks
 
 - Ruff format all Python scripts
+
+### Bump
+
+- Version 2.9.2 → 2.9.3
 
 ## [2.9.2] - 2026-03-25
 
