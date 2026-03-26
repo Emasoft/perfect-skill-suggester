@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.3] - 2026-03-26
+
+### Miscellaneous Tasks
+
+- Ruff format all Python scripts
+
 ## [2.9.2] - 2026-03-25
 
 ### Features
 
 - Compact skills-only hook output (5 lines max)
+
+### Bump
+
+- Version 2.9.1 → 2.9.2
 
 ## [2.9.1] - 2026-03-25
 
