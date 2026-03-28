@@ -256,6 +256,13 @@ def _extract_prev_msg_python(transcript_path: str) -> str:
                     peek = f.read(peek_len)
 
                     if b'"human"' in peek or b'"user"' in peek:
+                        # Skip tool-result messages (v2.1.85+): auto-generated
+                        # by tool execution, not user-typed prompts
+                        if b'"toolUseResult"' in peek or b'"sourceToolAssistantUUID"' in peek:
+                            line_end = abs_nl
+                            search_end = nl
+                            continue
+
                         if time.monotonic() > deadline:
                             return ""
 
@@ -272,6 +279,12 @@ def _extract_prev_msg_python(transcript_path: str) -> str:
                             search_end = nl
                             continue
                         if "message" not in entry:
+                            line_end = abs_nl
+                            search_end = nl
+                            continue
+                        # Belt-and-suspenders: skip tool-result entries even if
+                        # the peek pre-filter missed (field past byte 512)
+                        if "toolUseResult" in entry or "sourceToolAssistantUUID" in entry:
                             line_end = abs_nl
                             search_end = nl
                             continue
@@ -294,24 +307,30 @@ def _extract_prev_msg_python(transcript_path: str) -> str:
             f.seek(0)
             peek = f.read(min(PEEK, line_end))
             if b'"human"' in peek or b'"user"' in peek:
-                if line_end > len(peek):
-                    f.seek(0)
-                    full_line = f.read(line_end)
-                else:
-                    full_line = peek
-                try:
-                    entry = json.loads(full_line)
-                    user_text = _extract_user_text(entry)
-                    if user_text:
-                        user_messages_found += 1
-                        if user_messages_found >= 2:
-                            return (
-                                user_text[:MAX_PROMPT_CHARS]
-                                if len(user_text) > MAX_PROMPT_CHARS
-                                else user_text
-                            )
-                except (json.JSONDecodeError, ValueError):
+                # Skip tool-result messages (v2.1.85+)
+                if b'"toolUseResult"' in peek or b'"sourceToolAssistantUUID"' in peek:
                     pass
+                else:
+                    if line_end > len(peek):
+                        f.seek(0)
+                        full_line = f.read(line_end)
+                    else:
+                        full_line = peek
+                    try:
+                        entry = json.loads(full_line)
+                        # Skip tool-result entries (field past byte 512)
+                        if "toolUseResult" not in entry and "sourceToolAssistantUUID" not in entry:
+                            user_text = _extract_user_text(entry)
+                            if user_text:
+                                user_messages_found += 1
+                                if user_messages_found >= 2:
+                                    return (
+                                        user_text[:MAX_PROMPT_CHARS]
+                                        if len(user_text) > MAX_PROMPT_CHARS
+                                        else user_text
+                                    )
+                    except (json.JSONDecodeError, ValueError):
+                        pass
 
     return ""
 
