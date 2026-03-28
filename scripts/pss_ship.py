@@ -825,6 +825,14 @@ def release_pipeline(args: argparse.Namespace) -> None:
     # Step 7: Bump version in 4 files
     bump_versions(old_version, new_version, args.dry_run)
 
+    # Step 7b: Sync uv.lock after pyproject.toml version change.
+    # uv.lock only updates when uv resolves; if the build step is skipped
+    # (no .rs changes), no uv command runs after the bump, leaving uv.lock stale.
+    if not args.dry_run and UV_LOCK.exists():
+        result = run(["uv", "lock"], timeout=60)
+        if result.returncode != 0:
+            warn(f"uv lock failed (non-blocking): {result.stderr.strip()}")
+
     # Step 8: Update README badge
     update_readme_badge(old_version, new_version, args.dry_run)
 
