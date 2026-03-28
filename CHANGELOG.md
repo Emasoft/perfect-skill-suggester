@@ -2,12 +2,22 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.7] - 2026-03-28
+
+### Miscellaneous Tasks
+
+- Stage ship script and lockfile updates
+
 ## [2.9.6] - 2026-03-28
 
 ### Miscellaneous Tasks
 
 - Stage rust submodule lockfile and uv.lock updates
 - Add submodule push guard to ship script gate pipeline
+
+### Bump
+
+- Version 2.9.5 → 2.9.6
 
 ## [2.9.5] - 2026-03-28
 
