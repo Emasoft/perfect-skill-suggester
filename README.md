@@ -4,7 +4,7 @@
 
 # Perfect Skill Suggester (PSS)
 
-![Version](https://img.shields.io/badge/version-2.9.10-blue)
+![Version](https://img.shields.io/badge/version-2.9.11-blue)
 ![Platforms](https://img.shields.io/badge/platforms-6-green)
 ![Accuracy](https://img.shields.io/badge/accuracy-88%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-yellow)

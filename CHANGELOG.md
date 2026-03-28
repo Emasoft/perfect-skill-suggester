@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.11] - 2026-03-28
+
+### Bug Fixes
+
+- CPV remote execution migration - update ship script and add-element script
+
 ## [2.9.10] - 2026-03-28
 
 ### Bug Fixes
 
 - Spec compliance fixes for pss-add-element and README updates
+
+### Bump
+
+- Version 2.9.9 → 2.9.10
 
 ## [2.9.9] - 2026-03-28
 
