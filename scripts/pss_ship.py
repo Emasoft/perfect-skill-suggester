@@ -42,32 +42,12 @@ README_MD = ROOT / "README.md"
 CHANGELOG_MD = ROOT / "CHANGELOG.md"
 BUILD_SCRIPT = ROOT / "scripts" / "pss_build.py"
 BIN_DIR = ROOT / "bin"
-VALIDATE_SCRIPT = ROOT / "scripts" / "validate_plugin.py"
 HOOK_SOURCE = ROOT / "git-hooks" / "pre-push"
 HOOK_TARGET = ROOT / ".git" / "hooks" / "pre-push"
 
-# -- CPV sync: upstream GitHub repo and script filenames --
+# -- CPV remote execution via uvx (no local script sync needed) --
 CPV_REPO = "Emasoft/claude-plugins-validation"
-CPV_SCRIPTS = [
-    "cpv_validation_common.py",
-    "validate_agent.py",
-    "validate_command.py",
-    "validate_documentation.py",
-    "validate_encoding.py",
-    "validate_enterprise.py",
-    "validate_hook.py",
-    "validate_lsp.py",
-    "validate_marketplace.py",
-    "validate_marketplace_pipeline.py",
-    "validate_mcp.py",
-    "validate_plugin.py",
-    "validate_rules.py",
-    "validate_scoring.py",
-    "validate_security.py",
-    "validate_skill.py",
-    "validate_skill_comprehensive.py",
-    "validate_xref.py",
-]
+CPV_UVX_FROM = f"git+https://github.com/{CPV_REPO}"
 
 # -- ANSI color helpers --
 GREEN = "\033[32m"
@@ -134,20 +114,22 @@ def run_linter() -> bool:
 
 
 def run_validation() -> int:
-    """Run validate_plugin.py and return its exit code."""
-    info("Running plugin validation...")
-    if not VALIDATE_SCRIPT.exists():
-        error(f"Validation script not found: {VALIDATE_SCRIPT}")
-        return 1
+    """Run CPV validation via uvx remote execution (no local scripts needed)."""
+    info("Running plugin validation (uvx remote)...")
 
-    # Use --with pyyaml since validate_plugin.py needs it
-    if shutil.which("uv"):
-        result = run(
-            ["uv", "run", "--with", "pyyaml", "python", str(VALIDATE_SCRIPT), "."],
-            timeout=120,
-        )
-    else:
-        result = run([sys.executable, str(VALIDATE_SCRIPT), "."], timeout=120)
+    if not shutil.which("uvx"):
+        warn("'uvx' not found. Install uv to enable remote CPV validation.")
+        return 0  # Non-blocking — uvx is preferred but not mandatory
+
+    result = run(
+        [
+            "uvx",
+            "--from", CPV_UVX_FROM,
+            "--with", "pyyaml",
+            "cpv-validate", ".",
+        ],
+        timeout=180,
+    )
 
     if result.stdout.strip():
         print(result.stdout.strip())
@@ -677,63 +659,22 @@ def git_push() -> None:
 
 
 # ===========================================================================
-# CPV sync
+# CPV (deprecated local sync — now uses uvx remote execution)
 # ===========================================================================
 
 
 def sync_cpv_scripts(dry_run: bool = False) -> None:
-    """Fetch latest CPV validation scripts from GitHub using gh CLI."""
-    info("Syncing CPV validation scripts from GitHub...")
+    """No-op: CPV scripts are no longer synced locally.
 
-    if shutil.which("gh") is None:
-        warn("'gh' CLI not installed. Cannot sync CPV scripts.")
-        return
-
-    # Get the default branch (usually 'main')
-    branch_result = run(
-        ["gh", "api", f"repos/{CPV_REPO}", "--jq", ".default_branch"],
+    Validation now runs via 'uvx --from git+https://github.com/Emasoft/
+    claude-plugins-validation cpv-validate .' which always fetches the
+    latest version from GitHub. The --sync-cpv flag is kept for backward
+    compatibility but does nothing.
+    """
+    warn(
+        "CPV script sync is deprecated. Validation now uses uvx remote execution "
+        "(always latest from GitHub). The --sync-cpv flag is a no-op."
     )
-    if branch_result.returncode != 0:
-        warn(f"Could not query CPV repo: {branch_result.stderr.strip()}")
-        return
-    default_branch = branch_result.stdout.strip() or "main"
-
-    scripts_dir = ROOT / "scripts"
-    updated = 0
-    failed = 0
-
-    for script_name in CPV_SCRIPTS:
-        # Fetch raw file content from GitHub
-        url = f"https://raw.githubusercontent.com/{CPV_REPO}/{default_branch}/scripts/{script_name}"
-        fetch_result = run(["curl", "-sS", "-f", url], timeout=30)
-
-        if fetch_result.returncode != 0:
-            warn(f"  Could not fetch {script_name}: {fetch_result.stderr.strip()}")
-            failed += 1
-            continue
-
-        new_content = fetch_result.stdout
-        target = scripts_dir / script_name
-
-        # Compare with existing content
-        if target.exists():
-            existing = target.read_text(encoding="utf-8")
-            if existing == new_content:
-                continue  # No change
-
-        if dry_run:
-            info(f"  [DRY-RUN] Would update {script_name}")
-        else:
-            target.write_text(new_content, encoding="utf-8")
-            success(f"  Updated {script_name}")
-        updated += 1
-
-    if updated == 0 and failed == 0:
-        success("  All CPV scripts are up to date.")
-    elif dry_run:
-        info(f"  [DRY-RUN] Would update {updated} scripts.")
-    else:
-        success(f"  Synced {updated} scripts ({failed} failed).")
 
 
 # ===========================================================================

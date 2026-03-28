@@ -579,24 +579,28 @@ def add_output_style(
 # ─── Validation ───
 
 
+CPV_REPO = "Emasoft/claude-plugins-validation"
+CPV_UVX_FROM = f"git+https://github.com/{CPV_REPO}"
+
+
 def validate_plugin(plugin: Path) -> bool:
-    """Run CPV validation on the modified plugin."""
+    """Run CPV validation via uvx remote execution."""
     info(f"Validating plugin at {plugin}...")
 
-    # Find validate_plugin.py relative to this script
-    script_dir = Path(__file__).resolve().parent
-    validator = script_dir / "validate_plugin.py"
-    if not validator.exists():
-        warn(
-            "validate_plugin.py not found, skipping validation"
-        )
+    if not shutil.which("uvx"):
+        warn("'uvx' not found — install uv to enable CPV validation")
         return True
 
     result = subprocess.run(
-        ["uv", "run", "python", str(validator), str(plugin)],
+        [
+            "uvx",
+            "--from", CPV_UVX_FROM,
+            "--with", "pyyaml",
+            "cpv-validate", str(plugin),
+        ],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=180,
     )
 
     if result.returncode == 0:
