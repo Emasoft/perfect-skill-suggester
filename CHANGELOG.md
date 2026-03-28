@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.8] - 2026-03-28
+
+### Features
+
+- Add pss-add-element command and script for single-element indexing
+
 ## [2.9.7] - 2026-03-28
 
 ### Miscellaneous Tasks
 
 - Stage ship script and lockfile updates
+
+### Bump
+
+- Version 2.9.6 → 2.9.7
 
 ## [2.9.6] - 2026-03-28
 
