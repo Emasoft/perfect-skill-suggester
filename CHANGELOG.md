@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.5] - 2026-03-28
+
+### Miscellaneous Tasks
+
+- Stage binary, hook, rust submodule, and lockfile updates
+
 ## [2.9.4] - 2026-03-26
 
 ### Bug Fixes
 
 - Remove stale max_tokens/ensemble params from LLM Externalizer calls
+
+### Bump
+
+- Version 2.9.3 → 2.9.4
 
 ## [2.9.3] - 2026-03-26
 
