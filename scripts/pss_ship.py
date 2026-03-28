@@ -36,6 +36,7 @@ CARGO_TOML = ROOT / "rust" / "skill-suggester" / "Cargo.toml"
 MAIN_RS = ROOT / "rust" / "skill-suggester" / "src" / "main.rs"
 PLUGIN_JSON = ROOT / ".claude-plugin" / "plugin.json"
 PYPROJECT_TOML = ROOT / "pyproject.toml"
+UV_LOCK = ROOT / "uv.lock"
 RUST_SRC_DIR = ROOT / "rust" / "skill-suggester" / "src"
 README_MD = ROOT / "README.md"
 CHANGELOG_MD = ROOT / "CHANGELOG.md"
@@ -279,10 +280,12 @@ def _ensure_submodule_pushed() -> None:
     info(f"  Submodule ref {parent_ref[:12]} not on remote, pushing rust/...")
     push_result = run(["git", "-C", str(rust_submodule), "push"])
     if push_result.returncode != 0:
-        error(f"  Submodule push failed: {push_result.stderr.strip()}")
-        error("  Run 'git -C rust push' manually before retrying.")
-    else:
-        success(f"  Submodule rust/ pushed ({parent_ref[:12]}).")
+        # MUST block the parent push — otherwise 'not our ref' on clone
+        fatal(
+            f"Submodule push failed: {push_result.stderr.strip()}\n"
+            "  Run 'git -C rust push' manually before retrying."
+        )
+    success(f"  Submodule rust/ pushed ({parent_ref[:12]}).")
 
 
 def gate_pipeline() -> int:
@@ -587,6 +590,8 @@ def git_commit(old: str, new: str) -> None:
 
     if CHANGELOG_MD.exists():
         files_to_add.append(str(CHANGELOG_MD))
+    if UV_LOCK.exists():
+        files_to_add.append(str(UV_LOCK))
     if BIN_DIR.exists():
         files_to_add.append(str(BIN_DIR))
 
@@ -637,26 +642,25 @@ def git_push() -> None:
             fatal(f"submodule push failed: {result.stderr.strip()}")
         success("  Submodule rust/ pushed.")
 
-        # Verify the submodule commit the parent references actually exists
-        # on the remote — prevents "not our ref" clone failures.
-        sub_ref = run(
-            ["git", "-C", str(rust_submodule), "rev-parse", "HEAD"],
-        )
-        if sub_ref.returncode == 0:
-            sha = sub_ref.stdout.strip()
-            # fetch --dry-run checks if the commit is reachable on the remote
-            # without actually downloading anything
-            fetch_check = run(
-                ["git", "-C", str(rust_submodule), "fetch", "--dry-run", "origin", sha],
-                timeout=30,
-            )
-            if fetch_check.returncode != 0:
-                fatal(
-                    f"Submodule commit {sha[:12]} was pushed but is NOT reachable on "
-                    f"the remote. The parent push would break 'git clone --recurse-submodules'. "
-                    f"Push the submodule manually: git -C rust push"
+        # Verify the exact commit the parent references (not submodule HEAD,
+        # which may differ if extra commits were made in the submodule).
+        ref_result = run(["git", "ls-tree", "HEAD", "rust"])
+        if ref_result.returncode == 0 and ref_result.stdout.strip():
+            parts = ref_result.stdout.strip().split()
+            sha = parts[2] if len(parts) >= 3 else ""
+            if sha:
+                # fetch --dry-run checks reachability without downloading
+                fetch_check = run(
+                    ["git", "-C", str(rust_submodule), "fetch", "--dry-run", "origin", sha],
+                    timeout=30,
                 )
-            success(f"  Submodule ref {sha[:12]} verified on remote.")
+                if fetch_check.returncode != 0:
+                    fatal(
+                        f"Submodule commit {sha[:12]} was pushed but is NOT reachable on "
+                        f"the remote. The parent push would break 'git clone --recurse-submodules'. "
+                        f"Push the submodule manually: git -C rust push"
+                    )
+                success(f"  Submodule ref {sha[:12]} verified on remote.")
 
     result = run(["git", "push"])
     if result.returncode != 0:
