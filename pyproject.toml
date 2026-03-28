@@ -1,6 +1,6 @@
 [project]
 name = "perfect-skill-suggester"
-version = "2.9.9"
+version = "2.9.10"
 description = "PSS plugin validation and utility scripts"
 requires-python = ">=3.10"
 dependencies = [

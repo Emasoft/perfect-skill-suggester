@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.10] - 2026-03-28
+
+### Bug Fixes
+
+- Spec compliance fixes for pss-add-element and README updates
+
 ## [2.9.9] - 2026-03-28
 
 ### Miscellaneous Tasks
 
 - Stage rust submodule lockfile and uv.lock updates
+
+### Bump
+
+- Version 2.9.8 → 2.9.9
 
 ## [2.9.8] - 2026-03-28
 
