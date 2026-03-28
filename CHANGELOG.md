@@ -2,11 +2,22 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.12] - 2026-03-28
+
+### Bug Fixes
+
+- Migrate batch_check references to code_task after deprecation
+- Trim benchmark SKILL.md to under 4000 char limit
+
 ## [2.9.11] - 2026-03-28
 
 ### Bug Fixes
 
 - CPV remote execution migration - update ship script and add-element script
+
+### Bump
+
+- Version 2.9.10 → 2.9.11
 
 ## [2.9.10] - 2026-03-28
 
