@@ -28,7 +28,7 @@ Benchmark protocol for Opus agents competing to improve the PSS scoring engine. 
 7. Run `cargo test` and `cargo build --release`
 8. Complete the Work Tracking Checklist
 
-**Token savings**: When `mcp__plugin_llm-externalizer_llm-externalizer__code_task` is available, use it to analyze benchmark logs and scoring engine source instead of reading them into your context. Use `chat` with `answer_mode=0, max_retries=3` to compare multiple benchmark log snapshots in parallel. Keep Opus reasoning for the actual scoring algorithm changes — delegate log analysis to the externalizer.
+**Token savings**: Use `mcp__plugin_llm-externalizer_llm-externalizer__code_task` (when available) to analyze benchmark logs and scoring engine source. Use `chat` to compare log snapshots in parallel. Reserve Opus reasoning for scoring algorithm changes.
 
 ## References
 
