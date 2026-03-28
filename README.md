@@ -4,12 +4,12 @@
 
 # Perfect Skill Suggester (PSS)
 
-![Version](https://img.shields.io/badge/version-2.5.3-blue)
+![Version](https://img.shields.io/badge/version-2.9.9-blue)
 ![Platforms](https://img.shields.io/badge/platforms-6-green)
 ![Accuracy](https://img.shields.io/badge/accuracy-88%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Rust](https://img.shields.io/badge/rust-native_binary-orange)
-![Claude Code](https://img.shields.io/badge/claude--code-v2.1.78+-blueviolet)
+![Claude Code](https://img.shields.io/badge/claude--code-v2.1.85+-blueviolet)
 
 > **Installation:** This plugin is distributed via the [Emasoft Plugins Marketplace](https://github.com/Emasoft/emasoft-plugins).
 > See [Installation](#installation) below for instructions.
@@ -22,15 +22,19 @@
 
 ## What's New
 
+### v2.9.9
+- **`/pss-add-element` command** — add standalone elements (skills, agents, commands, hooks, rules, MCP servers, LSP servers, output styles) to existing plugins with duplicate detection and CPV validation
+- **Claude Code v2.1.85 compatibility** — transcript parser updated for new JSONL format (`toolUseResult`/`sourceToolAssistantUUID` entries skipped; `agentId` removal handled)
+- **Ship script hardening** — submodule push verification, `Cargo.lock` staging, `uv.lock` sync, pre-push gate auto-pushes submodules
+
+### v2.8.0
+- **Fast profiling mode** (`/pss-setup-agent --fast`) — Rust binary only, 2-5 seconds, no AI agent needed
+- **25+ mutual exclusivity groups** — automatic conflict detection (React/Vue/Angular, Jest/Vitest, Prisma/TypeORM, etc.)
+- **Plugin generator** (`/pss-make-plugin-from-profile`) — creates installable plugins from `.agent.toml` profiles
+
 ### v2.4.6
-- **`${CLAUDE_PLUGIN_DATA}` integration** (CC v2.1.78+) — persistent state directory for `skill-index.json` and CozoDB database; falls back to `~/.claude/cache/` on older versions
-- **New `.agent.toml` fields**: `effort`, `maxTurns`, `disallowedTools` for fine-grained agent configuration (CC v2.1.78+)
-
-### v2.4.5
-- **Role-Plugin naming convention** and triple-match rule added to `.agent.toml` schema
-
-### v2.4.4
-- **Rule file indexing**: `index-rules` and `list-rules` CLI commands for agent profiling support
+- **`${CLAUDE_PLUGIN_DATA}` integration** (CC v2.1.78+) — persistent state directory for `skill-index.json` and CozoDB database
+- **New `.agent.toml` fields**: `effort`, `maxTurns`, `disallowedTools` for fine-grained agent configuration
 
 ## Features
 
@@ -428,6 +432,47 @@ Index a single skill/agent/command element incrementally without full reindex.
 
 ```
 /pss-add-to-index /path/to/element
+/pss-add-to-index --plugin /path/to/plugin
+```
+
+### /pss-add-element
+
+Add standalone elements to existing Claude Code plugins. Supports all element types with duplicate detection and optional CPV validation.
+
+```
+/pss-add-element --type skill --source /path/to/skill-dir --plugin /path/to/plugin
+/pss-add-element --type agent --source /path/to/agent.md --plugin /path/to/plugin
+/pss-add-element --type hook --source /path/to/hooks.json --plugin /path/to/plugin --validate
+/pss-add-element --type mcp-server --source /path/to/mcp.json --plugin /path/to/plugin
+/pss-add-element --type lsp-server --source /path/to/lsp.json --plugin /path/to/plugin
+/pss-add-element --type output-style --source /path/to/style.md --plugin /path/to/plugin
+```
+
+| Flag | Description |
+|------|-------------|
+| `--type` | Element type: `skill`, `agent`, `command`, `hook`, `rule`, `mcp-server`, `lsp-server`, `output-style` |
+| `--source` | Path to element source (directory for skills, .md for agents/commands/rules/output-styles, .json for hooks/MCP/LSP) |
+| `--plugin` | Path to target plugin (must contain `.claude-plugin/plugin.json`) |
+| `--validate` | Run CPV validation after adding |
+| `--force` | Skip duplicate/incompatibility checks |
+| `--dry-run` | Preview changes without modifying files |
+
+### /pss-get-description
+
+Retrieve element metadata (description, type, plugin source) by name. Falls back to the CozoDB `rules` table for rule file lookups.
+
+```
+/pss-get-description senior-ios
+/pss-get-description pss-authoring
+```
+
+### /pss-make-plugin-from-profile
+
+Generate a complete, installable Claude Code plugin from an `.agent.toml` profile. Copies all referenced elements (skills, agents, commands) into a self-contained plugin directory.
+
+```
+/pss-make-plugin-from-profile agent.agent.toml --output ~/plugins/my-plugin
+/pss-make-plugin-from-profile agent.agent.toml --output ./plugin --name custom-name
 ```
 
 ### /pss-change-agent-profile

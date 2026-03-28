@@ -57,19 +57,20 @@ Add standalone elements to existing Claude Code plugins. Supports all element ty
 - **Note**: Rules are not a native plugin component. Use SessionStart/SessionEnd hooks to symlink them into `.claude/rules/` at runtime (see `/pss-make-plugin-from-profile` for the pattern).
 
 ### mcp-server
-- **Source**: JSON file with fields: `name` (required), `type`, `command`, `args`, `env`, etc.
+- **Source**: JSON file with fields: `name` (required), `command`, `args`, `env`, `cwd`, etc. The `name` becomes the key in `mcpServers`.
 - **Destination**: Added to `<plugin>/.mcp.json` under `mcpServers.<name>`
 - **Checks**: Duplicate server name in `.mcp.json`
 
 ### lsp-server
-- **Source**: JSON file with fields: `name` (required), `language`, `command`, `args`, etc.
-- **Destination**: Added to `<plugin>/.claude-plugin/plugin.json` `lspServers` array
-- **Checks**: Duplicate server name in `plugin.json`
+- **Source**: JSON file with fields: `name` (required — becomes the map key), `command` (required), `extensionToLanguage` (required), `args`, `transport`, `env`, `initializationOptions`, `settings`, `startupTimeout`, etc.
+- **Destination**: Added to `<plugin>/.lsp.json` as a map entry `{ "<name>": { ...config } }`
+- **Checks**: Duplicate server name in `.lsp.json`
+- **Note**: The language server binary must be installed separately on each user's machine.
 
 ### output-style
-- **Source**: JSON file with fields: `name` (required), `postToolUseMessage`, etc.
-- **Destination**: Added to `<plugin>/.claude-plugin/plugin.json` `outputStyles` array
-- **Checks**: Duplicate style name in `plugin.json`
+- **Source**: Markdown (.md) file defining an output style
+- **Destination**: Copied to `<plugin>/output-styles/<name>.md`
+- **Checks**: Duplicate filename in `output-styles/` directory
 
 ## Execution
 

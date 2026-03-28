@@ -266,6 +266,7 @@ def check_mcp_duplicate(
 def check_lsp_duplicate(
     plugin: Path, source: Path
 ) -> str | None:
+    """Check .lsp.json (map keyed by server name) per official spec."""
     try:
         new_config = json.loads(
             source.read_text(encoding="utf-8")
@@ -277,18 +278,18 @@ def check_lsp_duplicate(
     if not server_name:
         return "LSP config missing 'name' field"
 
-    plugin_json = plugin / ".claude-plugin" / "plugin.json"
-    if plugin_json.exists():
+    # Official spec: LSP config lives in .lsp.json as a map
+    lsp_json = plugin / ".lsp.json"
+    if lsp_json.exists():
         try:
-            pj = json.loads(
-                plugin_json.read_text(encoding="utf-8")
+            existing = json.loads(
+                lsp_json.read_text(encoding="utf-8")
             )
-            for srv in pj.get("lspServers", []):
-                if srv.get("name") == server_name:
-                    return (
-                        f"LSP server '{server_name}' already "
-                        f"defined in plugin.json"
-                    )
+            if server_name in existing:
+                return (
+                    f"LSP server '{server_name}' already "
+                    f"defined in .lsp.json"
+                )
         except (json.JSONDecodeError, OSError):
             pass
 
@@ -298,31 +299,20 @@ def check_lsp_duplicate(
 def check_output_style_duplicate(
     plugin: Path, source: Path
 ) -> str | None:
-    try:
-        new_style = json.loads(
-            source.read_text(encoding="utf-8")
+    """Check output-styles/ directory for duplicate .md files (official spec)."""
+    if not source.exists() or source.suffix != ".md":
+        return "Output style source must be an .md file"
+
+    styles_dir = plugin / "output-styles"
+    if not styles_dir.is_dir():
+        return None
+
+    dest = styles_dir / source.name
+    if dest.exists():
+        return (
+            f"Output style '{source.name}' already exists "
+            f"in output-styles/"
         )
-    except (json.JSONDecodeError, OSError) as e:
-        return f"Cannot parse output style config: {e}"
-
-    style_name = new_style.get("name", "")
-    if not style_name:
-        return "Output style config missing 'name' field"
-
-    plugin_json = plugin / ".claude-plugin" / "plugin.json"
-    if plugin_json.exists():
-        try:
-            pj = json.loads(
-                plugin_json.read_text(encoding="utf-8")
-            )
-            for style in pj.get("outputStyles", []):
-                if style.get("name") == style_name:
-                    return (
-                        f"Output style '{style_name}' already "
-                        f"defined in plugin.json"
-                    )
-        except (json.JSONDecodeError, OSError):
-            pass
 
     return None
 
@@ -524,6 +514,7 @@ def add_mcp_server(
 def add_lsp_server(
     plugin: Path, source: Path, dry_run: bool
 ) -> bool:
+    """Add LSP server to .lsp.json (map keyed by name, per official spec)."""
     try:
         config = json.loads(
             source.read_text(encoding="utf-8")
@@ -535,26 +526,32 @@ def add_lsp_server(
     if not name:
         fatal("LSP config must have a 'name' field")
 
-    plugin_json = plugin / ".claude-plugin" / "plugin.json"
-    if not plugin_json.exists():
-        fatal(f"plugin.json not found: {plugin_json}")
+    # Official spec: .lsp.json is a map { "name": { config } }
+    # The 'name' field is used as the key, rest is the value
+    server_entry = {
+        k: v for k, v in config.items() if k != "name"
+    }
 
-    try:
-        pj = json.loads(
-            plugin_json.read_text(encoding="utf-8")
-        )
-    except json.JSONDecodeError:
-        fatal(f"plugin.json is corrupt: {plugin_json}")
+    lsp_json = plugin / ".lsp.json"
+    if lsp_json.exists():
+        try:
+            existing = json.loads(
+                lsp_json.read_text(encoding="utf-8")
+            )
+        except json.JSONDecodeError:
+            fatal(f"Existing .lsp.json is corrupt: {lsp_json}")
+    else:
+        existing = {}
 
     if dry_run:
         info(
-            f"[DRY-RUN] Would add LSP server '{name}' to plugin.json"
+            f"[DRY-RUN] Would add LSP server '{name}' to .lsp.json"
         )
         return True
 
-    pj.setdefault("lspServers", []).append(config)
-    plugin_json.write_text(
-        json.dumps(pj, indent=2) + "\n", encoding="utf-8"
+    existing[name] = server_entry
+    lsp_json.write_text(
+        json.dumps(existing, indent=2) + "\n", encoding="utf-8"
     )
     success(f"Added LSP server: {name}")
     return True
@@ -563,40 +560,19 @@ def add_lsp_server(
 def add_output_style(
     plugin: Path, source: Path, dry_run: bool
 ) -> bool:
-    try:
-        style = json.loads(
-            source.read_text(encoding="utf-8")
-        )
-    except (json.JSONDecodeError, OSError) as e:
-        fatal(f"Cannot parse output style config: {e}")
+    """Copy output style .md file to output-styles/ directory (official spec)."""
+    if not source.exists() or source.suffix != ".md":
+        fatal(f"Output style source must be an .md file: {source}")
 
-    style_name = style.get("name", "")
-    if not style_name:
-        fatal("Output style config must have a 'name' field")
-
-    plugin_json = plugin / ".claude-plugin" / "plugin.json"
-    if not plugin_json.exists():
-        fatal(f"plugin.json not found: {plugin_json}")
-
-    try:
-        pj = json.loads(
-            plugin_json.read_text(encoding="utf-8")
-        )
-    except json.JSONDecodeError:
-        fatal(f"plugin.json is corrupt: {plugin_json}")
-
+    dest_dir = plugin / "output-styles"
+    dest = dest_dir / source.name
     if dry_run:
-        info(
-            f"[DRY-RUN] Would add output style '{style_name}' "
-            f"to plugin.json"
-        )
+        info(f"[DRY-RUN] Would copy {source} → {dest}")
         return True
 
-    pj.setdefault("outputStyles", []).append(style)
-    plugin_json.write_text(
-        json.dumps(pj, indent=2) + "\n", encoding="utf-8"
-    )
-    success(f"Added output style: {style_name}")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, dest)
+    success(f"Added output style: {source.name}")
     return True
 
 
