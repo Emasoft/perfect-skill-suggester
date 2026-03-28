@@ -15,7 +15,7 @@ tools:
   - Grep
   - WebSearch
   - WebFetch
-  - mcp__plugin_llm-externalizer_llm-externalizer__batch_check
+  - mcp__plugin_llm-externalizer_llm-externalizer__chat
   - mcp__plugin_llm-externalizer_llm-externalizer__code_task
   - mcp__plugin_llm-externalizer_llm-externalizer__chat
 ---
@@ -255,14 +255,14 @@ The Rust binary produces raw candidates. YOU must now apply intelligent filterin
 
 #### Token-Efficient Candidate Evaluation (LLM Externalizer)
 
-When the `mcp__plugin_llm-externalizer_llm-externalizer__batch_check` tool is available, use it instead of reading every SKILL.md into your context. This saves thousands of tokens when evaluating 20-30+ candidates.
+When the `mcp__plugin_llm-externalizer_llm-externalizer__chat` tool is available, use it with `answer_mode=0` and `max_retries=3` instead of reading every SKILL.md into your context. This saves thousands of tokens when evaluating 20-30+ candidates.
 
 **Batch evaluation workflow:**
 1. Resolve all candidate file paths: `"${BINARY_PATH}" resolve <id1> <id2> ... <idN>`
 2. Build the evaluation instructions with the agent's tech stack, role, and domains
-3. Call `batch_check` with all candidate paths and the evaluation instructions:
+3. Call `chat` with per-file mode (`answer_mode=0`) for parallel evaluation with retry:
    ```
-   mcp__plugin_llm-externalizer_llm-externalizer__batch_check(
+   mcp__plugin_llm-externalizer_llm-externalizer__chat(
      instructions: "Evaluate this skill/agent/command for an agent with role=<role>, domains=<domains>, tech_stack=<stack>. Answer these questions:
      1. MUTUAL_EXCLUSIVITY: Does it conflict with any of these frameworks/tools: <list>? (yes/no + which)
      2. OBSOLETE: Is it deprecated or superseded in 2026? (yes/no + by what)
@@ -270,13 +270,15 @@ When the `mcp__plugin_llm-externalizer_llm-externalizer__batch_check` tool is av
      4. REDUNDANT_WITH: Is it a strict subset of any of these candidates: <list>? (yes/no + which)
      5. RELEVANCE: Rate 1-5 how relevant this is to the agent's duties: <duties>
      Format: one line per question, e.g. 'MUTUAL_EXCLUSIVITY: no'",
-     input_files_paths: [<list of SKILL.md paths>]
+     input_files_paths: [<list of SKILL.md paths>],
+     answer_mode: 0,
+     max_retries: 3
    )
    ```
-4. Read the output file to get per-candidate evaluations
+4. Read the output file(s) to get per-candidate evaluations
 5. Use the evaluations to drive the filtering decisions below
 
-**Fallback**: If `batch_check` is unavailable (MCP not connected), read each SKILL.md directly. Prioritize reading only the top-15 candidates by score to stay within context budget.
+**Fallback**: If the LLM Externalizer MCP is unavailable, read each SKILL.md directly. Prioritize reading only the top-15 candidates by score to stay within context budget.
 
 For each candidate, evaluate:
 
