@@ -2,12 +2,22 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.13] - 2026-03-31
+
+### Bug Fixes
+
+- Remove outputStyles from plugin.json (auto-discovered by Claude Code)
+
 ## [2.9.12] - 2026-03-28
 
 ### Bug Fixes
 
 - Migrate batch_check references to code_task after deprecation
 - Trim benchmark SKILL.md to under 4000 char limit
+
+### Bump
+
+- Version 2.9.11 → 2.9.12
 
 ## [2.9.11] - 2026-03-28
 
