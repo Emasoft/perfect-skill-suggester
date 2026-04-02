@@ -1,6 +1,6 @@
 ---
 name: pss-agent-toml
-description: "Use when creating .agent.toml profiles. Trigger with /pss-setup-agent. AI selects elements, validates coherence."
+description: "Use when creating .agent.toml profiles. Trigger with /pss-setup-agent. Loaded by pss-agent-profiler. AI selects elements, validates coherence."
 argument-hint: "<agent-path> [--requirements PATH...]"
 user-invocable: false
 ---

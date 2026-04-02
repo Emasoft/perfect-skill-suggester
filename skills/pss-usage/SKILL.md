@@ -1,6 +1,6 @@
 ---
 name: pss-usage
-description: "Use when interpreting element suggestions, understanding confidence levels, or troubleshooting PSS. Trigger with /pss-status."
+description: "Use when interpreting element suggestions or troubleshooting PSS. Used by pss-agent-profiler. Trigger with /pss-status."
 argument-hint: "skill-name or keyword to search"
 user-invocable: false
 ---

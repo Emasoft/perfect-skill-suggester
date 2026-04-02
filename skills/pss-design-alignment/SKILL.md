@@ -1,6 +1,6 @@
 ---
 name: pss-design-alignment
-description: "Use when augmenting an .agent.toml with project requirements. Trigger with /pss-change-agent-profile --requirements. Scores design docs, cherry-picks elements matching the agent's specialization."
+description: "Use when augmenting an .agent.toml with project requirements. Loaded by pss-agent-profiler. Trigger with /pss-change-agent-profile --requirements."
 argument-hint: "<agent.toml> --requirements <design-doc.md>"
 user-invocable: false
 ---
