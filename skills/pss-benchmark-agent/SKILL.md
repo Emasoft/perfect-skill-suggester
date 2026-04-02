@@ -1,6 +1,6 @@
 ---
 name: pss-benchmark-agent
-description: "PSS scoring engine benchmark protocol. Used by pss-agent-profiler. Trigger with /pss-benchmark."
+description: "Use when running benchmark competitions or improving scoring accuracy. Used by pss-agent-profiler. Trigger with /pss-benchmark."
 user-invocable: false
 ---
 

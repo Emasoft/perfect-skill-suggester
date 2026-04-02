@@ -1,6 +1,6 @@
 ---
 name: text-categorization-improver
-description: "Iterative algorithm improvement via parallel experimentation and LLM-as-judge evaluation. Used by pss-agent-profiler. Trigger with /text-categorization-improver."
+description: "Use when improving categorization, scoring, or matching accuracy via parallel experimentation. Used by pss-agent-profiler. Trigger with /text-categorization-improver."
 user-invocable: false
 ---
 

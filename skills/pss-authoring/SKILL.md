@@ -1,6 +1,6 @@
 ---
 name: pss-authoring
-description: "Best practices for PSS skill authoring, reindexing, and suggestion quality. Used by pss-agent-profiler. Trigger with /pss-authoring."
+description: "Use when writing skills for PSS discovery or improving suggestion accuracy. Used by pss-agent-profiler. Trigger with /pss-authoring."
 user-invocable: false
 ---
 
