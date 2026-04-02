@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.15] - 2026-04-02
+
+### Bug Fixes
+
+- Agent description >250 chars, duplicate tool, missing timeouts, stale path
+
 ## [2.9.14] - 2026-04-02
 
 ### Bug Fixes
@@ -9,6 +15,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 - UTF-8 truncation panic, stale Task tool refs, CC v2.1.90 compat
 - Add 'Loaded/Used by' annotations to non-user-invocable skills
 - Restore 'Use when' phrases in skill descriptions alongside 'Used by'
+
+### Bump
+
+- Version 2.9.13 → 2.9.14
 
 ## [2.9.13] - 2026-03-31
 
