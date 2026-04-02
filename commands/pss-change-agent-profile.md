@@ -2,7 +2,7 @@
 name: pss-change-agent-profile
 description: "Modify an existing .agent.toml profile with natural language instructions"
 argument-hint: "<profile-path> <change-instructions> [--requirements PATH...]"
-allowed-tools: ["Task", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "mcp__plugin_llm-externalizer_llm-externalizer__code_task", "mcp__plugin_llm-externalizer_llm-externalizer__chat"]
+allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "mcp__plugin_llm-externalizer_llm-externalizer__code_task", "mcp__plugin_llm-externalizer_llm-externalizer__chat"]
 ---
 
 # PSS Change Agent Profile
