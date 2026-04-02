@@ -26,16 +26,12 @@ def load_profile(profile_path: Path) -> dict:
 
 def load_skill_index() -> dict:
     """Load the skill index to resolve element paths."""
-    # Try CLAUDE_PLUGIN_DATA first, then ~/.claude/cache/
-    for base in [
-        os.environ.get("CLAUDE_PLUGIN_DATA"),
-        str(Path.home() / ".claude" / "cache"),
-    ]:
-        if base:
-            index_path = Path(base) / "skill-index.json"
-            if index_path.exists():
-                with open(index_path) as f:
-                    return json.load(f)
+    from pss_paths import get_data_dir
+
+    index_path = get_data_dir() / "skill-index.json"
+    if index_path.exists():
+        with open(index_path) as f:
+            return json.load(f)
     print(
         "ERROR: skill-index.json not found. Run /pss-reindex-skills first.",
         file=sys.stderr,

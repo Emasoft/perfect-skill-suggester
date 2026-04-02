@@ -1,6 +1,6 @@
 ---
 name: pss-agent-profiler
-description: "AI agent that analyzes agent definitions and generates .agent.toml configuration profiles. Uses Rust binary for candidate scoring + intelligent post-filtering for mutual exclusivity, stack compatibility, and redundancy pruning across all 6 element types."
+description: "Analyzes agent definitions and generates .agent.toml profiles. Uses Rust binary for candidate scoring + post-filtering for mutual exclusivity, stack compatibility, and redundancy pruning across all 6 element types."
 model: sonnet
 memory: user
 auto_skills:
@@ -17,7 +17,6 @@ tools:
   - WebFetch
   - mcp__plugin_llm-externalizer_llm-externalizer__chat
   - mcp__plugin_llm-externalizer_llm-externalizer__code_task
-  - mcp__plugin_llm-externalizer_llm-externalizer__chat
 ---
 
 # PSS Agent Profiler

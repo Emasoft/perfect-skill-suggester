@@ -253,7 +253,7 @@ def build_binary() -> bool:
 
     bin_dir.mkdir(parents=True, exist_ok=True)
 
-    result = subprocess.run(["cargo", "build", "--release"], cwd=rust_dir)
+    result = subprocess.run(["cargo", "build", "--release"], cwd=rust_dir, timeout=600)
 
     if result.returncode != 0:
         print_fail("Cargo build failed")
@@ -299,7 +299,7 @@ def run_validation() -> bool:
 
     validator = get_plugin_root() / "scripts" / "validate_plugin.py"
 
-    result = subprocess.run([sys.executable, str(validator)], cwd=get_plugin_root())
+    result = subprocess.run([sys.executable, str(validator)], cwd=get_plugin_root(), timeout=120)
 
     return result.returncode == 0
 
@@ -415,6 +415,7 @@ def main() -> int:
         result = subprocess.run(
             [sys.executable, str(test_script), "--verbose"],
             cwd=get_plugin_root(),
+            timeout=300,
         )
         return result.returncode
 
