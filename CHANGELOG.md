@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.24] - 2026-04-07
+
+### Bug Fixes
+
+- All remaining HIGH findings from LLM Externalizer audit
+
 ## [2.9.23] - 2026-04-07
 
 ### Bug Fixes
 
 - Shell injection hardening, empty CLAUDE_PLUGIN_DATA, name filter case
+
+### Bump
+
+- Version 2.9.22 → 2.9.23
 
 ## [2.9.22] - 2026-04-07
 
