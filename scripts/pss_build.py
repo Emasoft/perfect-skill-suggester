@@ -48,12 +48,9 @@ def resolve_cargo() -> str:
         _host_arch = "aarch64" if _machine in ("arm64", "aarch64") else "x86_64"
         _host_os = "apple-darwin" if _plat.system() == "Darwin" else "unknown-linux-gnu"
         _toolchain_name = f"stable-{_host_arch}-{_host_os}"
-        rustup_cargo = (
-            Path.home() / f".rustup/toolchains/{_toolchain_name}/bin/cargo"
-        )
-        rustup_rustc = (
-            Path.home() / f".rustup/toolchains/{_toolchain_name}/bin/rustc"
-        )
+        _tc_bin = Path.home() / ".rustup" / "toolchains" / _toolchain_name / "bin"
+        rustup_cargo = _tc_bin / "cargo"
+        rustup_rustc = _tc_bin / "rustc"
         if rustup_cargo.exists():
             print(
                 "  Note: Using rustup cargo (Homebrew cargo in PATH lacks cross targets)"
@@ -452,8 +449,8 @@ def build_cross(target_key: str, release: bool = True) -> bool:
     _machine = platform.machine().lower()
     _host_arch = "aarch64" if _machine in ("arm64", "aarch64") else "x86_64"
     _host_os = "apple-darwin" if platform.system() == "Darwin" else "unknown-linux-gnu"
-    rustup_bin = Path.home() / f".rustup/toolchains/stable-{_host_arch}-{_host_os}/bin"
-    cargo_bin = Path.home() / ".cargo/bin"
+    rustup_bin = Path.home() / ".rustup" / "toolchains" / f"stable-{_host_arch}-{_host_os}" / "bin"
+    cargo_bin = Path.home() / ".cargo" / "bin"
     env = os.environ.copy()
     env["PATH"] = f"{rustup_bin}{os.pathsep}{cargo_bin}{os.pathsep}{env.get('PATH', '')}"
 
