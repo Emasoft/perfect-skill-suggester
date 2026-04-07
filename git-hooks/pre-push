@@ -1,25 +1,19 @@
 #!/usr/bin/env bash
-# pre-push hook — Delegates to pss_ship.py --gate for validation.
+# pre-push hook — Only publish.py may push.
 #
-# Blocks push if CRITICAL, MAJOR, or MINOR issues are found.
-# NITs are treated as warnings and do NOT block.
+# publish.py sets PSS_PUBLISH_GATE=1 before calling git push.
+# If that env var is missing, this hook blocks the push.
 #
-# To install:
-#   uv run python scripts/pss_ship.py --install-hook
-#   # or manually:
-#   cp git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
-#
-# To bypass (NOT RECOMMENDED):
-#   git push --no-verify
+# To bypass (NOT RECOMMENDED): git push --no-verify
 
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
-
-if command -v uv &> /dev/null; then
-    uv run python scripts/pss_ship.py --gate
-else
-    python3 scripts/pss_ship.py --gate
+if [ "${PSS_PUBLISH_GATE:-}" != "1" ]; then
+    echo ""
+    echo "ERROR: Direct git push is blocked."
+    echo ""
+    echo "All pushes MUST go through the release pipeline:"
+    echo "  uv run python scripts/publish.py --bump patch"
+    echo ""
+    exit 1
 fi
-exit $?

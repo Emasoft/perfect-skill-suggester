@@ -611,19 +611,19 @@ Full pipeline: test → lint → bump → changelog → build → commit → pus
 
 ```bash
 # Full release
-uv run python scripts/pss_ship.py --bump patch
+uv run python scripts/publish.py --bump patch
 
 # Preview (no changes)
-uv run python scripts/pss_ship.py --bump minor --dry-run
+uv run python scripts/publish.py --bump minor --dry-run
 
 # Version bump only (no builds)
-uv run python scripts/pss_ship.py --bump patch --skip-build
+uv run python scripts/publish.py --bump patch --skip-build
 
 # Run pre-release gates (lint, test, validate) without releasing
-uv run python scripts/pss_ship.py --gate
+uv run python scripts/publish.py --gate
 
-# Sync CPV validation scripts from upstream before release
-uv run python scripts/pss_ship.py --sync-cpv
+# Install pre-push quality gate (runs lint + validate + test before every push)
+uv run python scripts/publish.py --install-hook
 ```
 
 Version is updated in 4 files: Cargo.toml, main.rs, plugin.json, pyproject.toml.

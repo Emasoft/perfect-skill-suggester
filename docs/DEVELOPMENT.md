@@ -369,7 +369,7 @@ cargo clippy --all-targets
 
 ## Release Checklist
 
-> **Automated release:** `uv run python scripts/pss_ship.py --bump patch` handles the full pipeline (version bump, build, validate, commit, tag).
+> **Automated release:** `uv run python scripts/publish.py --bump patch` handles the full pipeline (version bump, build, validate, commit, tag).
 
 Before releasing a new version manually:
 

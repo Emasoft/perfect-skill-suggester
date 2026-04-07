@@ -7,19 +7,19 @@ Two modes:
   (default)        Full release: lint + validate + test + bump + changelog + build + commit + tag + push.
 
 Gate mode (used by .git/hooks/pre-push):
-    pss_ship.py --gate
+    publish.py --gate
 
 Release mode:
-    pss_ship.py --bump patch           # non-interactive
-    pss_ship.py                        # interactive: prompts for bump type
-    pss_ship.py --dry-run              # preview only
-    pss_ship.py --sync-cpv             # also sync CPV scripts from GitHub
+    publish.py --bump patch           # non-interactive
+    publish.py                        # interactive: prompts for bump type
+    publish.py --dry-run              # preview only
 
 Utilities:
-    pss_ship.py --install-hook         # install pre-push hook into .git/hooks/
+    publish.py --install-hook         # install pre-push hook into .git/hooks/
 """
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -625,6 +625,8 @@ def git_push() -> None:
     rust_submodule = ROOT / "rust"
     if (rust_submodule / ".git").exists():
         info("  Pushing rust/ submodule...")
+        # Set env var so pre-push hook knows we're called from publish.py
+        os.environ["PSS_PUBLISH_GATE"] = "1"
         result = run(["git", "-C", str(rust_submodule), "push"])
         if result.returncode != 0:
             fatal(f"submodule push failed: {result.stderr.strip()}")
@@ -665,24 +667,6 @@ def git_push() -> None:
 
 
 # ===========================================================================
-# CPV (deprecated local sync — now uses uvx remote execution)
-# ===========================================================================
-
-
-def sync_cpv_scripts(dry_run: bool = False) -> None:
-    """No-op: CPV scripts are no longer synced locally.
-
-    Validation now runs via 'uvx --from git+https://github.com/Emasoft/
-    claude-plugins-validation cpv-validate .' which always fetches the
-    latest version from GitHub. The --sync-cpv flag is kept for backward
-    compatibility but does nothing.
-    """
-    warn(
-        "CPV script sync is deprecated. Validation now uses uvx remote execution "
-        "(always latest from GitHub). The --sync-cpv flag is a no-op."
-    )
-
-
 # ===========================================================================
 # Hook installation
 # ===========================================================================
@@ -708,7 +692,7 @@ def install_hook() -> None:
     HOOK_TARGET.chmod(0o755)
 
     success(f"  Installed pre-push hook: {HOOK_TARGET}")
-    info("  Hook will run 'pss_ship.py --gate' before every push.")
+    info("  Hook will run 'publish.py --gate' before every push.")
 
 
 # ===========================================================================
@@ -761,11 +745,7 @@ def release_pipeline(args: argparse.Namespace) -> None:
     else:
         warn("Tests skipped (--skip-tests).")
 
-    # Step 5: Sync CPV scripts (if requested)
-    if args.sync_cpv:
-        sync_cpv_scripts(dry_run=args.dry_run)
-
-    # Step 6: Read current version and compute new
+    # Step 5: Read current version and compute new
     old_version = read_current_version()
     new_version = compute_new_version(old_version, args.bump)
 
@@ -834,8 +814,6 @@ def print_summary(old: str, new: str, args: argparse.Namespace) -> None:
         print("  Build:         dry-run")
     else:
         print("  Build:         attempted")
-    if args.sync_cpv:
-        print("  CPV sync:      done")
     if args.version_only or args.dry_run:
         print("  Git commit:    skipped")
         print("  Git tag:       skipped")
@@ -907,12 +885,6 @@ def main() -> None:
         action="store_true",
         help="Only bump version in files, no build/commit/push.",
     )
-    parser.add_argument(
-        "--sync-cpv",
-        action="store_true",
-        help="Sync CPV validation scripts from GitHub before release.",
-    )
-
     args = parser.parse_args()
 
     # Dispatch to the right mode
