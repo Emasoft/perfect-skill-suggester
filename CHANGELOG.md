@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.18] - 2026-04-07
+
+### Features
+
+- Support AgentSkills open standard metadata in indexing pipeline
+
 ## [2.9.17] - 2026-04-07
 
 ### Features
 
 - Add effort frontmatter to all commands per skills spec
+
+### Bump
+
+- Version 2.9.16 → 2.9.17
 
 ## [2.9.16] - 2026-04-07
 
