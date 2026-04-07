@@ -85,14 +85,20 @@ def run(
     cmd: list[str], cwd: Path | None = None, timeout: int = 300
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess command and return the result (check=False)."""
-    return subprocess.run(
-        cmd,
-        cwd=cwd or ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout,
-    )
+    try:
+        return subprocess.run(
+            cmd,
+            cwd=cwd or ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        # Return a synthetic failed result instead of crashing
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=124, stdout="", stderr=f"Timed out after {timeout}s"
+        )
 
 
 # ===========================================================================

@@ -94,7 +94,7 @@ def copy_skill(name: str, source_path: str, dest_skills_dir: Path) -> bool:
         return False
 
     # Copy the entire skill directory (SKILL.md + references/ + scripts/ + assets/)
-    shutil.copytree(skill_dir, dest_dir, dirs_exist_ok=False)
+    shutil.copytree(skill_dir, dest_dir, symlinks=True, dirs_exist_ok=False)
     return True
 
 
@@ -138,7 +138,7 @@ def copy_command(name: str, source_path: str, dest_commands_dir: Path) -> bool:
     subdir = source.parent / source.stem
     if subdir.is_dir():
         dest_subdir = dest_commands_dir / source.stem
-        shutil.copytree(subdir, dest_subdir, dirs_exist_ok=False)
+        shutil.copytree(subdir, dest_subdir, symlinks=True, dirs_exist_ok=False)
 
     return True
 

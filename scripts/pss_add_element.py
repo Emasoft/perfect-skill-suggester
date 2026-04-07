@@ -347,7 +347,7 @@ def add_skill(
         return True
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(skill_dir, dest, dirs_exist_ok=False)
+    shutil.copytree(skill_dir, dest, symlinks=True, dirs_exist_ok=False)
     success(f"Added skill: {skill_dir.name}")
     return True
 
@@ -397,7 +397,7 @@ def add_command(
     subdir = source.parent / source.stem
     if subdir.is_dir():
         dest_subdir = dest_dir / source.stem
-        shutil.copytree(subdir, dest_subdir, dirs_exist_ok=False)
+        shutil.copytree(subdir, dest_subdir, symlinks=True, dirs_exist_ok=False)
         success(f"Added command + subdir: {source.name}")
     else:
         success(f"Added command: {source.name}")

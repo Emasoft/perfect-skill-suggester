@@ -343,7 +343,7 @@ def run_merge(
         atomic_write_json(index_path, index)
 
         # Cleanup: delete the merged .pss file
-        pss_file.unlink()
+        pss_file.unlink(missing_ok=True)
 
         if not quiet:
             print(f"[MERGED] {skill_name} (pass {pass_num}) into {index_path.name}")
