@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.22] - 2026-04-07
+
+### Bug Fixes
+
+- Windows compat for PID check and debug mode, source filter bug
+
 ## [2.9.21] - 2026-04-07
 
 ### Documentation
 
 - Add cross-client discovery and AgentSkills support to README
+
+### Bump
+
+- Version 2.9.20 → 2.9.21
 
 ## [2.9.20] - 2026-04-07
 
