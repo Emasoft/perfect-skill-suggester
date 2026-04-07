@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.23] - 2026-04-07
+
+### Bug Fixes
+
+- Shell injection hardening, empty CLAUDE_PLUGIN_DATA, name filter case
+
 ## [2.9.22] - 2026-04-07
 
 ### Bug Fixes
 
 - Windows compat for PID check and debug mode, source filter bug
+
+### Bump
+
+- Version 2.9.21 → 2.9.22
 
 ## [2.9.21] - 2026-04-07
 
