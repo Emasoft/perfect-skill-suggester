@@ -1108,7 +1108,7 @@ def discover_elements(
                     continue
 
                 elem_name = md_file.stem.lower()
-                if specific_name and elem_name != specific_name:
+                if specific_name and elem_name != specific_name.lower():
                     continue
                 # Use type-prefixed key to avoid cross-type name collisions
                 dedup_key = f"{element_type}:{elem_name}"

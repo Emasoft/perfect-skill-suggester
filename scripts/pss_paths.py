@@ -23,8 +23,8 @@ def get_data_dir() -> Path:
     Prefers $CLAUDE_PLUGIN_DATA (CC v2.1.78+) which survives plugin updates.
     Falls back to ~/.claude/cache for older CC versions or non-plugin contexts.
     """
-    plugin_data = os.environ.get("CLAUDE_PLUGIN_DATA")
-    if plugin_data:
+    plugin_data = os.environ.get("CLAUDE_PLUGIN_DATA", "").strip()
+    if plugin_data and Path(plugin_data).is_absolute():
         d = Path(plugin_data)
         d.mkdir(parents=True, exist_ok=True)
         return d

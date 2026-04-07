@@ -117,15 +117,20 @@ def run_pipeline(
                                   to skip plugins disabled in settings.json.
     Returns the pipeline exit code.
     """
+    import shlex
+
     warnings_file = Path(tempfile.gettempdir()) / "pss-discover-warnings.txt"
     stats_file = Path(tempfile.gettempdir()) / "pss-pass1-stats.txt"
     discover_flags = "--jsonl --all-projects"
     if exclude_inactive_plugins:
         discover_flags += " --exclude-inactive-plugins"
+    # Use shlex.quote on all interpolated paths to prevent shell injection
+    # (CLAUDE_PLUGIN_ROOT or binary paths with special chars could break quoting)
+    q = shlex.quote
     cmd = (
-        f'"{sys.executable}" "{scripts_dir / "pss_discover.py"}" {discover_flags} 2>"{warnings_file}" '
-        f'| "{binary}" --pass1-batch 2>"{stats_file}" '
-        f'| "{sys.executable}" "{scripts_dir / "pss_merge_queue.py"}" --batch-stdin --index "{staging_index}"'
+        f'{q(sys.executable)} {q(str(scripts_dir / "pss_discover.py"))} {discover_flags} 2>{q(str(warnings_file))} '
+        f'| {q(str(binary))} --pass1-batch 2>{q(str(stats_file))} '
+        f'| {q(sys.executable)} {q(str(scripts_dir / "pss_merge_queue.py"))} --batch-stdin --index {q(str(staging_index))}'
     )
     try:
         result = subprocess.run(cmd, shell=True, timeout=300)  # 5-minute timeout
