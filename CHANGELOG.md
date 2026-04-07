@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.20] - 2026-04-07
+
+### Features
+
+- Scan 27 known AI client skill directories for cross-client discovery
+
 ## [2.9.19] - 2026-04-07
 
 ### Features
 
 - Scan .agents/skills/ for cross-client skill discovery (AgentSkills spec)
+
+### Bump
+
+- Version 2.9.18 → 2.9.19
 
 ## [2.9.18] - 2026-04-07
 
