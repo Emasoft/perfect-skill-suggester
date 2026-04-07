@@ -22,6 +22,12 @@
 
 ## What's New
 
+### v2.9.20
+- **Cross-client skill discovery** — scans `skills/` directories from 27 known AI clients (Codex, Copilot, Gemini, Kiro, Roo, Trae, Qwen, OpenHands, etc.) following the [AgentSkills](https://agentskills.io) open standard
+- **AgentSkills metadata indexing** — `metadata.language/framework/platform` fields used as authoritative domain gates; `metadata.tags` and `compatibility` extracted as keywords
+- **`effort` frontmatter** on all 8 commands (low/medium/high per complexity)
+- **Claude Code v2.1.92 compatibility** — `disableSkillShellExecution` noted, CPV remote validation updated
+
 ### v2.9.9
 - **`/pss-add-element` command** — add standalone elements (skills, agents, commands, hooks, rules, MCP servers, LSP servers, output styles) to existing plugins with duplicate detection and CPV validation
 - **Claude Code v2.1.85 compatibility** — transcript parser updated for new JSONL format (`toolUseResult`/`sourceToolAssistantUUID` entries skipped; `agentId` removal handled)
@@ -40,6 +46,9 @@
 
 ### Multi-Type Element Indexing
 Indexes all 6 Claude Code element types — not just skills. The unified index powers both real-time hook suggestions and AI-driven agent configuration profiling.
+
+### Cross-Client Skill Discovery
+Scans skills from **27 known AI clients** beyond Claude Code — including Codex, Copilot, Gemini, Kiro, Roo, Trae, Qwen, OpenHands, and more. Follows the [AgentSkills](https://agentskills.io) open standard for cross-client interoperability. Skills with `metadata` fields (language, framework, platform, tags) get authoritative domain gates for more precise matching.
 
 ### AI-Analyzed Keywords
 Sonnet subagents analyze each element's source file to extract optimal activation patterns. Instead of relying on manually defined keywords, the AI reads the content and determines what user prompts should trigger it.
