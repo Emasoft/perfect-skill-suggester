@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.16] - 2026-04-07
+
+### Documentation
+
+- Update CC compatibility to v2.1.92, add disableSkillShellExecution note
+
 ## [2.9.15] - 2026-04-02
 
 ### Bug Fixes
 
 - Agent description >250 chars, duplicate tool, missing timeouts, stale path
+
+### Bump
+
+- Version 2.9.14 → 2.9.15
 
 ## [2.9.14] - 2026-04-02
 
