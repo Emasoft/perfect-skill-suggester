@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.30] - 2026-04-07
+
+### Refactor
+
+- Rename pss_ship.py → publish.py, enforce pre-push quality gate
+
 ## [2.9.29] - 2026-04-07
 
 ### Bug Fixes
 
 - LLM Externalizer audit fixes + remove local CPV scripts
+
+### Bump
+
+- Version 2.9.28 → 2.9.29
 
 ## [2.9.28] - 2026-04-07
 
