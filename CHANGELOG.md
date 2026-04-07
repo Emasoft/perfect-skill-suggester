@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.17] - 2026-04-07
+
+### Features
+
+- Add effort frontmatter to all commands per skills spec
+
 ## [2.9.16] - 2026-04-07
 
 ### Documentation
 
 - Update CC compatibility to v2.1.92, add disableSkillShellExecution note
+
+### Bump
+
+- Version 2.9.15 → 2.9.16
 
 ## [2.9.15] - 2026-04-02
 
