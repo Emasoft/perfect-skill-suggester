@@ -249,8 +249,20 @@ def get_all_element_locations(
     # 1. User-level elements: ~/.claude/{skills,agents,commands,rules}/
     _add_element_dirs(get_claude_dir(), "user", include_rules=True)
 
+    # 1b. Cross-client skills: ~/.agents/skills/ (AgentSkills open standard)
+    # Scans the convention path from agentskills.io for interoperability
+    # with other AI tools that follow the AgentSkills spec
+    agents_user = Path.home() / ".agents"
+    if agents_user.exists() and agents_user.is_dir():
+        _add_element_dirs(agents_user, "user:agentskills", include_rules=False)
+
     # 2. Current project-level elements: .claude/{skills,agents,commands,rules}/
     _add_element_dirs(cwd / ".claude", "project", include_rules=True)
+
+    # 2b. Cross-client project skills: .agents/skills/ (AgentSkills open standard)
+    agents_project = cwd / ".agents"
+    if agents_project.exists() and agents_project.is_dir():
+        _add_element_dirs(agents_project, "project:agentskills", include_rules=False)
 
     # 3. Plugin cache: ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/
     plugin_cache = get_claude_dir() / "plugins" / "cache"
