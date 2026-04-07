@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.25] - 2026-04-07
+
+### Bug Fixes
+
+- Avoid absolute path literals in pss_build.py (CPV MINOR)
+
 ## [2.9.24] - 2026-04-07
 
 ### Bug Fixes
 
 - All remaining HIGH findings from LLM Externalizer audit
+
+### Bump
+
+- Version 2.9.23 → 2.9.24
 
 ## [2.9.23] - 2026-04-07
 
