@@ -126,7 +126,7 @@ def run_validation() -> int:
             "uvx",
             "--from", CPV_UVX_FROM,
             "--with", "pyyaml",
-            "cpv-validate", ".",
+            "cpv-remote-validate", "plugin", ".",
         ],
         timeout=180,
     )

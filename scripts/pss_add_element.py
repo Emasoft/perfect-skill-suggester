@@ -596,7 +596,7 @@ def validate_plugin(plugin: Path) -> bool:
             "uvx",
             "--from", CPV_UVX_FROM,
             "--with", "pyyaml",
-            "cpv-validate", str(plugin),
+            "cpv-remote-validate", "plugin", str(plugin),
         ],
         capture_output=True,
         text=True,
