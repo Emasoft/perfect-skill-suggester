@@ -659,7 +659,11 @@ def main(argv: list[str]) -> int:
     print(f"[executor] {chosen}", file=sys.stderr)
     print("[exec] " + " ".join(shlex.quote(a) for a in argv2), file=sys.stderr)
 
-    p = subprocess.run(argv2)
+    try:
+        p = subprocess.run(argv2, timeout=300)
+    except subprocess.TimeoutExpired:
+        print("[exec] Timed out after 300s", file=sys.stderr)
+        return 124  # Standard timeout exit code
     return p.returncode
 
 

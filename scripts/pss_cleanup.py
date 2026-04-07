@@ -126,11 +126,18 @@ def _run_cleanup(
         for pss_path in pss_files:
             if dry_run:
                 print(f"  [DRY RUN] Would delete: {pss_path}")
+                total_deleted += 1
             else:
-                pss_path.unlink(missing_ok=True)
-                if verbose:
-                    print(f"  Deleted: {pss_path}")
-            total_deleted += 1
+                try:
+                    pss_path.unlink(missing_ok=True)
+                    if verbose:
+                        print(f"  Deleted: {pss_path}")
+                    total_deleted += 1
+                except OSError as e:
+                    print(
+                        f"  Warning: Cannot delete {pss_path}: {e}",
+                        file=sys.stderr,
+                    )
 
     return total_deleted
 

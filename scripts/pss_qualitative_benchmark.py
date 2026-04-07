@@ -284,9 +284,20 @@ def main() -> None:
         print(f"ERROR: Prompts file not found: {prompts_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Load all agents
+    # Load all agents (skip malformed lines)
+    all_agents = []
     with open(prompts_path) as f:
-        all_agents = [json.loads(line.strip()) for line in f if line.strip()]
+        for line_num, line in enumerate(f, 1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                all_agents.append(json.loads(stripped))
+            except json.JSONDecodeError:
+                print(
+                    f"Warning: Skipping malformed line {line_num} in {prompts_path}",
+                    file=sys.stderr,
+                )
 
     # Select agents
     if args.agents:

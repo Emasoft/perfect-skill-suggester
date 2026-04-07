@@ -97,13 +97,16 @@ def _build_one(
     log_fh.write(f"{'=' * 60}\n")
     log_fh.flush()
 
-    result = subprocess.run(
-        cmd,
-        cwd=crate_dir,
-        stdout=log_fh,
-        stderr=subprocess.STDOUT,
-        timeout=600,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=crate_dir,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "build timed out after 600s"
 
     if result.returncode != 0:
         return False, f"exit code {result.returncode} (tool={tool})"

@@ -66,8 +66,9 @@ def detect_binary() -> str:
 
     binary_name = platform_map.get((system, machine))
     if binary_name is None:
-        # Fallback to release build
-        release_bin = project_root / "rust" / "target" / "release" / "pss"
+        # Fallback to release build (add .exe on Windows)
+        exe_suffix = ".exe" if system == "Windows" else ""
+        release_bin = project_root / "rust" / "target" / "release" / f"pss{exe_suffix}"
         if release_bin.exists():
             return str(release_bin)
         print(f"ERROR: Unsupported platform: {system}/{machine}", file=sys.stderr)
@@ -75,8 +76,9 @@ def detect_binary() -> str:
 
     binary_path = bin_dir / binary_name
     if not binary_path.exists():
-        # Try release build as fallback
-        release_bin = project_root / "rust" / "target" / "release" / "pss"
+        # Try release build as fallback (add .exe on Windows)
+        exe_suffix = ".exe" if system == "Windows" else ""
+        release_bin = project_root / "rust" / "target" / "release" / f"pss{exe_suffix}"
         if release_bin.exists():
             return str(release_bin)
         print(f"ERROR: Binary not found: {binary_path}", file=sys.stderr)
@@ -231,7 +233,7 @@ def run_benchmark(
         except json.JSONDecodeError:
             continue
 
-        agent_id = entry.get("id", 0)
+        agent_id = int(entry.get("id", 0))
 
         # Apply range filter
         if agent_range is not None:

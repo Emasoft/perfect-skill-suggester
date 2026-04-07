@@ -40,12 +40,19 @@ def resolve_cargo() -> str:
 
     cargo_path = shutil.which("cargo")
     if cargo_path and "/homebrew/" in cargo_path.lower():
-        # Homebrew cargo detected — use rustup's cargo + rustc directly
+        # Homebrew cargo detected — use rustup's cargo + rustc directly.
+        # Detect host arch dynamically (not hardcoded to aarch64)
+        import platform as _plat
+
+        _machine = _plat.machine().lower()
+        _host_arch = "aarch64" if _machine in ("arm64", "aarch64") else "x86_64"
+        _host_os = "apple-darwin" if _plat.system() == "Darwin" else "unknown-linux-gnu"
+        _toolchain_name = f"stable-{_host_arch}-{_host_os}"
         rustup_cargo = (
-            Path.home() / ".rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo"
+            Path.home() / f".rustup/toolchains/{_toolchain_name}/bin/cargo"
         )
         rustup_rustc = (
-            Path.home() / ".rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            Path.home() / f".rustup/toolchains/{_toolchain_name}/bin/rustc"
         )
         if rustup_cargo.exists():
             print(
@@ -442,10 +449,13 @@ def build_cross(target_key: str, release: bool = True) -> bool:
     # Ensure rustup's toolchain is visible to cross (Homebrew breaks it)
     import os
 
-    rustup_bin = Path.home() / ".rustup/toolchains/stable-aarch64-apple-darwin/bin"
+    _machine = platform.machine().lower()
+    _host_arch = "aarch64" if _machine in ("arm64", "aarch64") else "x86_64"
+    _host_os = "apple-darwin" if platform.system() == "Darwin" else "unknown-linux-gnu"
+    rustup_bin = Path.home() / f".rustup/toolchains/stable-{_host_arch}-{_host_os}/bin"
     cargo_bin = Path.home() / ".cargo/bin"
     env = os.environ.copy()
-    env["PATH"] = f"{rustup_bin}:{cargo_bin}:{env.get('PATH', '')}"
+    env["PATH"] = f"{rustup_bin}{os.pathsep}{cargo_bin}{os.pathsep}{env.get('PATH', '')}"
 
     # Build command
     cmd = ["cross", "build", "--target", rust_target]
