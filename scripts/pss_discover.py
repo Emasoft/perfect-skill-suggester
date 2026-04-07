@@ -1378,9 +1378,13 @@ def main() -> int:
     )
 
     if args.project_only:
-        all_locations = [(s, t, p) for s, t, p in all_locations if s == "project"]
+        all_locations = [
+            (s, t, p) for s, t, p in all_locations if s.startswith("project")
+        ]
     elif args.user_only:
-        all_locations = [(s, t, p) for s, t, p in all_locations if s == "user"]
+        all_locations = [
+            (s, t, p) for s, t, p in all_locations if s.startswith("user")
+        ]
 
     elements = discover_elements(all_locations, args.name)
 
@@ -1397,11 +1401,20 @@ def main() -> int:
         lsp_servers = discover_lsp_servers()
         elements.extend(lsp_servers)
 
-    # Apply source filter to MCP/LSP results too
+    # Apply source filter to MCP/LSP results too.
+    # Sources use prefixes like "project:agentskills", "user:codex", "plugin:name"
+    # so we match with startswith() not strict equality.
     if args.project_only:
-        elements = [e for e in elements if e.get("source") == "project"]
+        elements = [
+            e for e in elements
+            if e.get("source", "").startswith("project")
+        ]
     elif args.user_only:
-        elements = [e for e in elements if e.get("source") in ("user", "built-in")]
+        elements = [
+            e for e in elements
+            if e.get("source", "").startswith("user")
+            or e.get("source") == "built-in"
+        ]
 
     # JSONL mode: one JSON object per line with minimal fields
     if args.jsonl:

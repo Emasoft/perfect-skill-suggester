@@ -48,6 +48,10 @@ def _is_debug_mode() -> bool:
     global _debug_mode_cache
     if _debug_mode_cache is not None:
         return _debug_mode_cache
+    # ps command is Unix-only — skip on Windows
+    if platform.system() == "Windows":
+        _debug_mode_cache = False
+        return False
     pid = os.getppid()
     while pid > 1:
         try:
@@ -515,6 +519,18 @@ def _exit_warning(msg: str) -> None:
 
 def _is_pid_alive(pid: int) -> bool:
     """Check if a process with the given PID is still running."""
+    if pid <= 0:
+        return False
+    if platform.system() == "Windows":
+        # os.kill(pid, 0) doesn't work on Windows — use tasklist
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return str(pid) in result.stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return False
     try:
         os.kill(pid, 0)  # Signal 0 = existence check, no actual signal sent
         return True
