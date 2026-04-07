@@ -249,12 +249,45 @@ def get_all_element_locations(
     # 1. User-level elements: ~/.claude/{skills,agents,commands,rules}/
     _add_element_dirs(get_claude_dir(), "user", include_rules=True)
 
-    # 1b. Cross-client skills: ~/.agents/skills/ (AgentSkills open standard)
-    # Scans the convention path from agentskills.io for interoperability
-    # with other AI tools that follow the AgentSkills spec
-    agents_user = Path.home() / ".agents"
-    if agents_user.exists() and agents_user.is_dir():
-        _add_element_dirs(agents_user, "user:agentskills", include_rules=False)
+    # 1b. Cross-client skills from known AI tools (AgentSkills open standard).
+    # These AI clients create ~/.<client>/skills/ following the AgentSkills
+    # convention. Only scan explicitly known clients to avoid false positives
+    # from non-AI software that uses "skills" with other meanings.
+    _KNOWN_AI_CLIENTS = [
+        "agents",       # agentskills.io cross-client convention
+        "codex",        # OpenAI Codex
+        "copilot",      # GitHub Copilot
+        "gemini",       # Google Gemini
+        "kiro",         # Kiro
+        "roo",          # Roo
+        "trae",         # Trae
+        "trae-cn",      # Trae CN
+        "qwen",         # Alibaba Qwen
+        "qoder",        # Qoder
+        "openhands",    # OpenHands
+        "mux",          # Mux
+        "vibe",         # Vibe
+        "kode",         # Kode
+        "kilocode",     # KiloCode
+        "iflow",        # iFlow
+        "junie",        # JetBrains Junie
+        "codebuddy",    # CodeBuddy
+        "openclaw",     # OpenClaw
+        "antigravity",  # Antigravity
+        "mcpjam",       # MCP Jam
+        "adal",         # Adal
+        "pochi",        # Pochi
+        "neovate",      # Neovate
+        "zencoder",     # Zencoder
+        "pi",           # Pi
+    ]
+    home = Path.home()
+    for client_name in _KNOWN_AI_CLIENTS:
+        client_dir = home / f".{client_name}"
+        if client_dir.is_dir() and (client_dir / "skills").is_dir():
+            _add_element_dirs(
+                client_dir, f"user:{client_name}", include_rules=False
+            )
 
     # 2. Current project-level elements: .claude/{skills,agents,commands,rules}/
     _add_element_dirs(cwd / ".claude", "project", include_rules=True)
