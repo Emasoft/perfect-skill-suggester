@@ -1024,17 +1024,26 @@ def discover_elements(
                     frontmatter = parse_frontmatter(content)
                     body = _extract_body_preview(content)
                     use_ctx = extract_use_context(content)
-                    elements.append(
-                        {
-                            "name": frontmatter.get("name") or skill_path.name,
-                            "path": str(skill_md),
-                            "source": source,
-                            "type": "skill",
-                            "description": frontmatter.get("description", "")[:200],
-                            "preview": body,
-                            "use_context": use_ctx,
-                        }
-                    )
+                    entry: dict[str, Any] = {
+                        "name": frontmatter.get("name") or skill_path.name,
+                        "path": str(skill_md),
+                        "source": source,
+                        "type": "skill",
+                        "description": frontmatter.get("description", "")[:200],
+                        "preview": body,
+                        "use_context": use_ctx,
+                    }
+                    # AgentSkills open standard metadata (agentskills.io)
+                    # Extract fields that improve indexing quality
+                    if frontmatter.get("metadata"):
+                        meta = frontmatter["metadata"]
+                        if isinstance(meta, dict):
+                            entry["agentskills_metadata"] = meta
+                    if frontmatter.get("compatibility"):
+                        entry["compatibility"] = str(
+                            frontmatter["compatibility"]
+                        )[:500]
+                    elements.append(entry)
                     seen_names.add(dedup_key)
                 except (OSError, UnicodeDecodeError) as e:
                     print(f"Warning: Cannot read {skill_md}: {e}", file=sys.stderr)
