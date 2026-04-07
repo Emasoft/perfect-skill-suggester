@@ -6,6 +6,8 @@ copies them into a standard plugin directory structure following the
 Anthropic plugin specification.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -13,6 +15,7 @@ import re
 import shutil
 import sys
 from datetime import datetime, timezone
+from typing import Any
 from pathlib import Path
 
 import tomllib  # Python 3.11+ (required)
@@ -511,19 +514,27 @@ def main():
 
     # Generate MCP config from index metadata
     if mcp_names:
-        mcp_configs = {}
+        mcp_configs: dict[str, Any] = {}
         for name in mcp_names:
             path = resolve_element_path(name, index)
             if path and Path(path).exists():
-                mcp_configs[name] = {
-                    "comment": f"MCP server: {name} — configure manually"
-                }
+                # Try to read actual MCP config from the source
+                try:
+                    with open(path, encoding="utf-8") as mf:
+                        src_data = json.load(mf)
+                    # Extract server config if it's an MCP descriptor
+                    if "command" in src_data or "url" in src_data:
+                        mcp_configs[name] = src_data
+                        continue
+                except (json.JSONDecodeError, OSError):
+                    pass
+            # Fallback: placeholder requiring manual config
             mcp_configs[name] = {
-                "comment": f"MCP server: {name} — configure in .mcp.json"
+                "command": f"TODO: configure {name}",
+                "args": [],
             }
         if mcp_configs:
-            mcp_json = {"mcpServers": {}}
-            # Write a placeholder .mcp.json — MCP servers need manual config
+            mcp_json = {"mcpServers": mcp_configs}
             with open(output_dir / ".mcp.json", "w") as f:
                 json.dump(mcp_json, f, indent=2)
                 f.write("\n")

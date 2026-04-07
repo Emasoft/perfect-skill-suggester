@@ -295,9 +295,9 @@ def pnpm_dlx_argv(pkg: str, cmd: str, tool_args: list[str]) -> list[str]:
 
 def yarn_dlx_argv(pkg: str, cmd: str, tool_args: list[str]) -> list[str]:
     """Build argv for running a package via yarn dlx."""
-    if cmd == pkg:
-        return ["yarn", "dlx", pkg] + tool_args
-    return ["yarn", "dlx", "-p", pkg, cmd] + tool_args
+    # yarn dlx doesn't support -p; when cmd != pkg, use the package
+    # and let yarn resolve the binary (cmd becomes an arg to the binary)
+    return ["yarn", "dlx", pkg] + tool_args
 
 
 def npx_argv(pkg: str, cmd: str, tool_args: list[str]) -> list[str]:

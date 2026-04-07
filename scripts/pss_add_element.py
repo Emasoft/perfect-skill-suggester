@@ -153,10 +153,15 @@ def check_skill_duplicate(plugin: Path, name: str) -> str | None:
     return None
 
 
-def check_agent_duplicate(plugin: Path, name: str) -> str | None:
+def check_agent_duplicate(
+    plugin: Path, name: str, source: Path | None = None
+) -> str | None:
     agents_dir = plugin / "agents"
     if not agents_dir.is_dir():
         return None
+    # Check physical filename collision (what add_agent actually writes)
+    if source and (agents_dir / source.name).exists():
+        return f"Agent file '{source.name}' already exists in agents/"
     for md in agents_dir.glob("*.md"):
         fm = parse_frontmatter(md)
         if fm.get("name") == name or md.stem == name:
@@ -164,10 +169,15 @@ def check_agent_duplicate(plugin: Path, name: str) -> str | None:
     return None
 
 
-def check_command_duplicate(plugin: Path, name: str) -> str | None:
+def check_command_duplicate(
+    plugin: Path, name: str, source: Path | None = None
+) -> str | None:
     cmds_dir = plugin / "commands"
     if not cmds_dir.is_dir():
         return None
+    # Check physical filename collision
+    if source and (cmds_dir / source.name).exists():
+        return f"Command file '{source.name}' already exists in commands/"
     for md in cmds_dir.glob("*.md"):
         fm = parse_frontmatter(md)
         if fm.get("name") == name or md.stem == name:
@@ -625,10 +635,10 @@ DUPLICATE_CHECKERS = {
         p, extract_element_name(s, "skill")
     ),
     "agent": lambda p, s: check_agent_duplicate(
-        p, extract_element_name(s, "agent")
+        p, extract_element_name(s, "agent"), s
     ),
     "command": lambda p, s: check_command_duplicate(
-        p, extract_element_name(s, "command")
+        p, extract_element_name(s, "command"), s
     ),
     "hook": lambda p, s: check_hook_incompatibility(p, s),
     "rule": lambda p, s: check_rule_duplicate(

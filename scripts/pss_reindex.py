@@ -127,7 +127,10 @@ def run_pipeline(
     # Use shlex.quote on all interpolated paths to prevent shell injection
     # (CLAUDE_PLUGIN_ROOT or binary paths with special chars could break quoting)
     q = shlex.quote
+    # set -o pipefail ensures the pipeline fails if ANY stage fails
+    # (without it, only the last stage's exit code is reported)
     cmd = (
+        f'set -o pipefail; '
         f'{q(sys.executable)} {q(str(scripts_dir / "pss_discover.py"))} {discover_flags} 2>{q(str(warnings_file))} '
         f'| {q(str(binary))} --pass1-batch 2>{q(str(stats_file))} '
         f'| {q(sys.executable)} {q(str(scripts_dir / "pss_merge_queue.py"))} --batch-stdin --index {q(str(staging_index))}'
@@ -238,12 +241,20 @@ def main() -> None:
     # Step 2: Pipeline writes to staging file (not the live index)
     # If crash/blackout happens here, old index is still intact and usable
     staging_index.unlink(missing_ok=True)
-    run_pipeline(
+    pipeline_rc = run_pipeline(
         scripts_dir,
         binary,
         staging_index,
         exclude_inactive_plugins=args.exclude_inactive_plugins,
     )
+    if pipeline_rc != 0:
+        print(
+            f"ERROR: Pipeline failed with exit code {pipeline_rc}. Old index preserved.",
+            file=sys.stderr,
+        )
+        staging_index.unlink(missing_ok=True)
+        _cleanup_lockfile(cache_dir)
+        sys.exit(1)
 
     # Verify the staging index
     element_count = verify_index_file(staging_index)

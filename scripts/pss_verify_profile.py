@@ -517,7 +517,7 @@ def write_toml(data: dict, path: Path) -> None:
     try:
         import tomli_w
 
-        path.write_bytes(tomli_w.dumps(data))
+        path.write_text(tomli_w.dumps(data), encoding="utf-8")
         return
     except ImportError:
         pass

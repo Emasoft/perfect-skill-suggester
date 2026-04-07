@@ -271,8 +271,8 @@ def atomic_write_json(
         with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
             json.dump(data, tmp_file, indent=2, ensure_ascii=False)
             tmp_file.write("\n")
-        # Atomic rename (same filesystem guarantees atomicity)
-        os.rename(tmp_path, path)
+        # Atomic replace (os.replace works cross-platform, os.rename fails on Windows)
+        os.replace(tmp_path, path)
     except Exception:
         # Clean up temp file on failure
         tmp_path.unlink(missing_ok=True)
