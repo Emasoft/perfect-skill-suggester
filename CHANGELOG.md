@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.19] - 2026-04-07
+
+### Features
+
+- Scan .agents/skills/ for cross-client skill discovery (AgentSkills spec)
+
 ## [2.9.18] - 2026-04-07
 
 ### Features
 
 - Support AgentSkills open standard metadata in indexing pipeline
+
+### Bump
+
+- Version 2.9.17 → 2.9.18
 
 ## [2.9.17] - 2026-04-07
 
