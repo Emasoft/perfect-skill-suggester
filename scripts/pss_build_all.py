@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -44,13 +45,18 @@ BINARIES = {
 
 
 def _has_tool(name: str) -> bool:
-    """Check if a CLI tool is on PATH."""
-    return subprocess.run(["which", name], capture_output=True).returncode == 0
+    """Check if a CLI tool is on PATH (cross-platform)."""
+    return shutil.which(name) is not None
 
 
 def _docker_running() -> bool:
     """Check if Docker daemon is responsive."""
-    return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+    try:
+        return subprocess.run(
+            ["docker", "info"], capture_output=True, timeout=10
+        ).returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
 
 
 def _build_one(
@@ -138,9 +144,11 @@ def _copy_binary(
 
     ext = ".exe" if "windows" in triple else ""
     dest = BIN_DIR / f"{output_prefix}-{target_name}{ext}"
-    # Use cp to preserve binary format
-    subprocess.run(["cp", str(src), str(dest)], check=True)
-    os.chmod(dest, 0o755)
+    shutil.copy2(src, dest)
+    try:
+        os.chmod(dest, 0o755)
+    except OSError:
+        pass  # chmod not supported on all platforms
     return dest
 
 

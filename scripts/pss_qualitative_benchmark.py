@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import json
+import re
 import os
 import platform
 import random
@@ -209,7 +210,9 @@ def write_eval_task(
     suggestions_text: str,
 ) -> Path:
     """Write an evaluation task file for a single agent."""
-    filename = f"eval-A{agent_id:03d}-{agent_name}.md"
+    # Sanitize agent_name to prevent path traversal via ../
+    safe_name = re.sub(r'[/\\:*?"<>|]', '_', agent_name)
+    filename = f"eval-A{agent_id:03d}-{safe_name}.md"
     filepath = output_dir / filename
 
     with open(filepath, "w") as f:
@@ -327,7 +330,10 @@ def main() -> None:
     manifest: list[dict[str, Any]] = []
 
     for i, agent in enumerate(selected):
-        agent_id = agent.get("id", 0)
+        try:
+            agent_id = int(agent.get("id", 0))
+        except (ValueError, TypeError):
+            agent_id = i
         agent_name = agent.get("agent_name", f"agent-{agent_id}")
         prompt = agent.get("prompt", "")
         cwd = agent.get("cwd", "/tmp")

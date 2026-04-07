@@ -55,7 +55,9 @@ def resolve_cargo() -> str:
             print(
                 "  Note: Using rustup cargo (Homebrew cargo in PATH lacks cross targets)"
             )
-            # CRITICAL: also set RUSTC so cargo uses rustup's rustc, not Homebrew's
+            # CRITICAL: also set RUSTC so cargo uses rustup's rustc, not Homebrew's.
+            # NOTE: intentional global os.environ mutation — cargo subprocesses
+            # inherit env, so RUSTC must be set process-wide before any build call.
             if rustup_rustc.exists():
                 os.environ["RUSTC"] = str(rustup_rustc)
             return str(rustup_cargo)
@@ -67,6 +69,7 @@ def resolve_cargo() -> str:
                 candidate_rustc = toolchain / "bin" / "rustc"
                 if candidate.exists() and "stable" in toolchain.name:
                     print(f"  Note: Using rustup cargo from {toolchain.name}")
+                    # NOTE: intentional global env mutation (see comment above)
                     if candidate_rustc.exists():
                         os.environ["RUSTC"] = str(candidate_rustc)
                     return str(candidate)

@@ -247,8 +247,15 @@ def extract_intents_from_content(content: str) -> list[str]:
 
 def calculate_skill_hash(skill_path: Path) -> str:
     """Calculate SHA-256 hash of element file content."""
+    # Cap at 10MB to avoid OOM on oversized files or symlinks to /dev/zero
+    max_size = 10 * 1024 * 1024
+    try:
+        if skill_path.stat().st_size > max_size:
+            return "oversized"
+    except OSError:
+        return "unreadable"
     with open(skill_path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
+        return hashlib.sha256(f.read(max_size)).hexdigest()
 
 
 def generate_pss(

@@ -223,7 +223,8 @@ def detect_executors() -> dict[str, bool]:
 def get_version(cmd: list[str]) -> str | None:
     try:
         p = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            timeout=15,
         )
         if p.returncode != 0:
             return None
@@ -319,7 +320,7 @@ def deno_npm_argv(
     """Build argv for running an npm package via Deno with minimal permissions."""
     ver = "@latest" if latest else ""
     spec = f"npm:{pkg}{ver}"
-    return [
+    base = [
         "deno",
         "run",
         "--allow-read=.",
@@ -329,8 +330,8 @@ def deno_npm_argv(
         "--no-prompt",
         spec,
         "--",
-        cmd,
-    ] + tool_args
+    ]
+    return base + tool_args
 
 
 def uvx_argv(

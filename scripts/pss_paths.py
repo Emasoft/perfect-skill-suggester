@@ -28,7 +28,9 @@ def get_data_dir() -> Path:
         d = Path(plugin_data)
         d.mkdir(parents=True, exist_ok=True)
         return d
-    return get_claude_config_dir() / "cache"
+    fallback = get_claude_config_dir() / "cache"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
 
 
 def get_cache_dir() -> Path:

@@ -142,7 +142,11 @@ def collect_domain_gates(
     domains: dict[str, list[tuple[str, str, list[str]]]] = defaultdict(list)
 
     skills = index.get("skills", {})
+    if not isinstance(skills, dict):
+        return {}
     for key, entry in skills.items():
+        if not isinstance(entry, dict):
+            continue
         # Handle both legacy (name-keyed) and new (source::name-keyed) formats
         skill_name = entry.get("name") or (
             key.split("::", 1)[-1] if "::" in key else key
@@ -266,9 +270,16 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # Read the skill index
+    # Read the skill index (cap at 500MB)
     if not args.index.exists():
         print(f"ERROR: Skill index not found at {args.index}", file=sys.stderr)
+        return 1
+    try:
+        if args.index.stat().st_size > 500_000_000:
+            print("ERROR: Index file exceeds 500MB", file=sys.stderr)
+            return 1
+    except OSError as e:
+        print(f"ERROR: Cannot stat index: {e}", file=sys.stderr)
         return 1
 
     try:

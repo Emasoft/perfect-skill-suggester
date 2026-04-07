@@ -40,8 +40,10 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -553,7 +555,8 @@ def _build_mcp_descriptor(
         lines.append("The package name in the command often reveals the purpose.")
         lines.append("")
 
-    out_file = descriptor_dir / f"{name.replace('/', '_')}.md"
+    safe_name = re.sub(r'[\\/:*?"<>|]', '_', name)
+    out_file = descriptor_dir / f"{safe_name}.md"
     out_file.write_text("\n".join(lines))
     return out_file
 
@@ -579,7 +582,16 @@ def _discover_marketplace_mcps(
     if not marketplaces_dir.exists():
         return servers
 
-    # Use a unique temp dir per run to avoid TOCTOU race on predictable paths
+    # Use a unique temp dir per run to avoid TOCTOU race on predictable paths.
+    # Clean up stale dirs from previous runs (older than 1 hour) to prevent
+    # disk accumulation on repeated manual runs.
+    tmp_base = Path(tempfile.gettempdir())
+    for old_dir in tmp_base.glob("pss-mcp-*"):
+        try:
+            if old_dir.is_dir() and (time.time() - old_dir.stat().st_mtime) > 3600:
+                shutil.rmtree(old_dir, ignore_errors=True)
+        except OSError:
+            pass
     descriptor_dir = Path(tempfile.mkdtemp(prefix="pss-mcp-"))
 
     skip_dirs = {"node_modules", ".git", "dist", "build", "__pycache__"}

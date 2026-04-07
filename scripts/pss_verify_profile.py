@@ -130,9 +130,23 @@ def load_index(index_path: Path) -> dict[str, dict]:
         sys.exit(
             f"ERROR: Skill index not found at {index_path}. Run /pss-reindex-skills."
         )
-    with open(index_path) as f:
-        data = json.load(f)
-    return data.get("skills", {})
+    # Cap at 500MB to avoid OOM on malicious/corrupt files
+    try:
+        if index_path.stat().st_size > 500_000_000:
+            sys.exit("ERROR: Skill index file exceeds 500MB size limit.")
+    except OSError as e:
+        sys.exit(f"ERROR: Cannot stat index file: {e}")
+    try:
+        with open(index_path) as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        sys.exit(f"ERROR: Invalid JSON in skill index: {e}")
+    if not isinstance(data, dict):
+        sys.exit("ERROR: Skill index root must be a JSON object.")
+    skills = data.get("skills", {})
+    if not isinstance(skills, dict):
+        return {}
+    return skills
 
 
 def build_type_index(index: dict[str, dict]) -> dict[str, set[str]]:
@@ -301,15 +315,23 @@ def extract_toml_elements(data: dict) -> list[tuple[str, str, str]]:
     """Extract all element (name, expected_type, section) tuples from parsed TOML."""
     elements: list[tuple[str, str, str]] = []
 
-    # Skills
+    # Skills — guard against non-dict/non-list types
     skills = data.get("skills", {})
+    if not isinstance(skills, dict):
+        skills = {}
     for tier in ("primary", "secondary", "specialized"):
-        for name in skills.get(tier, []):
-            elements.append((name, "skill", f"skills.{tier}"))
+        tier_list = skills.get(tier, [])
+        if not isinstance(tier_list, list):
+            continue
+        for name in tier_list:
+            if isinstance(name, str):
+                elements.append((name, "skill", f"skills.{tier}"))
 
-    # Other sections (including hooks)
+    # Other sections (including hooks) — guard types
     for section in ("agents", "commands", "rules", "mcp", "lsp", "hooks"):
         sec_data = data.get(section, {})
+        if not isinstance(sec_data, dict):
+            continue
         rec = sec_data.get("recommended", [])
         if isinstance(rec, list):
             etype = SECTION_TYPE_MAP.get(f"{section}.recommended", section)
