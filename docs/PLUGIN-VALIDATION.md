@@ -419,7 +419,7 @@ PSS has additional validation requirements:
    - `schemas/pss-agent-toml-schema.json` must exist
    - `schemas/pss-categories.json` must exist
 
-See `scripts/validate_plugin.py` for implementation.
+Validation is performed via CPV remote execution (no local scripts needed).
 
 ---
 
@@ -499,14 +499,13 @@ if __name__ == "__main__":
 ### During Development
 
 ```bash
-# Validate after every change
-uv run python scripts/validate_plugin.py . --verbose
-
-# Verbose output
-uv run python scripts/validate_plugin.py . --verbose
+# Validate after every change (CPV remote, no local scripts needed)
+uvx --from git+https://github.com/Emasoft/claude-plugins-validation --with pyyaml \
+    cpv-remote-validate plugin . --verbose
 
 # JSON output for CI
-uv run python scripts/validate_plugin.py . --json
+uvx --from git+https://github.com/Emasoft/claude-plugins-validation --with pyyaml \
+    cpv-remote-validate plugin . --json
 ```
 
 ### In CI/CD
@@ -521,8 +520,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
-      - run: uv run python scripts/validate_plugin.py . --json
+      - uses: astral-sh/setup-uv@v5
+      - run: |
+          uvx --from git+https://github.com/Emasoft/claude-plugins-validation \
+              --with pyyaml cpv-remote-validate plugin . --json
 ```
 
 ---

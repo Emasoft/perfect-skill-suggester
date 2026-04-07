@@ -31,20 +31,15 @@ jobs:
 
       - name: Validate plugin
         run: |
-          echo "=== Plugin Validation (strict mode) ==="
+          echo "=== Plugin Validation (CPV remote, strict mode) ==="
           echo ""
 
-          # Check that validator script exists
-          if [ ! -f "scripts/validate_plugin.py" ]; then
-            echo "ERROR: scripts/validate_plugin.py not found"
-            exit 1
-          fi
-
-          # Run validator with pyyaml dependency
+          # Run CPV remote validation via uvx (no local scripts needed)
           # Exit codes: 0=pass, 1=CRITICAL, 2=MAJOR, 3=MINOR
-          # Strict mode: ALL non-zero exit codes block
           set +e
-          uv run --with pyyaml python scripts/validate_plugin.py . --verbose
+          uvx --from git+https://github.com/Emasoft/claude-plugins-validation \
+              --with pyyaml \
+              cpv-remote-validate plugin . --verbose
           exit_code=$?
           set -e
 

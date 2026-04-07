@@ -1,7 +1,7 @@
 ---
 name: pss-get-description
-description: "Get element metadata (description, type, plugin) for skills, agents, commands, MCPs, rules"
-argument-hint: "<name> [--batch] [--format json|table]"
+description: "Get element metadata (description, type, plugin) for skills, agents, commands, hooks, rules, MCPs, LSPs"
+argument-hint: "<name> [--batch] [--format table]"
 effort: low
 allowed-tools: ["Bash", "Read"]
 ---
@@ -23,8 +23,7 @@ Retrieve lightweight metadata for any indexed element. Designed for tooltips, UI
 |--------|-------------|
 | `<name>` | Element name or 13-char ID |
 | `--batch` | Comma-separated names; returns JSON array with `null` for not-found |
-| `--format json` | JSON output (default) |
-| `--format table` | Human-readable table output |
+| `--format` | Output format: `json` (default) or `table` (human-readable) |
 
 ## Reference
 

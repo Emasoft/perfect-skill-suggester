@@ -294,12 +294,19 @@ def make_scripts_executable() -> None:
 
 
 def run_validation() -> bool:
-    """Run plugin validation."""
-    print_step("Running plugin validation...")
+    """Run plugin validation via CPV remote execution."""
+    print_step("Running plugin validation (CPV remote)...")
 
-    validator = get_plugin_root() / "scripts" / "validate_plugin.py"
-
-    result = subprocess.run([sys.executable, str(validator)], cwd=get_plugin_root(), timeout=120)
+    result = subprocess.run(
+        [
+            "uvx",
+            "--from", "git+https://github.com/Emasoft/claude-plugins-validation",
+            "--with", "pyyaml",
+            "cpv-remote-validate", "plugin", str(get_plugin_root()),
+        ],
+        cwd=get_plugin_root(),
+        timeout=180,
+    )
 
     return result.returncode == 0
 

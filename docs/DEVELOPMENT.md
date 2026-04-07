@@ -260,8 +260,9 @@ After building, validate the plugin structure:
 ```bash
 cd /path/to/perfect-skill-suggester
 
-# Run plugin validator
-uv run python scripts/validate_plugin.py . --verbose
+# Run CPV remote validation (no local scripts needed)
+uvx --from git+https://github.com/Emasoft/claude-plugins-validation --with pyyaml \
+    cpv-remote-validate plugin . --verbose
 
 # Or from Claude Code
 claude plugin validate /path/to/perfect-skill-suggester
@@ -381,7 +382,7 @@ Before releasing a new version manually:
 3. ✅ Run linter: `cargo clippy --all-targets`
 4. ✅ Build all platform binaries
 5. ✅ Copy binaries to `bin/` with correct names
-6. ✅ Validate plugin: `uv run python scripts/validate_plugin.py . --verbose`
+6. ✅ Validate plugin: `uvx --from git+https://github.com/Emasoft/claude-plugins-validation --with pyyaml cpv-remote-validate plugin . --verbose`
 7. ✅ Test with Claude Code: `claude --plugin-dir .`
 8. ✅ Update CHANGELOG.md
 9. ✅ Commit and tag: `git tag v1.0.0`

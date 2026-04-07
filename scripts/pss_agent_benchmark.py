@@ -107,6 +107,8 @@ def run_agent_profile(
     }
 
     # Write descriptor to temp file
+    descriptor_path: str | None = None
+    output_file: str | None = None
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", delete=False, prefix="pss-bench-"
     ) as f:
@@ -135,11 +137,15 @@ def run_agent_profile(
             return {}
         with open(output_file) as f:
             return json.load(f)
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError, ValueError) as e:
+        print(f"Profile error: {e}", file=sys.stderr)
         return {}
     finally:
-        os.unlink(descriptor_path)
-        if os.path.exists(output_file):
+        if descriptor_path and os.path.exists(descriptor_path):
+            os.unlink(descriptor_path)
+        if output_file and os.path.exists(output_file):
             os.unlink(output_file)
 
 
@@ -160,7 +166,7 @@ def extract_names_from_profile(profile: dict[str, Any]) -> dict[str, list[str]]:
     skills_section = profile.get("skills", {})
     all_skills: list[str] = []
     for tier in ("primary", "secondary", "specialized"):
-        tier_items = skills_section.get(tier, [])
+        tier_items = skills_section.get(tier) or []
         for item in tier_items:
             name = item.get("name", "") if isinstance(item, dict) else str(item)
             if name and name not in all_skills:
@@ -168,7 +174,7 @@ def extract_names_from_profile(profile: dict[str, Any]) -> dict[str, list[str]]:
     result["skills"] = all_skills[: TYPE_LIMITS["skills"]]
 
     # Complementary agents
-    comp_agents = profile.get("complementary_agents", [])
+    comp_agents = profile.get("complementary_agents") or []
     agent_names: list[str] = []
     for item in comp_agents:
         name = item.get("name", "") if isinstance(item, dict) else str(item)
@@ -178,7 +184,7 @@ def extract_names_from_profile(profile: dict[str, Any]) -> dict[str, list[str]]:
 
     # Commands, rules, mcp
     for key in ("commands", "rules", "mcp"):
-        items = profile.get(key, [])
+        items = profile.get(key) or []
         names: list[str] = []
         for item in items:
             name = item.get("name", "") if isinstance(item, dict) else str(item)
@@ -231,6 +237,9 @@ def run_benchmark(
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
+            continue
+
+        if not isinstance(entry, dict):
             continue
 
         agent_id = int(entry.get("id", 0))
@@ -410,10 +419,17 @@ def main() -> None:
     agent_range = None
     if args.range:
         parts = args.range.split("-")
-        if len(parts) == 2:
-            agent_range = (int(parts[0]), int(parts[1]))
-        else:
-            agent_range = (int(parts[0]), int(parts[0]))
+        try:
+            if len(parts) == 2:
+                agent_range = (int(parts[0]), int(parts[1]))
+            else:
+                agent_range = (int(parts[0]), int(parts[0]))
+        except ValueError:
+            print(
+                f"Invalid --range format: {args.range!r} (expected e.g. '1-100')",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     print(f"Binary: {binary}")
     print(f"Prompts: {prompts_path}")

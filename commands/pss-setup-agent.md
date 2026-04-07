@@ -100,3 +100,5 @@ See detailed execution steps including `CLAUDE_PLUGIN_ROOT` validation, platform
 - Missing skill-index.json: `ERROR: Skill index not found. Run /pss-reindex-skills first.`
 - Missing Rust binary: `ERROR: PSS binary not found for platform <OS>/<ARCH>. Run cargo build.`
 - Invalid plugin:agent notation: `ERROR: Could not resolve agent 'plugin:name'. Check plugin is installed.`
+- `--fast` with `--interactive`: `ERROR: --fast and --interactive are incompatible. Fast mode skips the AI agent required for interactive review.`
+- `--fast` with `--requirements`: `ERROR: --fast and --requirements are incompatible. Fast mode skips the AI agent required for requirements analysis.`

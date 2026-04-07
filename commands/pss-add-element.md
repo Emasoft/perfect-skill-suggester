@@ -1,7 +1,7 @@
 ---
 name: pss-add-element
-description: "Add a standalone element (skill, agent, command, hook, rule, MCP, LSP, outputStyle) to an existing plugin"
-argument-hint: "--type <element-type> --source <path> --plugin <plugin-path> [--validate] [--force]"
+description: "Add a standalone element (skill, agent, command, hook, rule, MCP, LSP, output-style) to an existing plugin"
+argument-hint: "--type <element-type> --source <path> --plugin <plugin-path> [--validate] [--force] [--dry-run]"
 effort: low
 allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep"]
 ---
@@ -23,7 +23,7 @@ Add standalone elements to existing Claude Code plugins. Supports all element ty
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `--type` | Yes | Element type: `skill`, `agent`, `command`, `hook`, `rule`, `mcp-server`, `lsp-server`, `output-style` |
-| `--source` | Yes | Path to the element source (directory for skills, .md file for agents/commands/rules, .json for hooks/MCP/LSP/outputStyles) |
+| `--source` | Yes | Path to the element source (directory for skills, .md file for agents/commands/rules/output-styles, .json for hooks/MCP/LSP) |
 | `--plugin` | Yes | Path to the target plugin directory (must contain `.claude-plugin/plugin.json`) |
 | `--validate` | No | Run CPV validation after adding the element |
 | `--force` | No | Skip duplicate/incompatibility checks |
@@ -93,7 +93,7 @@ After adding an element:
 
 1. **Verify**: Read the added file to confirm it was copied correctly
 2. **Validate**: If `--validate` was not used, run `/cpv-validate-plugin <plugin-path>` manually
-3. **Reindex**: Run `/pss-reindex-skills` to update the PSS skill index with the new element
+3. **Reindex**: Run `/pss-reindex-skills` to update the PSS skill index with the new element (needed for indexed types: skills, agents, commands, rules, MCP, LSP — not needed for hooks or output-styles which are not indexed)
 4. **Reload**: Run `/reload-plugins` to activate the changes without restarting Claude Code
 
 ## Error Handling

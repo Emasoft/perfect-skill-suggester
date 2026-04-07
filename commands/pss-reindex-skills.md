@@ -1,6 +1,6 @@
 ---
 name: pss-reindex-skills
-description: "Rebuild the PSS skill index from scratch using the Rust enrichment pipeline"
+description: "Full reindex of all 6 element types (skills, agents, commands, rules, MCP servers, LSP servers) using the deterministic Rust enrichment pipeline"
 argument-hint: "[--exclude-inactive-plugins]"
 effort: medium
 allowed-tools: ["Bash", "Read"]
@@ -10,15 +10,17 @@ allowed-tools: ["Bash", "Read"]
 
 Rebuild the skill index using the deterministic Rust pipeline. Completes in under 10 seconds for 10K+ elements. No AI agents needed.
 
-By default, indexes **all registered projects and all plugins** (every marketplace, every plugin). Use `--exclude-inactive-plugins` to skip plugins that the user has disabled in Claude Code settings.
+Indexes all **6 element types**: skills, agents, commands, rules, MCP servers, and LSP servers. By default, indexes **all registered projects and all plugins** (every marketplace, every plugin). Use `--exclude-inactive-plugins` to skip plugins that the user has disabled in Claude Code settings.
 
 ## Instructions
 
 1. Resolve the plugin root and binary paths
-2. Run the 3-step pipeline: discover, enrich, merge
+2. Run the 3-step pipeline via `pss_reindex.py` (orchestrates discover, enrich, merge)
 3. Build the CozoDB index for fast scoring
 4. Aggregate the domain registry
 5. Report results
+
+The Python script `pss_reindex.py` is the single entry point — it orchestrates the discovery (`pss_discover.py`), Rust enrichment (`pss --pass1-batch`), and merge (`pss_merge_queue.py`) steps internally.
 
 ## Execution
 
@@ -42,14 +44,16 @@ This reads `enabledPlugins` from `~/.claude/settings.json` and skips any plugin 
 
 - **Binary not found**: Run `cargo build --release` in `$PLUGIN_ROOT/rust/skill-suggester/` or check platform detection
 - **Discovery warnings**: Check `/tmp/pss-discover-warnings.txt` for non-existent project paths
-- **Merge errors**: Check that `~/.claude/cache/` directory exists and is writable
-- **Restore from backup**: `cp $BACKUP_DIR/skill-index.json ~/.claude/cache/`
+- **Merge errors**: Check that the data directory (`$CLAUDE_PLUGIN_DATA` or `~/.claude/cache/`) exists and is writable
+- **Restore from backup**: The script creates backups in `/tmp/pss-backup-<timestamp>/`. Restore with: `cp /tmp/pss-backup-<timestamp>/skill-index.json "$(echo ${CLAUDE_PLUGIN_DATA:-$HOME/.claude/cache})/"`. Check the script output for the exact backup path.
 
 ## Output
 
-- `~/.claude/cache/skill-index.json` — enriched index with keywords, categories, intents, languages, frameworks
-- `~/.claude/cache/pss-skill-index.db` — CozoDB index for fast pre-filtered scoring
-- `~/.claude/cache/domain-registry.json` — aggregated domain gates
+Output is written to `$CLAUDE_PLUGIN_DATA` (CC v2.1.78+) or `~/.claude/cache/` as fallback:
+
+- `skill-index.json` — enriched index with keywords, categories, intents, languages, frameworks
+- `pss-skill-index.db` — CozoDB index for fast pre-filtered scoring
+- `domain-registry.json` — aggregated domain gates
 
 ## Examples
 
@@ -62,7 +66,8 @@ Output: `PSS Reindex Complete — Elements: 9275, Index: 12M, 7 seconds`
 
 ## Resources
 
+- **Orchestrator script**: `$PLUGIN_ROOT/scripts/pss_reindex.py`
 - **Rust binary**: `$PLUGIN_ROOT/bin/pss-<platform>`
 - **Discovery script**: `$PLUGIN_ROOT/scripts/pss_discover.py`
 - **Merge script**: `$PLUGIN_ROOT/scripts/pss_merge_queue.py`
-- **Architecture**: `docs/PSS-ARCHITECTURE.md`
+- **Architecture**: `$PLUGIN_ROOT/docs/PSS-ARCHITECTURE.md`

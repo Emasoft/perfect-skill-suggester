@@ -5,11 +5,11 @@
 # Perfect Skill Suggester (PSS)
 
 ![Version](https://img.shields.io/badge/version-2.9.28-blue)
-![Platforms](https://img.shields.io/badge/platforms-6-green)
+![Platforms](https://img.shields.io/badge/platforms-5-green)
 ![Accuracy](https://img.shields.io/badge/accuracy-88%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Rust](https://img.shields.io/badge/rust-native_binary-orange)
-![Claude Code](https://img.shields.io/badge/claude--code-v2.1.92+-blueviolet)
+![Claude Code](https://img.shields.io/badge/claude--code-v2.1.94+-blueviolet)
 
 > **Installation:** This plugin is distributed via the [Emasoft Plugins Marketplace](https://github.com/Emasoft/emasoft-plugins).
 > See [Installation](#installation) below for instructions.
@@ -257,7 +257,7 @@ claude plugin install perfect-skill-suggester@emasoft-plugins
 
 **Solutions:**
 1. Run `/pss-reindex-skills` to generate the skill index
-2. Check the index exists: `ls ~/.claude/cache/skill-index.json`
+2. Check the index exists: `ls ~/.claude/cache/skill-index.json` (on Claude Code v2.1.78+, the index may be at `${CLAUDE_PLUGIN_DATA}/skill-index.json` instead, with fallback to `~/.claude/cache/`)
 3. Verify plugin is enabled: `claude plugin list`
 
 ### Binary not found for platform
@@ -418,6 +418,7 @@ Uses the Rust binary for fast candidate scoring + an AI agent for intelligent po
 
 | Flag | Description |
 |------|-------------|
+| `--fast` | Fast profiling mode: Rust binary only, 2-5 seconds, no AI agent needed |
 | `--interactive` | Interactive review mode: pause after each tier for manual include/exclude decisions |
 | `--include <name>` | Force-include a specific element in the final profile |
 | `--exclude <name>` | Force-exclude a specific element from the final profile |
@@ -653,16 +654,17 @@ Pushing triggers the marketplace notification workflow automatically.
 ### Key Architecture Concepts
 
 - **Index is a Superset**: The skill index contains ALL skills ever indexed. The agent filters suggestions against its context-injected available skills list.
-- **No Staleness Checks**: Regenerate from scratch with `/pss-reindex-skills`. No incremental updates.
+- **No Staleness Checks**: `/pss-reindex-skills` performs full clean-slate regeneration. For incremental single-element updates, use `/pss-add-to-index` instead.
 - **Two-Pass Generation**: Pass 1 extracts keywords/descriptions, Pass 2 uses AI to determine co-usage relationships.
 - **Categories vs Keywords**: Categories are FIELDS OF COMPETENCE (16 predefined) for the CxC matrix. Keywords are a SUPERSET including specific tools/actions.
 
 ## Validation
 
-Run the validation script after every change:
+Run CPV remote validation after every change (no local scripts needed):
 
 ```bash
-uv run python scripts/validate_plugin.py . --verbose
+uvx --from git+https://github.com/Emasoft/claude-plugins-validation --with pyyaml \
+    cpv-remote-validate plugin . --verbose
 ```
 
 ## License

@@ -75,7 +75,10 @@ def fatal(msg: str) -> NoReturn:
 
 def parse_frontmatter(path: Path) -> dict:
     """Parse YAML frontmatter from a .md file (between --- delimiters)."""
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, PermissionError, OSError):
+        return {}
     if not text.startswith("---"):
         return {}
     end = text.find("---", 3)
@@ -200,7 +203,7 @@ def check_hook_incompatibility(
         new_hooks = json.loads(
             source.read_text(encoding="utf-8")
         )
-    except (json.JSONDecodeError, OSError) as e:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
         return f"Cannot parse hooks JSON: {e}"
 
     existing_events = existing.get("hooks", {})
@@ -247,7 +250,7 @@ def check_mcp_duplicate(
         new_config = json.loads(
             source.read_text(encoding="utf-8")
         )
-    except (json.JSONDecodeError, OSError) as e:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
         return f"Cannot parse MCP config: {e}"
 
     server_name = new_config.get("name", "")
@@ -267,7 +270,7 @@ def check_mcp_duplicate(
                     f"MCP server '{server_name}' already "
                     f"defined in .mcp.json"
                 )
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
             pass
 
     return None
@@ -281,7 +284,7 @@ def check_lsp_duplicate(
         new_config = json.loads(
             source.read_text(encoding="utf-8")
         )
-    except (json.JSONDecodeError, OSError) as e:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
         return f"Cannot parse LSP config: {e}"
 
     server_name = new_config.get("name", "")
@@ -300,7 +303,7 @@ def check_lsp_duplicate(
                     f"LSP server '{server_name}' already "
                     f"defined in .lsp.json"
                 )
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
             pass
 
     return None
@@ -414,8 +417,10 @@ def add_hook(
         new_hooks = json.loads(
             source.read_text(encoding="utf-8")
         )
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
         fatal(f"Invalid hooks JSON: {e}")
+    if not isinstance(new_hooks, dict):
+        fatal(f"Hooks JSON is not a dict: {source}")
 
     hooks_dir = plugin / "hooks"
     hooks_file = hooks_dir / "hooks.json"
@@ -425,8 +430,10 @@ def add_hook(
             existing = json.loads(
                 hooks_file.read_text(encoding="utf-8")
             )
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
             fatal(f"Existing hooks.json is corrupt: {hooks_file}")
+        if not isinstance(existing, dict):
+            existing = {"hooks": {}}
     else:
         existing = {"hooks": {}}
 
@@ -434,7 +441,7 @@ def add_hook(
     merged = existing.copy()
     merged_hooks = merged.setdefault("hooks", {})
     for event, entries in new_hooks.get("hooks", {}).items():
-        if event not in merged_hooks:
+        if not isinstance(merged_hooks.get(event), list):
             merged_hooks[event] = []
         entry_list = (
             entries if isinstance(entries, list) else [entries]
@@ -486,8 +493,10 @@ def add_mcp_server(
         config = json.loads(
             source.read_text(encoding="utf-8")
         )
-    except (json.JSONDecodeError, OSError) as e:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
         fatal(f"Cannot parse MCP config: {e}")
+    if not isinstance(config, dict):
+        fatal(f"MCP config is not a dict: {source}")
 
     name = config.get("name", "")
     if not name:
@@ -504,8 +513,10 @@ def add_mcp_server(
             existing = json.loads(
                 mcp_json.read_text(encoding="utf-8")
             )
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
             fatal(f"Existing .mcp.json is corrupt: {mcp_json}")
+        if not isinstance(existing, dict):
+            existing = {"mcpServers": {}}
     else:
         existing = {"mcpServers": {}}
 
@@ -529,8 +540,10 @@ def add_lsp_server(
         config = json.loads(
             source.read_text(encoding="utf-8")
         )
-    except (json.JSONDecodeError, OSError) as e:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
         fatal(f"Cannot parse LSP config: {e}")
+    if not isinstance(config, dict):
+        fatal(f"LSP config is not a dict: {source}")
 
     name = config.get("name", "")
     if not name:
@@ -548,8 +561,10 @@ def add_lsp_server(
             existing = json.loads(
                 lsp_json.read_text(encoding="utf-8")
             )
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
             fatal(f"Existing .lsp.json is corrupt: {lsp_json}")
+        if not isinstance(existing, dict):
+            existing = {}
     else:
         existing = {}
 
@@ -601,17 +616,21 @@ def validate_plugin(plugin: Path) -> bool:
         warn("'uvx' not found — install uv to enable CPV validation")
         return True
 
-    result = subprocess.run(
-        [
-            "uvx",
-            "--from", CPV_UVX_FROM,
-            "--with", "pyyaml",
-            "cpv-remote-validate", "plugin", str(plugin),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "uvx",
+                "--from", CPV_UVX_FROM,
+                "--with", "pyyaml",
+                "cpv-remote-validate", "plugin", str(plugin),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        error("Validation timed out after 180s")
+        return False
 
     if result.returncode == 0:
         success("Plugin validation passed.")

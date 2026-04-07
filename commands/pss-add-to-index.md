@@ -1,6 +1,6 @@
 ---
 name: pss-add-to-index
-description: "Index a single skill element"
+description: "Add or update a single element in the PSS index"
 argument-hint: "<element-name-or-path> [--plugin <plugin-path>]"
 effort: low
 allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep", "Agent"]

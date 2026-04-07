@@ -49,6 +49,19 @@ uv run "${PLUGIN_ROOT}/scripts/pss_discover.py" --jsonl --name "<element-name>" 
   | uv run "${PLUGIN_ROOT}/scripts/pss_merge_queue.py" --batch-stdin --index "$HOME/.claude/cache/skill-index.json"
 ```
 
+**Discovery modes** — `pss_discover.py` supports several filtering flags:
+
+| Flag | Purpose | Example |
+|------|---------|---------|
+| `--name "<name>"` | Discover a single element by name | `--name "my-skill"` |
+| `--type "<types>"` | Comma-separated type filter | `--type "skill,agent"` |
+| `--project-only` | Only scan current project elements | |
+| `--user-only` | Only scan user-level elements | |
+| `--all-projects` | Scan ALL registered projects | |
+| `--exclude-inactive-plugins` | Skip disabled plugins | |
+
+For plugin-wide indexing, omit `--name` and use `--type` or no filter to discover all elements, then pipe the full JSONL stream through the enrichment pipeline.
+
 ### Step 5: Verify
 
 Confirm the element appears in the index:
@@ -58,9 +71,12 @@ import json
 with open('$HOME/.claude/cache/skill-index.json') as f:
     idx = json.load(f)
 name = '<element-name>'
+# All element types (skill, agent, command, rule, mcp, lsp) are stored
+# under the top-level 'skills' key in skill-index.json, distinguished
+# by each entry's 'type' field.
 if name in idx['skills']:
     e = idx['skills'][name]
-    print(f'Added {name} ({e.get(\"type\",\"skill\")}) - {len(e.get(\"keywords\",[]))} keywords')
+    print(f'Added {name} (type={e.get(\"type\",\"skill\")}) - {len(e.get(\"keywords\",[]))} keywords')
 else:
     print(f'{name} not found in index')
 "
