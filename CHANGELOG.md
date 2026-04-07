@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.28] - 2026-04-07
+
+### Bug Fixes
+
+- Comprehensive adversarial hardening across all scripts
+
 ## [2.9.27] - 2026-04-07
 
 ### Bug Fixes
 
 - Adversarial security hardening from LLM Externalizer audit
+
+### Bump
+
+- Version 2.9.26 → 2.9.27
 
 ## [2.9.26] - 2026-04-07
 
