@@ -2,6 +2,7 @@
 name: pss-status
 description: "Show PSS index status and test matching"
 argument-hint: "[--verbose] [--test PROMPT] [--run-tests]"
+effort: low
 allowed-tools: ["Bash", "Read"]
 ---
 

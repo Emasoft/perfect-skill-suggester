@@ -2,6 +2,7 @@
 name: pss-reindex-skills
 description: "Rebuild the PSS skill index from scratch using the Rust enrichment pipeline"
 argument-hint: "[--exclude-inactive-plugins]"
+effort: medium
 allowed-tools: ["Bash", "Read"]
 ---
 

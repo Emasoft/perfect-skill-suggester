@@ -2,6 +2,7 @@
 name: pss-add-to-index
 description: "Index a single skill element"
 argument-hint: "<element-name-or-path> [--plugin <plugin-path>]"
+effort: low
 allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep", "Agent"]
 ---
 

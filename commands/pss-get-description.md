@@ -2,6 +2,7 @@
 name: pss-get-description
 description: "Get element metadata (description, type, plugin) for skills, agents, commands, MCPs, rules"
 argument-hint: "<name> [--batch] [--format json|table]"
+effort: low
 allowed-tools: ["Bash", "Read"]
 ---
 

@@ -2,6 +2,7 @@
 name: pss-make-plugin-from-profile
 description: "Generate a Claude Code plugin from an .agent.toml profile"
 argument-hint: "<path to .agent.toml> --output <path where to create plugin>"
+effort: medium
 allowed-tools: ["Bash", "Read", "Write", "Glob"]
 ---
 

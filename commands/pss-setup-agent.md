@@ -2,6 +2,7 @@
 name: pss-setup-agent
 description: "Profile an agent with best-fit skills"
 argument-hint: "<agent-path-or-name> [--fast] [--requirements PATH...] [--output PATH] [--interactive] [--include NAME...] [--exclude NAME...] [--max-primary N] [--max-secondary N] [--max-specialized N] [--domains D...] [--languages L...] [--platforms P...]"
+effort: high
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "WebFetch", "mcp__plugin_llm-externalizer_llm-externalizer__code_task", "mcp__plugin_llm-externalizer_llm-externalizer__chat"]
 ---
 

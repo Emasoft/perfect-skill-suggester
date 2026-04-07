@@ -2,6 +2,7 @@
 name: pss-add-element
 description: "Add a standalone element (skill, agent, command, hook, rule, MCP, LSP, outputStyle) to an existing plugin"
 argument-hint: "--type <element-type> --source <path> --plugin <plugin-path> [--validate] [--force]"
+effort: low
 allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep"]
 ---
 
