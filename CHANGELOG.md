@@ -2,11 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.31] - 2026-04-10
+
+### Performance
+
+- Kw_lookup pre-filtering + increased hook timeouts
+
 ## [2.9.30] - 2026-04-07
 
 ### Refactor
 
 - Rename pss_ship.py → publish.py, enforce pre-push quality gate
+
+### Bump
+
+- Version 2.9.29 → 2.9.30
 
 ## [2.9.29] - 2026-04-07
 
