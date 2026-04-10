@@ -22,7 +22,6 @@ Modes:
 """
 
 import argparse
-import os
 import re
 import shutil
 import subprocess
@@ -686,8 +685,6 @@ def git_push() -> None:
     rust_submodule = ROOT / "rust"
     if (rust_submodule / ".git").exists():
         info("  Pushing rust/ submodule...")
-        # Set env var so pre-push hook knows we're called from publish.py
-        os.environ["PSS_PUBLISH_GATE"] = "1"
         result = run(["git", "-C", str(rust_submodule), "push"])
         if result.returncode != 0:
             fatal(f"submodule push failed: {result.stderr.strip()}")

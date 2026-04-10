@@ -1,19 +1,65 @@
 #!/usr/bin/env bash
-# pre-push hook — Only publish.py may push.
+# pre-push hook — Unbypassable gate for every push.
 #
-# publish.py sets PSS_PUBLISH_GATE=1 before calling git push.
-# If that env var is missing, this hook blocks the push.
+# Two enforcement layers:
+#   1. Ancestry check: walks the process tree and fails if publish.py
+#      is NOT an ancestor. This blocks direct `git push` calls.
+#   2. Gate re-run: runs publish.py --gate (lint + tests + validate)
+#      unconditionally. Even if the ancestry check passes, the gate
+#      runs again — redundant is fine, a bypass is not.
 #
-# To bypass (NOT RECOMMENDED): git push --no-verify
+# No env var check exists. No "trusted caller" marker. No exceptions.
+# The only way to bypass is `git push --no-verify`, a git built-in
+# outside this hook's control.
 
 set -euo pipefail
 
-if [ "${PSS_PUBLISH_GATE:-}" != "1" ]; then
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# ---- Layer 1: ancestry check ----
+if ! command -v ps &> /dev/null; then
+    echo "ERROR: 'ps' is not available. Cannot verify caller ancestry."
+    exit 1
+fi
+
+pid=$$
+found_publish=0
+hops=0
+while [ "$pid" -gt 1 ] && [ "$hops" -lt 32 ]; do
+    ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || echo "")
+    if [ -z "$ppid" ] || [ "$ppid" = "0" ]; then
+        break
+    fi
+    pcmd=$(ps -o command= -p "$ppid" 2>/dev/null || echo "")
+    # Match either the script path (scripts/publish.py) or the module name
+    # when invoked via `uv run python scripts/publish.py ...`
+    if echo "$pcmd" | grep -qE '(^|/| )(scripts/)?publish\.py( |$)'; then
+        found_publish=1
+        break
+    fi
+    pid="$ppid"
+    hops=$((hops + 1))
+done
+
+if [ "$found_publish" -eq 0 ]; then
     echo ""
-    echo "ERROR: Direct git push is blocked."
-    echo ""
-    echo "All pushes MUST go through the release pipeline:"
-    echo "  uv run python scripts/publish.py --bump patch"
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  ERROR: Direct git push is forbidden.                        ║"
+    echo "║                                                              ║"
+    echo "║  All pushes MUST go through the release pipeline:            ║"
+    echo "║     uv run python scripts/publish.py                         ║"
+    echo "║                                                              ║"
+    echo "║  The pipeline enforces lint + tests + validation with        ║"
+    echo "║  0 issues before any commit is pushed to GitHub.             ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
     echo ""
     exit 1
+fi
+
+# ---- Layer 2: re-run the full gate unconditionally ----
+if command -v uv &> /dev/null; then
+    uv run python scripts/publish.py --gate
+else
+    python3 scripts/publish.py --gate
 fi
