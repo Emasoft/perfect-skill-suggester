@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 """
-PSS Ship — Unified release pipeline and pre-push gate for Perfect Skill Suggester.
+PSS Publish — Unified release pipeline and pre-push gate for Perfect Skill Suggester.
 
-Two modes:
-  --gate           Pre-push hook mode: lint + validate + test. Blocks on CRITICAL/MAJOR/MINOR.
-  (default)        Full release: lint + validate + test + bump + changelog + build + commit + tag + push.
+MANDATORY GATES (no bypass allowed):
+  1. Lint (ruff)        — must pass with 0 errors
+  2. Tests (pytest)     — must pass with 0 failures
+  3. Validation (CPV)   — must pass with 0 CRITICAL/MAJOR/MINOR
+  4. Bump version       — auto via `git cliff --bumped-version`, or manual --bump
+  5. Changelog          — regenerated via `git cliff --bump --unreleased --tag`
+  6. Commit + tag + push
+  7. GitHub release     — `gh release create` with git-cliff-generated notes
 
-Gate mode (used by .git/hooks/pre-push):
-    publish.py --gate
+Required tools: uv, uvx, rustup, git-cliff, gh
 
-Release mode:
-    publish.py --bump patch           # non-interactive
-    publish.py                        # interactive: prompts for bump type
-    publish.py --dry-run              # preview only
-
-Utilities:
-    publish.py --install-hook         # install pre-push hook into .git/hooks/
+Modes:
+    publish.py --gate             # pre-push hook mode (.git/hooks/pre-push)
+    publish.py                    # auto-bump from conventional commits
+    publish.py --bump patch       # manual bump override
+    publish.py --dry-run          # preview — all checks still run, nothing pushed
+    publish.py --install-hook     # install pre-push hook into .git/hooks/
 """
 
 import argparse
@@ -124,8 +127,7 @@ def run_validation() -> int:
     info("Running plugin validation (uvx remote)...")
 
     if not shutil.which("uvx"):
-        warn("'uvx' not found. Install uv to enable remote CPV validation.")
-        return 0  # Non-blocking — uvx is preferred but not mandatory
+        fatal("'uvx' not found. Install uv — validation is mandatory, no bypass allowed.")
 
     result = run(
         [
@@ -334,24 +336,29 @@ def gate_pipeline() -> int:
 # ===========================================================================
 
 
-def preflight_checks(skip_build: bool, dry_run: bool = False) -> None:
+def preflight_checks(dry_run: bool = False) -> None:
     """Verify git working tree is clean and required tools are available."""
     info("Pre-flight checks...")
 
-    # Git working tree must be clean (skip for dry-run)
+    # Git working tree must be clean (tolerated only in dry-run)
     result = run(["git", "status", "--porcelain"])
     if result.returncode != 0:
         fatal(f"git status failed: {result.stderr.strip()}")
     if result.stdout.strip() and not dry_run:
         fatal("Git working tree is dirty. Commit or stash changes before releasing.")
 
-    # Check uv is available
-    if shutil.which("uv") is None:
-        fatal("'uv' is not installed or not on PATH.")
-
-    # Check rustup is available (needed for builds)
-    if not skip_build and shutil.which("rustup") is None:
-        warn("'rustup' is not installed. Builds will likely fail.")
+    # Mandatory tools — no bypass allowed
+    required_tools = {
+        "uv": "Python package manager",
+        "uvx": "Used for CPV remote validation",
+        "rustup": "Required for Rust binary builds",
+        "git-cliff": "Required for changelog generation and version bumping",
+        "gh": "Required for GitHub release publishing",
+    }
+    missing = [tool for tool in required_tools if shutil.which(tool) is None]
+    if missing:
+        details = ", ".join(f"{t} ({required_tools[t]})" for t in missing)
+        fatal(f"Missing required tools: {details}")
 
     success("Pre-flight checks passed.")
 
@@ -368,13 +375,29 @@ def read_current_version() -> str:
 
 
 def compute_new_version(current: str, bump_type: str | None) -> str:
-    """Compute the next version based on bump type."""
+    """Compute the next version.
+
+    If bump_type is None, uses `git cliff --bumped-version` to auto-compute from
+    conventional commits since the last tag. Otherwise applies manual patch/minor/major bump.
+    """
     if bump_type is None:
-        bump_type = (
-            input(f"{CYAN}Bump type (patch/minor/major): {RESET}").strip().lower()
-        )
-        if bump_type not in ("patch", "minor", "major"):
-            fatal(f"Invalid bump type: '{bump_type}'. Must be patch, minor, or major.")
+        info("Computing next version via git-cliff (conventional commits)...")
+        result = run(["git-cliff", "--bumped-version"], timeout=30)
+        if result.returncode != 0:
+            fatal(f"git-cliff --bumped-version failed: {result.stderr.strip()}")
+        bumped = result.stdout.strip().lstrip("v")
+        if not bumped:
+            fatal("git-cliff returned empty version. Nothing to release.")
+        if not re.match(r"^\d+\.\d+\.\d+$", bumped):
+            fatal(f"git-cliff returned invalid version: '{bumped}'")
+        if bumped == current:
+            fatal(
+                f"git-cliff reports no releasable changes since v{current}. "
+                "Nothing to release. Make conventional commits (feat/fix/perf/refactor) "
+                "or use --bump to force a version bump."
+            )
+        info(f"New version (git-cliff auto-bump): {BOLD}{bumped}{RESET}")
+        return bumped
 
     parts = list(map(int, current.split(".")))
     if len(parts) != 3:
@@ -476,22 +499,60 @@ def update_readme_badge(old: str, new: str, dry_run: bool) -> None:
 
 
 def generate_changelog(new: str, dry_run: bool) -> None:
-    """Run git-cliff to generate CHANGELOG.md, if available."""
-    info("Generating changelog...")
-
-    if shutil.which("git-cliff") is None:
-        warn("git-cliff not installed, skipping changelog generation.")
-        return
+    """Run git-cliff to update CHANGELOG.md with the new release entry. MANDATORY."""
+    info("Generating changelog (git-cliff)...")
 
     if dry_run:
-        info(f"  [DRY-RUN] Would run: git-cliff --tag v{new} -o CHANGELOG.md")
+        info(f"  [DRY-RUN] Would run: git-cliff --bump --unreleased --tag v{new} -o CHANGELOG.md")
         return
 
-    result = run(["git-cliff", "--tag", f"v{new}", "-o", str(CHANGELOG_MD)])
+    result = run([
+        "git-cliff", "--bump", "--unreleased", "--tag", f"v{new}",
+        "-o", str(CHANGELOG_MD),
+    ])
     if result.returncode != 0:
-        warn(f"git-cliff failed: {result.stderr.strip()}")
-    else:
-        success("  CHANGELOG.md generated.")
+        fatal(f"git-cliff failed: {result.stderr.strip()}")
+    success("  CHANGELOG.md generated.")
+
+
+def generate_release_notes(new: str) -> str:
+    """Generate release notes for the current version only (for GitHub release body)."""
+    result = run([
+        "git-cliff", "--unreleased", "--tag", f"v{new}", "--strip", "header",
+    ])
+    if result.returncode != 0:
+        fatal(f"git-cliff release notes failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def create_github_release(new: str, dry_run: bool) -> None:
+    """Publish a GitHub release with changelog-generated notes. MANDATORY."""
+    info("Publishing GitHub release...")
+
+    if dry_run:
+        info(f"  [DRY-RUN] Would run: gh release create v{new} ...")
+        return
+
+    notes = generate_release_notes(new)
+    # Write notes to a temp file (avoids shell escaping issues with multiline notes)
+    import tempfile
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", suffix=".md", delete=False
+    ) as tmp:
+        tmp.write(notes if notes else f"Release v{new}")
+        notes_path = tmp.name
+
+    try:
+        result = run([
+            "gh", "release", "create", f"v{new}",
+            "--title", f"v{new}",
+            "--notes-file", notes_path,
+        ], timeout=60)
+        if result.returncode != 0:
+            fatal(f"gh release create failed: {result.stderr.strip()}")
+        success(f"  GitHub release v{new} published.")
+    finally:
+        Path(notes_path).unlink(missing_ok=True)
 
 
 def rust_source_changed() -> bool:
@@ -531,7 +592,7 @@ def build_binaries(dry_run: bool, force_build: bool = False) -> None:
         success("  Binaries built successfully.")
 
 
-def git_commit(old: str, new: str) -> None:
+def git_commit(_old: str, new: str) -> None:
     """Stage versioned files and commit.
 
     Handles Cargo.toml inside the rust/ git submodule: commits the version
@@ -560,7 +621,7 @@ def git_commit(old: str, new: str) -> None:
         )
         if result.returncode != 0:
             fatal(f"submodule git add failed: {result.stderr.strip()}")
-        sub_msg = f"bump: version {old} \u2192 {new}"
+        sub_msg = f"chore(release): {new}"
         result = run(
             ["git", "-C", str(rust_submodule), "commit", "-m", sub_msg],
         )
@@ -593,7 +654,7 @@ def git_commit(old: str, new: str) -> None:
     if result.returncode != 0:
         fatal(f"git add failed: {result.stderr.strip()}")
 
-    commit_msg = f"bump: version {old} \u2192 {new}"
+    commit_msg = f"chore(release): {new}"
     result = run(["git", "commit", "-m", commit_msg])
     if result.returncode != 0:
         fatal(f"git commit failed: {result.stderr.strip()}")
@@ -701,88 +762,84 @@ def install_hook() -> None:
 
 
 def release_pipeline(args: argparse.Namespace) -> None:
-    """Full release pipeline: lint + validate + test + bump + build + commit + push."""
+    """Full release pipeline with MANDATORY gates — no bypass allowed.
+
+    Order:
+      1. Pre-flight: required tools + clean working tree
+      2. Lint (ruff)            — must pass, 0 errors
+      3. Tests (pytest)         — must pass, 0 failures
+      4. Validation (CPV)       — must pass, 0 CRITICAL/MAJOR/MINOR
+      5. Bump version           — auto via git-cliff, or manual --bump
+      6. git-cliff              — regenerate CHANGELOG.md
+      7. uv lock + README badge + binary build
+      8. Commit + tag + push    — only after all gates pass
+      9. GitHub release         — gh release create with auto-generated notes
+
+    Any failure aborts the release. No --skip-* flags exist.
+    """
     print()
     print(f"{BOLD}{CYAN}PSS Release Pipeline{RESET}")
     print(f"{CYAN}{'=' * 50}{RESET}")
     print()
 
-    # Step 1: Pre-flight checks
-    preflight_checks(
-        skip_build=args.skip_build or args.version_only,
-        dry_run=args.dry_run,
-    )
+    # Step 1: Pre-flight checks (required tools + clean tree)
+    preflight_checks(dry_run=args.dry_run)
 
-    # Step 2: Lint
-    if not args.skip_validate:
-        if not run_linter():
-            fatal("Lint failed, aborting release.")
+    # Step 2: Lint (MANDATORY)
+    if not run_linter():
+        fatal("Lint failed. Fix all errors before releasing. No exceptions.")
+
+    # Step 3: Tests (MANDATORY)
+    if not run_tests():
+        fatal("Tests failed. Fix all failures before releasing. No exceptions.")
+
+    # Step 4: Plugin validation (MANDATORY)
+    val_exit = run_validation()
+    if val_exit == 0:
+        success("Plugin validation passed.")
+    elif val_exit == 4:
+        warn("Plugin validation: NIT issues found (non-blocking).")
+    elif val_exit in (1, 2, 3):
+        severity = {1: "CRITICAL", 2: "MAJOR", 3: "MINOR"}
+        fatal(
+            f"Plugin validation: {severity.get(val_exit, 'UNKNOWN')} issues found. "
+            "Fix all issues before releasing. No exceptions."
+        )
     else:
-        warn("Lint skipped (--skip-validate).")
+        fatal(f"Plugin validation failed with exit code {val_exit}.")
 
-    # Step 3: Plugin validation
-    if not args.skip_validate:
-        val_exit = run_validation()
-        if val_exit == 0:
-            success("Plugin validation passed.")
-        elif val_exit == 4:
-            warn("Plugin validation: NIT issues found (non-blocking).")
-        elif val_exit in (1, 2, 3):
-            severity = {1: "CRITICAL", 2: "MAJOR", 3: "MINOR"}
-            fatal(
-                f"Plugin validation: {severity.get(val_exit, 'UNKNOWN')} issues found. "
-                "Fix before releasing."
-            )
-        else:
-            fatal(f"Plugin validation failed with exit code {val_exit}.")
-    else:
-        warn("Plugin validation skipped (--skip-validate).")
-
-    # Step 4: Tests
-    if not args.skip_tests:
-        if not run_tests():
-            fatal("Tests failed, aborting release.")
-    else:
-        warn("Tests skipped (--skip-tests).")
-
-    # Step 5: Read current version and compute new
+    # Step 5: Compute version (auto via git-cliff, or manual --bump)
     old_version = read_current_version()
     new_version = compute_new_version(old_version, args.bump)
 
-    # Step 7: Bump version in 4 files
+    # Step 6: Bump version in 4 files (VERSION, Cargo.toml, plugin.json, pyproject.toml)
     bump_versions(old_version, new_version, args.dry_run)
 
-    # Step 7b: Sync uv.lock after pyproject.toml version change.
-    # uv.lock only updates when uv resolves; if the build step is skipped
-    # (no .rs changes), no uv command runs after the bump, leaving uv.lock stale.
+    # Step 7: Sync uv.lock after pyproject.toml version change
     if not args.dry_run and UV_LOCK.exists():
         result = run(["uv", "lock"], timeout=60)
         if result.returncode != 0:
-            warn(f"uv lock failed (non-blocking): {result.stderr.strip()}")
+            fatal(f"uv lock failed: {result.stderr.strip()}")
 
     # Step 8: Update README badge
     update_readme_badge(old_version, new_version, args.dry_run)
 
-    # Step 9: Generate changelog
+    # Step 9: Regenerate CHANGELOG.md via git-cliff (MANDATORY)
     generate_changelog(new_version, args.dry_run)
 
-    # Step 10: Build binaries (skipped automatically if no .rs changes, unless --force-build)
-    if not args.skip_build and not args.version_only:
-        build_binaries(args.dry_run, force_build=args.force_build)
-    elif args.skip_build:
-        warn("Build skipped (--skip-build).")
-    elif args.version_only:
-        warn("Build skipped (--version-only).")
+    # Step 10: Build binaries (auto-skipped if no .rs changes, unless --force-build)
+    build_binaries(args.dry_run, force_build=args.force_build)
 
-    # Step 11-13: Commit, tag, push
-    if not args.version_only and not args.dry_run:
+    # Step 11-13: Commit + tag + push (only after all gates pass)
+    if not args.dry_run:
         git_commit(old_version, new_version)
         git_tag(new_version)
         git_push()
-    elif args.dry_run:
+    else:
         info(f"[DRY-RUN] Would commit, tag v{new_version}, and push.")
-    elif args.version_only:
-        warn("Commit/tag/push skipped (--version-only).")
+
+    # Step 14: Publish GitHub release (MANDATORY)
+    create_github_release(new_version, args.dry_run)
 
     # Summary
     print_summary(old_version, new_version, args)
@@ -797,31 +854,23 @@ def print_summary(old: str, new: str, args: argparse.Namespace) -> None:
     print(f"{BOLD}{'=' * 60}{RESET}")
     print(f"  Version:       {old} -> {new}")
     print(f"  Dry run:       {'yes' if args.dry_run else 'no'}")
-    print(f"  Tests:         {'skipped' if args.skip_tests else 'passed'}")
-    print(f"  Lint:          {'skipped' if args.skip_validate else 'passed'}")
-    print(f"  Validation:    {'skipped' if args.skip_validate else 'passed'}")
+    print("  Lint:          passed")
+    print("  Tests:         passed")
+    print("  Validation:    passed")
     print("  Files bumped:  4 (VERSION, Cargo.toml, plugin.json, pyproject.toml)")
     print("  README badge:  updated")
-    changelog_status = (
-        "generated"
-        if shutil.which("git-cliff")
-        else "skipped (git-cliff not installed)"
-    )
-    print(f"  Changelog:     {changelog_status}")
-    if args.skip_build:
-        print("  Build:         skipped")
-    elif args.dry_run:
-        print("  Build:         dry-run")
-    else:
-        print("  Build:         attempted")
-    if args.version_only or args.dry_run:
+    print("  Changelog:     generated")
+    print(f"  Build:         {'dry-run' if args.dry_run else 'attempted'}")
+    if args.dry_run:
         print("  Git commit:    skipped")
         print("  Git tag:       skipped")
         print("  Git push:      skipped")
+        print("  GH release:    skipped")
     else:
-        print(f"  Git commit:    bump: version {old} \u2192 {new}")
+        print(f"  Git commit:    chore(release): {new}")
         print(f"  Git tag:       v{new}")
         print("  Git push:      done")
+        print(f"  GH release:    published v{new}")
     print(f"{BOLD}{'=' * 60}{RESET}")
     print()
 
@@ -853,37 +902,17 @@ def main() -> None:
         "--bump",
         choices=["patch", "minor", "major"],
         default=None,
-        help="Version bump type. If omitted, prompts interactively.",
+        help="Manual bump type override. Default: auto via `git cliff --bumped-version`.",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show what would happen without making any changes.",
-    )
-    parser.add_argument(
-        "--skip-build",
-        action="store_true",
-        help="Skip binary compilation step.",
+        help="Show what would happen without committing or pushing. All checks still run.",
     )
     parser.add_argument(
         "--force-build",
         action="store_true",
         help="Force binary rebuild even if no .rs source files changed.",
-    )
-    parser.add_argument(
-        "--skip-tests",
-        action="store_true",
-        help="Skip test step.",
-    )
-    parser.add_argument(
-        "--skip-validate",
-        action="store_true",
-        help="Skip plugin validation step (escape hatch).",
-    )
-    parser.add_argument(
-        "--version-only",
-        action="store_true",
-        help="Only bump version in files, no build/commit/push.",
     )
     args = parser.parse_args()
 
