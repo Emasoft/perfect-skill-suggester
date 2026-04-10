@@ -27,7 +27,7 @@ from typing import Any
 MAX_SUGGESTIONS = 5  # Maximum skill suggestions per message (one line each)
 MIN_SCORE = 0.5  # Minimum score threshold
 SUBPROCESS_TIMEOUT = (
-    4  # Binary timeout in seconds (hooks.json timeout is 5s; keep this < 5)
+    8  # Binary timeout in seconds (hooks.json timeout is 10s; keep this < 10)
 )
 SKILL_INDEX_FILE = "skill-index.json"
 # Prompt length cap for the Rust binary — the scorer only needs the first few
