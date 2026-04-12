@@ -2,6 +2,10 @@
 
 This document provides instructions for building, testing, and developing the Perfect Skill Suggester (PSS) plugin.
 
+**Claude Code compatibility**: see [`CC-COMPATIBILITY.md`](CC-COMPATIBILITY.md) for the
+version-by-version matrix of supported Claude Code releases, declared hook events, hook
+input/output schema notes, and migration guidance when new CC versions land.
+
 ---
 
 ## Prerequisites

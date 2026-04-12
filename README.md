@@ -9,10 +9,14 @@
 ![Accuracy](https://img.shields.io/badge/accuracy-88%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Rust](https://img.shields.io/badge/rust-native_binary-orange)
-![Claude Code](https://img.shields.io/badge/claude--code-v2.1.94+-blueviolet)
+![Claude Code](https://img.shields.io/badge/claude--code-v2.1.101+-blueviolet)
 
 > **Installation:** This plugin is distributed via the [Emasoft Plugins Marketplace](https://github.com/Emasoft/emasoft-plugins).
 > See [Installation](#installation) below for instructions.
+>
+> **Claude Code version support:** PSS tracks CC compatibility in
+> [`docs/CC-COMPATIBILITY.md`](docs/CC-COMPATIBILITY.md) — see it for the full
+> version-by-version matrix, declared hook events, and migration notes.
 
 > Built for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) |
 > Orchestrated by [AI Maestro](https://github.com/Emasoft/ai-maestro) |

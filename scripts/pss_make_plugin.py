@@ -201,6 +201,13 @@ def generate_plugin_json(
         if isinstance(value, str) and value.strip():
             manifest[key] = value.strip()
 
+    # Propagate the optional [userConfig] section verbatim into plugin.json.
+    # PSS does NOT validate the nested structure — consumers must follow the
+    # Claude Code plugins-reference.md userConfig schema. Pass-through only.
+    user_config = profile.get("userConfig")
+    if isinstance(user_config, dict) and user_config:
+        manifest["userConfig"] = user_config
+
     return manifest
 
 

@@ -678,11 +678,13 @@ def main() -> None:
         augmented_prompt = augment_prompt_with_context(clean_prompt, transcript_path)
 
         # Build minimal JSON for the binary — only fields it needs (prompt, cwd,
-        # transcriptPath). Avoids re-serializing 200KB+ of other hook input fields.
+        # transcript_path). Avoids re-serializing 200KB+ of other hook input fields.
+        # Field names are snake_case, matching the CC hook input spec and the
+        # Rust HookInput struct (which no longer uses #[serde(rename_all)]).
         binary_input = {
             "prompt": augmented_prompt,
             "cwd": cwd,
-            "transcriptPath": transcript_path,
+            "transcript_path": transcript_path,
         }
         augmented_stdin = json.dumps(binary_input)
 
