@@ -193,6 +193,14 @@ def generate_plugin_json(
     if keywords:
         manifest["keywords"] = keywords[:10]  # Cap at 10
 
+    # Propagate optional provenance fields from [metadata] section, if present.
+    # These become plugin.json homepage/repository/license per plugins-reference.md.
+    metadata = profile.get("metadata", {})
+    for key in ("homepage", "repository", "license"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            manifest[key] = value.strip()
+
     return manifest
 
 

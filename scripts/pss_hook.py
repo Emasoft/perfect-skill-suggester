@@ -610,7 +610,7 @@ def main() -> None:
             input_json = json.loads(stdin_data)
             prompt = input_json.get("prompt", "")
             cwd = input_json.get("cwd", "")
-            transcript_path = input_json.get("transcriptPath", "")
+            transcript_path = input_json.get("transcript_path", "")
 
             # Validate paths are under home dir to prevent path traversal
             home_path = Path.home()
@@ -747,5 +747,65 @@ def main() -> None:
         _exit_warning(str(e))
 
 
+def _warm_index() -> None:
+    """SessionStart hook handler: silently warm the skill index.
+
+    If the index file is missing, spawn a background reindex (detached) and
+    exit 0 with no output. No stdin read, no chat notifications — this hook
+    runs at session startup/resume and must never block or surface messages.
+    """
+    try:
+        index_path = _get_cache_dir() / SKILL_INDEX_FILE
+        if index_path.exists():
+            return  # Nothing to do — index is ready
+
+        lock_path = index_path.with_suffix(".reindex.pid")
+        if lock_path.exists():
+            try:
+                pid = int(lock_path.read_text().strip())
+                if _is_pid_alive(pid):
+                    return  # Reindex already in progress
+            except (ValueError, OSError):
+                pass
+            lock_path.unlink(missing_ok=True)
+
+        script_dir = Path(__file__).parent.resolve()
+        reindex_script = script_dir / "pss_reindex.py"
+        if not reindex_script.exists():
+            return  # Graceful no-op if reindex script is missing
+
+        proc = subprocess.Popen(
+            [sys.executable, str(reindex_script)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(proc.pid).encode())
+            os.close(fd)
+        except FileExistsError:
+            proc.kill()
+    except Exception:
+        return  # Never fail — SessionStart must be silent
+
+
+def _post_compact() -> None:
+    """PostCompact hook handler: stub for future re-suggest logic.
+
+    Currently a no-op — reserves the event binding without re-scoring.
+    Follow-up work can track prior suggestions and re-inject them here.
+    """
+    return
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        flag = sys.argv[1]
+        if flag == "--warm-index":
+            _warm_index()
+            sys.exit(0)
+        if flag == "--post-compact":
+            _post_compact()
+            sys.exit(0)
     main()

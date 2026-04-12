@@ -286,6 +286,27 @@
         }
       },
       "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional plugin provenance fields propagated into the generated plugin.json by /pss-make-plugin-from-profile. All fields are optional — emitted only when present.",
+      "properties": {
+        "homepage": {
+          "type": "string",
+          "description": "Plugin homepage URL (e.g., https://github.com/user/repo)",
+          "format": "uri"
+        },
+        "repository": {
+          "type": "string",
+          "description": "Source repository URL (e.g., https://github.com/user/repo.git)",
+          "format": "uri"
+        },
+        "license": {
+          "type": "string",
+          "description": "SPDX license identifier (e.g., MIT, Apache-2.0)"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

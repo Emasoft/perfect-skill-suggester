@@ -2,7 +2,16 @@
 name: pss-agent-profiler
 description: "Analyzes agent definitions and generates .agent.toml profiles. Uses Rust binary for candidate scoring + post-filtering for mutual exclusivity, stack compatibility, and redundancy pruning across all 6 element types."
 model: sonnet
+effort: high
+maxTurns: 40
 memory: user
+# skills: is CC's official subagent frontmatter (v2.1.90+) — pre-loads these
+# SKILL.md files into this subagent's startup context. auto_skills: below is a
+# PSS-internal convention that pins skills to [skills].primary in generated
+# .agent.toml files. Both must stay — they serve different purposes.
+skills:
+  - pss-agent-toml
+  - pss-design-alignment
 auto_skills:
   - pss-agent-toml
   - pss-design-alignment

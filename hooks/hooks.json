@@ -7,8 +7,31 @@
           {
             "type": "command",
             "command": "unset VIRTUAL_ENV; python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\"",
-            "timeout": 10000,
+            "timeout": 10,
             "statusMessage": "Analyzing skill triggers..."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset VIRTUAL_ENV; python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\" --warm-index &",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset VIRTUAL_ENV; python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\" --post-compact",
+            "timeout": 5
           }
         ]
       }
