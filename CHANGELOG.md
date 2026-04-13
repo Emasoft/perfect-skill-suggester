@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.37] - 2026-04-13
+
+### Bug Fixes
+
+- **audit:** Round-4 audit fixes — dead path_gates feature + broken changelog + stale binaries
+
 ## [2.9.36] - 2026-04-13
 
 ### Bug Fixes
