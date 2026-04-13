@@ -415,12 +415,14 @@ def build_zigbuild(target_key: str, release: bool = True) -> bool:
     system, machine = target_key.split("-")
     binary_name = get_binary_name(system, machine)
     target_subdir = "release" if release else "debug"
+    # cargo emits `pss.exe` for windows targets, `pss` for everything else.
+    # Apply the suffix BEFORE the existence check so the workspace-root
+    # fallback search works for windows targets too.
+    cargo_binary = "pss.exe" if "windows" in target_key else "pss"
     workspace_root = rust_dir.parent
-    source = workspace_root / "target" / rust_target / target_subdir / "pss"
+    source = workspace_root / "target" / rust_target / target_subdir / cargo_binary
     if not source.exists():
-        source = rust_dir / "target" / rust_target / target_subdir / "pss"
-    if "windows" in target_key:
-        source = source.with_suffix(".exe")
+        source = rust_dir / "target" / rust_target / target_subdir / cargo_binary
     dest = bin_dir / binary_name
 
     if source.exists():
@@ -457,13 +459,23 @@ def build_cross(target_key: str, release: bool = True) -> bool:
     env = os.environ.copy()
     env["PATH"] = f"{rustup_bin}{os.pathsep}{cargo_bin}{os.pathsep}{env.get('PATH', '')}"
 
+    # Apple Silicon hosts must force Docker to pull linux/amd64 images for
+    # cross's x86_64 containers. Without this, Docker reports
+    # "no matching manifest for linux/arm64/v8" and cross falls through to
+    # zigbuild, which then fails on windows targets (missing mingw dlltool).
+    # Also applies cleanly to non-ARM hosts — they ignore the hint.
+    env.setdefault("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
+
     # Build command
     cmd = ["cross", "build", "--target", rust_target]
     if release:
         cmd.append("--release")
 
     print(f"Cross-compiling for {target_key} ({rust_target})...")
-    result = subprocess.run(cmd, cwd=rust_dir, timeout=600, env=env)
+    # 30-minute timeout to accommodate Docker image pulls + nlprule model
+    # downloads inside the cross container on first build. Subsequent builds
+    # finish in ~3-5 minutes.
+    result = subprocess.run(cmd, cwd=rust_dir, timeout=1800, env=env)
 
     if result.returncode != 0:
         # Fallback to zigbuild if cross fails (common on Apple Silicon for arm64 targets)
@@ -477,13 +489,16 @@ def build_cross(target_key: str, release: bool = True) -> bool:
     system, machine = target_key.split("-")
     binary_name = get_binary_name(system, machine)
 
+    # The cargo binary is called `pss.exe` on windows, `pss` elsewhere.
+    # Apply the suffix BEFORE the existence check so the workspace-root
+    # fallback search works for windows targets too.
+    cargo_binary = "pss.exe" if "windows" in target_key else "pss"
+
     target_subdir = "release" if release else "debug"
     workspace_root = rust_dir.parent
-    source = workspace_root / "target" / rust_target / target_subdir / "pss"
+    source = workspace_root / "target" / rust_target / target_subdir / cargo_binary
     if not source.exists():
-        source = rust_dir / "target" / rust_target / target_subdir / "pss"
-    if "windows" in target_key:
-        source = source.with_suffix(".exe")
+        source = rust_dir / "target" / rust_target / target_subdir / cargo_binary
 
     dest = bin_dir / binary_name
 

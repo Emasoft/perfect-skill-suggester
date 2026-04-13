@@ -569,7 +569,14 @@ def rust_source_changed() -> bool:
 
 
 def build_binaries(dry_run: bool, force_build: bool = False) -> None:
-    """Run pss_build.py --all. Skip if no .rs source changes (unless forced)."""
+    """Run pss_build.py --all. Skip if no .rs source changes (unless forced).
+
+    FATAL on failure — a release must ship with ALL platform binaries. When
+    cross/zigbuild fail on any target (e.g. stale Docker image, expired
+    toolchain, missing mingw), publish.py stops and the operator must fix
+    the build environment before re-running. Previously this was a warning
+    and v2.9.35 shipped with a 1-month-stale windows binary as a result.
+    """
     info("Building binaries...")
 
     if not force_build and not rust_source_changed():
@@ -581,14 +588,61 @@ def build_binaries(dry_run: bool, force_build: bool = False) -> None:
         info("  [DRY-RUN] Would run: pss_build.py --all")
         return
 
+    # 45-minute timeout. Cross builds can pull Docker images on first run
+    # (ghcr.io/cross-rs/* containers are 500MB+ each) and nlprule_build
+    # downloads the English model inside each target container. Total
+    # wall-clock for a cold build of all 5 targets is typically ~15-20 min;
+    # 45 min is a generous safety net.
     result = run(
         ["uv", "run", "python", str(BUILD_SCRIPT), "--all"],
-        timeout=600,
+        timeout=2700,
     )
     if result.returncode != 0:
-        warn(f"Build failed (non-blocking): {result.stderr.strip()}")
-    else:
-        success("  Binaries built successfully.")
+        stderr_tail = result.stderr.strip()[-2000:] if result.stderr else ""
+        stdout_tail = result.stdout.strip()[-2000:] if result.stdout else ""
+        fatal(
+            "Binary build failed — release aborted. Last stderr:\n"
+            f"{stderr_tail}\nLast stdout:\n{stdout_tail}\n"
+            "Fix the build environment (Docker running? cross installed? "
+            "rustup toolchain up to date?) and re-run publish.py."
+        )
+    success("  Binaries built successfully.")
+
+    # Sanity check: verify all 5 platform binaries were actually produced
+    # and updated in the last 30 minutes. This catches silent failures
+    # where pss_build.py exits 0 but a target was skipped.
+    import time
+    required_binaries = {
+        "pss-darwin-arm64",
+        "pss-darwin-x86_64",
+        "pss-linux-arm64",
+        "pss-linux-x86_64",
+        "pss-windows-x86_64.exe",
+    }
+    bin_dir = ROOT / "bin"
+    now = time.time()
+    stale: list[str] = []
+    missing: list[str] = []
+    for bname in required_binaries:
+        bpath = bin_dir / bname
+        if not bpath.exists():
+            missing.append(bname)
+            continue
+        mtime = bpath.stat().st_mtime
+        if now - mtime > 1800:  # 30 minutes
+            stale.append(f"{bname} (mtime {int(now - mtime)}s ago)")
+    if missing or stale:
+        details = ""
+        if missing:
+            details += f"\n  Missing: {', '.join(missing)}"
+        if stale:
+            details += f"\n  Stale (not rebuilt this run): {', '.join(stale)}"
+        fatal(
+            "Post-build verification failed — publish.py refuses to ship "
+            "a release with missing or stale platform binaries.\n"
+            f"Expected all 5 binaries in bin/ to be rebuilt just now:{details}"
+        )
+    info("  Verified: all 5 platform binaries present and fresh.")
 
 
 def git_commit(_old: str, new: str) -> None:
