@@ -26,6 +26,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import NoReturn
 
@@ -40,6 +41,8 @@ PLUGIN_JSON = ROOT / ".claude-plugin" / "plugin.json"
 PYPROJECT_TOML = ROOT / "pyproject.toml"
 UV_LOCK = ROOT / "uv.lock"
 RUST_SRC_DIR = ROOT / "rust" / "skill-suggester" / "src"
+NLP_SRC_DIR = ROOT / "rust" / "negation-detector" / "src"
+BUILD_ALL_SCRIPT = ROOT / "scripts" / "pss_build_all.py"
 README_MD = ROOT / "README.md"
 CHANGELOG_MD = ROOT / "CHANGELOG.md"
 BUILD_SCRIPT = ROOT / "scripts" / "pss_build.py"
@@ -498,30 +501,59 @@ def update_readme_badge(old: str, new: str, dry_run: bool) -> None:
 
 
 def generate_changelog(new: str, dry_run: bool) -> None:
-    """Run git-cliff to update CHANGELOG.md with the new release entry. MANDATORY."""
+    """Run git-cliff to regenerate CHANGELOG.md with the new release entry. MANDATORY.
+
+    Uses FULL regeneration (walks all tags since the beginning of time) rather
+    than `--bump --unreleased -o` which would WIPE prior entries. This was a
+    real bug discovered in the v2.9.34/2.9.35/2.9.36 release series: every
+    release overwrote CHANGELOG.md with only its own entry, erasing the full
+    historical record. Full regen produces a changelog with entries for every
+    tagged release, so users see the complete version history.
+
+    `chore(release)` commits are skipped by cliff.toml commit_parsers, so
+    git-cliff sees the real content commits at each tag boundary.
+    """
     info("Generating changelog (git-cliff)...")
 
     if dry_run:
-        info(f"  [DRY-RUN] Would run: git-cliff --bump --unreleased --tag v{new} -o CHANGELOG.md")
+        info(f"  [DRY-RUN] Would run: git-cliff --tag v{new} -o CHANGELOG.md")
         return
 
     result = run([
-        "git-cliff", "--bump", "--unreleased", "--tag", f"v{new}",
-        "-o", str(CHANGELOG_MD),
+        "git-cliff", "--tag", f"v{new}", "-o", str(CHANGELOG_MD),
     ])
     if result.returncode != 0:
         fatal(f"git-cliff failed: {result.stderr.strip()}")
-    success("  CHANGELOG.md generated.")
+    success("  CHANGELOG.md generated (full history).")
 
 
 def generate_release_notes(new: str) -> str:
-    """Generate release notes for the current version only (for GitHub release body)."""
+    """Generate release notes for the current version only (for GitHub release body).
+
+    Uses `--latest` which returns ONLY the most recent tag's commit entries.
+    This runs AFTER git_tag creates the new tag (see main() pipeline ordering),
+    so "latest" == the just-created tag == `v{new}`. `--strip header` drops the
+    top-level "# Changelog" header while preserving the per-release body with
+    commit entries grouped by conventional-commit type.
+
+    Previously we used `--current` which always returned the most-recently
+    *released* tag, ignoring the `--tag` argument entirely. `--latest` correctly
+    tracks the just-tagged version.
+    """
     result = run([
-        "git-cliff", "--unreleased", "--tag", f"v{new}", "--strip", "header",
+        "git-cliff", "--latest", "--strip", "header",
     ])
     if result.returncode != 0:
         fatal(f"git-cliff release notes failed: {result.stderr.strip()}")
-    return result.stdout.strip()
+    notes = result.stdout.strip()
+    # Sanity check: `--latest` should match the new version we just tagged.
+    expected_header = f"## [{new}]"
+    if notes and expected_header not in notes:
+        warn(
+            f"git-cliff --latest did not produce notes for v{new}; "
+            f"got: {notes.splitlines()[0] if notes else '(empty)'}"
+        )
+    return notes
 
 
 def create_github_release(new: str, dry_run: bool) -> None:
@@ -555,7 +587,7 @@ def create_github_release(new: str, dry_run: bool) -> None:
 
 
 def rust_source_changed() -> bool:
-    """Check if any .rs files changed since the last git tag."""
+    """Check if any .rs files in the main skill-suggester crate changed since the last tag."""
     result = run(["git", "describe", "--tags", "--abbrev=0"])
     last_tag = result.stdout.strip() if result.returncode == 0 else ""
     if not last_tag:
@@ -566,6 +598,61 @@ def rust_source_changed() -> bool:
         ["git", "diff", "--name-only", last_tag, "HEAD", "--", str(RUST_SRC_DIR)],
     )
     return bool(diff_result.stdout.strip())
+
+
+def nlp_source_changed() -> bool:
+    """Check if any .rs files in negation-detector changed since the last tag.
+
+    Used to decide whether to rebuild pss-nlp-* binaries. Unlike the main
+    skill-suggester crate, negation-detector changes rarely, so the binaries
+    normally don't need rebuilding per release.
+    """
+    result = run(["git", "describe", "--tags", "--abbrev=0"])
+    last_tag = result.stdout.strip() if result.returncode == 0 else ""
+    if not last_tag:
+        return True
+    diff_result = run(
+        ["git", "diff", "--name-only", last_tag, "HEAD", "--", str(NLP_SRC_DIR)],
+    )
+    return bool(diff_result.stdout.strip())
+
+
+def build_pss_nlp(dry_run: bool, force_build: bool = False) -> None:
+    """Conditionally rebuild pss-nlp-* binaries when negation-detector source changed.
+
+    pss-nlp is a separate Rust crate (rust/negation-detector/) that PSS calls
+    via subprocess for negation detection. It ships its own 5 platform binaries
+    (pss-nlp-darwin-arm64, etc.). Because the crate changes rarely, we only
+    rebuild when there are actual source diffs since the last tag.
+
+    Uses scripts/pss_build_all.py --nlp-only which handles all 5 targets.
+    Build failures are FATAL — if pss-nlp source changed, it must rebuild
+    successfully or the release aborts.
+    """
+    info("Checking pss-nlp (negation-detector) binaries...")
+
+    if not force_build and not nlp_source_changed():
+        info("  No negation-detector source changes since last tag — skipping pss-nlp rebuild.")
+        return
+
+    if dry_run:
+        info("  [DRY-RUN] Would run: pss_build_all.py --nlp-only")
+        return
+
+    info("  negation-detector source changed — rebuilding pss-nlp-* binaries...")
+    result = run(
+        ["uv", "run", "python", str(BUILD_ALL_SCRIPT), "--nlp-only"],
+        timeout=2700,
+    )
+    if result.returncode != 0:
+        stderr_tail = result.stderr.strip()[-2000:] if result.stderr else ""
+        stdout_tail = result.stdout.strip()[-2000:] if result.stdout else ""
+        fatal(
+            "pss-nlp build failed — release aborted. Last stderr:\n"
+            f"{stderr_tail}\nLast stdout:\n{stdout_tail}\n"
+            "Fix the build environment and re-run publish.py."
+        )
+    success("  pss-nlp binaries built successfully.")
 
 
 def build_binaries(dry_run: bool, force_build: bool = False) -> None:
@@ -588,6 +675,14 @@ def build_binaries(dry_run: bool, force_build: bool = False) -> None:
         info("  [DRY-RUN] Would run: pss_build.py --all")
         return
 
+    # Record the build start timestamp BEFORE running the subprocess.
+    # The post-build verification uses this to check "was this binary rebuilt
+    # during THIS run?" — previously we used a 30-minute wall-clock window,
+    # which falsely flagged the first binary (darwin-arm64, built at t=2min)
+    # as stale when a 45-min full cross build finished verification at t=47min.
+    # Using build_started_at makes the check wall-clock-independent.
+    build_started_at = time.time() - 2  # 2s slack for filesystem mtime granularity
+
     # 45-minute timeout. Cross builds can pull Docker images on first run
     # (ghcr.io/cross-rs/* containers are 500MB+ each) and nlprule_build
     # downloads the English model inside each target container. Total
@@ -609,9 +704,8 @@ def build_binaries(dry_run: bool, force_build: bool = False) -> None:
     success("  Binaries built successfully.")
 
     # Sanity check: verify all 5 platform binaries were actually produced
-    # and updated in the last 30 minutes. This catches silent failures
-    # where pss_build.py exits 0 but a target was skipped.
-    import time
+    # and rebuilt DURING this run (mtime >= build_started_at). This catches
+    # silent failures where pss_build.py exits 0 but a target was skipped.
     required_binaries = {
         "pss-darwin-arm64",
         "pss-darwin-x86_64",
@@ -629,8 +723,10 @@ def build_binaries(dry_run: bool, force_build: bool = False) -> None:
             missing.append(bname)
             continue
         mtime = bpath.stat().st_mtime
-        if now - mtime > 1800:  # 30 minutes
-            stale.append(f"{bname} (mtime {int(now - mtime)}s ago)")
+        if mtime < build_started_at:
+            stale.append(
+                f"{bname} (mtime {int(now - mtime)}s ago, before build_started)"
+            )
     if missing or stale:
         details = ""
         if missing:
@@ -880,6 +976,9 @@ def release_pipeline(args: argparse.Namespace) -> None:
 
     # Step 10: Build binaries (auto-skipped if no .rs changes, unless --force-build)
     build_binaries(args.dry_run, force_build=args.force_build)
+
+    # Step 10b: Conditionally rebuild pss-nlp (only when negation-detector changed)
+    build_pss_nlp(args.dry_run, force_build=args.force_build)
 
     # Step 11-13: Commit + tag + push (only after all gates pass)
     if not args.dry_run:

@@ -105,15 +105,20 @@ cargo build --release --target aarch64-apple-darwin
 # macOS Intel
 cargo build --release --target x86_64-apple-darwin
 
-# Linux x64 (requires cross or cargo-zigbuild — plain cargo will fail on macOS)
-cross build --release --target x86_64-unknown-linux-musl
+# Linux x64 (requires cross + Docker — uses musl for static binaries)
+DOCKER_DEFAULT_PLATFORM=linux/amd64 cross build --release --target x86_64-unknown-linux-musl
 
-# Linux ARM (requires cross or cargo-zigbuild)
-cross build --release --target aarch64-unknown-linux-musl
+# Linux ARM (requires cross + Docker)
+DOCKER_DEFAULT_PLATFORM=linux/amd64 cross build --release --target aarch64-unknown-linux-musl
 
-# Windows x64 (requires cross or cargo-zigbuild)
-cross build --release --target x86_64-pc-windows-gnu
+# Windows x64 (REQUIRES cross + Docker — zigbuild fails without mingw dlltool)
+DOCKER_DEFAULT_PLATFORM=linux/amd64 cross build --release --target x86_64-pc-windows-gnu
 ```
+
+> **Apple Silicon note:** the `DOCKER_DEFAULT_PLATFORM=linux/amd64` env var is
+> REQUIRED on Apple Silicon hosts. Cross's Docker images are x86_64-only and
+> Docker will reject them with "no matching manifest for linux/arm64/v8"
+> without this override. `scripts/pss_build.py` sets it automatically.
 
 ### Build All Platforms at Once
 
@@ -342,32 +347,66 @@ chmod +x bin/pss-*
 
 ---
 
+## Troubleshooting cross-compilation on Apple Silicon
+
+As of v2.9.36, `scripts/pss_build.py` sets `DOCKER_DEFAULT_PLATFORM=linux/amd64`
+when invoking `cross` on every target. This is REQUIRED on Apple Silicon hosts
+because cross's Docker images (`ghcr.io/cross-rs/*`) are x86_64-only — without
+the platform override, Docker reports:
+
+```
+docker: no matching manifest for linux/arm64/v8 in the manifest list entries
+```
+
+and cross fails on Apple Silicon. The env var forces Docker to pull the x86_64
+image and run it under Rosetta/QEMU. Intel hosts ignore the hint and continue
+as before.
+
+Additionally, the per-target cross timeout is **30 minutes** (cold Docker image
+pulls plus the nlprule English model download inside the container can exceed
+10 minutes). The `publish.py` wrapper sets the overall build timeout to **45
+minutes**. Build failures are FATAL — `publish.py` aborts the release if any
+target fails to build, and verifies that every platform binary was rebuilt
+during the current run via build-start mtime comparison.
+
 ## CI/CD Integration
 
-For automated builds in CI/CD pipelines:
+> **Canonical example:** [.github/workflows/build-binaries.yml](../.github/workflows/build-binaries.yml) is the authoritative CI build pipeline. The snippet below is for reference only.
+
+For automated builds in CI/CD pipelines (GitHub Actions, GitLab CI, etc.):
 
 ```bash
-# Install Rust in CI
+# Install rustup (NOT Homebrew rust — lacks cross target support)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source $HOME/.cargo/env
 
-# Add all targets
+# Add all targets (musl for Linux — produces static binaries with no libc dep)
 rustup target add aarch64-apple-darwin x86_64-apple-darwin \
-  x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
+  x86_64-unknown-linux-musl aarch64-unknown-linux-musl \
   x86_64-pc-windows-gnu
 
-# Build all platforms
-cd rust/skill-suggester
-cargo build --release --target aarch64-apple-darwin
-cargo build --release --target x86_64-apple-darwin
-cargo build --release --target x86_64-unknown-linux-gnu
-cargo build --release --target aarch64-unknown-linux-gnu
-cargo build --release --target x86_64-pc-windows-gnu
+# Install cross (Docker-based cross-compilation)
+cargo install cross --git https://github.com/cross-rs/cross
 
-# Run tests
-cargo test
-cargo clippy --all-targets
+# Build via the canonical build script
+export DOCKER_DEFAULT_PLATFORM=linux/amd64  # Apple Silicon runners only
+uv run scripts/pss_build.py --all
+
+# Or the full release pipeline (lint + test + validate + build + bump + push):
+uv run python scripts/publish.py --bump patch
 ```
+
+The `pss_build.py` script handles:
+- Darwin native build via `cargo build --release`
+- Darwin Intel via `cargo build --target x86_64-apple-darwin`
+- Linux and Windows via `cross build --target <triple>` with
+  `DOCKER_DEFAULT_PLATFORM=linux/amd64` for Apple Silicon compatibility
+- Automatic fallback to `cargo-zigbuild` when `cross` is unavailable (but
+  zigbuild does NOT support windows on macOS — cross + Docker is required)
+
+Separately, `pss_build_all.py --nlp-only` rebuilds the pss-nlp (negation detector)
+binaries. `publish.py` runs this automatically when `rust/negation-detector/`
+source changes since the last tag.
 
 ---
 

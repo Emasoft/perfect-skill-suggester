@@ -344,6 +344,24 @@ The matrix provides probability (0.0-1.0) that skills from one category are used
 
 ---
 
+## Declared Hook Events
+
+As of v2.9.34+, PSS declares three Claude Code hook events in `hooks/hooks.json`:
+
+| Event | Matcher | Handler | Purpose |
+|-------|---------|---------|---------|
+| `UserPromptSubmit` | (none) | `scripts/pss_hook.py` | Primary — scores skill suggestions on every user prompt |
+| `SessionStart` | `startup\|resume` | `pss_hook.py --warm-index &` | Silent lazy warmup — spawns background reindex if the skill-index cache is missing, so the first prompt never blocks on index build |
+| `PostCompact` | (none) | `pss_hook.py --post-compact` | Stub — reserves the event binding for future re-suggest-after-compaction logic |
+
+All three hooks use `timeout` values in **seconds** (per CC hooks.md spec): 10s for UserPromptSubmit, 5s for SessionStart and PostCompact. See [`docs/CC-COMPATIBILITY.md`](CC-COMPATIBILITY.md) for the full CC version-by-version matrix and hook schema notes.
+
+### Hook Input/Output Schema
+
+- **CC → Python hook**: `scripts/pss_hook.py` reads `transcript_path` (snake_case), matching CC hooks.md "Common input fields".
+- **Python → Rust binary**: `pss_hook.py` forwards `{prompt, cwd, transcript_path}` to the scorer as snake_case JSON. The Rust `HookInput` struct uses default serde naming (no `rename_all`).
+- **Rust binary → CC**: `HookOutput` and `HookSpecificOutput` structs keep `#[serde(rename_all = "camelCase")]` because CC's hook-reply format requires camelCase (`hookSpecificOutput`, `hookEventName`, `additionalContext`).
+
 ## Runtime Flow (Hook Execution)
 
 ```
@@ -380,6 +398,51 @@ The Rust binary operates in two modes:
 1. **Hook mode** (`--format hook`): Real-time skill suggestion during user prompt submission. Returns top matches with confidence levels. Used by `pss_hook.py` in the `UserPromptSubmit` hook.
 
 2. **Agent-profile mode** (`--agent-profile`): Batch scoring of ALL indexed elements against an agent's requirements. Returns scored candidates across all 6 element types for the `pss-agent-profiler` agent to post-filter. Used by `/pss-setup-agent`.
+
+---
+
+## Scoring Gates
+
+Two independent filtering mechanisms run before the main scoring loop. Both are hard binary filters — a failing entry is excluded entirely, not penalized.
+
+### Domain Gates (`domain_gates`)
+
+Introduced in v2.7.0. Hard prerequisite filters: each entry declares zero or more gates (e.g. `{"programming_language": ["python", "python3"]}`), and ALL gates must pass for the skill to be scored. A gate passes when its corresponding domain is detected in the prompt AND at least one gate keyword appears.
+
+- **Purpose**: prevent Swift skills from matching Python prompts even if keywords overlap
+- **Implementation**: `check_domain_gates()` in `rust/skill-suggester/src/main.rs`
+- **Populated at**: Pass 1 enrichment from `languages`/`frameworks`/`platforms` extraction
+- **Bypass**: when a framework/tool name from the skill appears verbatim in the prompt
+
+### Rule Path Gates (`path_gates`)
+
+Introduced in v2.9.35. Rule-only activation globs from rule frontmatter `paths:` field per the CC rules spec:
+
+```yaml
+---
+paths:
+  - "**/*.py"
+  - "src/**/*.pyi"
+---
+```
+
+When a rule declares `paths:`, it is excluded from suggestions unless at least one glob's trailing extension matches the project's file types OR the project's detected languages (mapped via `language_to_extensions()`). Non-extension globs like `src/**` or `Dockerfile*` pass permissively because PSS doesn't do full cwd glob walking yet.
+
+- **Purpose**: honor CC's rule path-scoping in PSS's suggestion pipeline
+- **Implementation**: `check_path_gates()` in `rust/skill-suggester/src/main.rs`
+- **Orthogonal to domain gates**: runs unconditionally even when the domain registry is absent
+- **Storage**: JSON column `path_gates_json` in CozoDB `skills` table (v2.9.37+)
+
+---
+
+## Plugin Generation
+
+`commands/pss-make-plugin-from-profile.md` (implemented by `scripts/pss_make_plugin.py`) produces a fully-installable Claude Code plugin from a `.agent.toml` profile. The generator reads optional sections and propagates them verbatim into the output `plugin.json`:
+
+- **`[metadata]`** (v2.9.34+): `homepage`, `repository`, `license` — pass-through strings
+- **`[userConfig]`** (v2.9.35+): opaque dict copied verbatim into `plugin.json.userConfig` per the CC plugins-reference.md schema; PSS does NOT validate the nested structure
+
+Both sections are guarded with `isinstance(value, dict)` so malformed profiles don't crash the generator.
 
 ---
 

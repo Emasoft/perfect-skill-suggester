@@ -3,6 +3,7 @@ name: Plugin Validation
 on:
   push:
     branches: [main, master]
+    tags: ['v*.*.*']
     paths:
       - '.claude-plugin/**'
       - 'agents/**'
@@ -10,9 +11,16 @@ on:
       - 'skills/**'
       - 'hooks/**'
       - 'scripts/**'
+      - 'rust'  # submodule pointer file (single entry, not rust/)
+      - 'rust/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'VERSION'
+      - 'CHANGELOG.md'
       - '*.mcp.json'
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 jobs:
   validate:

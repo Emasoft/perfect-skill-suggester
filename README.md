@@ -9,7 +9,7 @@
 ![Accuracy](https://img.shields.io/badge/accuracy-88%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Rust](https://img.shields.io/badge/rust-native_binary-orange)
-![Claude Code](https://img.shields.io/badge/claude--code-v2.1.101+-blueviolet)
+![Claude Code](https://img.shields.io/badge/claude--code-v2.1.69--v2.1.101-blueviolet)
 
 > **Installation:** This plugin is distributed via the [Emasoft Plugins Marketplace](https://github.com/Emasoft/emasoft-plugins).
 > See [Installation](#installation) below for instructions.
@@ -25,6 +25,16 @@
 **High-accuracy skill activation (88%+) for Claude Code** with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing. Indexes 6 element types: skills, agents, commands, rules, MCP servers, and LSP servers — 874+ elements including 246 MCP servers.
 
 ## What's New
+
+### v2.9.34 – v2.9.36
+- **Claude Code v2.1.101 compatibility** — full version-by-version matrix in [`docs/CC-COMPATIBILITY.md`](docs/CC-COMPATIBILITY.md), declared hook events, HookInput schema notes
+- **New hook events** — `SessionStart` (silent lazy index warmup via `--warm-index`, eliminates first-prompt cold-start) and `PostCompact` (reserved stub for future re-suggest-after-compaction)
+- **snake_case HookInput boundary** — `pss_hook.py` and the Rust `HookInput` struct now use the spec-compliant `transcript_path` (was reading a non-existent camelCase key, silently breaking previous-message augmentation)
+- **Rule `path_gates`** — rules with `paths:` frontmatter filter by project file-type + language-to-extension alignment (Python project → rule with `paths: ["**/*.py"]` now matches; previously excluded)
+- **`[userConfig]` pass-through** — `.agent.toml` `[userConfig]` section propagates verbatim into the generated `plugin.json` by `/pss-make-plugin-from-profile`
+- **Profiler frontmatter upgrades** — CC-official `skills:` subagent frontmatter (alongside PSS-internal `auto_skills`), `effort: high`, `maxTurns: 40`
+- **Build pipeline reliability** — all 5 platform binaries (darwin-arm64/x86_64, linux-arm64/x86_64, windows-x86_64) built via `cross` + Docker with `DOCKER_DEFAULT_PLATFORM=linux/amd64` for Apple Silicon hosts; `publish.py` build failures are now FATAL with post-build mtime verification
+- **Conditional pss-nlp rebuild** — `publish.py` tracks `rust/negation-detector/` changes and rebuilds pss-nlp-* binaries only when source changes
 
 ### v2.9.20
 - **Cross-client skill discovery** — scans `skills/` directories from 27 known AI clients (Codex, Copilot, Gemini, Kiro, Roo, Trae, Qwen, OpenHands, etc.) following the [AgentSkills](https://agentskills.io) open standard
@@ -554,9 +564,9 @@ uv run scripts/pss_verify_profile.py <file.agent.toml>          # Verify element
 ```json
 {
   "version": "3.0",
-  "generated": "2026-02-27T06:00:00Z",
+  "generated": "2026-04-13T00:00:00Z",
   "method": "ai-analyzed",
-  "skill_count": 9172,
+  "skill_count": 10112,
   "skills": {
     "devops-expert": {
       "source": "user",
@@ -573,11 +583,26 @@ uv run scripts/pss_verify_profile.py <file.agent.toml>          # Verify element
       "languages": ["yaml"],
       "tools": ["github-actions"],
       "services": ["github"],
-      "description": "CI/CD pipeline configuration"
+      "description": "CI/CD pipeline configuration",
+      "domain_gates": {
+        "target_platform": ["github"]
+      },
+      "path_gates": []
+    },
+    "python-style-rule": {
+      "source": "user",
+      "path": "/path/to/rule.md",
+      "type": "rule",
+      "description": "Python code style conventions",
+      "path_gates": ["**/*.py"]
     }
   }
 }
 ```
+
+Notes:
+- **`domain_gates`**: hard prerequisite filter — ALL gates must match prompt domains (v2.7.0+)
+- **`path_gates`**: rule-only activation globs from `paths:` frontmatter; filtered by project file types and languages (v2.9.35+)
 
 ## Platform Support
 
@@ -630,8 +655,10 @@ uv run python scripts/publish.py --gate
 uv run python scripts/publish.py --install-hook
 ```
 
-Version is updated in 4 files: Cargo.toml, main.rs, plugin.json, pyproject.toml.
-Pushing triggers the marketplace notification workflow automatically.
+Version is updated in 4 files: `VERSION` (source of truth), `rust/skill-suggester/Cargo.toml`,
+`.claude-plugin/plugin.json`, `pyproject.toml`. The Rust binary reads the version at runtime
+from `VERSION` via `CLAUDE_PLUGIN_ROOT`. Pushing triggers the marketplace notification workflow
+automatically.
 
 ## Performance
 
@@ -650,6 +677,7 @@ Pushing triggers the marketplace notification workflow automatically.
 | [PLUGIN-VALIDATION.md](docs/PLUGIN-VALIDATION.md) | Guide for writing plugin validation scripts |
 | [pss-cli-reference.md](docs/pss-cli-reference.md) | CLI subcommands reference |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Development guide |
+| [CC-COMPATIBILITY.md](docs/CC-COMPATIBILITY.md) | Claude Code version-by-version compatibility matrix, declared hook events, HookInput schema notes |
 | [FEATURE_COMPARISON.md](docs/FEATURE_COMPARISON.md) | Feature comparison |
 | [PSS_FILE_FORMAT_SPEC.md](docs/PSS_FILE_FORMAT_SPEC.md) | PSS file format spec |
 | [pss-reindex-reference.md](docs/pss-reindex-reference.md) | Reindex reference |

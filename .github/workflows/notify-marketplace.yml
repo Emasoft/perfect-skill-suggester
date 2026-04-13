@@ -27,6 +27,7 @@ name: Notify Marketplace
 on:
   push:
     branches: [main, master]
+    tags: ['v*.*.*']  # fire on every release tag regardless of which files changed
     paths:
       - '.claude-plugin/plugin.json'
       - 'hooks/**'
@@ -34,6 +35,12 @@ on:
       - 'agents/**'
       - 'skills/**'
       - 'scripts/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'VERSION'
+      - 'bin/**'
+  workflow_dispatch:
 
 env:
   # ⚠️ REQUIRED: Update these values to point to your marketplace repository

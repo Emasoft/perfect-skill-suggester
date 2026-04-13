@@ -103,16 +103,26 @@ def _build_one(
     log_fh.write(f"{'=' * 60}\n")
     log_fh.flush()
 
+    # Apple Silicon hosts must force Docker to pull linux/amd64 images for
+    # cross's x86_64 containers. Without this, Docker reports
+    # "no matching manifest for linux/arm64/v8" and the build fails on
+    # Apple Silicon. Applies cleanly to non-ARM hosts too (ignored).
+    env = os.environ.copy()
+    env.setdefault("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
+
     try:
+        # 30-minute timeout — accommodates Docker image pulls and
+        # nlprule_build model downloads inside the cross container.
         result = subprocess.run(
             cmd,
             cwd=crate_dir,
             stdout=log_fh,
             stderr=subprocess.STDOUT,
-            timeout=600,
+            timeout=1800,
+            env=env,
         )
     except subprocess.TimeoutExpired:
-        return False, "build timed out after 600s"
+        return False, "build timed out after 1800s"
 
     if result.returncode != 0:
         return False, f"exit code {result.returncode} (tool={tool})"

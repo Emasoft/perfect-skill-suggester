@@ -1,17 +1,28 @@
 # Build PSS binaries for all supported platforms
-# Triggered on submodule pointer changes, CI workflow changes, or manually
+# Triggered on release tags, submodule pointer changes, CI workflow changes, or manually.
+# NOTE: submodule SHA bumps do NOT modify .gitmodules — they live in the tree object.
+# The `rust` path entry below matches the submodule pointer as a single-file change.
 
 name: Build Multi-Platform Binaries
 
 on:
   push:
     branches: [main, master]
+    tags: ['v*.*.*']  # fire on every release tag so binaries are always rebuilt
     paths:
       - '.gitmodules'
+      - 'rust'  # submodule pointer (stored in tree, distinct from rust/** globbing)
+      - 'rust/**'
       - '.github/workflows/build-binaries.yml'
   workflow_dispatch:
   repository_dispatch:
     types: [rust-source-updated]
+
+# Serialize concurrent runs — prevents commit-binaries jobs from racing each other
+# and silently dropping pushes (the second run would fail `git push` as non-fast-forward).
+concurrency:
+  group: build-binaries-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -91,6 +102,11 @@ jobs:
 
       - name: Build with cross
         working-directory: ${{ env.RUST_SOURCE }}
+        # DOCKER_DEFAULT_PLATFORM=linux/amd64 is required when the runner is
+        # Apple Silicon (cross images are x86_64 only). It's a no-op on x86_64
+        # hosts — set it here defensively so the workflow works on any runner.
+        env:
+          DOCKER_DEFAULT_PLATFORM: linux/amd64
         run: cross build --release --target ${{ matrix.target }}
 
       - name: Copy binary to bin/

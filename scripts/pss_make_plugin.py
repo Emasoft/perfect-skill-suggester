@@ -195,11 +195,14 @@ def generate_plugin_json(
 
     # Propagate optional provenance fields from [metadata] section, if present.
     # These become plugin.json homepage/repository/license per plugins-reference.md.
+    # Guard with isinstance(dict) — if a user writes `metadata = "foo"` at top
+    # level, profile.get returns a string and .get(key) would crash.
     metadata = profile.get("metadata", {})
-    for key in ("homepage", "repository", "license"):
-        value = metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            manifest[key] = value.strip()
+    if isinstance(metadata, dict):
+        for key in ("homepage", "repository", "license"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                manifest[key] = value.strip()
 
     # Propagate the optional [userConfig] section verbatim into plugin.json.
     # PSS does NOT validate the nested structure — consumers must follow the
