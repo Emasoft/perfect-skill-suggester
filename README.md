@@ -342,6 +342,50 @@ Phase 3: Confidence Classification
   HIGH (>= 1000) / MEDIUM (>= 100) / LOW (< 100)
 ```
 
+### Why PSS Keeps Two Indexes (JSON + CozoDB)
+
+PSS stores the element index in **two places**: `skill-index.json` (canonical source of truth) and `pss-skill-index.db` (CozoDB derived runtime cache). Both live under `$CLAUDE_PLUGIN_DATA` (CC v2.1.78+) or `~/.claude/cache/` as fallback. This is the classic **canonical-source + derived-index** pattern, not accidental duplication.
+
+**`skill-index.json` is canonical.** It is the single source of truth that all Python tooling reads and writes:
+
+| Script | Role | JSON access |
+|--------|------|-------------|
+| `pss_merge_queue.py` | Reindex merger | Writes (atomic: `fcntl.LOCK_EX` + `os.replace`) |
+| `pss_make_plugin.py` | Plugin generator | Reads |
+| `pss_verify_profile.py` | Anti-hallucination verifier | Reads |
+| `pss_generate.py` | Import tool | Reads |
+| `pss_hook.py` | Runtime hook (fallback path) | Reads first 256 bytes for corruption check only |
+
+Python has no first-class CozoDB bindings in the PSS dependency set, so JSON is the only format every Python script can touch without a native extension. It's also **git-diffable** — `git diff skill-index.json` is a real debugging tool when an indexer regression appears, and it survives CozoDB schema bumps unchanged.
+
+**`pss-skill-index.db` is a derived runtime cache.** It exists for one reason: the `kw_lookup` trigram table lets the Rust binary narrow ~10K candidates to ~50-200 by keyword match **before** running full 5-tier scoring. Without it, every `UserPromptSubmit` hook would scan all elements linearly. With it, hot-path hook latency drops from ~100 ms to ~10 ms.
+
+**Runtime load priority** (`rust/skill-suggester/src/main.rs:15910`):
+
+```
+CozoDB pre-filtered (fast path)  ->  CozoDB full  ->  JSON fallback
+```
+
+**Build-time flow** (only during `/pss-reindex-skills`):
+
+```
+discover -> enrich -> merge -> skill-index.json  (canonical JSON)
+                                     |
+                                     v
+                            pss --build-db
+                                     |
+                                     v
+                       pss-skill-index.db  (derived CozoDB)
+```
+
+CozoDB is rebuilt from scratch on every reindex, so it is disposable — if corrupted or missing at hook time, the Rust binary transparently falls back to JSON. The inverse is not true: if `skill-index.json` is missing, PSS triggers an auto-reindex.
+
+**Why not unify?**
+- **Drop JSON** -> every Python script needs `pycozo[embedded]` as a native build dependency, lose `git diff` on the index, lose portability (you can't scp a single file between hosts)
+- **Drop CozoDB** -> lose the trigram pre-filter -> ~10x slower hot-path hook calls
+
+The cost of keeping both is ~11 MB of duplicated data on disk. The benefit is Python tooling stays simple + runtime stays fast. Same tradeoff as any database table and its index: they duplicate bytes on purpose, one for correctness, the other for speed.
+
 ### 5-Tier Logarithmic Scoring
 
 The scoring system is built around a simple idea: **not all matches are equal**. A skill that matches "bun" as a tool name is far more relevant to a bun-related prompt than a skill that happens to contain the generic word "build". The 5-tier system enforces this with a logarithmic scale where each tier is **10x more powerful** than the one below it.
