@@ -312,6 +312,11 @@
       "type": "object",
       "description": "Optional userConfig section propagated verbatim into the generated plugin.json. Pass-through: PSS does NOT validate the nested structure. Consumers must follow the Claude Code plugins-reference.md userConfig schema (configurable settings exposed to end users when the plugin is installed). Example: { apiKey = { type = 'string', required = true } }",
       "additionalProperties": true
+    },
+    "monitors": {
+      "type": "object",
+      "description": "Optional monitors section propagated verbatim into the generated plugin.json (CC v2.1.105+). Background monitor plugin manifest key that auto-arms at session start or on skill invoke. Pass-through: PSS does NOT validate the nested structure. Consumers must follow the Claude Code plugins-reference.md monitors schema.",
+      "additionalProperties": true
     }
   },
   "additionalProperties": false,

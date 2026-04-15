@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.101**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.109**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -21,6 +21,15 @@ As of **v2.9.35**, PSS declares the following hook events in `hooks/hooks.json`:
 All three hooks use `timeout` values in **seconds** (per hooks.md spec).
 `UserPromptSubmit` uses 10s, `SessionStart` uses 5s, `PostCompact` uses 5s.
 
+**Not declared (intentional):**
+- `PreCompact` (CC v2.1.105+) — PSS has no reason to block compaction, so this
+  event is not registered. The `PostCompact` stub is kept because PSS may
+  re-suggest skills after a compaction cycle in the future.
+- `StopFailure` (CC v2.1.78+) — PSS doesn't run as a subagent that the user
+  would want to catch errors from.
+- `FileChanged` / `CwdChanged` (CC v2.1.83+) — PSS re-suggests on every
+  `UserPromptSubmit` which already covers directory-change scenarios.
+
 ## Hook input/output schema
 
 - **Input from CC → Python hook**: `scripts/pss_hook.py` reads `transcript_path` (snake_case),
@@ -34,6 +43,65 @@ All three hooks use `timeout` values in **seconds** (per hooks.md spec).
   camelCase (`hookSpecificOutput`, `hookEventName`, `additionalContext`).
 
 ## Version-by-version compatibility matrix
+
+### v2.1.109 (2026-04-15)
+- Improved extended-thinking indicator with a rotating progress hint.
+- **PSS impact**: none (UI only).
+
+### v2.1.108 (2026-04-14)
+- Added `ENABLE_PROMPT_CACHING_1H` env var (1-hour prompt cache TTL) and
+  `FORCE_PROMPT_CACHING_5M` (force 5-minute TTL). `ENABLE_PROMPT_CACHING_1H_BEDROCK`
+  is deprecated but still honored.
+- Added `/recap` slash command and "recap" feature for returning to a session.
+  Configurable via `/config` and `CLAUDE_CODE_ENABLE_AWAY_SUMMARY` env var.
+- **Model can now discover and invoke built-in slash commands via the Skill tool**
+  (`/init`, `/review`, `/security-review`).
+- `/undo` is now an alias for `/rewind`.
+- `/model` warns before mid-conversation switches (next response re-reads full
+  history uncached).
+- `/resume` picker defaults to sessions from current directory; press `Ctrl+A` for
+  all projects.
+- Fixed policy-managed plugins never auto-updating when running from a different
+  project than where first installed.
+- **PSS impact**: none. PSS indexes built-in slash commands via the skill-index
+  and already scores `/init`, `/review`, `/security-review` alongside plugin
+  commands — now their Skill-tool-invocable status makes them more valuable
+  candidates. The existing scoring is unaffected.
+
+### v2.1.107 (2026-04-14)
+- Thinking hints appear sooner during long operations.
+- **PSS impact**: none (UI only).
+
+### v2.1.105 (2026-04-13)
+- **`PreCompact` hook event.** Hooks can now block compaction by exiting with
+  code 2 or returning `{"decision":"block"}`.
+- **Background monitor support via top-level `monitors` manifest key.** Auto-arms
+  at session start or on skill invoke (new plugin.json top-level field).
+- **Skill description listing cap raised from 250 to 1,536 characters.** A startup
+  warning is shown when descriptions are truncated.
+- Added `path` parameter to `EnterWorktree` tool (switch into an existing worktree).
+- `/proactive` is now an alias for `/loop`.
+- Improved stalled API stream handling: streams abort after 5 minutes of no data
+  and retry non-streaming.
+- Improved `WebFetch` to strip `<style>` and `<script>` from fetched pages.
+- Improved `/doctor` layout with status icons; press `f` to have Claude fix issues.
+- Fixed marketplace plugins with `package.json` + lockfile not having dependencies
+  installed after install/update.
+- Fixed marketplace auto-update leaving the official marketplace in a broken state
+  when a plugin process holds files open during update.
+- **PSS impact**: `PreCompact` is a new hook event PSS could consume — currently
+  PSS declares `UserPromptSubmit` / `SessionStart` / `PostCompact` only. No action
+  needed: PSS has no reason to block compaction. Added as a future enhancement.
+  Skill description cap raise is still inside PSS's safety margin (60 chars max,
+  cap now 1,536). **`monitors` manifest key is now supported as a pass-through
+  field** in `.agent.toml` (adopted in v2.9.38 alongside `userConfig`): users who
+  want to generate plugins with background monitors can declare a `[monitors]`
+  table in their profile and `/pss-make-plugin-from-profile` will copy it verbatim
+  into the generated `plugin.json`.
+
+### v2.1.102 (2026-04-10)
+- Maintenance release; no specific changelog entries.
+- **PSS impact**: none.
 
 ### v2.1.101 (2026-04-10)
 - `/team-onboarding` command, OS CA store trust, brief/focus mode improvements.
@@ -86,9 +154,9 @@ All three hooks use `timeout` values in **seconds** (per hooks.md spec).
   not use Pre/PostToolUse hooks.
 
 ### v2.1.86
-- **Skill description capped at 250 chars.**
-- **PSS impact**: PSS's longest skill description is 60 chars — all 6 skills comply.
-  Verified 2026-04-12 (see `docs_dev/20260412-edit-sites-exploration.md`).
+- **Skill description capped at 250 chars.** (Raised to 1,536 in v2.1.105.)
+- **PSS impact**: PSS's longest skill description is 60 chars — comfortably within
+  both the old 250-char limit and the new 1,536-char limit. Verified 2026-04-12.
 
 ### v2.1.85
 - JSONL transcript format change: `agentId` removed; `sourceToolAssistantUUID` and

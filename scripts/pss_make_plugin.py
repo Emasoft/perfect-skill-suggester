@@ -211,6 +211,15 @@ def generate_plugin_json(
     if isinstance(user_config, dict) and user_config:
         manifest["userConfig"] = user_config
 
+    # Propagate the optional [monitors] section verbatim into plugin.json.
+    # Monitors is a CC v2.1.105+ top-level manifest key for background monitor
+    # plugins that auto-arm at session start or on skill invoke. PSS does NOT
+    # validate the nested structure — consumers must follow the Claude Code
+    # plugins-reference.md monitors schema.
+    monitors = profile.get("monitors")
+    if isinstance(monitors, dict) and monitors:
+        manifest["monitors"] = monitors
+
     return manifest
 
 

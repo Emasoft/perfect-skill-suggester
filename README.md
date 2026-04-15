@@ -9,7 +9,7 @@
 ![Accuracy](https://img.shields.io/badge/accuracy-88%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Rust](https://img.shields.io/badge/rust-native_binary-orange)
-![Claude Code](https://img.shields.io/badge/claude--code-v2.1.69--v2.1.101-blueviolet)
+![Claude Code](https://img.shields.io/badge/claude--code-v2.1.69--v2.1.109-blueviolet)
 
 > **Installation:** This plugin is distributed via the [Emasoft Plugins Marketplace](https://github.com/Emasoft/emasoft-plugins).
 > See [Installation](#installation) below for instructions.
@@ -26,8 +26,14 @@
 
 ## What's New
 
-### v2.9.34 – v2.9.36
-- **Claude Code v2.1.101 compatibility** — full version-by-version matrix in [`docs/CC-COMPATIBILITY.md`](docs/CC-COMPATIBILITY.md), declared hook events, HookInput schema notes
+### v2.9.38
+- **Claude Code v2.1.109 compatibility** — tested range extended from v2.1.101 to v2.1.109. See [`docs/CC-COMPATIBILITY.md`](docs/CC-COMPATIBILITY.md) for per-version impact notes.
+- **`[monitors]` pass-through** (CC v2.1.105+) — `.agent.toml` `[monitors]` section propagates verbatim into the generated `plugin.json` by `/pss-make-plugin-from-profile`, alongside existing `[metadata]` and `[userConfig]` pass-throughs. Enables background-monitor plugins (auto-arm at session start or on skill invoke).
+- **Skill description cap raised 250→1,536 chars** (CC v2.1.105) — PSS's longest skill description is 60 chars, still well within the new cap.
+- **`PreCompact` hook event noted** (CC v2.1.105) — not declared by PSS (no reason to block compaction), documented as intentional in the compat matrix.
+
+### v2.9.34 – v2.9.37
+- **Claude Code v2.1.69 → v2.1.101 compatibility** — full version-by-version matrix in [`docs/CC-COMPATIBILITY.md`](docs/CC-COMPATIBILITY.md), declared hook events, HookInput schema notes
 - **New hook events** — `SessionStart` (silent lazy index warmup via `--warm-index`, eliminates first-prompt cold-start) and `PostCompact` (reserved stub for future re-suggest-after-compaction)
 - **snake_case HookInput boundary** — `pss_hook.py` and the Rust `HookInput` struct now use the spec-compliant `transcript_path` (was reading a non-existent camelCase key, silently breaking previous-message augmentation)
 - **Rule `path_gates`** — rules with `paths:` frontmatter filter by project file-type + language-to-extension alignment (Python project → rule with `paths: ["**/*.py"]` now matches; previously excluded)

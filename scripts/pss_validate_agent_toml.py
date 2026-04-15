@@ -48,6 +48,7 @@ OPTIONAL_SECTIONS = [
     "dependencies",
     "metadata",    # v2.9.34+ — plugin provenance fields (homepage, repository, license)
     "userConfig",  # v2.9.35+ — CC plugin.json userConfig pass-through
+    "monitors",    # v2.9.38+ — CC v2.1.105+ plugin.json monitors pass-through
 ]
 ALL_KNOWN_SECTIONS = REQUIRED_SECTIONS + OPTIONAL_SECTIONS
 
