@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.39] - 2026-04-15
+
+### Documentation
+
+- **readme:** Explain JSON + CozoDB dual-index architecture
+
 ## [2.9.38] - 2026-04-15
 
 ### Features
