@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.38] - 2026-04-15
+
+### Features
+
+- **cc-compat:** V2.1.109 compat + monitors pass-through
+
 ## [2.9.37] - 2026-04-13
 
 ### Bug Fixes
