@@ -157,7 +157,14 @@ def verify_index_file(index_file: Path) -> int:
 
 
 def build_db(binary: Path) -> None:
-    """Build the CozoDB index for fast scoring."""
+    """Build the CozoDB index for fast scoring.
+
+    DEPRECATED in Phase B (v2.11.0): the Python merge writer (pss_merge_queue)
+    now populates CozoDB directly, so the Rust --build-db call is redundant.
+    It is still invoked for backwards compatibility: the Rust side detects
+    that CozoDB is already populated and exits 0 with a deprecation notice.
+    The invocation will be removed entirely in Phase C (v3.0.0).
+    """
     subprocess.run([str(binary), "--build-db"], check=True, timeout=120)
 
 
@@ -270,15 +277,26 @@ def main() -> None:
     # os.replace() is atomic on the same filesystem (POSIX rename guarantee)
     os.replace(staging_index, live_index)
 
-    # Step 4: Remove old CozoDB (will be rebuilt from new index)
-    (cache_dir / "pss-skill-index.db").unlink(missing_ok=True)
+    # Phase B note: we no longer remove the CozoDB before the Rust build-db
+    # call. The Python merge writer (pss_merge_queue._sync_cozodb) already
+    # wrote the CozoDB atomically during the merge stage, and it snapshots
+    # the prior first_indexed_at timestamps BEFORE removing the DB so that
+    # "installation time" is preserved across rebuilds. Deleting the DB here
+    # would undo that and force every subsequent build_db call into its
+    # legacy "create from scratch" path, resetting all timestamps. The Rust
+    # side detects the populated DB and exits with a no-op.
 
-    # Step 5: Build CozoDB from new index (non-fatal -- index is already valid)
+    # Step 4: Kick the Rust --build-db subcommand. In Phase B it is a no-op
+    # (the CozoDB is already populated by the Python merge writer); in Phase
+    # C this call will be removed. Keep it here for backwards compatibility
+    # with older index layouts that might still lack a CozoDB (e.g. first
+    # install after upgrading from a JSON-only state).
     try:
         build_db(binary)
     except subprocess.CalledProcessError as e:
         print(
-            f"WARNING: CozoDB build failed (code {e.returncode}). Index is valid but DB needs rebuild.",
+            f"WARNING: CozoDB build-db returned code {e.returncode}. "
+            "Python merge already wrote the DB; treating as non-fatal.",
             file=sys.stderr,
         )
     except subprocess.TimeoutExpired:

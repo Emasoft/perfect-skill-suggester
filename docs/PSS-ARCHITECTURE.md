@@ -1,5 +1,52 @@
 # Perfect Skill Suggester (PSS) Architecture
 
+## Phase B transition (v2.11.0) — CozoDB is canonical, JSON is a derived export
+
+Starting with v2.11.0, **CozoDB is the single source of truth** for the PSS
+element index. The `scripts/pss_merge_queue.py` writer now calls
+`scripts/pss_cozodb.py::atomic_write_cozodb` directly after every merge,
+producing all 33 columns on the `skills` relation, the 9 normalised
+auxiliary relations (`skill_keywords`, `skill_intents`, `skill_tools`,
+`skill_services`, `skill_frameworks`, `skill_languages`, `skill_platforms`,
+`skill_domains`, `skill_file_types`), the `kw_lookup` trigram pre-filter,
+the `skill_ids` ID→(name, source) lookup, and `pss_metadata` (version,
+generated, generator).
+
+**The runtime hook path is unchanged.** The Rust binary's
+`load_candidates_from_db` continues to query the same schema — only the
+write direction flipped.
+
+**`skill-index.json` is retained as a derived export** for two reasons:
+
+1. Backwards compatibility with the handful of Python scripts that still
+   parse it (`pss_make_plugin.py`, `pss_verify_profile.py`, etc. — Phase C
+   migrates them to pycozo queries).
+2. Debugging: power users can `git diff` successive snapshots to spot
+   drift. Use `pss export --json [--path P]` (new in v2.11.0) to dump the
+   current CozoDB to any path.
+
+**The Rust `pss --build-db` subcommand is now a no-op** when called against
+a CozoDB whose `pss_metadata.generator` field equals `python-merge-queue`.
+It logs `CozoDB already built by Python merge (Phase B); skipping
+redundant rebuild` and exits 0. Legacy JSON-only installs (no CozoDB yet)
+still fall through to the full rebuild path for migration. Phase C
+(v3.0.0) removes this subcommand entirely.
+
+**Timestamp preservation** across rebuilds is enforced by Python the same
+way Rust used to do it: snapshot `(name, source) → first_indexed_at` from
+the prior DB before `:replace`, then re-apply on insert. Empty values mean
+"new install" → stamp with now. The Python implementation and the Rust
+implementation produce byte-identical rows — verified by
+`test_fnv1a_entry_id_matches_rust_for_react_user` against the live DB.
+
+**Why we did this:** see `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.md`.
+The one-line summary: with two independent stores, any writer can silently
+desync one from the other — and that's exactly what happened in the
+v2.9.40 incident that triggered this migration. One store, one path, one
+writer.
+
+---
+
 ## Core Design Principles
 
 ### 1. Index is a Superset, Agent Validates Availability

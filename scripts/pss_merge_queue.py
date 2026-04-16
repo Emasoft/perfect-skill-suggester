@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-PSS Merge Queue - Atomic merge of .pss files into skill-index.json.
+PSS Merge Queue - Atomic merge of .pss files into skill-index.json + CozoDB.
 
 Merges data from a temporary .pss JSON file into the master
 skill-index.json with file locking to prevent concurrent corruption.
+
+As of Phase B (v2.11.0), CozoDB is the canonical store. After the JSON
+merge, this module calls atomic_write_cozodb() so both JSON and CozoDB are
+kept in lock-step. JSON is retained as a derived export for debugging and
+git diff workflows; Phase C will demote it further.
 
 Usage:
     python pss_merge_queue.py <pss_file>
@@ -28,6 +33,23 @@ from pathlib import Path
 from typing import Any
 
 from pss_paths import get_index_path, get_lock_path
+
+# Phase B (v2.11.0): CozoDB is canonical; import the writer. Lazy-import so
+# scripts that only need JSON merge (and run in environments without pycozo)
+# still work.
+try:
+    from pss_cozodb import atomic_write_cozodb, get_db_path as cozo_get_db_path
+    _COZO_AVAILABLE = True
+except ImportError:
+    _COZO_AVAILABLE = False
+
+    def atomic_write_cozodb(*_a: Any, **_kw: Any) -> int:  # type: ignore[misc]
+        """Stub used when pycozo is not installed."""
+        raise RuntimeError("pycozo is not available; install 'pycozo[embedded]'")
+
+    def cozo_get_db_path() -> Path:  # type: ignore[misc]
+        """Stub used when pycozo is not installed."""
+        raise RuntimeError("pycozo is not available; install 'pycozo[embedded]'")
 
 # Default paths for index and lock files
 DEFAULT_INDEX_PATH = get_index_path()
@@ -249,6 +271,11 @@ def atomic_write_json(
 ) -> None:
     """Write JSON data atomically using temp file + rename.
 
+    DEPRECATED in Phase B (v2.11.0): JSON is no longer canonical. This
+    function is retained as a secondary export — callers should invoke
+    `_sync_cozodb(data)` after this to keep both stores consistent.
+    Phase C will drop the automatic JSON write entirely.
+
     Writes to a temporary file in the same directory as the target,
     then uses os.rename() for an atomic replacement. This ensures
     no partial writes are visible to other processes.
@@ -277,6 +304,53 @@ def atomic_write_json(
         # Clean up temp file on failure
         tmp_path.unlink(missing_ok=True)
         raise
+
+
+def _sync_cozodb(
+    data: dict[str, Any],
+    *,
+    db_path: Path | None = None,
+    quiet: bool = False,
+) -> int:
+    """Mirror the merged index into CozoDB.
+
+    Called immediately after atomic_write_json in every write path. This is
+    the Phase B inversion: CozoDB becomes the primary store, JSON becomes a
+    derived export. The writer preserves first_indexed_at timestamps across
+    rebuilds and rebuilds all auxiliary relations (kw_lookup, skill_ids,
+    skill_keywords, etc.) so the Rust hot path keeps working unchanged.
+
+    Failure is fatal — an out-of-sync JSON/CozoDB pair is exactly the bug
+    that prompted the unification (see TRDD-46ac514e).
+
+    Returns the number of skill rows written to CozoDB.
+    """
+    if not _COZO_AVAILABLE:
+        # Phase B transitional: if pycozo is missing we must fail loudly —
+        # running without the canonical store would leave downstream readers
+        # querying stale data. CI enforces pycozo presence.
+        raise RuntimeError(
+            "pycozo is required as of v2.11.0. "
+            "Install with: uv pip install 'pycozo[embedded]>=0.7.6'"
+        )
+    skills = data.get("skills", {})
+    if not isinstance(skills, dict):
+        raise ValueError("Merged index has malformed 'skills' field (not a dict)")
+    version = data.get("version", "3.0")
+    generated = data.get("generated", "")
+    effective_db_path = db_path or cozo_get_db_path()
+    n = atomic_write_cozodb(
+        skills,
+        effective_db_path,
+        version=version,
+        generated=generated,
+    )
+    if not quiet:
+        print(
+            f"[COZODB] Mirrored {n} rows to {effective_db_path}",
+            file=sys.stderr,
+        )
+    return n
 
 
 def run_merge(
@@ -339,8 +413,14 @@ def run_merge(
         index["skill_count"] = len(index.get("skills", {}))
         index["generated"] = datetime.now(timezone.utc).isoformat()
 
-        # Atomic write
+        # Atomic write: JSON first (derived export), then CozoDB (canonical).
+        # CozoDB is now the source of truth as of Phase B (v2.11.0); the JSON
+        # file is kept for debugging / git diff workflows. If CozoDB write
+        # fails, the JSON write is already on disk — the next reindex will
+        # re-sync from JSON. The inverse (JSON fails but CozoDB succeeds) is
+        # not possible because we write JSON before calling _sync_cozodb.
         atomic_write_json(index_path, index)
+        _sync_cozodb(index, quiet=quiet)
 
         # Cleanup: delete the merged .pss file
         pss_file.unlink(missing_ok=True)
@@ -434,7 +514,9 @@ def main() -> None:
                 except json.JSONDecodeError as e:
                     print(f"Warning: Skipping invalid JSON line: {e}", file=sys.stderr)
             index["skill_count"] = len(index.get("skills", {}))
+            # Phase B: JSON first, CozoDB second, both under the same lock.
             atomic_write_json(batch_index_path, index)
+            _sync_cozodb(index)
             print(f"Merged {count} elements into {batch_index_path}", file=sys.stderr)
         finally:
             if fcntl is not None:

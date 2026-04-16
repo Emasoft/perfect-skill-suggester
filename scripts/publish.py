@@ -150,9 +150,18 @@ def run_validation() -> int:
 
 
 def run_tests() -> bool:
-    """Run pytest and return True if passed."""
+    """Run pytest and return True if passed.
+
+    Uses `--extra dev` so the project venv (with pycozo) is active, not the
+    uv-tool pytest that would run outside the venv. Phase B tests need
+    pycozo to open the CozoDB — without --extra dev they'd hit
+    ModuleNotFoundError and fail with no tests collected.
+    """
     info("Running tests...")
-    result = run(["uv", "run", "pytest", "tests/", "-q"], timeout=120)
+    result = run(
+        ["uv", "run", "--extra", "dev", "pytest", "tests/", "-q"],
+        timeout=120,
+    )
     if result.returncode != 0:
         error(result.stdout.strip() if result.stdout else "")
         error(result.stderr.strip() if result.stderr else "")
