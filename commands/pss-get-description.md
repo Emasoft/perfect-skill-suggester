@@ -10,6 +10,8 @@ allowed-tools: ["Bash", "Read"]
 
 Retrieve lightweight metadata for any indexed element. Designed for tooltips, UI panels, and token-efficient lookups without reading entire skill/agent files.
 
+Backed by the CozoDB index (canonical store since v3.0.0). For a raw single-entry lookup without any slash-command wrapping, call `"$CLAUDE_PLUGIN_ROOT/bin/pss-<platform>" get <name> [--source S]` directly.
+
 ## Usage
 
 ```
@@ -70,3 +72,4 @@ Use namespace-qualified names (`plugin-name:element-name`) or 13-char IDs to dis
 
 - `/pss-status` - Show PSS index health and statistics
 - `/pss-reindex-skills` - Rebuild the skill index
+- `/pss-search <query>` - Full-text search when you don't know the exact name

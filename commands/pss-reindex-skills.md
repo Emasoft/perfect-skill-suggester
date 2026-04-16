@@ -12,15 +12,17 @@ Rebuild the skill index using the deterministic Rust pipeline. Completes in unde
 
 Indexes all **6 element types**: skills, agents, commands, rules, MCP servers, and LSP servers. By default, indexes **all registered projects and all plugins** (every marketplace, every plugin). Use `--exclude-inactive-plugins` to skip plugins that the user has disabled in Claude Code settings.
 
+As of v3.0.0 CozoDB (`pss-skill-index.db`) is the single canonical store. Python writes the DB directly via `pycozo[embedded]` under an `fcntl` lock; the Rust `--build-db` flag has been removed. If you want a diffable JSON snapshot for code review, run `pss export --json` after reindexing.
+
 ## Instructions
 
 1. Resolve the plugin root and binary paths
 2. Run the 3-step pipeline via `pss_reindex.py` (orchestrates discover, enrich, merge)
-3. Build the CozoDB index for fast scoring
+3. `pss_merge_queue.py` writes enriched rows directly into CozoDB
 4. Aggregate the domain registry
 5. Report results
 
-The Python script `pss_reindex.py` is the single entry point — it orchestrates the discovery (`pss_discover.py`), Rust enrichment (`pss --pass1-batch`), and merge (`pss_merge_queue.py`) steps internally.
+The Python script `pss_reindex.py` is the single entry point — it orchestrates the discovery (`pss_discover.py`), Rust enrichment (`pss --pass1-batch`), and merge-to-CozoDB (`pss_merge_queue.py`) steps internally.
 
 ## Execution
 
@@ -45,15 +47,15 @@ This reads `enabledPlugins` from `~/.claude/settings.json` and skips any plugin 
 - **Binary not found**: Run `cargo build --release` in `$PLUGIN_ROOT/rust/skill-suggester/` or check platform detection
 - **Discovery warnings**: Check `/tmp/pss-discover-warnings.txt` for non-existent project paths
 - **Merge errors**: Check that the data directory (`$CLAUDE_PLUGIN_DATA` or `~/.claude/cache/`) exists and is writable
-- **Restore from backup**: The script creates backups in `/tmp/pss-backup-<timestamp>/`. Restore with: `cp /tmp/pss-backup-<timestamp>/skill-index.json "$(echo ${CLAUDE_PLUGIN_DATA:-$HOME/.claude/cache})/"`. Check the script output for the exact backup path.
+- **Restore from backup**: The script creates backups in `/tmp/pss-backup-<timestamp>/` (CozoDB snapshot and, if present, legacy `skill-index.json`). Check the script output for the exact backup path.
 
 ## Output
 
 Output is written to `$CLAUDE_PLUGIN_DATA` (CC v2.1.78+) or `~/.claude/cache/` as fallback:
 
-- `skill-index.json` — enriched index with keywords, categories, intents, languages, frameworks
-- `pss-skill-index.db` — CozoDB index for fast pre-filtered scoring
+- `pss-skill-index.db` — canonical CozoDB index (written by Python, read by the Rust hot path)
 - `domain-registry.json` — aggregated domain gates
+- `skill-index.json` — **not written automatically** in v3.0.0+. Run `$PLUGIN_ROOT/bin/pss-<platform> export --json` after reindex if you want a diffable snapshot.
 
 ## Examples
 

@@ -34,6 +34,16 @@ Copy this checklist and track your progress:
 - [ ] Index rebuilt after changes (`/pss-reindex-skills`)
 - [ ] Suggestion quality verified with test prompts
 
+## How PSS Indexes Your Skills
+
+The canonical index is a CozoDB store (`pss-skill-index.db`), not the legacy `skill-index.json` file. What authoring-side reindexing actually does:
+
+1. `pss_discover.py` walks user / project / plugin / marketplace directories and emits one JSONL line per element.
+2. The Rust binary's `--pass1-batch` mode reads that JSONL and enriches each line with deterministic keywords, intents, categories, domains, languages, and frameworks.
+3. `pss_merge_queue.py` writes the enriched rows directly into CozoDB via `pycozo[embedded]` under an `fcntl` lock, preserving each entry's original `first_indexed_at` timestamp across rebuilds.
+
+Python is the sole writer; the Rust `--build-db` flag has been removed. `skill-index.json` is no longer auto-generated — run `pss export --json` on demand if you want a diffable snapshot for code review. Nothing about authoring your SKILL.md changes: frontmatter rules, keyword selection, and category choices remain unchanged.
+
 ## References
 
 - [Best Practices](references/pss-best-practices.md)

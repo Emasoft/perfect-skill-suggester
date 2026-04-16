@@ -27,9 +27,9 @@ Incrementally add or update a single element (skill, agent, command, rule, MCP, 
 ### Single Element Mode
 
 1. **Resolve element**: Find the element by name (lookup in index or scan known locations) or by direct path
-2. **Check for duplicates**: If the element already exists in `~/.claude/cache/skill-index.json`, it will be UPDATED (not duplicated)
+2. **Check for duplicates**: If the element already exists in the CozoDB index (`pss-skill-index.db`), it will be UPDATED (not duplicated). The original `first_indexed_at` timestamp is preserved; only `last_updated_at` advances.
 3. **Run Rust enrichment**: Pipe the element through the Rust binary (`pss --pass1-batch`) to extract metadata (keywords, intents, category, etc.)
-4. **Merge into index**: Add or update the element in the existing index using `pss_merge_queue.py`
+4. **Merge into index**: Add or update the element in the existing CozoDB store using `pss_merge_queue.py`
 
 ### Plugin Mode (`--plugin`)
 
