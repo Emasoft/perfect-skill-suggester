@@ -448,9 +448,15 @@ def test_help_lists_all_phase_d_subcommands() -> None:
 
 @skip_if_no_binary
 def test_existing_flags_still_work() -> None:
-    """Backwards-compat: --pass1-batch, --build-db, --extract-prev-msg still in help."""
+    """Backwards-compat: --pass1-batch, --extract-prev-msg still in help.
+
+    Phase C (v3.0.0): --build-db was intentionally removed; CozoDB is now
+    populated exclusively by the Python merge writer (pss_merge_queue).
+    """
     proc = _run_pss("--help", expect_success=True)
     assert "--pass1-batch" in proc.stdout, "pass1-batch flag removed"
-    assert "--build-db" in proc.stdout, "build-db flag removed"
+    assert "--build-db" not in proc.stdout, (
+        "build-db flag must be removed in Phase C"
+    )
     assert "--extract-prev-msg" in proc.stdout, "extract-prev-msg flag removed"
     assert "--index-file" in proc.stdout, "index-file flag removed"

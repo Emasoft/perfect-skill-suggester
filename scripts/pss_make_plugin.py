@@ -28,45 +28,57 @@ def load_profile(profile_path: Path) -> dict:
 
 
 def load_skill_index() -> dict:
-    """Load the skill index to resolve element paths."""
-    from pss_paths import get_data_dir
+    """Load the skill index to resolve element paths.
 
-    index_path = get_data_dir() / "skill-index.json"
-    if index_path.exists():
-        with open(index_path) as f:
-            return json.load(f)
-    print(
-        "ERROR: skill-index.json not found. Run /pss-reindex-skills first.",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+    As of Phase C (v3.0.0): CozoDB is the single source of truth. This reads
+    every row once and builds a {name: entry} dict compatible with the
+    legacy JSON shape. Kept as a helper for callers that need the full
+    dict; new code should prefer resolve_element_path() which does a single
+    indexed lookup per call.
+    """
+    # Lazy import so callers that don't need the index avoid paying the
+    # pycozo import cost.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import pss_cozodb
+    except ImportError:
+        print(
+            "ERROR: pycozo is required. Install with: uv pip install 'pycozo[embedded]'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        return pss_cozodb.get_all_entries()
+    except FileNotFoundError:
+        print(
+            "ERROR: CozoDB not found. Run /pss-reindex-skills first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def resolve_element_path(name: str, index: dict) -> str | None:
-    """Resolve an element name to its file path via the skill index."""
-    skills = (
-        index
-        if isinstance(index, dict) and "skills" not in index
-        else index.get("skills", index)
-    )
-    for _id, entry in skills.items():
-        if isinstance(entry, dict) and entry.get("name") == name:
-            path = entry.get("path", "")
-            if path and Path(path).exists():
-                return path
+    """Resolve an element name to its file path via the skill index.
+
+    Phase C: index is the {name: entry} dict built by load_skill_index().
+    When the path in the index points at a file that no longer exists on
+    disk, returns None — matches the pre-C behaviour that skipped stale
+    entries.
+    """
+    entry = index.get(name)
+    if isinstance(entry, dict):
+        path = entry.get("path", "")
+        if path and Path(path).exists():
+            return path
     return None
 
 
 def resolve_element_type(name: str, index: dict) -> str:
     """Get the type of an element from the index."""
-    skills = (
-        index
-        if isinstance(index, dict) and "skills" not in index
-        else index.get("skills", index)
-    )
-    for _id, entry in skills.items():
-        if isinstance(entry, dict) and entry.get("name") == name:
-            return entry.get("type", "skill")
+    entry = index.get(name)
+    if isinstance(entry, dict):
+        return entry.get("type", "skill")
     return "skill"
 
 

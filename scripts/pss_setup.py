@@ -158,36 +158,43 @@ def check_binary_exists() -> bool:
 
 
 def check_skill_index() -> bool:
-    """Check if skill index exists and is valid."""
-    from pss_paths import get_index_path
+    """Check if the CozoDB skill index exists and has rows.
 
-    index_path = get_index_path()
+    Phase C (v3.0.0): CozoDB is the canonical store. The JSON export path
+    is no longer relevant for this health check.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import pss_cozodb
+    except ImportError:
+        print_fail(
+            "pycozo is not installed. Install with: "
+            "uv pip install 'pycozo[embedded]>=0.7.6'"
+        )
+        return False
 
-    if not index_path.exists():
-        print_warn("Skill index not found")
+    db_path = pss_cozodb.get_db_path()
+    if not db_path.exists():
+        print_warn("CozoDB skill index not found")
         print(
             "         The skill index maps user prompts to"
             " relevant skills using AI-analyzed keywords."
         )
         print("         Without it, PSS cannot suggest skills.")
         print("         Generate it: use /pss-reindex-skills in Claude Code")
-        print(f"         Expected at: {index_path}")
+        print(f"         Expected at: {db_path}")
         return False
 
     try:
-        data = json.loads(index_path.read_text())
-        skills_count = len(data.get("skills", {}))
-        version = data.get("version", "unknown")
-        method = data.get("generator", "unknown")
-        pass_num = data.get("pass", "unknown")
-        print_ok(
-            f"Skill index: {skills_count} skills"
-            f" (v{version}, {method}, pass {pass_num})"
-        )
+        count = pss_cozodb.count_skills()
+        if count == 0:
+            print_fail("CozoDB skill index exists but is empty — reindex needed")
+            return False
+        print_ok(f"Skill index: {count} skills ({db_path.name})")
         return True
-    except (json.JSONDecodeError, OSError) as e:
-        print_fail(f"Skill index corrupt: {e}")
-        print(f"         Delete and regenerate: rm {index_path}")
+    except Exception as e:
+        print_fail(f"Skill index query failed: {e}")
+        print(f"         Delete and regenerate: rm {db_path}")
         print("         Then use /pss-reindex-skills in Claude Code")
         return False
 

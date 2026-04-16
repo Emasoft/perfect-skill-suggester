@@ -42,6 +42,34 @@ All three hooks use `timeout` values in **seconds** (per hooks.md spec).
   `#[serde(rename_all = "camelCase")]` because CC expects hook-reply JSON keys in
   camelCase (`hookSpecificOutput`, `hookEventName`, `additionalContext`).
 
+## PSS v3.0.0 — BREAKING CHANGE: JSON → CozoDB canonical migration
+
+**PSS v3.0.0** (Phase C of the CozoDB unification migration,
+TRDD-46ac514e) completes the single-store refactor:
+
+- **`skill-index.json` is no longer auto-maintained.** Every write path in
+  `pss_merge_queue.py` now targets CozoDB exclusively. Users who want a
+  JSON snapshot for `git diff` run `pss export --json` on demand.
+- **Rust `--build-db` flag is removed.** `pss --build-db` now exits with
+  "unexpected argument" — CozoDB is populated by the Python merge writer,
+  not by a separate Rust subcommand.
+- **`pycozo[embedded]>=0.7.6` is a hard dependency.** The `pyproject.toml`
+  lists it; a fresh install handles this automatically. Existing installs
+  that skipped pycozo (legacy dev environments) must install it or the
+  hook exits with an informational warning.
+- **No user-facing behaviour change in the runtime hook.** The hook still
+  reads CozoDB, latency and suggestion quality are unchanged.
+- **Migration safety.** Upgrading from v2.10.x to v3.0.0 requires no user
+  action: `pss_hook.py`'s health check detects a missing-or-empty CozoDB
+  and auto-spawns a background reindex (same UX as first-install).
+
+Affected scripts: `pss_hook.py`, `pss_merge_queue.py`, `pss_reindex.py`,
+`pss_make_plugin.py`, `pss_verify_profile.py`, `pss_generate.py`, plus
+Rust `src/main.rs` (`run_build_db` removed).
+
+See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.md`
+for the full design record.
+
 ## Version-by-version compatibility matrix
 
 ### v2.1.109 (2026-04-15)

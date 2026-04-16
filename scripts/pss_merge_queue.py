@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """
-PSS Merge Queue - Atomic merge of .pss files into skill-index.json + CozoDB.
+PSS Merge Queue - Atomic merge of .pss files into the CozoDB index.
 
-Merges data from a temporary .pss JSON file into the master
-skill-index.json with file locking to prevent concurrent corruption.
+Merges data from a temporary .pss JSON file into the CozoDB skill index
+with file locking to prevent concurrent corruption.
 
-As of Phase B (v2.11.0), CozoDB is the canonical store. After the JSON
-merge, this module calls atomic_write_cozodb() so both JSON and CozoDB are
-kept in lock-step. JSON is retained as a derived export for debugging and
-git diff workflows; Phase C will demote it further.
+As of Phase C (v3.0.0), CozoDB is the ONLY canonical store. The JSON
+export is no longer auto-maintained — users who want a JSON snapshot for
+git diff or debugging run `pss export --json` on demand. The legacy
+--index flag is kept for backwards compatibility with callers that still
+pass a path: it becomes the "previous state" seed if it exists, but is
+never written back.
 
 Usage:
     python pss_merge_queue.py <pss_file>
     python pss_merge_queue.py <pss_file> --pass 1
     python pss_merge_queue.py <pss_file> --pass 2
-    python pss_merge_queue.py <pss_file> --index /path/to/skill-index.json
+    python pss_merge_queue.py <pss_file> --index /path/to/seed.json
     python pss_merge_queue.py --batch-stdin < batch.jsonl
 """
 
@@ -413,14 +415,12 @@ def run_merge(
         index["skill_count"] = len(index.get("skills", {}))
         index["generated"] = datetime.now(timezone.utc).isoformat()
 
-        # Atomic write: JSON first (derived export), then CozoDB (canonical).
-        # CozoDB is now the source of truth as of Phase B (v2.11.0); the JSON
-        # file is kept for debugging / git diff workflows. If CozoDB write
-        # fails, the JSON write is already on disk — the next reindex will
-        # re-sync from JSON. The inverse (JSON fails but CozoDB succeeds) is
-        # not possible because we write JSON before calling _sync_cozodb.
-        atomic_write_json(index_path, index)
-        _sync_cozodb(index, quiet=quiet)
+        # Phase C (v3.0.0): CozoDB is the ONLY canonical store. The JSON export
+        # is no longer auto-maintained — users who want a JSON snapshot for
+        # git diff / debugging run `pss export --json` on demand. Writing
+        # JSON here was a compatibility bridge during Phase B and is now
+        # removed so the two stores cannot desync.
+        _sync_cozodb(index, db_path=None, quiet=quiet)
 
         # Cleanup: delete the merged .pss file
         pss_file.unlink(missing_ok=True)
@@ -514,10 +514,13 @@ def main() -> None:
                 except json.JSONDecodeError as e:
                     print(f"Warning: Skipping invalid JSON line: {e}", file=sys.stderr)
             index["skill_count"] = len(index.get("skills", {}))
-            # Phase B: JSON first, CozoDB second, both under the same lock.
-            atomic_write_json(batch_index_path, index)
+            # Phase C: CozoDB only — JSON auto-write removed. See run_merge
+            # for the same change and rationale.
             _sync_cozodb(index)
-            print(f"Merged {count} elements into {batch_index_path}", file=sys.stderr)
+            print(
+                f"Merged {count} elements into CozoDB (see `pss export --json` for JSON export)",
+                file=sys.stderr,
+            )
         finally:
             if fcntl is not None:
                 fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)

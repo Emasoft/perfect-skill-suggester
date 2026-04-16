@@ -146,7 +146,14 @@ def run_pipeline(
 
 
 def verify_index_file(index_file: Path) -> int:
-    """Verify an index file has elements. Returns the element count."""
+    """Verify an index file has elements. Returns the element count.
+
+    Phase C note: `index_file` is a legacy staging-JSON path. If it exists
+    and contains rows, we trust it. Otherwise we fall through to the CozoDB
+    row count (verify_cozodb_has_rows) — the JSON staging file is no longer
+    produced by the merge queue in Phase C, so this function returns 0 for
+    callers that still only look at JSON.
+    """
     if not index_file.exists():
         return 0
     try:
@@ -156,16 +163,20 @@ def verify_index_file(index_file: Path) -> int:
         return 0
 
 
-def build_db(binary: Path) -> None:
-    """Build the CozoDB index for fast scoring.
+def verify_cozodb_has_rows() -> int:
+    """Return the CozoDB row count, or 0 if DB is missing or pycozo unavailable.
 
-    DEPRECATED in Phase B (v2.11.0): the Python merge writer (pss_merge_queue)
-    now populates CozoDB directly, so the Rust --build-db call is redundant.
-    It is still invoked for backwards compatibility: the Rust side detects
-    that CozoDB is already populated and exits 0 with a deprecation notice.
-    The invocation will be removed entirely in Phase C (v3.0.0).
+    Phase C (v3.0.0): CozoDB is the only canonical store after the merge
+    pipeline. This is the authoritative post-pipeline verification.
     """
-    subprocess.run([str(binary), "--build-db"], check=True, timeout=120)
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from pss_cozodb import count_skills, get_db_path  # type: ignore[import-not-found]
+    except ImportError:
+        return 0
+    if not get_db_path().exists():
+        return 0
+    return count_skills()
 
 
 def aggregate_domains(scripts_dir: Path) -> None:
@@ -239,7 +250,10 @@ def main() -> None:
     cache_dir = get_data_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    live_index = cache_dir / "skill-index.json"
+    # Phase C: live_index is no longer written by reindex (CozoDB is the only
+    # canonical store). staging_index is kept because the pipeline still
+    # accepts --index <path> and will read it as the "previous state" seed
+    # if it exists, but no JSON file is produced as output.
     staging_index = cache_dir / "skill-index.staging.json"
 
     # Step 1: Back up (old index stays in place — crash-safe)
@@ -263,8 +277,9 @@ def main() -> None:
         _cleanup_lockfile(cache_dir)
         sys.exit(1)
 
-    # Verify the staging index
-    element_count = verify_index_file(staging_index)
+    # Verify the CozoDB — the merge pipeline writes directly to CozoDB now
+    # (Phase C v3.0.0), so the staging JSON file is no longer produced.
+    element_count = verify_cozodb_has_rows()
     if element_count == 0:
         print("ERROR: Pipeline produced 0 elements. Old index preserved.")
         staging_index.unlink(missing_ok=True)
@@ -273,34 +288,19 @@ def main() -> None:
         _cleanup_lockfile(cache_dir)
         sys.exit(1)
 
-    # Step 3: Atomic swap — staging replaces live index in one syscall
-    # os.replace() is atomic on the same filesystem (POSIX rename guarantee)
-    os.replace(staging_index, live_index)
+    # Phase C: no JSON swap. The live skill-index.json is not auto-maintained.
+    # Users who want a JSON snapshot for git diff run `pss export --json`. If
+    # a legacy live_index.json exists from a prior <v3.0.0 install, we leave
+    # it in place (harmless, read by nothing) rather than deleting — that
+    # would be a surprising side-effect of reindex. Clean up only the staging
+    # file (never promoted in Phase C).
+    staging_index.unlink(missing_ok=True)
 
-    # Phase B note: we no longer remove the CozoDB before the Rust build-db
-    # call. The Python merge writer (pss_merge_queue._sync_cozodb) already
-    # wrote the CozoDB atomically during the merge stage, and it snapshots
-    # the prior first_indexed_at timestamps BEFORE removing the DB so that
-    # "installation time" is preserved across rebuilds. Deleting the DB here
-    # would undo that and force every subsequent build_db call into its
-    # legacy "create from scratch" path, resetting all timestamps. The Rust
-    # side detects the populated DB and exits with a no-op.
-
-    # Step 4: Kick the Rust --build-db subcommand. In Phase B it is a no-op
-    # (the CozoDB is already populated by the Python merge writer); in Phase
-    # C this call will be removed. Keep it here for backwards compatibility
-    # with older index layouts that might still lack a CozoDB (e.g. first
-    # install after upgrading from a JSON-only state).
-    try:
-        build_db(binary)
-    except subprocess.CalledProcessError as e:
-        print(
-            f"WARNING: CozoDB build-db returned code {e.returncode}. "
-            "Python merge already wrote the DB; treating as non-fatal.",
-            file=sys.stderr,
-        )
-    except subprocess.TimeoutExpired:
-        print("WARNING: CozoDB build timed out after 120s.", file=sys.stderr)
+    # Phase C note: the Rust --build-db subcommand has been removed. The Python
+    # merge writer (pss_merge_queue._sync_cozodb) populates CozoDB directly
+    # during the merge stage under the same file lock, so there is no separate
+    # build step any more. First_indexed_at timestamps are preserved by the
+    # _snapshot_prior_timestamps helper before :replace.
 
     # Step 6: Aggregate domains (non-fatal)
     try:
@@ -328,13 +328,13 @@ def main() -> None:
         pass1_stats = stats_file.read_text().strip()
     except OSError:
         pass1_stats = "unknown"
-    index_size = human_size(cache_dir / "skill-index.json")
+    db_size = human_size(cache_dir / "pss-skill-index.db")
 
     print()
     print("PSS Reindex Complete")
     print("====================")
     print(f"Elements: {element_count}")
-    print(f"Index: ~/.claude/cache/skill-index.json ({index_size})")
+    print(f"CozoDB: ~/.claude/cache/pss-skill-index.db ({db_size})")
     print(f"Pass 1: {pass1_stats}")
     print(f"Backup: {backup_dir}")
 

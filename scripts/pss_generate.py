@@ -18,8 +18,8 @@ Usage:
     # Generate with tier and category hints
     python pss_generate.py /path/to/skill/SKILL.md --tier primary --category devops
 
-    # Import from existing index
-    python pss_generate.py --from-index /path/to/skill-index.json
+    # Import from canonical CozoDB store (Phase C v3.0.0)
+    python pss_generate.py --from-index
 """
 
 import hashlib
@@ -495,26 +495,41 @@ def generate_for_directory(
     return count
 
 
-def import_from_index(
-    index_path: Path, output_dir: Path, force: bool = False, quiet: bool = False
+def import_from_cozodb(
+    output_dir: Path, force: bool = False, quiet: bool = False
 ) -> int:
-    """
-    Import skills from an existing skill-index.json file.
+    """Import skills from the canonical CozoDB (Phase C v3.0.0).
 
-    Creates .pss files for each skill in the index.
+    Creates .pss files for each skill in the DB. Replaces the former
+    `import_from_index(skill-index.json)` path — CozoDB is now the single
+    source of truth.
     """
-    with open(index_path, encoding="utf-8") as f:
-        index = json.load(f)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import pss_cozodb
+    except ImportError:
+        print(
+            "ERROR: pycozo is required. Install with: uv pip install 'pycozo[embedded]'",
+            file=sys.stderr,
+        )
+        return 0
 
-    skills = index.get("skills", {})
+    try:
+        skills = pss_cozodb.get_all_entries()
+    except FileNotFoundError:
+        print(
+            "ERROR: CozoDB not found. Run /pss-reindex-skills first.",
+            file=sys.stderr,
+        )
+        return 0
+
     count = 0
 
-    for key, skill_data in skills.items():
-        # Handle both legacy (name-keyed) and new (source::name-keyed) formats
-        skill_name = skill_data.get("name") or (
-            key.split("::", 1)[-1] if "::" in key else key
-        )
-        pss_path = output_dir / f"{skill_name}.pss"
+    for skill_name, skill_data in skills.items():
+        # Sanitize names that contain path separators (e.g. "@21st-dev/magic")
+        # — replace / and \ with _ so the output file lands in output_dir.
+        safe_name = skill_name.replace("/", "_").replace("\\", "_")
+        pss_path = output_dir / f"{safe_name}.pss"
 
         if pss_path.exists() and not force:
             if not quiet:
@@ -587,7 +602,11 @@ def main() -> int:
     )
     parser.add_argument("path", nargs="?", help="Path to SKILL.md file")
     parser.add_argument("--dir", help="Generate for all skills in directory")
-    parser.add_argument("--from-index", help="Import from existing skill-index.json")
+    parser.add_argument(
+        "--from-index",
+        action="store_true",
+        help="Import from CozoDB (skill-index.json legacy path is DEPRECATED)",
+    )
     parser.add_argument("--output", "-o", help="Output path for .pss file or directory")
     parser.add_argument(
         "--tier",
@@ -611,13 +630,12 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # Handle import from index
+    # Handle import from CozoDB (Phase C: single source of truth)
     if args.from_index:
-        index_path = Path(args.from_index)
         output_dir = Path(args.output) if args.output else Path(".")
         output_dir.mkdir(parents=True, exist_ok=True)
-        count = import_from_index(index_path, output_dir, args.force, quiet=args.quiet)
-        print(f"\nImported {count} skill(s) from index")
+        count = import_from_cozodb(output_dir, args.force, quiet=args.quiet)
+        print(f"\nImported {count} skill(s) from CozoDB")
         return 0
 
     # Handle directory generation

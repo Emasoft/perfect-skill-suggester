@@ -467,6 +467,172 @@ def get_by_name(
 
 
 # ----------------------------------------------------------------------------
+# Phase C full-entry helpers — replace JSON reads in cold-path scripts
+# ----------------------------------------------------------------------------
+# These helpers return Python-friendly entry dicts with JSON sub-fields
+# already deserialized (keywords is a list, not a JSON string). This matches
+# the shape `skill-index.json` used to have, so callers that previously read
+# JSON can switch to CozoDB with minimal re-wiring.
+#
+# Why a separate helper family: the `search_by_*` functions return a minimal
+# projection (6 columns) for fast UI display; callers like pss_make_plugin /
+# pss_verify_profile / pss_generate need the full skill row. Doing a SELECT *
+# here is the right trade-off — they run once per command-invocation (cold
+# path), not per hook call.
+
+
+_FULL_ENTRY_COLUMNS: tuple[str, ...] = (
+    "name",
+    "source",
+    "skill_type",
+    "path",
+    "description",
+    "tier",
+    "boost",
+    "category",
+    "server_type",
+    "server_command",
+    "server_args_json",
+    "language_ids_json",
+    "patterns_json",
+    "directories_json",
+    "path_patterns_json",
+    "use_cases_json",
+    "domain_gates_json",
+    "file_types_json",
+    "keywords_json",
+    "intents_json",
+    "tools_json",
+    "services_json",
+    "frameworks_json",
+    "languages_json",
+    "platforms_json",
+    "domains_json",
+    "path_gates_json",
+    "first_indexed_at",
+    "last_updated_at",
+)
+
+# JSON columns in _FULL_ENTRY_COLUMNS — the "_json" suffixed ones are stored
+# as serialized JSON strings in CozoDB; we deserialize them here so Python
+# callers see the native Python object they had when reading JSON.
+_JSON_COLUMNS: frozenset[str] = frozenset(
+    c for c in _FULL_ENTRY_COLUMNS if c.endswith("_json")
+)
+
+
+def _row_to_full_entry(row: list[Any], headers: list[str]) -> dict[str, Any]:
+    """Convert a raw CozoDB row into the JSON-compatible entry dict.
+
+    - `skill_type` column becomes `type` field (matches the old JSON schema).
+    - Columns ending in `_json` are deserialized from their string form.
+      The suffix is stripped, so `keywords_json` becomes `keywords`.
+    - Empty JSON strings default to [] for list columns and {} for object
+      columns — this matches Rust's default behaviour in run_build_db.
+    """
+    entry: dict[str, Any] = {}
+    for col, val in zip(headers, row):
+        if col == "skill_type":
+            entry["type"] = val
+            continue
+        if col in _JSON_COLUMNS:
+            py_key = col[: -len("_json")]
+            if isinstance(val, str) and val:
+                try:
+                    entry[py_key] = json.loads(val)
+                except json.JSONDecodeError:
+                    # Corrupt JSON in the column — fall back to a safe default.
+                    # domain_gates / path_gates are dicts; everything else is a list.
+                    entry[py_key] = {} if py_key in ("domain_gates", "path_gates") else []
+            else:
+                entry[py_key] = {} if py_key in ("domain_gates", "path_gates") else []
+            continue
+        entry[col] = val
+    return entry
+
+
+def get_entry_by_name(
+    name: str, source: str | None = None, db: Client | None = None
+) -> dict[str, Any] | None:
+    """Return a full entry dict by name (with deserialized JSON sub-fields).
+
+    Used by Phase C scripts that replaced `json.load(skill-index.json)` +
+    linear scan with a single indexed CozoDB query. Returns None if the
+    entry does not exist.
+
+    When two sources contain the same name (e.g. a user skill and a plugin
+    skill sharing a name), passing `source` disambiguates. Without `source`,
+    the first matching row wins — matches the legacy JSON behavior where
+    `index["skills"][name]` returned whichever entry the merge queue wrote
+    last.
+    """
+    own_db = db is None
+    client = db or open_db()
+    try:
+        cols = ", ".join(_FULL_ENTRY_COLUMNS)
+        if source:
+            query = (
+                f"?[{cols}] := "
+                f"*skills{{ {cols} }}, "
+                f"name = '{_escape(name)}', source = '{_escape(source)}'"
+            )
+        else:
+            query = (
+                f"?[{cols}] := "
+                f"*skills{{ {cols} }}, "
+                f"name = '{_escape(name)}'"
+            )
+        result = client.run(query)
+        rows = result.get("rows", [])
+        headers = result.get("headers", list(_FULL_ENTRY_COLUMNS))
+        if not rows:
+            return None
+        return _row_to_full_entry(rows[0], headers)
+    finally:
+        if own_db:
+            client.close()
+
+
+def get_all_entries(
+    db: Client | None = None, type_filter: str | None = None
+) -> dict[str, dict[str, Any]]:
+    """Return every entry as a {name: full_entry_dict} mapping.
+
+    Replaces `json.load(skill-index.json)["skills"]` for cold-path scripts.
+    If two sources share a name, the last-enumerated row wins — same as the
+    legacy JSON behavior where source::name keys collapsed when reading
+    into a plain {name → entry} dict.
+
+    Optional `type_filter` ("skill", "agent", "command", "rule", "mcp",
+    "lsp", "output-style", "hook") restricts the scan server-side.
+    """
+    own_db = db is None
+    client = db or open_db()
+    try:
+        cols = ", ".join(_FULL_ENTRY_COLUMNS)
+        if type_filter:
+            query = (
+                f"?[{cols}] := "
+                f"*skills{{ {cols} }}, "
+                f"skill_type = '{_escape(type_filter)}'"
+            )
+        else:
+            query = f"?[{cols}] := *skills{{ {cols} }}"
+        result = client.run(query)
+        headers = result.get("headers", list(_FULL_ENTRY_COLUMNS))
+        out: dict[str, dict[str, Any]] = {}
+        for row in result.get("rows", []):
+            entry = _row_to_full_entry(row, headers)
+            name = entry.get("name")
+            if name:
+                out[str(name)] = entry
+        return out
+    finally:
+        if own_db:
+            client.close()
+
+
+# ----------------------------------------------------------------------------
 # Phase B write helpers — Python becomes canonical writer for CozoDB
 # ----------------------------------------------------------------------------
 # Mirrors the Rust `run_build_db` + `insert_skills_batch` logic. Opens the

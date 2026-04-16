@@ -124,29 +124,29 @@ def load_toml(path: Path) -> dict:
     sys.exit("ERROR: Python 3.11+ or 'tomli' package required for TOML parsing.")
 
 
-def load_index(index_path: Path) -> dict[str, dict]:
-    """Load skill-index.json and build a name→entry lookup keyed by (name, type)."""
-    if not index_path.exists():
+def load_index(index_path: Path | None = None) -> dict[str, dict]:
+    """Load the skill index via CozoDB (Phase C v3.0.0).
+
+    Previously read skill-index.json. The argument is now ignored; it remains
+    in the signature so CLI callers passing `--index <path>` do not break,
+    but the path is no longer used — CozoDB lives at a fixed location derived
+    from $CLAUDE_PLUGIN_DATA / ~/.claude/cache.
+
+    Returns a {name: entry_dict} mapping, same shape the old JSON load
+    produced for `data["skills"]`.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import pss_cozodb
+    except ImportError:
         sys.exit(
-            f"ERROR: Skill index not found at {index_path}. Run /pss-reindex-skills."
+            "ERROR: pycozo is required. Install with: uv pip install 'pycozo[embedded]'"
         )
-    # Cap at 500MB to avoid OOM on malicious/corrupt files
+
     try:
-        if index_path.stat().st_size > 500_000_000:
-            sys.exit("ERROR: Skill index file exceeds 500MB size limit.")
-    except OSError as e:
-        sys.exit(f"ERROR: Cannot stat index file: {e}")
-    try:
-        with open(index_path) as f:
-            data = json.load(f)
-    except json.JSONDecodeError as e:
-        sys.exit(f"ERROR: Invalid JSON in skill index: {e}")
-    if not isinstance(data, dict):
-        sys.exit("ERROR: Skill index root must be a JSON object.")
-    skills = data.get("skills", {})
-    if not isinstance(skills, dict):
-        return {}
-    return skills
+        return pss_cozodb.get_all_entries()
+    except FileNotFoundError:
+        sys.exit("ERROR: CozoDB not found. Run /pss-reindex-skills.")
 
 
 def build_type_index(index: dict[str, dict]) -> dict[str, set[str]]:
@@ -343,7 +343,7 @@ def extract_toml_elements(data: dict) -> list[tuple[str, str, str]]:
 
 def verify_profile(
     toml_path: Path,
-    index_path: Path,
+    index_path: Path | None = None,
     agent_md_path: Path | None = None,
     include_elements: list[str] | None = None,
     exclude_elements: list[str] | None = None,
@@ -662,8 +662,12 @@ def main() -> int:
     )
     parser.add_argument(
         "--index",
-        default=None,  # Resolved below via pss_paths
-        help="Path to skill-index.json (default: ~/.claude/cache/skill-index.json)",
+        default=None,
+        help=(
+            "DEPRECATED in v3.0.0: CozoDB is now the canonical store. This "
+            "flag is kept for backwards-compatibility but is ignored — the DB "
+            "path is resolved from $CLAUDE_PLUGIN_DATA / ~/.claude/cache."
+        ),
     )
     parser.add_argument(
         "--include",
@@ -699,12 +703,10 @@ def main() -> int:
     if not toml_path.exists():
         sys.exit(f"ERROR: TOML file not found: {toml_path}")
 
-    if args.index is None:
-        from pss_paths import get_index_path
-
-        index_path = get_index_path()
-    else:
-        index_path = Path(args.index)
+    # --index is deprecated in v3.0.0; CozoDB location is fixed. We still
+    # accept it so callers that pass --index /path/to/skill-index.json do
+    # not error out; the path is simply not used.
+    index_path = Path(args.index) if args.index else None
     agent_md_path = Path(args.agent_def) if args.agent_def else None
 
     # Also try to get agent_def from the TOML's [agent].path field

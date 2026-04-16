@@ -541,6 +541,13 @@ def _is_pid_alive(pid: int) -> bool:
 def _maybe_auto_reindex(index_path: Path) -> None:
     """Auto-spawn a background reindex if no index exists, with PID lockfile guard.
 
+    In Phase C (v3.0.0), the trigger condition moved from "JSON missing" to
+    "CozoDB missing-or-empty". The `index_path` arg is kept because the PID
+    lockfile has historically lived next to the legacy index path
+    (`.reindex.pid`) — we still colocate it there to preserve cleanup
+    semantics for users upgrading from <v3.0.0 (any stale lockfiles from a
+    crashed pre-v3 reindex get detected by the dead-PID branch below).
+
     - First call: spawns reindex, writes PID lockfile, notifies user
     - Subsequent calls while reindex runs: detects live PID, just notifies
     - After crash: detects dead PID, cleans up stale files, respawns
@@ -568,7 +575,7 @@ def _maybe_auto_reindex(index_path: Path) -> None:
     reindex_script = script_dir / "pss_reindex.py"
     if not reindex_script.exists():
         _exit_warning(
-            f"skill-index.json not found and reindex script missing at {reindex_script} — run /pss-reindex-skills manually"
+            f"CozoDB index not found and reindex script missing at {reindex_script} — run /pss-reindex-skills manually"
         )
         return
 
@@ -593,7 +600,7 @@ def _maybe_auto_reindex(index_path: Path) -> None:
             "skill index not found — auto-reindex started, suggestions available shortly"
         )
     except OSError as e:
-        _exit_warning(f"skill-index.json not found, auto-reindex failed: {e}")
+        _exit_warning(f"CozoDB index not found, auto-reindex failed: {e}")
 
 
 def main() -> None:
@@ -642,47 +649,33 @@ def main() -> None:
             _exit_empty()
             return
 
-        # Check if skill index exists and is valid BEFORE doing any expensive work.
-        # v2.10.0+: the authoritative health check queries CozoDB via pycozo
-        # when available — both stores must be present for the Rust hot path.
-        # JSON header check is still performed as a belt-and-braces fallback
-        # because the Rust scorer falls back to JSON when CozoDB is unavailable
-        # (see main.rs:15910), so a torn JSON file would also warrant reindex.
-        # If missing or corrupt, auto-spawn a background reindex and notify user.
+        # Check that the CozoDB exists and has rows BEFORE doing any expensive
+        # work. In Phase C (v3.0.0) CozoDB is the single source of truth — the
+        # JSON file is no longer automatically maintained. If the DB is missing
+        # or empty, auto-spawn a background reindex and notify the user.
+        #
+        # Migration safety: if a legacy `skill-index.json` exists but no CozoDB
+        # is present (upgrade from <v3.0.0), we still need to bootstrap the DB.
+        # The auto-reindex path handles this — pss_reindex.py writes both.
+        #
+        # The `index_path` is passed to _maybe_auto_reindex only so it can name
+        # the PID lockfile consistently with prior releases; it is NOT read.
         index_path = _get_cache_dir() / SKILL_INDEX_FILE
-        if not index_path.exists():
-            _maybe_auto_reindex(index_path)
-            return
-        # Quick corruption check: file must be valid JSON with a "skills" key
-        try:
-            with open(index_path, "r", encoding="utf-8-sig") as f:
-                # Read first 256 chars to verify JSON structure (handles BOM + whitespace)
-                header = f.read(256)
-            if not header.strip().startswith("{"):
-                raise ValueError("not JSON")
-        except (OSError, ValueError):
-            # Index file is corrupt — rename to .corrupt and trigger auto-reindex
-            # (preserves evidence; if reindex fails, user still has the file)
-            corrupt_path = index_path.with_suffix(".json.corrupt")
-            try:
-                index_path.rename(corrupt_path)
-            except OSError:
-                pass  # Best-effort rename; reindex will overwrite anyway
-            _maybe_auto_reindex(index_path)
-            return
-
-        # v2.10.0+: also verify the CozoDB has rows. If pycozo is not installed
-        # (legacy dev environment), skip this check — the Rust binary still has
-        # its own DB load path and falls back to JSON. This is defense-in-depth,
-        # not a blocker. A DB with 0 rows is the specific pathology that used
-        # to cause silent desync after the $CLAUDE_PLUGIN_DATA leak bug.
         try:
             from pss_cozodb import count_skills, get_db_path  # type: ignore[import-not-found]
-            if get_db_path().exists() and count_skills() == 0:
-                _maybe_auto_reindex(index_path)
-                return
         except ImportError:
-            pass  # pycozo not available; hook still functional via JSON path
+            # pycozo missing is a hard error in Phase C — the entire runtime
+            # assumes CozoDB as canonical. Warn and exit without suggestions.
+            _exit_warning(
+                "pycozo is not installed. Install with: "
+                "uv pip install 'pycozo[embedded]>=0.7.6'"
+            )
+            return
+
+        db_path = get_db_path()
+        if not db_path.exists() or count_skills() == 0:
+            _maybe_auto_reindex(index_path)
+            return
 
         # Check if binary exists BEFORE doing any expensive work
         try:
@@ -770,14 +763,23 @@ def main() -> None:
 def _warm_index() -> None:
     """SessionStart hook handler: silently warm the skill index.
 
-    If the index file is missing, spawn a background reindex (detached) and
+    In Phase C (v3.0.0), the check is against the CozoDB, not the JSON. If
+    the DB is missing or empty, spawn a background reindex (detached) and
     exit 0 with no output. No stdin read, no chat notifications — this hook
     runs at session startup/resume and must never block or surface messages.
     """
     try:
+        # CozoDB is the authoritative store in Phase C; JSON is only a debug
+        # export. Verify the DB, not the JSON.
+        try:
+            from pss_cozodb import count_skills, get_db_path  # type: ignore[import-not-found]
+        except ImportError:
+            return  # pycozo missing — defer to the real hook call which warns
+
         index_path = _get_cache_dir() / SKILL_INDEX_FILE
-        if index_path.exists():
-            return  # Nothing to do — index is ready
+        db_path = get_db_path()
+        if db_path.exists() and count_skills() > 0:
+            return  # Nothing to do — DB is ready
 
         lock_path = index_path.with_suffix(".reindex.pid")
         if lock_path.exists():

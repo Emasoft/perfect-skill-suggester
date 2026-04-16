@@ -1,49 +1,72 @@
 # Perfect Skill Suggester (PSS) Architecture
 
-## Phase B transition (v2.11.0) — CozoDB is canonical, JSON is a derived export
+## v3.0.0 — Single-store architecture (CozoDB canonical)
 
-Starting with v2.11.0, **CozoDB is the single source of truth** for the PSS
-element index. The `scripts/pss_merge_queue.py` writer now calls
-`scripts/pss_cozodb.py::atomic_write_cozodb` directly after every merge,
-producing all 33 columns on the `skills` relation, the 9 normalised
-auxiliary relations (`skill_keywords`, `skill_intents`, `skill_tools`,
-`skill_services`, `skill_frameworks`, `skill_languages`, `skill_platforms`,
-`skill_domains`, `skill_file_types`), the `kw_lookup` trigram pre-filter,
-the `skill_ids` ID→(name, source) lookup, and `pss_metadata` (version,
-generated, generator).
+As of v3.0.0, PSS uses a **single-store** architecture. CozoDB
+(`pss-skill-index.db`) is the one authoritative source for the element
+index; `skill-index.json` is no longer maintained and exists only as an
+on-demand debug export.
 
-**The runtime hook path is unchanged.** The Rust binary's
-`load_candidates_from_db` continues to query the same schema — only the
-write direction flipped.
+### Data flow (post-Phase C)
 
-**`skill-index.json` is retained as a derived export** for two reasons:
+```
+discover -> pass1-batch -> pss_merge_queue.py (CozoDB writer)
+                                    |
+                                    v
+                           pss-skill-index.db
+                                    |
+                                    +---> hook path: Rust scorer reads CozoDB
+                                    |
+                                    +---> cold path: Python scripts read CozoDB
+                                    |
+                                    +---> on demand: pss export --json
+```
 
-1. Backwards compatibility with the handful of Python scripts that still
-   parse it (`pss_make_plugin.py`, `pss_verify_profile.py`, etc. — Phase C
-   migrates them to pycozo queries).
-2. Debugging: power users can `git diff` successive snapshots to spot
-   drift. Use `pss export --json [--path P]` (new in v2.11.0) to dump the
-   current CozoDB to any path.
+All five Python scripts that used to read `skill-index.json` now issue
+pycozo queries against `pss-skill-index.db`:
 
-**The Rust `pss --build-db` subcommand is now a no-op** when called against
-a CozoDB whose `pss_metadata.generator` field equals `python-merge-queue`.
-It logs `CozoDB already built by Python merge (Phase B); skipping
-redundant rebuild` and exits 0. Legacy JSON-only installs (no CozoDB yet)
-still fall through to the full rebuild path for migration. Phase C
-(v3.0.0) removes this subcommand entirely.
+| Script | Role | Reads | Writes |
+|--------|------|-------|--------|
+| `pss_merge_queue.py` | Reindex merger | prior CozoDB (for timestamp preservation) | CozoDB via `atomic_write_cozodb` |
+| `pss_make_plugin.py` | Plugin generator | `pss_cozodb.get_all_entries()` | — |
+| `pss_verify_profile.py` | Anti-hallucination verifier | `pss_cozodb.get_all_entries()` | — |
+| `pss_generate.py` | .pss import tool | `pss_cozodb.get_all_entries()` | — |
+| `pss_hook.py` | Runtime hook health check | `pss_cozodb.count_skills()` | — |
 
-**Timestamp preservation** across rebuilds is enforced by Python the same
-way Rust used to do it: snapshot `(name, source) → first_indexed_at` from
-the prior DB before `:replace`, then re-apply on insert. Empty values mean
-"new install" → stamp with now. The Python implementation and the Rust
-implementation produce byte-identical rows — verified by
-`test_fnv1a_entry_id_matches_rust_for_react_user` against the live DB.
+### Why we inverted the canonical/derived relationship
 
-**Why we did this:** see `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.md`.
-The one-line summary: with two independent stores, any writer can silently
-desync one from the other — and that's exactly what happened in the
-v2.9.40 incident that triggered this migration. One store, one path, one
-writer.
+Through v2.10.x, PSS maintained two stores with JSON as canonical and
+CozoDB as a derived runtime cache. That invariant was cheap to state but
+expensive to enforce — in April 2026 a real-world bug (`tailwind-4-docs`
+disappearing between reindexes when `$CLAUDE_PLUGIN_DATA` leaked across
+plugin scopes) surfaced the fourth drift incident in six months. The Rust
+hot path already treated CozoDB as canonical in practice (with JSON as a
+fallback that almost never fired), so v3.0 formalises that by removing
+the JSON write path entirely.
+
+See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.md`
+for the full migration record. Phase B (v2.10.0) added the Python writer
+and `pss export --json`; Phase C (v3.0.0) demotes JSON to "optional debug
+export" and removes `run_build_db` from the Rust binary.
+
+### Timestamp preservation
+
+`first_indexed_at` is preserved across rebuilds by
+`scripts/pss_cozodb.py::_snapshot_prior_timestamps` — it reads
+`(name, source) → first_indexed_at` from the prior DB before `:replace`,
+then re-applies those values during batch insert. Empty values mean
+"new install" and get stamped with now. `last_updated_at` always advances
+on every write.
+
+### Migration safety (upgrading from v2.10.x)
+
+Upgrading to v3.0.0 requires no user action:
+
+1. `pss_hook.py` checks CozoDB health on every UserPromptSubmit
+2. If CozoDB is missing or empty (fresh install OR legacy JSON-only state),
+   the hook spawns a background reindex via `pss_reindex.py`
+3. The reindex pipeline writes directly to CozoDB (no JSON intermediate)
+4. Legacy `skill-index.json` files are left in place, harmless
 
 ---
 
