@@ -2,6 +2,17 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.0.0] - 2026-04-16
+
+### Bug Fixes
+
+- **submodule:** Point rust/ at d0a15d7 (Phase C+D rebuild)
+
+### Features
+
+- **cli:** Phase D — query/search/management subcommands + docs
+- **cozodb:** Phase C — JSON demoted to optional debug export
+
 ## [2.10.0] - 2026-04-16
 
 ### Features
