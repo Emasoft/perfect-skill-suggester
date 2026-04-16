@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.10.0] - 2026-04-16
+
+### Features
+
+- **cozodb:** Phase B — Python becomes canonical writer, JSON is derived
+
 ## [2.9.41] - 2026-04-16
 
 ### Features
