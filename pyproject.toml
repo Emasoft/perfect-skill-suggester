@@ -9,6 +9,12 @@ dependencies = [
     "mypy>=1.0.0",
     "types-pyyaml>=6.0.12.20250915",
     "anthropic>=0.84.0",
+    # CozoDB Python bindings — used by scripts/pss_cozodb.py for indexed
+    # queries (count, added_since, search_by_*). Required by scripts/pss_hook.py
+    # health check since v2.10.0. The [embedded] extra installs the native
+    # RocksDB backend; wheels ship for darwin-arm64, darwin-x86_64,
+    # linux-x86_64, linux-arm64, and windows-x86_64.
+    "pycozo[embedded]>=0.7.6",
 ]
 
 [project.optional-dependencies]

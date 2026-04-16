@@ -643,6 +643,11 @@ def main() -> None:
             return
 
         # Check if skill index exists and is valid BEFORE doing any expensive work.
+        # v2.10.0+: the authoritative health check queries CozoDB via pycozo
+        # when available — both stores must be present for the Rust hot path.
+        # JSON header check is still performed as a belt-and-braces fallback
+        # because the Rust scorer falls back to JSON when CozoDB is unavailable
+        # (see main.rs:15910), so a torn JSON file would also warrant reindex.
         # If missing or corrupt, auto-spawn a background reindex and notify user.
         index_path = _get_cache_dir() / SKILL_INDEX_FILE
         if not index_path.exists():
@@ -665,6 +670,19 @@ def main() -> None:
                 pass  # Best-effort rename; reindex will overwrite anyway
             _maybe_auto_reindex(index_path)
             return
+
+        # v2.10.0+: also verify the CozoDB has rows. If pycozo is not installed
+        # (legacy dev environment), skip this check — the Rust binary still has
+        # its own DB load path and falls back to JSON. This is defense-in-depth,
+        # not a blocker. A DB with 0 rows is the specific pathology that used
+        # to cause silent desync after the $CLAUDE_PLUGIN_DATA leak bug.
+        try:
+            from pss_cozodb import count_skills, get_db_path  # type: ignore[import-not-found]
+            if get_db_path().exists() and count_skills() == 0:
+                _maybe_auto_reindex(index_path)
+                return
+        except ImportError:
+            pass  # pycozo not available; hook still functional via JSON path
 
         # Check if binary exists BEFORE doing any expensive work
         try:
