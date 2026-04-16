@@ -489,6 +489,97 @@ Changes are verified against the skill index and validated against the schema be
 
 ---
 
+## Querying the index (Phase D, v2.11.0+)
+
+Once the index is built (via `/pss-reindex-skills`), the `pss` binary exposes
+read-only subcommands for inspection, scripting, and CI gates. All commands
+query CozoDB directly — no Python process, no JSON re-parse.
+
+### Core inventory
+
+```bash
+# How many entries are indexed?
+pss count
+# → 8479
+
+# Populated? Use $? for CI gates (0=yes, 1=empty/corrupt, 2=missing).
+pss health; echo $?
+# → 0
+
+# Full breakdown: type counts, source counts, timestamp banner.
+pss stats --format table
+```
+
+### Filtering entries by timestamp
+
+`first_indexed_at` records the moment an entry first entered the index
+(preserved across reindexes). `last_updated_at` changes on every reindex.
+
+```bash
+# Entries installed in the last day
+pss list-added-since 1d
+
+# Pipe to jq to filter by type
+pss list-added-since 1d --json | jq '.[] | select(.type == "skill")'
+
+# Range query
+pss list-added-between 2026-04-01 2026-04-17 --limit 200
+
+# What changed in the last reindex?
+pss list-updated-since 1h
+```
+
+Datetime formats: RFC 3339 (`2026-04-16T22:12:27Z`), date-only
+(`2026-04-16`, midnight UTC), or relative (`1d`, `2w`, `24h`, `30m`, `120s`).
+
+### Search
+
+```bash
+# Substring match on the name column (case-insensitive)
+pss find-by-name docker
+
+# Exact keyword match via the skill_keywords auxiliary relation
+pss find-by-keyword kubernetes --json | jq length
+
+# Domain-scoped discovery (via skill_domains)
+pss find-by-domain security --json
+
+# Language-scoped discovery (via skill_languages)
+pss find-by-language python --limit 100
+```
+
+### Fetching a single entry
+
+```bash
+pss get tailwind-4-docs                # Human-readable block
+pss get tailwind-4-docs --json         # JSON object (or array if multiple sources)
+pss get react --source user            # Disambiguate when name collides
+```
+
+### Scripting tip
+
+All Phase D subcommands exit non-zero on error (invalid datetime, missing DB,
+entry not found) and write diagnostics to stderr. Safe to use in `set -e`
+scripts without explicit `|| exit`. JSON is always on stdout.
+
+```bash
+# CI gate: fail if the index has fewer than 5000 entries
+[ "$(pss count)" -ge 5000 ] || {
+    echo "Index too small: $(pss count)" >&2
+    exit 1
+}
+
+# Alert when many skills were added today
+today="$(date -u +%Y-%m-%d)"
+added_today="$(pss list-added-since "$today" --json | jq length)"
+[ "$added_today" -lt 50 ] || echo "High churn: $added_today new today"
+```
+
+See [PSS-ARCHITECTURE.md §Rust CLI reference](./PSS-ARCHITECTURE.md#rust-cli-reference-phase-d-v2110)
+for the full command list and the Python API equivalents.
+
+---
+
 ## Additional Resources
 
 - [Rust Book](https://doc.rust-lang.org/book/)

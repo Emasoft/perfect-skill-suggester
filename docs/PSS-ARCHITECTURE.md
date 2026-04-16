@@ -574,3 +574,121 @@ This ensures:
 - Consistent matching behavior
 - No semantic drift from original intent
 - Reproducible results across reindexing
+
+---
+
+## Rust CLI reference (Phase D, v2.11.0+)
+
+The `pss` binary exposes query and management subcommands that mirror the
+Python helpers in `scripts/pss_cozodb.py` but run natively against the CozoDB
+— no Python process, no pycozo import, no FFI hop. Use these when scripting
+from a shell, building CI gates, or diagnosing the live index interactively.
+
+All subcommands are read-only (no writes to the DB) and support a `--json`
+flag (default `false`) that switches from human-readable tabular output to
+JSON suitable for `jq` piping. Timestamp filters accept three date formats:
+
+- **RFC 3339**: `2026-04-16T22:12:27Z` or `2026-04-16T22:12:27+00:00`
+- **Date only**: `2026-04-16` (interpreted as 00:00:00 UTC)
+- **Relative to now**: `1d`, `2w`, `24h`, `30m`, `120s`
+
+### Index inventory
+
+```bash
+pss count                           # Plain integer on stdout
+pss count --json                    # {"count": 8479}
+
+pss stats                           # JSON (legacy default)
+pss stats --format table            # Human-readable banner + counts-by-X
+
+pss health; echo $?                 # 0=populated, 1=empty/corrupt, 2=missing
+pss health --verbose                # Prints "OK (8479 entries)" etc.
+```
+
+`pss stats` prints a banner as of v2.11.0:
+
+```
+Total: 8479 entries
+Oldest first_indexed_at: 2026-04-16T22:12:27Z (entry: some-skill)
+Newest first_indexed_at: 2026-04-17T05:33:12Z (entry: newly-installed)
+Last reindex (newest last_updated_at): 2026-04-17T10:00:00Z
+```
+
+### Lookup by identity
+
+```bash
+pss get tailwind-4-docs             # Fetch a single entry (human format)
+pss get tailwind-4-docs --json      # Fetch as JSON
+pss get react --source user         # Disambiguate when multiple sources share a name
+```
+
+Exits non-zero if no entry matches. When `--source` is omitted and multiple
+rows match, JSON output becomes an array; human output becomes one block per
+row separated by a blank line.
+
+### Timestamp-based filters
+
+These commands read `first_indexed_at` (install time) or `last_updated_at`
+(reindex time) on the `skills` relation. Both are RFC 3339 UTC strings
+written by the Python writer (Phase B).
+
+```bash
+pss list-added-since 1d                             # Last 24h
+pss list-added-since 2026-04-16                     # Since midnight on that date
+pss list-added-since 2026-04-16T22:12:27Z --limit 100
+
+pss list-added-between 2026-04-01 2026-04-16 --limit 200
+pss list-updated-since 1w                           # Any entry touched in last 7 days
+```
+
+Output columns: `TYPE NAME SOURCE FIRST_INDEXED_AT DESCRIPTION` (or
+`LAST_UPDATED_AT` for the updated-since variant). Default limit is 50.
+Invalid datetimes fail fast with a clear error, never silently defaulting
+to "now".
+
+### Content-based filters
+
+```bash
+pss find-by-name docker --limit 20                  # Substring on name column
+pss find-by-keyword kubernetes --json               # Exact match via skill_keywords
+pss find-by-domain security                         # Via skill_domains
+pss find-by-language python                         # Via skill_languages
+```
+
+All four `find-by-*` commands default to a 50-row limit. `find-by-name` is
+case-insensitive substring; the others hit the normalised auxiliary
+relations (`skill_keywords`, `skill_domains`, `skill_languages`) for exact
+match.
+
+### Snapshot export
+
+```bash
+pss export --json                                   # Write to $CLAUDE_PLUGIN_DATA/skill-index.export.json
+pss export --json --path /tmp/my-snapshot.json      # Custom path
+```
+
+The default destination is `$CLAUDE_PLUGIN_DATA/skill-index.export.json`
+(falling back to `~/.claude/cache/skill-index.export.json` if the env var
+is unset). Atomic write via temp file + rename.
+
+### Parallel Python API
+
+All of the above are also exposed as Python helpers in
+`scripts/pss_cozodb.py`:
+
+| Rust CLI                           | Python equivalent                                 |
+|------------------------------------|---------------------------------------------------|
+| `pss count`                        | `count_skills()`                                  |
+| `pss health`                       | `db_is_healthy()`                                 |
+| `pss get <name> [--source S]`      | `get_by_name(name, source=...)`                   |
+| `pss list-added-since <when>`      | `added_since(when, limit=...)`                    |
+| `pss list-added-between <a> <b>`   | `added_between(a, b, limit=...)`                  |
+| `pss list-updated-since <when>`    | `updated_since(when, limit=...)`                  |
+| `pss find-by-name <sub>`           | `search_by_name(sub, limit=...)`                  |
+| `pss find-by-keyword <kw>`         | `search_by_keyword(kw, limit=...)`                |
+| `pss find-by-domain <d>`           | `search_by_domain(d, limit=...)`                  |
+| `pss find-by-language <l>`         | `search_by_language(l, limit=...)`                |
+| `pss export --json --path P`       | `export_json_snapshot(P)`                         |
+
+Use the Python helpers from scripts that already import pycozo; use the
+Rust CLI everywhere else (shell pipelines, CI, ad-hoc inspection).
