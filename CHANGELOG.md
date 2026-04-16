@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.41] - 2026-04-16
+
+### Features
+
+- **cozodb:** Phase A — indexed_at timestamps + pycozo query helpers
+
 ## [2.9.40] - 2026-04-16
 
 ### Bug Fixes
