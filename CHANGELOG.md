@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [2.9.40] - 2026-04-16
+
+### Bug Fixes
+
+- **paths:** Guard $CLAUDE_PLUGIN_DATA scope leak + TRDD for CozoDB unification
+
 ## [2.9.39] - 2026-04-15
 
 ### Documentation
