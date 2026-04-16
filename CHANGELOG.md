@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.1.0] - 2026-04-16
+
+### Features
+
+- **phase-e:** Harmonise skills & commands for CozoDB-canonical index
+
 ## [3.0.0] - 2026-04-16
 
 ### Bug Fixes
