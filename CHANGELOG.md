@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.2.1] - 2026-04-17
+
+### Features
+
+- **clean:** Add pss_clean.py + --clean flag to publish.py
+
 ## [3.2.0] - 2026-04-17
 
 ### Features
