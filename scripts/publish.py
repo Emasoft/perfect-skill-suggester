@@ -50,6 +50,14 @@ BIN_DIR = ROOT / "bin"
 HOOK_SOURCE = ROOT / "git-hooks" / "pre-push"
 HOOK_TARGET = ROOT / ".git" / "hooks" / "pre-push"
 
+# -- Report housekeeping --
+# reports/ is tracked (current/relevant reports). reports_dev/ is gitignored
+# (*_dev/ wildcard). At release time, rotate files older than REPORTS_MAX_AGE_DAYS
+# from reports/ into reports_dev/ so the tracked tree stays small.
+REPORTS_DIR = ROOT / "reports"
+REPORTS_DEV_DIR = ROOT / "reports_dev"
+REPORTS_MAX_AGE_DAYS = 14
+
 # -- CPV remote execution via uvx (no local script sync needed) --
 CPV_REPO = "Emasoft/claude-plugins-validation"
 CPV_UVX_FROM = f"git+https://github.com/{CPV_REPO}"
@@ -938,6 +946,22 @@ def release_pipeline(args: argparse.Namespace) -> None:
     print(f"{CYAN}{'=' * 50}{RESET}")
     print()
 
+    # Step 0: Housekeeping — rotate stale reports (reports/ -> reports_dev/).
+    # Files moved here would dirty the tree vs preflight's clean-tree check,
+    # so if any moved, commit them as a standalone chore BEFORE preflight.
+    # The rotation-commit is additive (no version bump) and happens only when
+    # rotation actually moved something.
+    moved, bytes_moved = rotate_old_reports(dry_run=args.dry_run)
+    if moved and not args.dry_run:
+        info(f"Report rotation: moved {moved} file(s) "
+             f"({bytes_moved / 1024:.1f} KB) older than {REPORTS_MAX_AGE_DAYS} days "
+             f"from reports/ -> reports_dev/.")
+        commit_report_rotation(moved)
+    elif moved:
+        info(f"Report rotation [DRY-RUN]: would move {moved} file(s) "
+             f"({bytes_moved / 1024:.1f} KB) older than {REPORTS_MAX_AGE_DAYS} days "
+             f"from reports/ -> reports_dev/.")
+
     # Step 1: Pre-flight checks (required tools + clean tree)
     preflight_checks(dry_run=args.dry_run)
 
@@ -1035,6 +1059,126 @@ def print_summary(old: str, new: str, args: argparse.Namespace) -> None:
 
 
 # ===========================================================================
+# Report rotation (reports/ -> reports_dev/)
+# ===========================================================================
+
+
+def rotate_old_reports(
+    max_age_days: int = REPORTS_MAX_AGE_DAYS, dry_run: bool = False
+) -> tuple[int, int]:
+    """Move files older than max_age_days from reports/ to reports_dev/.
+
+    reports/ is git-tracked; reports_dev/ is gitignored via *_dev/. Old LLM
+    analysis output (batch_check_*, code_task_*, etc.) accumulates over time
+    and bloats the tracked tree. This rotates the stale files out while
+    keeping the directory structure intact under reports_dev/.
+
+    Returns (moved_count, total_bytes). Silent when reports/ is absent.
+    """
+    if not REPORTS_DIR.exists() or not REPORTS_DIR.is_dir():
+        return (0, 0)
+
+    cutoff = time.time() - max_age_days * 86400
+    moved = 0
+    total_bytes = 0
+
+    for src in REPORTS_DIR.rglob("*"):
+        if not src.is_file():
+            continue
+        try:
+            mtime = src.stat().st_mtime
+        except OSError:
+            continue
+        if mtime >= cutoff:
+            continue  # Still fresh — leave it in reports/
+
+        rel = src.relative_to(REPORTS_DIR)
+        dst = REPORTS_DEV_DIR / rel
+        size = src.stat().st_size
+
+        if dry_run:
+            info(f"  [rotate] would move ({size} B): {rel}")
+            moved += 1
+            total_bytes += size
+            continue
+
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            src.replace(dst)  # atomic on same filesystem
+        except OSError as e:
+            warn(f"  [rotate] FAILED to move {rel}: {e}")
+            continue
+        moved += 1
+        total_bytes += size
+
+    # Prune now-empty subdirectories under reports/ (but keep reports/ itself)
+    if not dry_run:
+        for d in sorted(REPORTS_DIR.rglob("*"), reverse=True):
+            if d.is_dir() and d != REPORTS_DIR:
+                try:
+                    d.rmdir()  # only succeeds if empty
+                except OSError:
+                    pass
+
+    return (moved, total_bytes)
+
+
+def commit_report_rotation(moved: int) -> None:
+    """Stage the reports/ deletions and commit them as a standalone chore.
+
+    Called after rotate_old_reports() in the release pipeline so preflight's
+    clean-tree check passes. No-op when the rotated files were untracked
+    (e.g. reports/ was never committed to git because no reports had aged
+    enough yet to land in the tracked tree).
+    """
+    # Stage deletions + moves under reports/. Tolerates "pathspec didn't match"
+    # which means nothing tracked under reports/ was affected — in that case
+    # `git add` returns non-zero but there's nothing to do.
+    result = run(["git", "add", "-u", str(REPORTS_DIR)])
+    if result.returncode != 0:
+        # Untracked path or empty path — safe to skip.
+        info("  Rotation touched only untracked files — no commit needed.")
+        return
+
+    # Double-check: if add succeeded but nothing was actually staged, skip too.
+    status = run(["git", "diff", "--cached", "--name-only", "--", str(REPORTS_DIR)])
+    if not status.stdout.strip():
+        info("  Rotation touched only untracked files — no commit needed.")
+        return
+
+    commit_msg = f"chore(reports): rotate {moved} stale report(s) to reports_dev/"
+    result = run(["git", "commit", "-m", commit_msg])
+    if result.returncode != 0:
+        fatal(f"git commit (rotation) failed: {result.stderr.strip()}")
+    success(f"  Committed: {commit_msg}")
+
+
+# ===========================================================================
+# Rotate-reports standalone mode
+# ===========================================================================
+
+
+def rotate_reports_mode(args: argparse.Namespace) -> int:
+    """Standalone report rotation: move stale files and optionally commit.
+
+    Reports the move count + size. In --dry-run mode, no file changes happen.
+    If files were actually moved, auto-commits the rotation so the tree stays
+    clean for subsequent operations. If the rotation only touched untracked
+    files, no commit is made.
+    """
+    moved, bytes_moved = rotate_old_reports(dry_run=args.dry_run)
+    if moved == 0:
+        info(f"No files older than {REPORTS_MAX_AGE_DAYS} days under reports/ — nothing to rotate.")
+        return 0
+    action = "would move" if args.dry_run else "moved"
+    info(f"Report rotation: {action} {moved} file(s) ({bytes_moved / 1024:.1f} KB) "
+         f"older than {REPORTS_MAX_AGE_DAYS} days from reports/ -> reports_dev/.")
+    if not args.dry_run:
+        commit_report_rotation(moved)
+    return 0
+
+
+# ===========================================================================
 # Clean mode (wraps scripts/pss_clean.py for disk-artifact cleanup)
 # ===========================================================================
 
@@ -1121,11 +1265,23 @@ def main() -> None:
         action="store_true",
         help="With --clean: also prune stale cross-rs/super-linter Docker images.",
     )
+
+    # Report rotation (reports/ -> reports_dev/) — also runs automatically
+    # at the start of every release; this flag is for manual invocation.
+    parser.add_argument(
+        "--rotate-reports",
+        action="store_true",
+        help=f"Standalone: move files in reports/ older than "
+             f"{REPORTS_MAX_AGE_DAYS} days into reports_dev/ and exit. "
+             "Also runs automatically at release start.",
+    )
     args = parser.parse_args()
 
     # Dispatch to the right mode
     if args.clean:
         sys.exit(clean_mode(args))
+    elif args.rotate_reports:
+        sys.exit(rotate_reports_mode(args))
     elif args.gate:
         sys.exit(gate_pipeline())
     elif args.install_hook:

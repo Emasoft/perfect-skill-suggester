@@ -60,7 +60,10 @@ target/
 # bin/ is TRACKED — contains pre-built PSS binaries for all platforms
 # (binaries moved from src/skill-suggester/bin/ to top-level bin/ in v2.5.0)
 
-# LLM Externalizer MCP output
+# LLM Externalizer MCP output — the current output dir is reports/llm-externalizer/.
+# reports/ is TRACKED (current/relevant reports are part of the repo); reports_dev/ is
+# gitignored via the *_dev/ wildcard above and receives rotated-out old reports.
+# Legacy name retained here only in case older tooling still writes to it.
 llm_externalizer_output/
 
 # Deprecated files (moved to *_dev/ folders)
