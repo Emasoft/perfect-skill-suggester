@@ -52,11 +52,11 @@ HOOK_TARGET = ROOT / ".git" / "hooks" / "pre-push"
 
 # -- Report housekeeping --
 # reports/ is tracked (current/relevant reports). reports_dev/ is gitignored
-# (*_dev/ wildcard). At release time, rotate files older than REPORTS_MAX_AGE_DAYS
+# (*_dev/ wildcard). At release time, rotate files older than REPORTS_MAX_AGE_HOURS
 # from reports/ into reports_dev/ so the tracked tree stays small.
 REPORTS_DIR = ROOT / "reports"
 REPORTS_DEV_DIR = ROOT / "reports_dev"
-REPORTS_MAX_AGE_DAYS = 14
+REPORTS_MAX_AGE_HOURS = 24
 
 # -- CPV remote execution via uvx (no local script sync needed) --
 CPV_REPO = "Emasoft/claude-plugins-validation"
@@ -954,12 +954,12 @@ def release_pipeline(args: argparse.Namespace) -> None:
     moved, bytes_moved = rotate_old_reports(dry_run=args.dry_run)
     if moved and not args.dry_run:
         info(f"Report rotation: moved {moved} file(s) "
-             f"({bytes_moved / 1024:.1f} KB) older than {REPORTS_MAX_AGE_DAYS} days "
+             f"({bytes_moved / 1024:.1f} KB) older than {REPORTS_MAX_AGE_HOURS} hours "
              f"from reports/ -> reports_dev/.")
         commit_report_rotation(moved)
     elif moved:
         info(f"Report rotation [DRY-RUN]: would move {moved} file(s) "
-             f"({bytes_moved / 1024:.1f} KB) older than {REPORTS_MAX_AGE_DAYS} days "
+             f"({bytes_moved / 1024:.1f} KB) older than {REPORTS_MAX_AGE_HOURS} hours "
              f"from reports/ -> reports_dev/.")
 
     # Step 1: Pre-flight checks (required tools + clean tree)
@@ -1064,9 +1064,9 @@ def print_summary(old: str, new: str, args: argparse.Namespace) -> None:
 
 
 def rotate_old_reports(
-    max_age_days: int = REPORTS_MAX_AGE_DAYS, dry_run: bool = False
+    max_age_hours: int = REPORTS_MAX_AGE_HOURS, dry_run: bool = False
 ) -> tuple[int, int]:
-    """Move files older than max_age_days from reports/ to reports_dev/.
+    """Move files older than max_age_hours from reports/ to reports_dev/.
 
     reports/ is git-tracked; reports_dev/ is gitignored via *_dev/. Old LLM
     analysis output (batch_check_*, code_task_*, etc.) accumulates over time
@@ -1078,7 +1078,7 @@ def rotate_old_reports(
     if not REPORTS_DIR.exists() or not REPORTS_DIR.is_dir():
         return (0, 0)
 
-    cutoff = time.time() - max_age_days * 86400
+    cutoff = time.time() - max_age_hours * 3600
     moved = 0
     total_bytes = 0
 
@@ -1168,11 +1168,11 @@ def rotate_reports_mode(args: argparse.Namespace) -> int:
     """
     moved, bytes_moved = rotate_old_reports(dry_run=args.dry_run)
     if moved == 0:
-        info(f"No files older than {REPORTS_MAX_AGE_DAYS} days under reports/ — nothing to rotate.")
+        info(f"No files older than {REPORTS_MAX_AGE_HOURS} hours under reports/ — nothing to rotate.")
         return 0
     action = "would move" if args.dry_run else "moved"
     info(f"Report rotation: {action} {moved} file(s) ({bytes_moved / 1024:.1f} KB) "
-         f"older than {REPORTS_MAX_AGE_DAYS} days from reports/ -> reports_dev/.")
+         f"older than {REPORTS_MAX_AGE_HOURS} hours from reports/ -> reports_dev/.")
     if not args.dry_run:
         commit_report_rotation(moved)
     return 0
@@ -1272,7 +1272,7 @@ def main() -> None:
         "--rotate-reports",
         action="store_true",
         help=f"Standalone: move files in reports/ older than "
-             f"{REPORTS_MAX_AGE_DAYS} days into reports_dev/ and exit. "
+             f"{REPORTS_MAX_AGE_HOURS} hours into reports_dev/ and exit. "
              "Also runs automatically at release start.",
     )
     args = parser.parse_args()
