@@ -28,8 +28,8 @@
         },
         "effort": {
           "type": "string",
-          "description": "Model effort level for this agent (CC v2.1.78+). Controls thinking depth.",
-          "enum": ["low", "medium", "high"],
+          "description": "Model effort level for this agent (CC v2.1.78+). Controls thinking depth. `xhigh` is Opus 4.7's extension beyond `high` (CC v2.1.111+); non-Opus-4.7 models silently fall back to `high`.",
+          "enum": ["low", "medium", "high", "xhigh"],
           "examples": ["medium"]
         },
         "maxTurns": {

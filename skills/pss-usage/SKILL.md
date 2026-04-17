@@ -22,37 +22,30 @@ PSS automatically suggests relevant Claude Code elements (skills, agents, comman
 
 ## Instructions
 
-1. Check PSS health: `/pss-status`
-2. Build/rebuild skill index: `/pss-reindex-skills`
-3. Use prompts naturally -- PSS suggests skills with confidence (HIGH/MEDIUM/LOW)
-4. Activate suggestions: `/skill activate <skill-name>`
-5. Reindex after installing or modifying skills
+1. Check health (`/pss-status`); reindex (`/pss-reindex-skills`) if empty.
+2. Use prompts naturally — PSS suggests skills with HIGH/MEDIUM/LOW confidence.
+3. Activate via `/skill activate <name>`.
+4. Reindex after installing or modifying skills.
 
 ### Checklist
 
 Copy this checklist and track your progress:
 
-- [ ] Plugin installed and enabled (`/plugin list`)
+- [ ] Plugin enabled (`/plugin list`)
 - [ ] Index built (`/pss-reindex-skills`)
 - [ ] Status verified (`/pss-status`)
 - [ ] Test prompt produces suggestions
 
 ## Querying the Index Directly
 
-The canonical PSS index is a CozoDB store (`pss-skill-index.db`) under `$CLAUDE_PLUGIN_DATA` (fallback `~/.claude/cache/`). Two slash commands wrap the most common queries; the Rust binary and Python helpers expose everything else.
-
-- `/pss-search <query>` — keyword / full-text search
-- `/pss-added-since <when>` — list entries installed since `<when>` (`1d`, `2w`, `2026-04-10`, RFC 3339)
-
-See [Querying the Index Directly](references/querying-the-index.md) for the full list of Rust CLI subcommands, Python helpers in `scripts/pss_cozodb.py`, and quick recipes.
+Store: CozoDB at `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` (fallback `~/.claude/cache/`). Slash commands: `/pss-search <q>`, `/pss-added-since <when>`. See [Querying the Index Directly](references/querying-the-index.md) for CLI + helpers.
 
 ## Error Handling
 
-- **Commands not found**: Check plugin enabled (`/plugin list`)
-- **Empty suggestions**: Run `/pss-reindex-skills`
-- **Index errors**: Delete `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` (or `~/.claude/cache/pss-skill-index.db`), then reindex
-- **Reindex failures**: Verify skills directories exist
-- **Legacy `skill-index.json`**: Generated on demand via `pss export --json` for `git diff` workflows. The runtime hook no longer reads JSON — CozoDB is canonical.
+- **Commands not found** → check `/plugin list`
+- **Empty suggestions** → `/pss-reindex-skills`
+- **Index errors** → delete `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` (fallback `~/.claude/cache/pss-skill-index.db`), then reindex
+- **Legacy `skill-index.json`** → now generated on demand via `pss export --json`; CozoDB is canonical.
 
 ## Output
 
@@ -60,25 +53,48 @@ Suggestion table with: Element Name, Type, Confidence (HIGH/MEDIUM/LOW), Evidenc
 
 ## Examples
 
-Input: User prompt "I need to set up Docker containers for my app"
-Output: `⚡« Pss!... use: docker (skill), devops (skill) »`
-
-- `/pss-status` -- displays index health, element count, last reindex time
-- `/pss-reindex-skills` -- full regeneration of skill index from all sources
-- `/pss-get-description react` -- lightweight metadata lookup for any indexed element
-- `/pss-search docker` -- keyword / full-text search across the CozoDB index
-- `/pss-added-since 1d` -- list entries installed since the given time
-- `/pss-setup-agent path/to/agent.md` -- generate `.agent.toml` profile for an agent
-- `/pss-change-agent-profile path/to/file.agent.toml` -- modify a profile with natural language
-- `/pss-add-to-index path/to/SKILL.md` -- add a new element to the index
+Prompt "I need Docker containers" → `⚡« Pss!... use: docker (skill) »`. Commands: `/pss-status`, `/pss-reindex-skills`, `/pss-get-description <n>`, `/pss-search <q>`, `/pss-added-since <w>`, `/pss-setup-agent <p>`, `/pss-change-agent-profile <p>`, `/pss-add-to-index <p>`.
 
 ## References
 
 - [Commands Reference](references/pss-commands.md) -- command structure, /pss-status, /pss-reindex-skills, suggestion output interpretation, troubleshooting
+  - Understanding PSS command structure and invocation
+    - Command naming conventions
+    - Command invocation from Claude Code chat
+  - Using /pss-status to check PSS configuration and index health
+    - Basic /pss-status usage without arguments
+    - Understanding /pss-status output: index statistics
+    - Understanding /pss-status output: skill counts and categories
+    - Interpreting /pss-status warnings and errors
+  - Using /pss-reindex-skills to rebuild the skill index
+    - When to reindex: detecting stale skill data
+    - Running /pss-reindex-skills workflow step-by-step
+    - Understanding reindex progress and completion messages
+    - Verifying successful reindexing with /pss-status
+  - Interpreting PSS skill suggestion output
+    - Understanding confidence levels: HIGH, MEDIUM, LOW
+    - Understanding evidence types: intent, keyword, co_usage
+    - Reading the skill suggestion table format
+    - Deciding when to activate suggested skills
+  - Troubleshooting common PSS issues
+    - PSS commands not found or not responding
+    - Empty or missing skill suggestions
+    - Index file errors or corruption
+    - Reindexing failures and recovery
+  - Summary
 - [Suggestion Output](references/suggestion-output.md) -- reading the table, decision framework
+  - Reading This Table
+  - Decision Framework
 - [Common Workflows](references/common-workflows.md) -- first-time setup, adding skills, debugging missing suggestions
+  - Workflow 1: First-Time PSS Setup
+  - Workflow 2: Adding New Skills
+  - Workflow 3: Debugging Missing Suggestions
 - [Examples](references/examples.md) -- testing, setup, debugging examples
+  - Example 1: Testing Workflow
+  - Example 2: First-Time Setup
+  - Example 3: Debugging Missing Suggestions
 - [Setup Checklist](references/setup-checklist.md) -- setup and verification checklist
+  - Checklist
 - [Querying the Index Directly](references/querying-the-index.md)
   - Slash command entry points
   - Rust CLI subcommand reference

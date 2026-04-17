@@ -13,7 +13,7 @@ If the Rust binary is not found or not executable, abort with an explicit error 
 
 ## Missing Skill Index
 
-If the skill index (`~/.claude/cache/skill-index.json`) does not exist, instruct the user to run `/pss-reindex-skills` first.
+If the CozoDB skill index (`$CLAUDE_PLUGIN_DATA/pss-skill-index.db`, fallback `~/.claude/cache/pss-skill-index.db`) does not exist, instruct the user to run `/pss-reindex-skills` first.
 
 ## Validation Failure
 

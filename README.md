@@ -4,12 +4,14 @@
 
 # Perfect Skill Suggester (PSS)
 
+<!--BADGES-START-->
 ![Version](https://img.shields.io/badge/version-3.1.1-blue)
 ![Platforms](https://img.shields.io/badge/platforms-5-green)
 ![Accuracy](https://img.shields.io/badge/accuracy-88%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Rust](https://img.shields.io/badge/rust-native_binary-orange)
-![Claude Code](https://img.shields.io/badge/claude--code-v2.1.69--v2.1.109-blueviolet)
+![Claude Code](https://img.shields.io/badge/claude--code-v2.1.69--v2.1.112-blueviolet)
+<!--BADGES-END-->
 
 > **Installation:** This plugin is distributed via the [Emasoft Plugins Marketplace](https://github.com/Emasoft/emasoft-plugins).
 > See [Installation](#installation) below for instructions.

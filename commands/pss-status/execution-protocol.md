@@ -1,28 +1,39 @@
 # Execution Protocol
 
+As of v3.0.0, the authoritative PSS index is the CozoDB store
+(`pss-skill-index.db`). All statistics are read from it via the Rust binary's
+`stats` / `health` / `count` subcommands.
+
 ## Step 1: Check Index Status
 
-Read the skill index and display statistics:
+Use the Rust binary's `health` subcommand (exit 0 = populated, 1 = empty, 2 =
+missing) and `stats` subcommand for headline numbers:
 
 ```bash
-INDEX_FILE="$HOME/.claude/cache/skill-index.json"
-if [ -f "$INDEX_FILE" ]; then
-    echo "Index found: $INDEX_FILE"
-    echo "Modified: $(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$INDEX_FILE" 2>/dev/null || stat -c '%y' "$INDEX_FILE" 2>/dev/null | cut -d. -f1)"
-    echo "Size: $(du -h "$INDEX_FILE" | cut -f1)"
+DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/cache}"
+DB_FILE="${DATA_DIR}/pss-skill-index.db"
+BINARY="${CLAUDE_PLUGIN_ROOT}/bin/pss-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
+
+if [ -f "$DB_FILE" ]; then
+    echo "CozoDB index found: $DB_FILE"
+    echo "Modified: $(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$DB_FILE" 2>/dev/null || stat -c '%y' "$DB_FILE" 2>/dev/null | cut -d. -f1)"
+    echo "Size: $(du -h "$DB_FILE" | cut -f1)"
+    "$BINARY" health --verbose
 else
-    echo "No skill index found. Run /pss-reindex-skills to create one."
+    echo "No CozoDB index found. Run /pss-reindex-skills to create one."
 fi
 ```
 
 ## Step 2: Parse Index Statistics
 
-Read the index file and extract:
-- Total skills count
-- Skills by source (user, project, plugin)
-- Skills by type (skill, agent, command)
-- Total keywords count
-- Index version and generation method
+Call `pss stats --format table` (or `--format json` for structured output) to
+extract:
+- Total element count by type (skill, agent, command, rule, mcp, lsp)
+- Counts per domain and category
+- Oldest / newest installation timestamps (from `first_indexed_at`)
+- Last reindex timestamp (from `last_updated_at`)
+
+Internally the Rust binary reads the CozoDB relations; no JSON parsing required.
 
 ## Step 3: Display Status
 

@@ -29,7 +29,7 @@ Takes an existing `.agent.toml` (or baseline candidate pool) and a project requi
 
 - Existing `.agent.toml` profile (from `pss-agent-toml` / `/pss-setup-agent`)
 - Requirements/design document (`.md` file describing the project)
-- Skill index at `~/.claude/cache/skill-index.json`
+- CozoDB skill index at `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` (fallback `~/.claude/cache/pss-skill-index.db`)
 - Rust binary at `$CLAUDE_PLUGIN_ROOT/bin/<platform>`
 
 ### Checklist

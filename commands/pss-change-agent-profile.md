@@ -63,7 +63,10 @@ BINARY_PATH="${PLUGIN_ROOT}/bin/pss-${OS}-${ARCH}"
 
 Set paths:
 ```bash
-INDEX_PATH="${HOME}/.claude/cache/skill-index.json"
+# As of v3.0.0, CozoDB is the canonical store. The legacy skill-index.json
+# path is kept here only as a fallback seed when a legacy file is present.
+COZO_DB_PATH="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/cache}/pss-skill-index.db"
+INDEX_PATH="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/cache}/skill-index.json"
 VERIFY_SCRIPT="${PLUGIN_ROOT}/scripts/pss_verify_profile.py"
 VALIDATE_SCRIPT="${PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py"
 ```

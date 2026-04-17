@@ -97,7 +97,7 @@ See detailed execution steps including `CLAUDE_PLUGIN_ROOT` validation, platform
 
 - Missing <agent-name>.md: `ERROR: Agent file not found: <path>`
 - Missing requirements file: `ERROR: Requirements file not found: <path>`
-- Missing skill-index.json: `ERROR: Skill index not found. Run /pss-reindex-skills first.`
+- Missing CozoDB index: `ERROR: Skill index not found. Run /pss-reindex-skills first.`
 - Missing Rust binary: `ERROR: PSS binary not found for platform <OS>/<ARCH>. Run cargo build.`
 - Invalid plugin:agent notation: `ERROR: Could not resolve agent 'plugin:name'. Check plugin is installed.`
 - `--fast` with `--interactive`: `ERROR: --fast and --interactive are incompatible. Fast mode skips the AI agent required for interactive review.`

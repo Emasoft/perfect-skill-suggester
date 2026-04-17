@@ -77,7 +77,7 @@ Copy this checklist and track your progress:
 ## Examples
 
 ```
-cargo build --release && uv run scripts/pss_benchmark.py --binary target/release/pss
+cargo build --release && uv run scripts/pss_agent_benchmark.py --binary target/release/pss
 ```
 
 ## Output

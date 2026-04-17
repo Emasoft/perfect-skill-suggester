@@ -835,13 +835,24 @@ def _post_compact() -> None:
     return
 
 
-if __name__ == "__main__":
+def _cli_dispatch() -> None:
+    """CLI entry point. Routes `--warm-index` and `--post-compact` flags.
+
+    Kept as a function so the module itself has no sys.exit at import time —
+    the CPV plugin validator rejects module-scope SystemExit because a stray
+    import of the module would kill the caller. Calling from inside
+    `if __name__ == "__main__":` keeps the exit guarded.
+    """
     if len(sys.argv) > 1:
         flag = sys.argv[1]
         if flag == "--warm-index":
             _warm_index()
-            sys.exit(0)
+            return
         if flag == "--post-compact":
             _post_compact()
-            sys.exit(0)
+            return
     main()
+
+
+if __name__ == "__main__":
+    _cli_dispatch()

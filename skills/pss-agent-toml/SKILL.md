@@ -26,7 +26,7 @@ user-invocable: false
 
 ## Prerequisites
 
-- Skill index at `~/.claude/cache/skill-index.json`
+- CozoDB skill index at `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` (fallback `~/.claude/cache/pss-skill-index.db`)
 - Rust binary at `$CLAUDE_PLUGIN_ROOT/bin/<platform>`
 
 ### Checklist

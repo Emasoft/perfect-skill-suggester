@@ -16,7 +16,7 @@
 ## Error Handling
 
 - If baseline benchmark fails to run: verify binary is built (`cargo build --release`)
-- If benchmark score is 0: check that `skill-index.json` exists at `~/.claude/cache/skill-index.json`
+- If benchmark score is 0: check that the CozoDB exists at `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` (fallback `~/.claude/cache/pss-skill-index.db`); rebuild with `/pss-reindex-skills` if missing
 - If cargo tests fail after changes: revert last change, re-run tests, diagnose the issue
 - If a change causes catastrophic regression (>50 points): revert immediately, document in report
 
@@ -25,7 +25,7 @@
 Run baseline benchmark:
 ```bash
 cd rust/skill-suggester && cargo build --release
-python3 scripts/pss_benchmark.py --prompts docs_dev/benchmark-v2-prompts-100.jsonl --gold docs_dev/benchmark-v2-gold-100.json
+uv run scripts/pss_agent_benchmark.py --prompts docs_dev/benchmark-v2-prompts-100.jsonl --gold docs_dev/benchmark-v2-gold-100.json
 ```
 
 Document a change:

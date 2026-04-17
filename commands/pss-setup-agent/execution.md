@@ -2,7 +2,7 @@
 
 1. Verify the resolved <agent-name>.md path exists and is readable
 2. Verify each `--requirements` path exists and is readable (error with specific path if not)
-3. Verify `~/.claude/cache/skill-index.json` exists (error if not — tell user to run `/pss-reindex-skills` first)
+3. Verify the CozoDB index at `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` (fallback `~/.claude/cache/pss-skill-index.db`) exists and contains rows (use `pss health` — exit 0 = populated). Error out if not, instructing the user to run `/pss-reindex-skills` first.
 4. Determine the output path
 5. Validate `CLAUDE_PLUGIN_ROOT` environment variable:
    ```python
@@ -96,7 +96,7 @@
    The prompt to the agent MUST include:
    - `AGENT_PATH` — the resolved absolute path to the <agent-name>.md file
    - `REQUIREMENTS_PATHS` — the list of requirements file paths (may be empty)
-   - `INDEX_PATH` — the path to skill-index.json (`~/.claude/cache/skill-index.json`)
+   - `INDEX_PATH` — the path to the CozoDB skill index (`$CLAUDE_PLUGIN_DATA/pss-skill-index.db` or fallback `~/.claude/cache/pss-skill-index.db`)
    - `BINARY_PATH` — the absolute path to the Rust binary (resolved in step 6)
    - `OUTPUT_PATH` — the desired output path for the .agent.toml file
    - Instructions to follow the workflow defined in `${CLAUDE_PLUGIN_ROOT}/agents/pss-agent-profiler.md`

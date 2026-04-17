@@ -66,7 +66,7 @@ except ImportError:  # pragma: no cover  — Windows has no fcntl
 # `python3` with no venv.
 _PYCOZO_IMPORT_ERROR: ImportError | None = None
 try:
-    from pycozo.client import Client
+    from pycozo.client import Client  # type: ignore[import-untyped]
 except ImportError as _pycozo_import_err:  # pragma: no cover
     _PYCOZO_IMPORT_ERROR = _pycozo_import_err
 
@@ -1006,9 +1006,19 @@ def _escape_cozo_str(s: str) -> str:
     """Escape a string for embedding in a Cozo inline data literal.
 
     The Cozo parser interprets backslash and double-quote. Matches the escape
-    logic Rust uses in build_inline_data.
+    logic Rust uses in build_inline_data. Also handles control characters
+    (NUL, CR, LF, tab) that could break the parser or cause log-injection
+    when user input contains them.
     """
-    return s.replace("\\", "\\\\").replace('"', '\\"')
+    # Backslash escape first so subsequent additions do not double-escape it
+    s = s.replace("\\", "\\\\")
+    s = s.replace('"', '\\"')
+    # Control chars that could break the parser or terminate the statement
+    s = s.replace("\x00", "\\u0000")
+    s = s.replace("\n", "\\n")
+    s = s.replace("\r", "\\r")
+    s = s.replace("\t", "\\t")
+    return s
 
 
 def _batch_insert_pairs(db: Client, relation: str, pairs: list[tuple[str, str]]) -> None:
@@ -1374,8 +1384,29 @@ def export_json_snapshot(
 
 
 def _escape(s: str) -> str:
-    """Minimal string escape for Cozo string literals: single-quote only."""
-    return s.replace("\\", "\\\\").replace("'", "\\'")
+    """Escape a Python string for embedding in a Cozo single-quoted string literal.
+
+    Handles:
+      - Backslashes (escape first so we do not double-escape later)
+      - Single quotes (the literal delimiter)
+      - Control characters that can break Cozo's parser or cause log-injection
+        when the string contains user-controlled input: NUL, CR, LF, tab.
+
+    Note: CozoDB tolerates most Unicode inside string literals, so non-ASCII
+    characters are passed through unchanged. Only control bytes that could
+    confuse the parser or terminate the query are converted to escape sequences.
+    """
+    # Backslash escape MUST come first so later additions do not re-escape it
+    s = s.replace("\\", "\\\\")
+    s = s.replace("'", "\\'")
+    # Control chars that can break the Cozo parser or cause log-injection.
+    # CozoDB accepts \n, \r, \t in string literals; explicitly escape them
+    # so queries remain single-line even when user input contains newlines.
+    s = s.replace("\x00", "\\u0000")
+    s = s.replace("\n", "\\n")
+    s = s.replace("\r", "\\r")
+    s = s.replace("\t", "\\t")
+    return s
 
 
 def _rows_to_dicts(result: dict) -> list[dict[str, Any]]:

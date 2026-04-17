@@ -27,7 +27,7 @@ try:
     import tomllib
 except ImportError:
     try:
-        import tomli as tomllib  # type: ignore[no-redef]
+        import tomli as tomllib  # type: ignore[no-redef,import-not-found]
     except ImportError:
         sys.exit("ERROR: Python 3.11+ or 'tomli' package required for TOML parsing.")
 
@@ -182,9 +182,9 @@ def validate_agent_section(
             result.error(
                 f"[agent].effort must be a string, got: {type(effort).__name__}"
             )
-        elif effort not in ("low", "medium", "high"):
+        elif effort not in ("low", "medium", "high", "xhigh"):
             result.error(
-                f"[agent].effort must be 'low', 'medium', or 'high', got: '{effort}'"
+                f"[agent].effort must be 'low', 'medium', 'high', or 'xhigh' (Opus 4.7 only; other models fall back to 'high'), got: '{effort}'"
             )
 
     max_turns = agent.get("maxTurns")

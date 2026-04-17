@@ -4,7 +4,7 @@
 2. Verify the `.agent.toml` file exists at `PROFILE_PATH`
 3. Read the `.agent.toml` to extract `[agent].path` (the agent `.md` file) as `AGENT_PATH`
 4. If `--requirements` provided, verify each requirements file exists
-5. Verify `~/.claude/cache/skill-index.json` exists
+5. Verify the CozoDB index at `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` (fallback `~/.claude/cache/pss-skill-index.db`) exists and has rows (use `pss health`)
 6. Validate `CLAUDE_PLUGIN_ROOT` environment variable:
    ```python
    import os
@@ -51,7 +51,7 @@ The prompt to the agent MUST include:
 - `CHANGE_INSTRUCTIONS` — the change instructions from the user
 - `REQUIREMENTS_PATHS` — list of requirements file paths (may be empty). When non-empty, the profiler uses the `pss-design-alignment` skill: scores requirements separately (Pass 2), cherry-picks elements matching the agent's specialization, and merges into the existing profile
 - `BINARY_PATH` — path to the Rust binary (for searching the index)
-- `INDEX_PATH` — path to `~/.claude/cache/skill-index.json`
+- `INDEX_PATH` — path to the CozoDB skill index (`$CLAUDE_PLUGIN_DATA/pss-skill-index.db`, fallback `~/.claude/cache/pss-skill-index.db`)
 - The path to the verification script: `${PLUGIN_ROOT}/scripts/pss_verify_profile.py`
 - The path to the validation script: `${PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py`
 - Instructions to: read the current TOML, apply changes, run verification with `--agent-def "${AGENT_PATH}"`, validate, write back

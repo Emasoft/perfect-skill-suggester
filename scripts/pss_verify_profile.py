@@ -116,7 +116,7 @@ def load_toml(path: Path) -> dict:
     except ImportError:
         pass
     try:
-        import tomli
+        import tomli  # type: ignore[import-not-found]
 
         return tomli.loads(text)
     except ImportError:
@@ -537,7 +537,7 @@ def write_toml(data: dict, path: Path) -> None:
     """Write TOML data back to a file (manual serialization for comments preservation)."""
     # We use tomli_w if available, otherwise manual
     try:
-        import tomli_w
+        import tomli_w  # type: ignore[import-not-found]
 
         path.write_text(tomli_w.dumps(data), encoding="utf-8")
         return

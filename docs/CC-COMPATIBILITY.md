@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.109**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.112**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -71,6 +71,37 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.112 (2026-04-17)
+- Maintenance release with no documented new features.
+- **PSS impact**: none.
+
+### v2.1.111 (2026-04-16)
+- **New `xhigh` effort level** for Opus 4.7 (between `high` and `max`). Other models
+  silently fall back to `high`. Configurable via `--effort`, `CLAUDE_CODE_DEFAULT_EFFORT`,
+  the `/effort` interactive slider, or the `effort:` field in agent frontmatter.
+- **Auto mode no longer requires `--enable-auto-mode`** — the switch is now always
+  available by default.
+- **PowerShell tool on Linux/macOS** — opt-in via `CLAUDE_CODE_USE_POWERSHELL_TOOL=1`
+  env var; requires `pwsh` on PATH.
+- New `/less-permission-prompts`, `/ultrareview`, `/effort` built-in commands/skills.
+- `/skills` menu adds token-count sort.
+- Headless `--output-format stream-json` now includes `plugin_errors` on the init event.
+- `.claude/rules/` can be split from `CLAUDE.md`.
+- Plan files are renamed after prompt content for later re-identification.
+- `OTEL_LOG_RAW_API_BODIES` env var for telemetry.
+- **PSS impact**: `.agent.toml` schema `effort` enum extended to include `xhigh`
+  (`schemas/pss-agent-toml-schema.json` + `scripts/pss_validate_agent_toml.py`). The
+  profiler can now emit `effort = "xhigh"` for Opus-targeted profiles; non-Opus-4.7
+  models fall back to `high` automatically, so the field is backward-compatible. The
+  built-in `/less-permission-prompts` and `/ultrareview` commands are automatically
+  indexed via the existing commands-index scan. PSS's rule indexer already handles
+  both `CLAUDE.md` and `.claude/rules/` so the split introduced in v2.1.111 is a
+  no-op for PSS. PSS headless mode cleanly loads with no `plugin_errors` surfaced.
+
+### v2.1.110 (2026-04-15)
+- Maintenance release with no documented new features.
+- **PSS impact**: none.
 
 ### v2.1.109 (2026-04-15)
 - Improved extended-thinking indicator with a rotating progress hint.
