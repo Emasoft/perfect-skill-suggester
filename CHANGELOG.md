@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.2.0] - 2026-04-17
+
+### Features
+
+- V3.2.0 audit — CC 2.1.110-112 support, CozoDB docs cleanup, hardened escape
+
 ## [3.1.1] - 2026-04-17
 
 ### Bug Fixes
