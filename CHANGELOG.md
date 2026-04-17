@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.2.4] - 2026-04-17
+
+### Bug Fixes
+
+- **pycozo:** Provision via PEP 723 + pin dataframe=False on Client
+
 ## [3.2.3] - 2026-04-17
 
 ### Refactor
