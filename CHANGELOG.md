@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.1.1] - 2026-04-17
+
+### Bug Fixes
+
+- **hooks:** Invoke Python via uv run --script (PEP 723 cross-platform)
+
 ## [3.1.0] - 2026-04-16
 
 ### Features
