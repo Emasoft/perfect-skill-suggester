@@ -50,12 +50,50 @@ try:
 except ImportError:  # pragma: no cover  — Windows has no fcntl
     fcntl = None  # type: ignore[assignment]
 
+# pycozo is the canonical runtime dependency. Historically this module
+# sys.exit'd when the import failed — that broke pss_hook.py's graceful
+# ImportError fallback by propagating SystemExit past its try/except and
+# taking the hook process down with a user-visible stderr error.
+#
+# Current contract: module load NEVER kills the caller. If pycozo is
+# missing, Client is replaced by a stub class whose constructor raises a
+# clear ImportError at first use. Type annotations stay valid because
+# Client remains a class symbol either way.
+#
+# hooks/hooks.json now invokes Python scripts via `uv run --script`, so on
+# normal installs pycozo is always available. This stub path is reached
+# only in legacy dev environments where the module is imported by a plain
+# `python3` with no venv.
+_PYCOZO_IMPORT_ERROR: ImportError | None = None
 try:
     from pycozo.client import Client
-except ImportError:  # pragma: no cover
-    sys.exit(
-        "ERROR: pycozo is required. Install with: uv pip install 'pycozo[embedded]'"
-    )
+except ImportError as _pycozo_import_err:  # pragma: no cover
+    _PYCOZO_IMPORT_ERROR = _pycozo_import_err
+
+    class Client:  # type: ignore[no-redef]
+        """Stub raised when pycozo is not installed. Real Client is re-exported above when available."""
+
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            raise ImportError(
+                "pycozo is required for pss_cozodb. hooks/hooks.json invokes "
+                "Python via `uv run --script` which provisions pycozo "
+                "automatically — make sure `uv` is on your PATH "
+                "(https://docs.astral.sh/uv/). To install manually: "
+                "`uv pip install 'pycozo[embedded]>=0.7.6'`. "
+                f"Original import error: {_PYCOZO_IMPORT_ERROR}"
+            )
+
+        def run(self, *_args: Any, **_kwargs: Any) -> dict:
+            raise ImportError("pycozo not available")  # defensive; Client() already raised
+
+        def close(self) -> None:
+            return None
+
+
+def _require_pycozo() -> None:
+    """Raise a clear error if pycozo failed to import at module load."""
+    if _PYCOZO_IMPORT_ERROR is not None:
+        raise _PYCOZO_IMPORT_ERROR
 
 # pss_paths lives next to this module
 _SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -84,6 +122,7 @@ def open_db(path: Path | None = None) -> Client:
     `/pss-reindex-skills`. Callers that discover the DB is missing should
     trigger a reindex (the hook's auto-reindex path does this).
     """
+    _require_pycozo()
     db_path = Path(path) if path else get_db_path()
     if not db_path.exists():
         raise FileNotFoundError(

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "unset VIRTUAL_ENV; python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\"",
+            "command": "uv run --quiet --script \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\"",
             "timeout": 10,
             "statusMessage": "Analyzing skill triggers..."
           }
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "unset VIRTUAL_ENV; python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\" --warm-index &",
+            "command": "uv run --quiet --script \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\" --warm-index &",
             "timeout": 5
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "unset VIRTUAL_ENV; python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\" --post-compact",
+            "command": "uv run --quiet --script \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\" --post-compact",
             "timeout": 5
           }
         ]

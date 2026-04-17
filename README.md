@@ -26,6 +26,36 @@
 
 ## What's New
 
+### v3.1.1
+- **Cross-platform hook invocation via `uv run --script`** — hooks/hooks.json now calls `uv run --script` against `scripts/pss_hook.py`. The script carries PEP 723 inline metadata declaring `pycozo[embedded]>=0.7.6` as a dependency; `uv` provisions and caches a venv with pycozo on first invocation (~2–5s cold, <100ms warm). Windows, macOS, and Linux use an identical hook configuration — uv handles the `.venv/Scripts/python.exe` vs `.venv/bin/python` split internally.
+- **Fixes the `ERROR: pycozo is required` hook failure** from v3.0.x/v3.1.0 where the hook's `python3` interpreter fell back to the system Python (no pycozo) and aborted at module load.
+- **`scripts/pss_cozodb.py` degrades gracefully on missing pycozo** — module load no longer calls `sys.exit`; `Client()` construction raises a clear `ImportError` at first use, which callers catch.
+- **New Requirements section in README** — `uv` is now an explicit prerequisite alongside Python ≥3.10 and git.
+
+### v3.1.0
+- **New `/pss-search` and `/pss-added-since` slash commands** — thin wrappers around Phase D's Rust CLI subcommands (`pss search <query>`, `pss list-added-since <datetime>`) for ad-hoc index queries without firing the UserPromptSubmit scoring pipeline.
+- **`skills/pss-usage/SKILL.md` updated** with a new "Querying the Index Directly" section listing all `pss_cozodb.py` Python helpers and the Rust CLI subcommands with example invocations.
+- **`skills/pss-authoring/SKILL.md`** notes the v3.0 CozoDB-canonical indexing pipeline in a concise "How PSS indexes your skills" subsection.
+
+### v3.0.0 (BREAKING)
+- **CozoDB is now the single canonical store.** `skill-index.json` is demoted to an optional debug export (`bin/pss export --json`). `pss_merge_queue.py`, `pss_make_plugin.py`, `pss_verify_profile.py`, `pss_generate.py`, and `pss_hook.py` all read/write the CozoDB via `scripts/pss_cozodb.py` (a thin pycozo wrapper).
+- **Rust CLI gained query/management subcommands**: `pss count`, `pss stats`, `pss get`, `pss search`, `pss list`, `pss health`, `pss find-by-*`, `pss list-added-since`, `pss list-updated-since`, `pss export --json`. Human-readable tables by default; `--json` for scripting.
+- **`first_indexed_at` and `last_updated_at` timestamps** on every row, preserved across reindexes. Powers "what did I install since 2026-04-01?" queries.
+- **`pycozo[embedded]>=0.7.6`** added as a hard Python dependency. `uv` installs it automatically on first hook run (v3.1.1+).
+- **Rust `pss --build-db` flag removed.** Python writes CozoDB directly via `fcntl`-locked atomic transactions.
+- **Migration safety**: upgrading from v2.x requires no user action — the hook detects missing/empty CozoDB and auto-reindexes.
+- Full design record: `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.md`.
+
+### v2.10.0
+- **Phase B of the CozoDB unification migration**: Python merge queue writes CozoDB directly; JSON becomes a derived export (still auto-written for backward compatibility — removed in v3.0.0).
+- **`pss export --json` subcommand** added to the Rust binary for ad-hoc JSON snapshots.
+
+### v2.9.41
+- **Phase A of the CozoDB unification migration**: `scripts/pss_cozodb.py` query helpers + `first_indexed_at` / `last_updated_at` columns on the CozoDB `skills` relation. JSON still canonical, CozoDB derived. Preserves install timestamps across reindexes.
+
+### v2.9.40
+- **Bandaid for the `$CLAUDE_PLUGIN_DATA` scope-leak bug** in `scripts/pss_paths.py::get_data_dir()` — PSS was silently writing the index to foreign plugins' data dirs when invoked from their session scope. Fix: only trust `$CLAUDE_PLUGIN_DATA` when its basename contains "perfect-skill-suggester".
+
 ### v2.9.38
 - **Claude Code v2.1.109 compatibility** — tested range extended from v2.1.101 to v2.1.109. See [`docs/CC-COMPATIBILITY.md`](docs/CC-COMPATIBILITY.md) for per-version impact notes.
 - **`[monitors]` pass-through** (CC v2.1.105+) — `.agent.toml` `[monitors]` section propagates verbatim into the generated `plugin.json` by `/pss-make-plugin-from-profile`, alongside existing `[metadata]` and `[userConfig]` pass-throughs. Enables background-monitor plugins (auto-arm at session start or on skill invoke).
@@ -133,6 +163,20 @@ Each skill can have a `.pss` file for custom matching rules:
 
 ### Persistent State via `${CLAUDE_PLUGIN_DATA}` (CC v2.1.78+)
 PSS uses the `${CLAUDE_PLUGIN_DATA}` environment variable (introduced in Claude Code v2.1.78) as the persistent data directory for `skill-index.json` and the CozoDB database. This ensures plugin state survives across sessions and plugin updates. Falls back to `~/.claude/cache/` on older Claude Code versions.
+
+## Requirements
+
+PSS runs on **macOS, Linux, and Windows**. Before installing, make sure the following are on your `PATH`:
+
+| Tool | Why | Install |
+|------|-----|---------|
+| [`uv`](https://docs.astral.sh/uv/) | Hooks invoke Python via `uv run --script`. `uv` reads PEP 723 inline metadata in `scripts/pss_hook.py` and provisions a cached venv with `pycozo[embedded]` the first time the hook runs. Cross-platform. | macOS/Linux: `curl -LsSf https://astral.sh/uv/install.sh \| sh`. Windows: `powershell -c "irm https://astral.sh/uv/install.ps1 \| iex"` |
+| Python ≥ 3.10 | Required by `uv run` for the hook scripts | `uv python install 3.10` (uv manages this automatically) |
+| `git` | Indexer discovers skills across marketplaces (standard git clone/pull) | Pre-installed on most systems |
+
+No other runtime packages need manual install — everything pycozo-related (pycozo, cozo-embedded RocksDB, numpy, pandas if used) is provisioned into uv's cache on the first `UserPromptSubmit` or `SessionStart` hook invocation (~2–5 s cold, <100 ms warm thereafter).
+
+**Windows note**: `uv` and its cached venvs are fully cross-platform — `uv run --script` handles the `.venv/Scripts/python.exe` vs `.venv/bin/python` split internally, so `hooks/hooks.json` is identical on every OS.
 
 ## Installation (Production)
 

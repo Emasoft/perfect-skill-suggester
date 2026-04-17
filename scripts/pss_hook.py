@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "pycozo[embedded]>=0.7.6",
+# ]
+# ///
 """
 PSS Hook Script - Multiplatform binary caller for Perfect Skill Suggester.
+
+Invocation contract (v3.1.1+): hooks/hooks.json invokes this via `uv run`.
+The PEP 723 inline script metadata block above declares pycozo as a
+required dependency. uv provisions and caches a venv with pycozo installed
+on first invocation (~2-5s cold) and reuses it from the cache on every
+subsequent call (~50-100ms). Cross-platform: uv handles the Windows/Unix
+venv path split internally, so hooks/hooks.json is identical on every OS.
+The user-facing requirement is just `uv` on PATH — see README.md.
 
 Thin Python wrapper that:
 1. Reads hook JSON from stdin
