@@ -78,7 +78,7 @@
 
    d. Verify element names (anti-hallucination):
    ```bash
-   uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_verify_profile.py" "${OUTPUT_PATH}" --agent-def "${AGENT_PATH}" --verbose
+   uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/pss_verify_profile.py" "${OUTPUT_PATH}" --agent-def "${AGENT_PATH}" --verbose
    ```
 
    e. Report result:

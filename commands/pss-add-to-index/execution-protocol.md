@@ -52,7 +52,7 @@ accepts a seed path for compatibility but is no longer the canonical store):
 ```bash
 uv run "${PLUGIN_ROOT}/scripts/pss_discover.py" --jsonl --name "<element-name>" \
   | "${BINARY}" --pass1-batch \
-  | uv run "${PLUGIN_ROOT}/scripts/pss_merge_queue.py" --batch-stdin
+  | uv run --script "${PLUGIN_ROOT}/scripts/pss_merge_queue.py" --batch-stdin
 ```
 
 **Discovery modes** — `pss_discover.py` supports several filtering flags:

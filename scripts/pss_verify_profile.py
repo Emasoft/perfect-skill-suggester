@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "pycozo[embedded]>=0.7.6",
+# ]
+# ///
 """PSS Profile Verification — validates all element names in .agent.toml against the skill index.
 
 Checks:

@@ -128,7 +128,14 @@ def open_db(path: Path | None = None) -> Client:
         raise FileNotFoundError(
             f"CozoDB not found at {db_path}. Run /pss-reindex-skills to build it."
         )
-    return Client("sqlite", str(db_path))
+    # dataframe=False forces dict-shaped query results ({"rows": [...], "headers": [...]}).
+    # Without this, pycozo.Client defaults to dataframe=True, which:
+    #   (a) returns a pandas.DataFrame from .run() — breaking every .get("rows") site
+    #       in this module, so count_skills() etc. silently return 0
+    #   (b) when pandas is NOT installed, prints a spurious "`pandas` feature was
+    #       requested, but pandas is not installed" traceback on every connect
+    # Passing dataframe=False avoids both failure modes in a single line.
+    return Client("sqlite", str(db_path), dataframe=False)
 
 
 # ----------------------------------------------------------------------------
@@ -833,7 +840,7 @@ def _snapshot_prior_timestamps(db_path: Path) -> dict[tuple[str, str], str]:
     if not db_path.exists():
         return {}
     try:
-        client = Client("sqlite", str(db_path))
+        client = Client("sqlite", str(db_path), dataframe=False)
     except Exception:
         return {}
     result: dict[tuple[str, str], str] = {}
@@ -1129,7 +1136,7 @@ def atomic_write_cozodb(
             except FileNotFoundError:
                 pass
 
-        db = Client("sqlite", str(db_path))
+        db = Client("sqlite", str(db_path), dataframe=False)
         try:
             _create_db_schema(db)
 
@@ -1279,7 +1286,7 @@ def export_json_snapshot(
     if not db_path.exists():
         raise FileNotFoundError(f"CozoDB not found at {db_path}")
 
-    client = Client("sqlite", str(db_path))
+    client = Client("sqlite", str(db_path), dataframe=False)
     try:
         cols = ", ".join(_SKILL_SCHEMA_COLS)
         rows = client.run(

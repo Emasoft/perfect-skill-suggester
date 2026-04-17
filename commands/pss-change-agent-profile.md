@@ -129,7 +129,7 @@ Run both verification and validation:
 
 ```bash
 # Verify all element names against the index (--agent-def enables agent-defined name detection)
-uv run "${VERIFY_SCRIPT}" "${PROFILE_PATH}" --agent-def "${AGENT_PATH}" --verbose
+uv run --script "${VERIFY_SCRIPT}" "${PROFILE_PATH}" --agent-def "${AGENT_PATH}" --verbose
 
 # Validate TOML structure
 uv run "${VALIDATE_SCRIPT}" "${PROFILE_PATH}" --check-index --verbose

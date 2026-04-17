@@ -31,13 +31,13 @@ Run the Python reindex script. It resolves paths, runs the pipeline, builds the 
 ```bash
 if [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then echo "ERROR: CLAUDE_PLUGIN_ROOT is not set." >&2; exit 1; fi
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
-uv run "$PLUGIN_ROOT/scripts/pss_reindex.py"
+uv run --script "$PLUGIN_ROOT/scripts/pss_reindex.py"
 ```
 
 To exclude plugins the user has deactivated in Claude Code:
 
 ```bash
-uv run "$PLUGIN_ROOT/scripts/pss_reindex.py" --exclude-inactive-plugins
+uv run --script "$PLUGIN_ROOT/scripts/pss_reindex.py" --exclude-inactive-plugins
 ```
 
 This reads `enabledPlugins` from `~/.claude/settings.json` and skips any plugin where the value is `false`. Plugins not listed in `enabledPlugins` are included by default.

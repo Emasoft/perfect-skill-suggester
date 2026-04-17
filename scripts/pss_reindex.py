@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "pycozo[embedded]>=0.7.6",
+# ]
+# ///
 """PSS Reindex — Rebuild the skill index using the deterministic Rust pipeline.
 
 Usage:

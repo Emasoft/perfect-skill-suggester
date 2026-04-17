@@ -41,7 +41,7 @@ Run the Python generator script:
 ```bash
 if [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then echo "ERROR: CLAUDE_PLUGIN_ROOT is not set." >&2; exit 1; fi
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
-uv run "$PLUGIN_ROOT/scripts/pss_make_plugin.py" "<profile-path>" --output "<output-path>" [--name "<plugin-name>"]
+uv run --script "$PLUGIN_ROOT/scripts/pss_make_plugin.py" "<profile-path>" --output "<output-path>" [--name "<plugin-name>"]
 ```
 
 ## What Gets Generated

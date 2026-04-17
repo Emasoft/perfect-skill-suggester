@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "pycozo[embedded]>=0.7.6",
+# ]
+# ///
 """Generate a Claude Code plugin from an .agent.toml profile.
 
 Reads the profile, resolves all element paths from the skill index,
