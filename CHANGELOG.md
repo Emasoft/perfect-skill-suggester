@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.2.2] - 2026-04-17
+
+### Features
+
+- **reports:** Rotate stale reports/ entries into reports_dev/
+
 ## [3.2.1] - 2026-04-17
 
 ### Features
