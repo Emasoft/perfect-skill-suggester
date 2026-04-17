@@ -1035,6 +1035,35 @@ def print_summary(old: str, new: str, args: argparse.Namespace) -> None:
 
 
 # ===========================================================================
+# Clean mode (wraps scripts/pss_clean.py for disk-artifact cleanup)
+# ===========================================================================
+
+
+def clean_mode(args: argparse.Namespace) -> int:
+    """Invoke pss_clean.py with pass-through flags. Explicit opt-in only.
+
+    Intentionally shells out rather than importing: scripts/ is not a package
+    (no __init__.py) and adding one would affect every other consumer. The
+    subprocess hop costs <50ms and preserves pss_clean.py's self-contained
+    safety guards (PROJECT_ROOT containment, protected-name list, workspace
+    dedup for cargo clean).
+
+    Output is streamed live to the terminal — cleanup reports per-step sizes
+    and the user needs to see them, so we do NOT use the capturing run()
+    helper here.
+    """
+    cmd = [sys.executable, str(ROOT / "scripts" / "pss_clean.py")]
+    if args.dry_run:
+        cmd.append("--dry-run")
+    if args.rust_only:
+        cmd.append("--rust-only")
+    if args.docker:
+        cmd.append("--docker")
+    result = subprocess.run(cmd, cwd=ROOT, check=False, timeout=600)
+    return result.returncode
+
+
+# ===========================================================================
 # Main
 # ===========================================================================
 
@@ -1073,10 +1102,31 @@ def main() -> None:
         action="store_true",
         help="Force binary rebuild even if no .rs source files changed.",
     )
+
+    # Clean mode (explicit opt-in — never runs automatically as part of release
+    # because it busts cargo incremental cache and slows subsequent dev cycles).
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Remove regenerable build artifacts (rust/target, orphan src targets, "
+             ".venv, .mypy_cache). Standalone mode: runs cleanup and exits.",
+    )
+    parser.add_argument(
+        "--rust-only",
+        action="store_true",
+        help="With --clean: only clean Rust build artifacts (skip .venv, .mypy_cache).",
+    )
+    parser.add_argument(
+        "--docker",
+        action="store_true",
+        help="With --clean: also prune stale cross-rs/super-linter Docker images.",
+    )
     args = parser.parse_args()
 
     # Dispatch to the right mode
-    if args.gate:
+    if args.clean:
+        sys.exit(clean_mode(args))
+    elif args.gate:
         sys.exit(gate_pipeline())
     elif args.install_hook:
         install_hook()
