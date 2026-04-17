@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.2.3] - 2026-04-17
+
+### Refactor
+
+- **reports:** Rotate after 24h instead of 14 days
+
 ## [3.2.2] - 2026-04-17
 
 ### Features
