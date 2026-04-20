@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.2.5] - 2026-04-20
+
+### Refactor
+
+- **reports:** Reports/ is gitignored + private-data rule
+
 ## [3.2.4] - 2026-04-17
 
 ### Bug Fixes
