@@ -946,23 +946,12 @@ def release_pipeline(args: argparse.Namespace) -> None:
     print(f"{CYAN}{'=' * 50}{RESET}")
     print()
 
-    # Step 0: Housekeeping — rotate stale reports (reports/ -> reports_dev/).
-    # Files moved here would dirty the tree vs preflight's clean-tree check,
-    # so if any moved, commit them as a standalone chore BEFORE preflight.
-    # The rotation-commit is additive (no version bump) and happens only when
-    # rotation actually moved something.
-    moved, bytes_moved = rotate_old_reports(dry_run=args.dry_run)
-    if moved and not args.dry_run:
-        info(f"Report rotation: moved {moved} file(s) "
-             f"({bytes_moved / 1024:.1f} KB) older than {REPORTS_MAX_AGE_HOURS} hours "
-             f"from reports/ -> reports_dev/.")
-        commit_report_rotation(moved)
-    elif moved:
-        info(f"Report rotation [DRY-RUN]: would move {moved} file(s) "
-             f"({bytes_moved / 1024:.1f} KB) older than {REPORTS_MAX_AGE_HOURS} hours "
-             f"from reports/ -> reports_dev/.")
-
     # Step 1: Pre-flight checks (required tools + clean tree)
+    # Report rotation is NOT part of the release pipeline: reports/ and
+    # reports_dev/ are both gitignored (they contain private data), so
+    # rotating produces no tracked-file change and no commit. Users who
+    # want to clean up stale reports run `publish.py --rotate-reports`
+    # manually.
     preflight_checks(dry_run=args.dry_run)
 
     # Step 2: Lint (MANDATORY)
@@ -1123,48 +1112,17 @@ def rotate_old_reports(
     return (moved, total_bytes)
 
 
-def commit_report_rotation(moved: int) -> None:
-    """Stage the reports/ deletions and commit them as a standalone chore.
-
-    Called after rotate_old_reports() in the release pipeline so preflight's
-    clean-tree check passes. No-op when the rotated files were untracked
-    (e.g. reports/ was never committed to git because no reports had aged
-    enough yet to land in the tracked tree).
-    """
-    # Stage deletions + moves under reports/. Tolerates "pathspec didn't match"
-    # which means nothing tracked under reports/ was affected — in that case
-    # `git add` returns non-zero but there's nothing to do.
-    result = run(["git", "add", "-u", str(REPORTS_DIR)])
-    if result.returncode != 0:
-        # Untracked path or empty path — safe to skip.
-        info("  Rotation touched only untracked files — no commit needed.")
-        return
-
-    # Double-check: if add succeeded but nothing was actually staged, skip too.
-    status = run(["git", "diff", "--cached", "--name-only", "--", str(REPORTS_DIR)])
-    if not status.stdout.strip():
-        info("  Rotation touched only untracked files — no commit needed.")
-        return
-
-    commit_msg = f"chore(reports): rotate {moved} stale report(s) to reports_dev/"
-    result = run(["git", "commit", "-m", commit_msg])
-    if result.returncode != 0:
-        fatal(f"git commit (rotation) failed: {result.stderr.strip()}")
-    success(f"  Committed: {commit_msg}")
-
-
 # ===========================================================================
 # Rotate-reports standalone mode
 # ===========================================================================
 
 
 def rotate_reports_mode(args: argparse.Namespace) -> int:
-    """Standalone report rotation: move stale files and optionally commit.
+    """Standalone report rotation: move stale files from reports/ to reports_dev/.
 
-    Reports the move count + size. In --dry-run mode, no file changes happen.
-    If files were actually moved, auto-commits the rotation so the tree stays
-    clean for subsequent operations. If the rotation only touched untracked
-    files, no commit is made.
+    Both reports/ and reports_dev/ are gitignored (reports often carry private
+    data), so rotation produces no git changes — this is purely a filesystem
+    housekeeping chore to keep the active reports/ folder browsable.
     """
     moved, bytes_moved = rotate_old_reports(dry_run=args.dry_run)
     if moved == 0:
@@ -1173,8 +1131,6 @@ def rotate_reports_mode(args: argparse.Namespace) -> int:
     action = "would move" if args.dry_run else "moved"
     info(f"Report rotation: {action} {moved} file(s) ({bytes_moved / 1024:.1f} KB) "
          f"older than {REPORTS_MAX_AGE_HOURS} hours from reports/ -> reports_dev/.")
-    if not args.dry_run:
-        commit_report_rotation(moved)
     return 0
 
 

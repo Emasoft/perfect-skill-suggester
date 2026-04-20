@@ -8,7 +8,7 @@
 
 **CRITICAL: Use a SEPARATE file for per-prompt benchmark results.** The per-prompt tracking can grow to thousands of lines. Your report file must stay concise. Write benchmark results to:
 
-`docs_dev/worktree-{AGENT_ID}-benchmark-log.md`
+`reports/worktree-{AGENT_ID}-benchmark-log.md`
 
 ## Benchmark Log Format
 

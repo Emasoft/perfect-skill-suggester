@@ -9,8 +9,8 @@
 
 ## Output Files
 
-- `docs_dev/worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections
-- `docs_dev/worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only)
+- `reports/worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections (reports/ is gitignored)
+- `reports/worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only, gitignored)
 - Modified `rust/skill-suggester/src/main.rs` -- with improvements to the scoring engine
 
 ## Error Handling

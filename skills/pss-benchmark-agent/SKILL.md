@@ -23,8 +23,8 @@ Benchmark protocol for Opus agents competing to improve the PSS scoring engine. 
 2. Run baseline benchmark BEFORE changes and record score
 3. Make one change at a time, benchmark after each
 4. Revert regressions -- document rejected approaches
-5. Write report to `docs_dev/worktree-{YOUR_ID}-report.md`
-6. Write benchmark log to `docs_dev/worktree-{YOUR_ID}-benchmark-log.md`
+5. Write report to `reports/worktree-{YOUR_ID}-report.md`
+6. Write benchmark log to `reports/worktree-{YOUR_ID}-benchmark-log.md`
 7. Run `cargo test` and `cargo build --release`
 8. Complete the Work Tracking Checklist
 
@@ -82,8 +82,8 @@ cargo build --release && uv run scripts/pss_agent_benchmark.py --binary target/r
 
 ## Output
 
-- `docs_dev/worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections
-- `docs_dev/worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only)
+- `reports/worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections
+- `reports/worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only)
 - Modified `rust/skill-suggester/src/main.rs` -- with improvements to the scoring engine
 
 ## Error Handling

@@ -60,10 +60,14 @@ target/
 # bin/ is TRACKED — contains pre-built PSS binaries for all platforms
 # (binaries moved from src/skill-suggester/bin/ to top-level bin/ in v2.5.0)
 
-# LLM Externalizer MCP output — the current output dir is reports/llm-externalizer/.
-# reports/ is TRACKED (current/relevant reports are part of the repo); reports_dev/ is
-# gitignored via the *_dev/ wildcard above and receives rotated-out old reports.
-# Legacy name retained here only in case older tooling still writes to it.
+# Agent & LLM-tool report output — ALL gitignored because reports often contain
+# private data (paths, tokens, prompts, redacted-but-still-sensitive snippets).
+# Per the global rule: agents must always save their reports under ./reports/
+# in the project root, even when running inside a separate worktree.
+# ./reports_dev/ is the local archive for rotated-out old reports; also gitignored
+# (*_dev/ wildcard above catches it, listed explicitly here for clarity).
+reports/
+reports_dev/
 llm_externalizer_output/
 
 # Deprecated files (moved to *_dev/ folders)
