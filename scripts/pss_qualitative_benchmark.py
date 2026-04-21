@@ -5,7 +5,8 @@ PSS Qualitative Agent Profile Benchmark — Phase 1: Generate evaluation tasks.
 Runs PSS on random agent samples and writes evaluation task files that can be
 fed to Claude Code subagents for qualitative review.
 
-Phase 1 (this script): Run PSS, generate eval task files in docs_dev/qual-eval/
+Phase 1 (this script): Run PSS, generate eval task files under
+$MAIN_ROOT/reports/pss-qualitative-benchmark/<ts±tz>-qual-eval/
 Phase 2 (orchestrator): Spawn subagents to evaluate each task file
 Phase 3 (orchestrator): Spawn aggregation subagent to synthesize findings
 
@@ -261,7 +262,7 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Output directory for eval tasks (default: docs_dev/qual-eval-TIMESTAMP/)",
+        help="Output directory for eval tasks (default: $MAIN_ROOT/reports/pss-qualitative-benchmark/<TS±TZ>-qual-eval/)",
     )
     parser.add_argument(
         "--seed", type=int, default=None, help="Random seed for reproducible sampling"

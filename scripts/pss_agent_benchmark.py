@@ -384,7 +384,14 @@ def main() -> None:
         default=None,
         help="Agent ID range to benchmark (e.g., '1-100', '101-200')",
     )
-    parser.add_argument("--output", default=None, help="Save per-agent results to file")
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Save per-agent results to file. If omitted, defaults to "
+             "$MAIN_ROOT/reports/pss-agent-benchmark/<TS±TZ>-results.json "
+             "(per the agent-reports-location rule). Pass an explicit path "
+             "to override.",
+    )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Print per-agent results"
     )
@@ -448,9 +455,18 @@ def main() -> None:
     else:
         print_results(results)
 
+    # Default output path lives under $MAIN_ROOT/reports/<component>/ with
+    # a compact local-time+GMT-offset timestamp. --output overrides this.
     if args.output:
-        save_per_agent_results(results, args.output)
-        print(f"\nPer-agent results saved to: {args.output}")
+        output_path = args.output
+    else:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from pss_paths import get_reports_dir, report_timestamp
+        output_path = str(
+            get_reports_dir("pss-agent-benchmark") / f"{report_timestamp()}-results.json"
+        )
+    save_per_agent_results(results, output_path)
+    print(f"\nPer-agent results saved to: {output_path}")
 
 
 if __name__ == "__main__":

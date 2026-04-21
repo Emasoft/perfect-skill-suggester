@@ -66,8 +66,8 @@ target/
 # in the project root, even when running inside a separate worktree.
 # ./reports_dev/ is the local archive for rotated-out old reports; also gitignored
 # (*_dev/ wildcard above catches it, listed explicitly here for clarity).
-reports/
-reports_dev/
+/reports/
+/reports_dev/
 llm_externalizer_output/
 
 # Deprecated files (moved to *_dev/ folders)
