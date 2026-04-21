@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.2.7] - 2026-04-21
+
+### Miscellaneous Tasks
+
+- **reports:** Anchor .gitignore, default all outputs to $MAIN_ROOT
+
 ## [3.2.6] - 2026-04-21
 
 ### Features
