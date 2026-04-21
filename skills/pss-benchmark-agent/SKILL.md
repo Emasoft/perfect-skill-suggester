@@ -17,14 +17,30 @@ Benchmark protocol for Opus agents competing to improve the PSS scoring engine. 
 - History file: `docs_dev/methodology-improvement-history.md`
 - Built binary: `cargo build --release` in `rust/skill-suggester/`
 
+## Output location (MANDATORY)
+
+Write every file to `$MAIN_ROOT/reports/pss-benchmark-agent/` — the **main
+repo root's** reports folder, never the worktree's own. Both `./reports/`
+and `./reports_dev/` are gitignored project-wide. Resolve the path with
+this shell prologue at the start of your Bash section:
+
+```bash
+MAIN_ROOT="$(git worktree list | head -n1 | awk '{print $1}')"
+REPORT_DIR="$MAIN_ROOT/reports/pss-benchmark-agent"
+mkdir -p "$REPORT_DIR"
+TIMESTAMP="$(date +%Y%m%d_%H%M%S%z)"   # local time + GMT offset, e.g. 20260421_183012+0200
+REPORT_FILE="$REPORT_DIR/$TIMESTAMP-worktree-${AGENT_ID}-report.md"
+LOG_FILE="$REPORT_DIR/$TIMESTAMP-worktree-${AGENT_ID}-benchmark-log.md"
+```
+
 ## Instructions
 
 1. Read `docs_dev/methodology-improvement-history.md` and current `main.rs`
 2. Run baseline benchmark BEFORE changes and record score
 3. Make one change at a time, benchmark after each
 4. Revert regressions -- document rejected approaches
-5. Write report to `reports/worktree-{YOUR_ID}-report.md`
-6. Write benchmark log to `reports/worktree-{YOUR_ID}-benchmark-log.md`
+5. Write report to `$REPORT_FILE` (resolved via the prologue above)
+6. Write benchmark log to `$LOG_FILE` (same prologue)
 7. Run `cargo test` and `cargo build --release`
 8. Complete the Work Tracking Checklist
 
@@ -82,8 +98,9 @@ cargo build --release && uv run scripts/pss_agent_benchmark.py --binary target/r
 
 ## Output
 
-- `reports/worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections
-- `reports/worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only)
+- `$MAIN_ROOT/reports/pss-benchmark-agent/<TS±TZ>-worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections
+- `$MAIN_ROOT/reports/pss-benchmark-agent/<TS±TZ>-worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only)
+- Timestamp is local time with GMT offset (e.g. `20260421_183012+0200`). Both dirs are gitignored project-wide.
 - Modified `rust/skill-suggester/src/main.rs` -- with improvements to the scoring engine
 
 ## Error Handling

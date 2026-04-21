@@ -9,8 +9,9 @@
 
 ## Output Files
 
-- `reports/worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections (reports/ is gitignored)
-- `reports/worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only, gitignored)
+- `$MAIN_ROOT/reports/pss-benchmark-agent/<TS±TZ>-worktree-{AGENT_ID}-report.md` -- structured report with all mandatory sections
+- `$MAIN_ROOT/reports/pss-benchmark-agent/<TS±TZ>-worktree-{AGENT_ID}-benchmark-log.md` -- per-prompt benchmark results (append-only)
+- MAIN_ROOT resolution: `git worktree list | head -n1 | awk '{print $1}'` (main checkout is always the first entry, even from a worktree). Timestamp: `date +%Y%m%d_%H%M%S%z` (local + GMT offset). Both reports/ and reports_dev/ are gitignored.
 - Modified `rust/skill-suggester/src/main.rs` -- with improvements to the scoring engine
 
 ## Error Handling

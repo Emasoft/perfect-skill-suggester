@@ -24,7 +24,6 @@ import random
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -311,12 +310,17 @@ def main() -> None:
             random.seed(args.seed)
         selected = random.sample(all_agents, min(args.sample, len(all_agents)))
 
-    # Create output directory
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    # Create output directory under $MAIN_ROOT/reports/<component>/ per the
+    # agent-reports-location rule. Local time + GMT offset (compact form) is
+    # the canonical filename timestamp; it survives worktree copies and
+    # shared filesystems unambiguously.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from pss_paths import get_reports_dir, report_timestamp
+    timestamp = report_timestamp()
     if args.output_dir:
         output_dir = Path(args.output_dir)
     else:
-        output_dir = project_root / "docs_dev" / f"qual-eval-{timestamp}"
+        output_dir = get_reports_dir("pss-qualitative-benchmark") / f"{timestamp}-qual-eval"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if not args.quiet:

@@ -13,6 +13,8 @@ Priority order for data storage:
 """
 
 import os
+import subprocess
+from datetime import datetime
 from pathlib import Path
 
 # Name fragment that identifies PSS's own plugin data directory. CC composes
@@ -71,3 +73,66 @@ def get_index_path() -> Path:
 def get_lock_path() -> Path:
     """Get the canonical path to skill-index.lock."""
     return get_data_dir() / "skill-index.lock"
+
+
+# ---------------------------------------------------------------------------
+# Main-repo-root resolution for the agent-reports-location rule
+# ---------------------------------------------------------------------------
+
+
+def resolve_main_root() -> Path:
+    """Resolve the project's main-repo root — works from worktrees too.
+
+    Per the global agent-reports-location rule, every report must land under
+    `<MAIN_ROOT>/reports/<component>/<ts±tz>-<slug>.<ext>` where MAIN_ROOT is
+    the primary git checkout, even when the caller is inside a linked
+    worktree. `git worktree list` always lists the main checkout first, so
+    that is the canonical resolution path.
+
+    Fallback order:
+      1. `git worktree list` first entry (handles main + worktrees)
+      2. `$CLAUDE_PROJECT_DIR` (set by Claude Code)
+      3. The script's grandparent (scripts/*.py → project root)
+    """
+    try:
+        result = subprocess.run(
+            ["git", "worktree", "list"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # First line: "<path> <sha> [<branch>]"
+            main_path = result.stdout.splitlines()[0].split()[0]
+            if main_path:
+                return Path(main_path)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    env_dir = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
+    if env_dir and Path(env_dir).is_absolute():
+        return Path(env_dir)
+    return Path(__file__).resolve().parent.parent
+
+
+def get_reports_dir(component: str) -> Path:
+    """Return <MAIN_ROOT>/reports/<component>/ and ensure it exists.
+
+    `component` is a short slug identifying the producing surface
+    (e.g. "pss-benchmark-agent", "pss-qualitative-benchmark"). Both
+    ./reports/ and ./reports_dev/ are gitignored, so callers can write
+    freely without fear of leaking private data.
+    """
+    path = resolve_main_root() / "reports" / component
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def report_timestamp() -> str:
+    """Canonical filename timestamp: local time + GMT offset, compact form.
+
+    Example: `20260421_183012+0200` (Rome CEST) or `20260421_163012+0000`
+    (UTC). No colon in the offset (Windows-safe). Matches the format
+    declared in ~/.claude/rules/agent-reports-location.md.
+    """
+    return datetime.now().astimezone().strftime("%Y%m%d_%H%M%S%z")

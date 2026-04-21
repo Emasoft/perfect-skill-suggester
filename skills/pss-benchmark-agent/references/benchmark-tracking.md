@@ -8,7 +8,7 @@
 
 **CRITICAL: Use a SEPARATE file for per-prompt benchmark results.** The per-prompt tracking can grow to thousands of lines. Your report file must stay concise. Write benchmark results to:
 
-`reports/worktree-{AGENT_ID}-benchmark-log.md`
+`$MAIN_ROOT/reports/pss-benchmark-agent/<TS±TZ>-worktree-{AGENT_ID}-benchmark-log.md` (main-repo root; timestamp is `YYYYMMDD_HHMMSS±HHMM` local+offset)
 
 ## Benchmark Log Format
 

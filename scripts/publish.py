@@ -51,11 +51,19 @@ HOOK_SOURCE = ROOT / "git-hooks" / "pre-push"
 HOOK_TARGET = ROOT / ".git" / "hooks" / "pre-push"
 
 # -- Report housekeeping --
-# reports/ is tracked (current/relevant reports). reports_dev/ is gitignored
-# (*_dev/ wildcard). At release time, rotate files older than REPORTS_MAX_AGE_HOURS
-# from reports/ into reports_dev/ so the tracked tree stays small.
-REPORTS_DIR = ROOT / "reports"
-REPORTS_DEV_DIR = ROOT / "reports_dev"
+# Per the global agent-reports-location rule, ALL report dirs live under the
+# MAIN repo root — never under a worktree — so rotation uses resolve_main_root()
+# rather than the script's local ROOT (which would be the worktree when
+# publish.py is invoked from one). Both dirs are gitignored: reports/ is the
+# active surface agents write to; reports_dev/ is the local archive for files
+# older than REPORTS_MAX_AGE_HOURS that get rotated out to keep reports/
+# browsable.
+sys.path.insert(0, str(ROOT / "scripts"))
+from pss_paths import resolve_main_root  # noqa: E402
+
+_MAIN_ROOT = resolve_main_root()
+REPORTS_DIR = _MAIN_ROOT / "reports"
+REPORTS_DEV_DIR = _MAIN_ROOT / "reports_dev"
 REPORTS_MAX_AGE_HOURS = 24
 
 # -- CPV remote execution via uvx (no local script sync needed) --

@@ -50,7 +50,7 @@
 - [ ] Section 8: Remaining 0-hit and 1-hit prompts with blocker analysis
 
 ## Phase 5: Final Verification
-- [ ] Report written to reports/worktree-{AGENT_ID}-report.md (reports/ is gitignored; in a worktree, write to the PROJECT ROOT's reports/, not the worktree's)
+- [ ] Report written to `$MAIN_ROOT/reports/pss-benchmark-agent/<TS±TZ>-worktree-{AGENT_ID}-report.md`, where `MAIN_ROOT=$(git worktree list | head -n1 | awk '{print $1}')` and `TS±TZ=$(date +%Y%m%d_%H%M%S%z)`. Always the main-repo root, never the worktree's. Both ./reports/ and ./reports_dev/ are gitignored.
 - [ ] Report contains ALL sections above
 - [ ] No section says "also tried several things" without details
 - [ ] Every rejected approach has: exact values, score, per-prompt delta, explanation
