@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.2.6] - 2026-04-21
+
+### Features
+
+- **reports:** Enforce $MAIN_ROOT/reports/<component>/<ts±tz>-slug
+
 ## [3.2.5] - 2026-04-20
 
 ### Refactor
