@@ -3,8 +3,9 @@
 **TRDD ID:** `46ac514e-3627-44a6-b916-f37a1504b969`
 **Filename:** `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.md`
 **Tracked in:** this repo (design/tasks/ is git-tracked)
-**Status:** Not started
+**Status:** Done (shipped in v3.0.0 on 2026-04-16)
 **Created:** 2026-04-16
+**Completed:** 2026-04-16
 **Target release:** v3.0.0 (major bump — drops JSON as canonical, adds pycozo[embedded] dependency)
 
 ---
@@ -230,3 +231,47 @@ JSON becomes a derived export.
   suggestions with no error.
 - `docs/PSS-ARCHITECTURE.md` currently still documents the dual-store
   design as intentional; update in Phase C.
+
+---
+
+## Completion record (2026-04-16)
+
+All three phases shipped on the same day. Every success criterion verified
+against the shipped code at v3.2.9 (this session, 2026-04-22):
+
+| Phase | Version | Commit | Ship date |
+|-------|---------|--------|-----------|
+| Bandaid + TRDD | v2.9.40 | `4077c1d` | 2026-04-16 |
+| Phase A — pycozo query helpers + `indexed_at` | v2.9.41 | `783f169` | 2026-04-16 |
+| Phase B — Python canonical writer, JSON derived | v2.10.0 | `f6a3f49` | 2026-04-16 |
+| Phase C — JSON demoted to optional export | v3.0.0 | `12d04a0` | 2026-04-16 |
+
+Verified in-code:
+
+- `pyproject.toml` pins `pycozo[embedded]>=0.7.6`; `uv.lock` resolves it.
+- `scripts/pss_cozodb.py` is the canonical thin wrapper (open_db,
+  count_skills, get_all_entries, atomic_write_cozodb, etc.).
+- `scripts/pss_hook.py` no longer has the 256-byte JSON header check;
+  only a legacy migration path at line 671 that imports a pre-v3.0 JSON
+  into CozoDB once and logs "migrated".
+- `scripts/pss_merge_queue.py` writes via `atomic_write_cozodb`; the
+  surviving `atomic_write_json` at line 276 is the *debug export*, not
+  the canonical write.
+- `scripts/pss_make_plugin.py`, `pss_verify_profile.py`, `pss_generate.py`
+  all read via `pss_cozodb.get_all_entries()`; `pss_verify_profile.load_index`
+  now explicitly ignores the path argument and documents the Phase C
+  change in its docstring.
+- Rust binary: `cmd_export` implements `pss export --json [--path P]`;
+  `run_build_db` removed (three comment markers at rust/.../main.rs:13536,
+  13691, 13943 confirm the removal).
+- `tests/unit/test_phase_c_cozodb_migration.py` + `test_pss_cozodb_phase_b.py`
+  + `test_pss_cozodb_escape.py` lock the invariants via 30+ tests (all
+  passing in the 81-test suite as of v3.2.9).
+- `README.md` §391 "Why PSS used to keep two indexes — and what changed
+  in v3.0" is rewritten in past tense with the migration story.
+- `CHANGELOG.md` lists all three phase releases under 2026-04-16.
+
+No follow-up work is owed by this TRDD. Keeping the file as historical
+reference — the "why" section documents the real-world bug that motivated
+the migration and the architectural reasoning behind the single-store
+model.
