@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.2.10] - 2026-04-22
+
+### Documentation
+
+- **trdd:** Mark TRDD-46ac514e cozodb-unification as Done
+
+### Miscellaneous Tasks
+
+- **gitignore:** Ignore .janitor/ runtime state dir
+
 ## [3.2.8] - 2026-04-22
 
 ### Bug Fixes
