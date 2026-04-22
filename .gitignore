@@ -37,6 +37,9 @@ Thumbs.db
 .claude/
 CLAUDE.md
 
+# ai-maestro-janitor runtime state (logs + timestamps; regenerated on every fire)
+.janitor/
+
 # TLDR CLI cache
 .tldr/
 .tldrignore
