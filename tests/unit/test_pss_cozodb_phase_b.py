@@ -114,6 +114,7 @@ def test_atomic_write_cozodb_populates_all_relations(scratch_db: Path) -> None:
             ("skill_keywords", "keywords"),
             ("skill_intents", "intents"),
             ("skill_tools", "tools"),
+            ("skill_services", "services"),
             ("skill_frameworks", "frameworks"),
             ("skill_languages", "languages"),
             ("skill_platforms", "platforms"),

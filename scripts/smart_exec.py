@@ -158,7 +158,8 @@ TOOL_DB: dict[str, ToolSpec] = {
             [
                 "sh",
                 "-lc",
-                "apk add --no-cache libxml2-utils >/dev/null && xmllint --noout",
+                'apk add --no-cache libxml2-utils >/dev/null && xmllint --noout "$@"',
+                "--",
             ],
         ),
     ),
@@ -288,17 +289,19 @@ def bunx_argv(pkg: str, cmd: str, tool_args: list[str]) -> list[str]:
 
 def pnpm_dlx_argv(pkg: str, cmd: str, tool_args: list[str]) -> list[str]:
     """Build argv for running a package via pnpm dlx."""
-    # pnpm dlx runs the default bin; if cmd differs, place cmd explicitly.
-    if cmd == pkg:
-        return ["pnpm", "dlx", pkg] + tool_args
-    return ["pnpm", "dlx", pkg, cmd] + tool_args
+    # pnpm dlx has no -p/--package flag; it always runs the package's default bin.
+    # Prepending cmd would pass it as an argument to the default binary, not select it.
+    return ["pnpm", "dlx", pkg] + tool_args
 
 
 def yarn_dlx_argv(pkg: str, cmd: str, tool_args: list[str]) -> list[str]:
     """Build argv for running a package via yarn dlx."""
-    # yarn dlx doesn't support -p; when cmd != pkg, use the package
-    # and let yarn resolve the binary (cmd becomes an arg to the binary)
-    return ["yarn", "dlx", pkg] + tool_args
+    # yarn dlx doesn't support -p/--package; it always runs the package's default bin.
+    # When cmd != pkg, prepend cmd as the first argument so the default binary dispatches
+    # to the intended subcommand (e.g. "tsc" for the "typescript" package).
+    if cmd == pkg:
+        return ["yarn", "dlx", pkg] + tool_args
+    return ["yarn", "dlx", pkg, cmd] + tool_args
 
 
 def npx_argv(pkg: str, cmd: str, tool_args: list[str]) -> list[str]:
@@ -331,6 +334,10 @@ def deno_npm_argv(
         spec,
         "--",
     ]
+    # When the binary name differs from the package name, pass cmd as the first
+    # positional argument so the package's CLI dispatcher routes to the correct binary.
+    if cmd != pkg:
+        return base + [cmd] + tool_args
     return base + tool_args
 
 
@@ -417,7 +424,11 @@ Save-Module -Name {ps_quote(module)} -Path $dir -Force | Out-Null
 $psd1 = Get-ChildItem -Path (Join-Path $dir {ps_quote(module)}) -Recurse -Filter "{module}.psd1" |
   Select-Object -First 1 -ExpandProperty FullName
 Import-Module $psd1 -Force | Out-Null
-{cmdlet} {arg_str}
+try {{
+  {cmdlet} {arg_str}
+}} finally {{
+  Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+}}
 """
     return [shell, "-NoProfile", "-Command", ps.strip()]
 

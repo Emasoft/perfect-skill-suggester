@@ -184,7 +184,7 @@ def test_pss_verify_profile_has_no_json_load_of_index():
             assert "json.load" not in body_src, (
                 "pss_verify_profile.load_index must not call json.load in Phase C"
             )
-            assert "open(" not in body_src or "pss_cozodb" in body_src, (
+            assert "open(" not in body_src, (
                 "pss_verify_profile.load_index must not open files directly in Phase C "
                 "(should use pss_cozodb.get_all_entries)"
             )

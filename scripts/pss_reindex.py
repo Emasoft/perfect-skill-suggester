@@ -142,7 +142,7 @@ def run_pipeline(
         f'| {q(sys.executable)} {q(str(scripts_dir / "pss_merge_queue.py"))} --batch-stdin --index {q(str(staging_index))}'
     )
     try:
-        result = subprocess.run(cmd, shell=True, timeout=300)  # 5-minute timeout
+        result = subprocess.run(cmd, shell=True, executable="/bin/bash", timeout=300)  # 5-minute timeout
     except subprocess.TimeoutExpired:
         print("ERROR: Pipeline timed out after 5 minutes", file=sys.stderr)
         return 1

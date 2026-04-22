@@ -388,7 +388,7 @@ def main() -> None:
         "--output",
         default=None,
         help="Save per-agent results to file. If omitted, defaults to "
-             "$MAIN_ROOT/reports/pss-agent-benchmark/<TS±TZ>-results.json "
+             "$MAIN_ROOT/reports/pss-agent-benchmark/<TS±TZ>-results.md "
              "(per the agent-reports-location rule). Pass an explicit path "
              "to override.",
     )
@@ -463,7 +463,7 @@ def main() -> None:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from pss_paths import get_reports_dir, report_timestamp
         output_path = str(
-            get_reports_dir("pss-agent-benchmark") / f"{report_timestamp()}-results.json"
+            get_reports_dir("pss-agent-benchmark") / f"{report_timestamp()}-results.md"
         )
     save_per_agent_results(results, output_path)
     print(f"\nPer-agent results saved to: {output_path}")

@@ -96,17 +96,19 @@ def resolve_main_root() -> Path:
     """
     try:
         result = subprocess.run(
-            ["git", "worktree", "list"],
+            ["git", "worktree", "list", "--porcelain"],
             capture_output=True,
             text=True,
             check=False,
             timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():
-            # First line: "<path> <sha> [<branch>]"
-            main_path = result.stdout.splitlines()[0].split()[0]
-            if main_path:
-                return Path(main_path)
+            # Porcelain first line: "worktree <path>" — path may contain spaces
+            first_line = result.stdout.splitlines()[0]
+            if first_line.startswith("worktree "):
+                main_path = first_line[len("worktree "):]
+                if main_path:
+                    return Path(main_path)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     env_dir = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()

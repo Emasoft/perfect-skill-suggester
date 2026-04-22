@@ -119,10 +119,10 @@ def format_suggestions(profile: dict[str, Any]) -> str:
             lines.append(f"\n### Skills ({tier}) — {len(items)} items")
             for item in items[:10]:
                 if isinstance(item, dict):
-                    name = item.get("name", "?")
-                    score = item.get("score", 0)
-                    desc = item.get("description", "")[:150]
-                    conf = item.get("confidence", "?")
+                    name = item.get("name") or "?"
+                    score = item.get("score") or 0
+                    desc = (item.get("description") or "")[:150]
+                    conf = item.get("confidence") or "?"
                     lines.append(f"  - **{name}** (score: {score:.3f}, {conf})")
                     if desc:
                         lines.append(f"    _{desc}_")
@@ -135,10 +135,10 @@ def format_suggestions(profile: dict[str, Any]) -> str:
         )
         for item in agents[:10]:
             if isinstance(item, dict):
-                name = item.get("name", "?")
-                score = item.get("score", 0)
-                desc = item.get("description", "")[:150]
-                conf = item.get("confidence", "?")
+                name = item.get("name") or "?"
+                score = item.get("score") or 0
+                desc = (item.get("description") or "")[:150]
+                conf = item.get("confidence") or "?"
                 lines.append(f"  - **{name}** (score: {score:.3f}, {conf})")
                 if desc:
                     lines.append(f"    _{desc}_")
@@ -149,9 +149,9 @@ def format_suggestions(profile: dict[str, Any]) -> str:
         lines.append(f"\n### Commands — {len(commands)} total")
         for item in commands[:10]:
             if isinstance(item, dict):
-                name = item.get("name", "?")
-                score = item.get("score", 0)
-                desc = item.get("description", "")[:150]
+                name = item.get("name") or "?"
+                score = item.get("score") or 0
+                desc = (item.get("description") or "")[:150]
                 lines.append(f"  - **{name}** (score: {score:.3f}) — {desc}")
 
     # Rules
@@ -160,8 +160,8 @@ def format_suggestions(profile: dict[str, Any]) -> str:
         lines.append(f"\n### Rules — {len(rules)} total")
         for item in rules:
             if isinstance(item, dict):
-                name = item.get("name", "?")
-                desc = item.get("description", "")[:150]
+                name = item.get("name") or "?"
+                desc = (item.get("description") or "")[:150]
                 lines.append(f"  - **{name}** — {desc}")
 
     # MCP servers
@@ -170,8 +170,8 @@ def format_suggestions(profile: dict[str, Any]) -> str:
         lines.append(f"\n### MCP Servers — {len(mcps)} total")
         for item in mcps:
             if isinstance(item, dict):
-                name = item.get("name", "?")
-                desc = item.get("description", "")[:150]
+                name = item.get("name") or "?"
+                desc = (item.get("description") or "")[:150]
                 lines.append(f"  - **{name}** — {desc}")
 
     return "\n".join(lines)

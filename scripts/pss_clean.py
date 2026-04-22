@@ -135,7 +135,7 @@ def cargo_clean(manifest: Path, dry_run: bool) -> tuple[bool, int, str]:
         return (True, freed, f"cargo clean ({human(freed)} freed): {target}")
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
         # Fall back to direct rmtree of target/ since cargo refused
-        return safe_rmtree(target, dry_run=False)
+        return safe_rmtree(target, dry_run=dry_run)
 
 
 def docker_prune(dry_run: bool) -> tuple[bool, int, str]:
@@ -152,6 +152,7 @@ def docker_prune(dry_run: bool) -> tuple[bool, int, str]:
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
         return (True, 0, "skip (docker not available)")
 
+    seen: set[str] = set()
     to_drop = []
     for line in out.stdout.splitlines():
         parts = line.split()
@@ -160,7 +161,10 @@ def docker_prune(dry_run: bool) -> tuple[bool, int, str]:
         repo_tag = parts[0]
         if repo_tag.startswith("ghcr.io/cross-rs/") or \
            repo_tag.startswith("ghcr.io/super-linter/"):
-            to_drop.append(parts[1])  # image ID
+            img_id = parts[1]
+            if img_id not in seen:
+                seen.add(img_id)
+                to_drop.append(img_id)  # image ID, deduplicated
 
     if not to_drop:
         return (True, 0, "no stale cross-rs/super-linter images found")

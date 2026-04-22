@@ -352,7 +352,7 @@ def generate_pss_for_mcp(
     if cmd:
         keywords.add(cmd.lower())
 
-    for arg in server_config.get("args", []):
+    for arg in server_config.get("args") or []:
         if isinstance(arg, str) and not arg.startswith("-"):
             for part in re.split(r"[@/]", arg):
                 for sub in re.split(r"[-_]", part.lower()):

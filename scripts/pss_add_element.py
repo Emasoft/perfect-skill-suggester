@@ -12,7 +12,7 @@ Element types:
     rule         - Rule .md file (copied to rules/ dir)
     mcp-server   - JSON file with MCP server config
     lsp-server   - JSON file with LSP server config
-    output-style - JSON file with output style config
+    output-style - .md file with output style definition
 
 Exit codes:
     0 - Element added successfully
@@ -232,10 +232,15 @@ def check_hook_incompatibility(
     return None
 
 
-def check_rule_duplicate(plugin: Path, name: str) -> str | None:
+def check_rule_duplicate(
+    plugin: Path, name: str, source: Path | None = None
+) -> str | None:
     rules_dir = plugin / "rules"
     if not rules_dir.is_dir():
         return None
+    # Check physical filename collision (what add_rule actually writes)
+    if source and (rules_dir / source.name).exists():
+        return f"Rule file '{source.name}' already exists in rules/"
     filename = f"{name}.md" if not name.endswith(".md") else name
     if (rules_dir / filename).exists():
         return f"Rule '{filename}' already exists in rules/"
@@ -264,12 +269,13 @@ def check_mcp_duplicate(
             existing = json.loads(
                 mcp_json.read_text(encoding="utf-8")
             )
-            servers = existing.get("mcpServers", {})
-            if server_name in servers:
-                return (
-                    f"MCP server '{server_name}' already "
-                    f"defined in .mcp.json"
-                )
+            if isinstance(existing, dict):
+                servers = existing.get("mcpServers", {})
+                if isinstance(servers, dict) and server_name in servers:
+                    return (
+                        f"MCP server '{server_name}' already "
+                        f"defined in .mcp.json"
+                    )
         except (json.JSONDecodeError, UnicodeDecodeError, OSError):
             pass
 
@@ -400,7 +406,7 @@ def add_command(
     subdir = source.parent / source.stem
     if subdir.is_dir():
         dest_subdir = dest_dir / source.stem
-        shutil.copytree(subdir, dest_subdir, symlinks=True, dirs_exist_ok=False)
+        shutil.copytree(subdir, dest_subdir, symlinks=True, dirs_exist_ok=True)
         success(f"Added command + subdir: {source.name}")
     else:
         success(f"Added command: {source.name}")
@@ -524,7 +530,11 @@ def add_mcp_server(
         info(f"[DRY-RUN] Would add MCP server '{name}' to .mcp.json")
         return True
 
-    existing.setdefault("mcpServers", {})[name] = server_entry
+    mcp_servers = existing.setdefault("mcpServers", {})
+    if not isinstance(mcp_servers, dict):
+        existing["mcpServers"] = {}
+        mcp_servers = existing["mcpServers"]
+    mcp_servers[name] = server_entry
     mcp_json.write_text(
         json.dumps(existing, indent=2) + "\n", encoding="utf-8"
     )
@@ -661,7 +671,7 @@ DUPLICATE_CHECKERS = {
     ),
     "hook": lambda p, s: check_hook_incompatibility(p, s),
     "rule": lambda p, s: check_rule_duplicate(
-        p, extract_element_name(s, "rule")
+        p, extract_element_name(s, "rule"), s
     ),
     "mcp-server": check_mcp_duplicate,
     "lsp-server": check_lsp_duplicate,

@@ -100,7 +100,7 @@ def print_warn(text: str) -> None:
 def check_python_version() -> bool:
     """Check Python version is 3.8+."""
     version = sys.version_info
-    if version.major >= 3 and version.minor >= 8:
+    if sys.version_info >= (3, 8):
         print_ok(f"Python {version.major}.{version.minor}.{version.micro}")
         return True
     print_fail(f"Python {version.major}.{version.minor} (need 3.8+)")
@@ -151,6 +151,9 @@ def check_binary_exists() -> bool:
                 version = result.stdout.strip()
                 print_ok(f"Binary: {binary_name} ({version})")
                 return True
+            print_fail(f"Binary exists but --version failed (exit {result.returncode})")
+            print("         Try rebuilding: uv run python scripts/pss_build.py")
+            return False
         except (subprocess.TimeoutExpired, OSError) as e:
             print_fail(f"Binary exists but fails to run: {e}")
             print("         Try rebuilding: uv run python scripts/pss_build.py")

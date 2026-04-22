@@ -211,7 +211,7 @@ class TestCleanupTmpQueue:
         # Should find the top-level queued.pss
         assert "queued.pss" in result.stdout
         # Should NOT find nested one (non-recursive for queue)
-        assert "nested.pss" not in result.stdout or str(nested_pss) not in result.stdout
+        assert "nested.pss" not in result.stdout and str(nested_pss) not in result.stdout
 
 
 class TestCleanupIdempotent:

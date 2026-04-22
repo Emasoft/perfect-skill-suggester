@@ -520,13 +520,15 @@ def main() -> None:
                 except json.JSONDecodeError as e:
                     print(f"Warning: Skipping invalid JSON line: {e}", file=sys.stderr)
             index["skill_count"] = len(index.get("skills", {}))
+            index["generated"] = datetime.now(timezone.utc).isoformat()
             # Phase C: CozoDB only — JSON auto-write removed. See run_merge
             # for the same change and rationale.
-            _sync_cozodb(index)
-            print(
-                f"Merged {count} elements into CozoDB (see `pss export --json` for JSON export)",
-                file=sys.stderr,
-            )
+            _sync_cozodb(index, quiet=args.quiet)
+            if not args.quiet:
+                print(
+                    f"Merged {count} elements into CozoDB (see `pss export --json` for JSON export)",
+                    file=sys.stderr,
+                )
         finally:
             if fcntl is not None:
                 fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)

@@ -275,14 +275,15 @@ def build_native(release: bool = True) -> bool:
     binary_name = get_binary_name(system, machine)
 
     target_subdir = "release" if release else "debug"
+    # cargo emits `pss.exe` for windows, `pss` for everything else.
+    # Apply suffix BEFORE existence checks so the fallback also looks for the right name.
+    cargo_binary = "pss.exe" if system == "windows" else "pss"
     # Cargo workspace puts binaries under the workspace root's target/, not the crate's
     workspace_root = rust_dir.parent  # rust/ (workspace root with Cargo.toml)
-    source = workspace_root / "target" / target_subdir / "pss"
+    source = workspace_root / "target" / target_subdir / cargo_binary
     # Fallback: check crate-level target/ for non-workspace builds
     if not source.exists():
-        source = rust_dir / "target" / target_subdir / "pss"
-    if system == "windows":
-        source = source.with_suffix(".exe")
+        source = rust_dir / "target" / target_subdir / cargo_binary
 
     dest = bin_dir / binary_name
 

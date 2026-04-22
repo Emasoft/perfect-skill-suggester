@@ -87,10 +87,13 @@ def _collect_pss_files(
     for source, skill_dir in locations:
         if not skill_dir.exists() or not skill_dir.is_dir():
             continue
-        # Filter out symlinks to prevent traversal into unrelated dirs
+        # Filter out files outside skill_dir (reached via symlinked dirs) and
+        # symlink .pss files themselves to prevent traversal into unrelated dirs.
+        skill_dir_resolved = skill_dir.resolve()
         pss_files = sorted(
             p for p in skill_dir.rglob("*.pss")
             if not p.is_symlink()
+            and p.resolve().is_relative_to(skill_dir_resolved)
         )
         if pss_files:
             results[f"{source}:{skill_dir}"] = pss_files

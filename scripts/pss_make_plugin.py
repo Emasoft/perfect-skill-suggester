@@ -164,7 +164,7 @@ def copy_command(name: str, source_path: str, dest_commands_dir: Path) -> bool:
 def copy_rule(name: str, source_path: str, dest_rules_dir: Path) -> bool:
     """Copy a rule .md file."""
     source = Path(source_path)
-    if not source.exists():
+    if not source_path or not source.exists():
         # Try common rule locations
         for candidate in [
             Path.home() / ".claude" / "rules" / f"{name}.md",
@@ -205,7 +205,7 @@ def generate_plugin_json(
     # Add keywords from the profile's tech stack and domains
     keywords = []
     req = profile.get("requirements", {})
-    if req.get("tech_stack"):
+    if isinstance(req, dict) and req.get("tech_stack"):
         keywords.extend(req["tech_stack"])
     keywords.append(agent_name)
     if keywords:

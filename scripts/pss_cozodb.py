@@ -152,7 +152,7 @@ def count_skills(db: Client | None = None) -> int:
     own_db = db is None
     try:
         client = db or open_db()
-    except FileNotFoundError:
+    except Exception:
         return 0
     try:
         result = client.run("?[count(name)] := *skills{ name }")
@@ -209,8 +209,7 @@ def added_since(
             :order first_indexed_at
         """
         if limit and limit > 0:
-            query = query.strip().rstrip(":order first_indexed_at")
-            query = f"{query} :order first_indexed_at :limit {int(limit)}"
+            query = query + f" :limit {int(limit)}"
         result = client.run(query)
         return _rows_to_dicts(result)
     finally:
@@ -540,10 +539,13 @@ _FULL_ENTRY_COLUMNS: tuple[str, ...] = (
     "server_command",
     "server_args_json",
     "language_ids_json",
+    "negative_kw_json",
     "patterns_json",
     "directories_json",
     "path_patterns_json",
     "use_cases_json",
+    "co_usage_json",
+    "alternatives_json",
     "domain_gates_json",
     "file_types_json",
     "keywords_json",
@@ -588,10 +590,10 @@ def _row_to_full_entry(row: list[Any], headers: list[str]) -> dict[str, Any]:
                     entry[py_key] = json.loads(val)
                 except json.JSONDecodeError:
                     # Corrupt JSON in the column — fall back to a safe default.
-                    # domain_gates / path_gates are dicts; everything else is a list.
-                    entry[py_key] = {} if py_key in ("domain_gates", "path_gates") else []
+                    # domain_gates is a dict; everything else is a list.
+                    entry[py_key] = {} if py_key == "domain_gates" else []
             else:
-                entry[py_key] = {} if py_key in ("domain_gates", "path_gates") else []
+                entry[py_key] = {} if py_key == "domain_gates" else []
             continue
         entry[col] = val
     return entry

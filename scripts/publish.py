@@ -665,6 +665,7 @@ def build_pss_nlp(dry_run: bool, force_build: bool = False) -> None:
         return
 
     info("  negation-detector source changed — rebuilding pss-nlp-* binaries...")
+    build_started_at = time.time() - 2  # 2s slack for filesystem mtime granularity
     result = run(
         ["uv", "run", "python", str(BUILD_ALL_SCRIPT), "--nlp-only"],
         timeout=2700,
@@ -678,6 +679,42 @@ def build_pss_nlp(dry_run: bool, force_build: bool = False) -> None:
             "Fix the build environment and re-run publish.py."
         )
     success("  pss-nlp binaries built successfully.")
+
+    # Verify all 5 pss-nlp binaries were actually produced and rebuilt during
+    # this run (mtime >= build_started_at). Mirrors the check in build_binaries().
+    required_nlp_binaries = {
+        "pss-nlp-darwin-arm64",
+        "pss-nlp-darwin-x86_64",
+        "pss-nlp-linux-arm64",
+        "pss-nlp-linux-x86_64",
+        "pss-nlp-windows-x86_64.exe",
+    }
+    bin_dir = ROOT / "bin"
+    now = time.time()
+    nlp_stale: list[str] = []
+    nlp_missing: list[str] = []
+    for bname in required_nlp_binaries:
+        bpath = bin_dir / bname
+        if not bpath.exists():
+            nlp_missing.append(bname)
+            continue
+        mtime = bpath.stat().st_mtime
+        if mtime < build_started_at:
+            nlp_stale.append(
+                f"{bname} (mtime {int(now - mtime)}s ago, before build_started)"
+            )
+    if nlp_missing or nlp_stale:
+        details = ""
+        if nlp_missing:
+            details += f"\n  Missing: {', '.join(nlp_missing)}"
+        if nlp_stale:
+            details += f"\n  Stale (not rebuilt this run): {', '.join(nlp_stale)}"
+        fatal(
+            "Post-build verification failed — publish.py refuses to ship "
+            "a release with missing or stale pss-nlp binaries.\n"
+            f"Expected all 5 pss-nlp binaries in bin/ to be rebuilt just now:{details}"
+        )
+    info("  Verified: all 5 pss-nlp binaries present and fresh.")
 
 
 def build_binaries(dry_run: bool, force_build: bool = False) -> None:

@@ -342,7 +342,8 @@ def extract_toml_elements(data: dict) -> list[tuple[str, str, str]]:
         if isinstance(rec, list):
             etype = SECTION_TYPE_MAP.get(f"{section}.recommended", section)
             for name in rec:
-                elements.append((name, etype, f"{section}.recommended"))
+                if isinstance(name, str):
+                    elements.append((name, etype, f"{section}.recommended"))
 
     return elements
 
@@ -472,7 +473,8 @@ def verify_profile(
 
     # Check 2: Auto-skills pinning
     if auto_skills:
-        primary_skills = set(toml_data.get("skills", {}).get("primary", []))
+        skills_section = toml_data.get("skills", {})
+        primary_skills = set(skills_section.get("primary", []) if isinstance(skills_section, dict) else [])
         for skill in auto_skills:
             if skill not in primary_skills:
                 result.pinning_violations.append(
