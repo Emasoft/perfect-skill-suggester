@@ -2,7 +2,7 @@
 
 ## Table of Contents
 
-- PSS setup and verification checklist items
+- [Checklist](#checklist)
 
 ## Checklist
 
