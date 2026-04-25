@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.2.12] - 2026-04-25
+
+### Bug Fixes
+
+- **skill:** Align pss-usage setup-checklist TOC with actual H2
+
 ## [3.2.10] - 2026-04-22
 
 ### Documentation
