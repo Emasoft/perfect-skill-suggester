@@ -146,7 +146,9 @@ def run_pipeline(
         str(staging_index),
     ]
 
-    p1 = p2 = p3 = None
+    p1: subprocess.Popen[bytes] | None = None
+    p2: subprocess.Popen[bytes] | None = None
+    p3: subprocess.Popen[bytes] | None = None
     try:
         with open(warnings_file, "wb") as wf, open(stats_file, "wb") as sf:
             p1 = subprocess.Popen(discover_args, stdout=subprocess.PIPE, stderr=wf)
@@ -161,8 +163,9 @@ def run_pipeline(
             try:
                 p3.wait(timeout=300)
             except subprocess.TimeoutExpired:
-                for p in (p3, p2, p1):
-                    p.kill()
+                # Kill in reverse pipeline order so children die before parents.
+                for proc in (p3, p2, p1):
+                    proc.kill()
                 print("ERROR: Pipeline timed out after 5 minutes", file=sys.stderr)
                 return 1
             rc1 = p1.wait()
@@ -174,7 +177,9 @@ def run_pipeline(
                     return rc
             return 0
     finally:
-        for p in (p1, p2, p3):
+        # Mypy: typed-tuple to keep `Popen | None` element type explicit.
+        running: tuple[subprocess.Popen[bytes] | None, ...] = (p1, p2, p3)
+        for p in running:
             if p is not None and p.poll() is None:
                 p.kill()
 
