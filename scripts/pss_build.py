@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import os
 import platform
 import shutil
 import subprocess
@@ -288,10 +289,14 @@ def build_native(release: bool = True) -> bool:
     dest = bin_dir / binary_name
 
     if source.exists():
-        shutil.copy2(source, dest)
+        # Use shutil.copy (NOT copy2) so dest gets a fresh mtime — copy2
+        # preserves source mtime which makes incremental cargo builds look
+        # "stale" to publish.py's verification gate.
+        shutil.copy(source, dest)
         # Make executable on Unix
         if system != "windows":
             dest.chmod(0o755)
+        os.utime(dest, None)
         print(f"Binary installed: {dest}")
         return True
     print(f"Error: Built binary not found at {source}", file=sys.stderr)
@@ -358,8 +363,12 @@ def build_darwin_cross(target_key: str, release: bool = True) -> bool:
     dest = bin_dir / binary_name
 
     if source.exists():
-        shutil.copy2(source, dest)
+        # Use shutil.copy (NOT copy2) so dest gets a fresh mtime — copy2
+        # preserves source mtime which makes incremental cargo builds look
+        # "stale" to publish.py's verification gate.
+        shutil.copy(source, dest)
         dest.chmod(0o755)
+        os.utime(dest, None)
         print(f"Binary installed: {dest}")
         return True
     print(f"Error: Built binary not found at {source}", file=sys.stderr)
@@ -427,8 +436,12 @@ def build_zigbuild(target_key: str, release: bool = True) -> bool:
     dest = bin_dir / binary_name
 
     if source.exists():
-        shutil.copy2(source, dest)
+        # Use shutil.copy (NOT copy2) so dest gets a fresh mtime — copy2
+        # preserves source mtime which makes incremental cargo builds look
+        # "stale" to publish.py's verification gate.
+        shutil.copy(source, dest)
         dest.chmod(0o755)
+        os.utime(dest, None)
         print(f"Binary installed: {dest}")
         return True
     print(f"Error: Built binary not found at {source}", file=sys.stderr)
@@ -504,8 +517,12 @@ def build_cross(target_key: str, release: bool = True) -> bool:
     dest = bin_dir / binary_name
 
     if source.exists():
-        shutil.copy2(source, dest)
+        # Use shutil.copy (NOT copy2) so dest gets a fresh mtime — copy2
+        # preserves source mtime which makes incremental cargo builds look
+        # "stale" to publish.py's verification gate.
+        shutil.copy(source, dest)
         dest.chmod(0o755)
+        os.utime(dest, None)
         print(f"Binary installed: {dest}")
         return True
     print(f"Error: Built binary not found at {source}", file=sys.stderr)
