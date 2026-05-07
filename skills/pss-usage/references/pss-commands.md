@@ -91,7 +91,7 @@ The `/pss-status` command requires no arguments. Simply type it in the chat:
 Perfect Skill Suggester Status
 ==============================
 
-Index File: /Users/name/.claude/cache/skill-index.json
+Index File: ~/.claude/cache/skill-index.json
 Index Status: ✓ Exists
 Total Skills Indexed: 42
 Last Modified: 2026-01-23 14:30:00

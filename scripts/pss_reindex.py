@@ -116,39 +116,67 @@ def run_pipeline(
     """Run the 3-stage pipeline: discover | enrich | merge.
 
     Writes to a staging index file (not the live one) for crash safety.
-    Uses shell pipes so that discover's stderr warnings don't kill the pipeline.
+    Uses subprocess.Popen with explicit stdout/stdin chaining (NOT shell=True)
+    so the pipeline is built without invoking a shell — any stage failure is
+    detected by inspecting each Popen's exit code, equivalent to bash's
+    `set -o pipefail`.
 
     Args:
         exclude_inactive_plugins: If True, pass --exclude-inactive-plugins to discover
                                   to skip plugins disabled in settings.json.
-    Returns the pipeline exit code.
+    Returns the pipeline exit code (the first non-zero stage code, or 0).
     """
-    import shlex
-
     warnings_file = Path(tempfile.gettempdir()) / "pss-discover-warnings.txt"
     stats_file = Path(tempfile.gettempdir()) / "pss-pass1-stats.txt"
-    discover_flags = "--jsonl --all-projects"
+
+    discover_args = [
+        sys.executable,
+        str(scripts_dir / "pss_discover.py"),
+        "--jsonl",
+        "--all-projects",
+    ]
     if exclude_inactive_plugins:
-        discover_flags += " --exclude-inactive-plugins"
-    # Use shlex.quote on all interpolated paths to prevent shell injection
-    # (CLAUDE_PLUGIN_ROOT or binary paths with special chars could break quoting)
-    q = shlex.quote
-    # set -o pipefail ensures the pipeline fails if ANY stage fails
-    # (without it, only the last stage's exit code is reported)
-    cmd = (
-        f'set -o pipefail; '
-        f'{q(sys.executable)} {q(str(scripts_dir / "pss_discover.py"))} {discover_flags} 2>{q(str(warnings_file))} '
-        f'| {q(str(binary))} --pass1-batch 2>{q(str(stats_file))} '
-        f'| {q(sys.executable)} {q(str(scripts_dir / "pss_merge_queue.py"))} --batch-stdin --index {q(str(staging_index))}'
-    )
+        discover_args.append("--exclude-inactive-plugins")
+    enrich_args = [str(binary), "--pass1-batch"]
+    merge_args = [
+        sys.executable,
+        str(scripts_dir / "pss_merge_queue.py"),
+        "--batch-stdin",
+        "--index",
+        str(staging_index),
+    ]
+
+    p1 = p2 = p3 = None
     try:
-        result = subprocess.run(cmd, shell=True, executable="/bin/bash", timeout=300)  # 5-minute timeout
-    except subprocess.TimeoutExpired:
-        print("ERROR: Pipeline timed out after 5 minutes", file=sys.stderr)
-        return 1
-    if result.returncode != 0:
-        print(f"ERROR: Pipeline exited with code {result.returncode}", file=sys.stderr)
-    return result.returncode
+        with open(warnings_file, "wb") as wf, open(stats_file, "wb") as sf:
+            p1 = subprocess.Popen(discover_args, stdout=subprocess.PIPE, stderr=wf)
+            assert p1.stdout is not None
+            p2 = subprocess.Popen(
+                enrich_args, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=sf
+            )
+            p1.stdout.close()
+            assert p2.stdout is not None
+            p3 = subprocess.Popen(merge_args, stdin=p2.stdout)
+            p2.stdout.close()
+            try:
+                p3.wait(timeout=300)
+            except subprocess.TimeoutExpired:
+                for p in (p3, p2, p1):
+                    p.kill()
+                print("ERROR: Pipeline timed out after 5 minutes", file=sys.stderr)
+                return 1
+            rc1 = p1.wait()
+            rc2 = p2.wait()
+            rc3 = p3.returncode
+            for stage, rc in (("discover", rc1), ("enrich", rc2), ("merge", rc3)):
+                if rc != 0:
+                    print(f"ERROR: Pipeline stage '{stage}' exited with code {rc}", file=sys.stderr)
+                    return rc
+            return 0
+    finally:
+        for p in (p1, p2, p3):
+            if p is not None and p.poll() is None:
+                p.kill()
 
 
 def verify_index_file(index_file: Path) -> int:
