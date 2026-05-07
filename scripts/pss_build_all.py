@@ -154,11 +154,18 @@ def _copy_binary(
 
     ext = ".exe" if "windows" in triple else ""
     dest = BIN_DIR / f"{output_prefix}-{target_name}{ext}"
-    shutil.copy2(src, dest)
+    # Use shutil.copy (NOT copy2) so dest gets a fresh mtime. copy2 preserves
+    # the source's mtime, which causes publish.py's post-build verification
+    # to incorrectly flag binaries as "stale" when cargo's incremental build
+    # decides nothing changed and leaves the source binary's mtime unchanged.
+    shutil.copy(src, dest)
     try:
         os.chmod(dest, 0o755)
+        # Explicitly set mtime to now in case the copy preserved metadata
+        # via filesystem-level COW or a copy hook.
+        os.utime(dest, None)
     except OSError:
-        pass  # chmod not supported on all platforms
+        pass  # chmod / utime not supported on all platforms
     return dest
 
 
