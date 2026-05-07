@@ -2,6 +2,13 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.3.1] - 2026-05-07
+
+### Bug Fixes
+
+- **build:** Use shutil.copy not copy2 so bin/ gets fresh mtimes
+- **build:** Same shutil.copy fix in pss_build.py (4 call sites)
+
 ## [3.3.0] - 2026-05-07
 
 ### Bug Fixes
