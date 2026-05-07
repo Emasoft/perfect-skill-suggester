@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.3.0] - 2026-05-07
+
+### Bug Fixes
+
+- **typing:** Annotate Popen | None to satisfy mypy strict mode
+
+### Features
+
+- **temporal:** Event-sourced history index — Phases 1-4
+
 ## [3.2.12] - 2026-04-25
 
 ### Bug Fixes
