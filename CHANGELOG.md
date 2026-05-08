@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.4.0] - 2026-05-08
+
+### Features
+
+- **temporal:** Phase-2 discovery + reindex pipeline wiring (TRDD-152e697f)
+
 ## [3.3.3] - 2026-05-08
 
 ### Bug Fixes
