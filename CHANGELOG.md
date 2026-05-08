@@ -2,6 +2,18 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.4.1] - 2026-05-08
+
+### Bug Fixes
+
+- **scoring:** Rebuild binaries + restore e2e fixture cleanliness (TRDD-014bcc92)
+
+### Miscellaneous Tasks
+
+- **lint:** Fix I001 import sort errors + trailing whitespace
+- **lint:** I001 import sort fix in test_pss_cozodb_phase_b.py
+- **lint:** Add .markdownlint.json to suppress strict markdownlint rules
+
 ## [3.4.0] - 2026-05-08
 
 ### Features
