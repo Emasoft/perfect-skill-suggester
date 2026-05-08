@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.3.2] - 2026-05-08
+
+### Bug Fixes
+
+- **test:** Isolate pss_test_e2e from production ~/.claude/cache/
+
 ## [3.3.1] - 2026-05-07
 
 ### Bug Fixes
