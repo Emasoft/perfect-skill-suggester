@@ -349,6 +349,36 @@ def phase2_create_skills(env: dict[str, Any], verbose: bool) -> TestResult:
         return TestResult("Phase 2: Test skills created", False, str(e))
 
 
+def _isolated_env(env: dict[str, Any]) -> dict[str, str]:
+    """Build a subprocess env that ISOLATES the test from the user's
+    real ~/.claude/cache/. Sets HOME=fake_home so pss_cozodb.get_db_path()
+    resolves to the test sandbox, AND scrubs CLAUDE_PLUGIN_DATA so it
+    doesn't leak the real plugin data dir into the child process.
+
+    Without this, pss_merge_queue.py would write to the real
+    ~/.claude/cache/pss-skill-index.db and clobber the user's index
+    with test fixtures (root cause of the 2026-05-08 hook timeout).
+    """
+    fake_home: Path = env["fake_home"]
+    # Defence-in-depth: refuse to run if fake_home isn't actually under a
+    # temp dir. Catches a future refactor that might pass the user's real
+    # home dir by accident.
+    real_home = os.path.expanduser("~")
+    if str(fake_home).startswith(real_home + os.sep) and ".claude" not in str(
+        fake_home
+    ).lower().replace(real_home.lower(), ""):
+        # fake_home lives directly under real_home with no isolating subdir
+        raise RuntimeError(
+            f"Refusing to run: fake_home {fake_home!r} is not isolated from "
+            f"real HOME {real_home!r}. This would clobber the user's cache."
+        )
+    test_env = os.environ.copy()
+    test_env["HOME"] = str(fake_home)
+    # Scrub CC plugin-data env vars so child can't reach the real cache.
+    test_env.pop("CLAUDE_PLUGIN_DATA", None)
+    return test_env
+
+
 def phase3_pass1_merge(env: dict[str, Any], verbose: bool) -> TestResult:
     """Phase 3: Test merge queue Pass 1 — keywords/metadata."""
     try:
@@ -369,6 +399,7 @@ def phase3_pass1_merge(env: dict[str, Any], verbose: bool) -> TestResult:
 
         merged = 0
         errors: list[str] = []
+        test_env = _isolated_env(env)
 
         for skill in TEST_SKILLS:
             pss_data = {
@@ -407,6 +438,7 @@ def phase3_pass1_merge(env: dict[str, Any], verbose: bool) -> TestResult:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env=test_env,  # HOME=fake_home + CLAUDE_PLUGIN_DATA scrubbed
             )
 
             if result.returncode != 0:
@@ -465,6 +497,7 @@ def phase4_pass2_merge(env: dict[str, Any], verbose: bool) -> TestResult:
 
         merged = 0
         errors: list[str] = []
+        test_env = _isolated_env(env)
 
         for skill in TEST_SKILLS:
             pss_data = {
@@ -491,6 +524,7 @@ def phase4_pass2_merge(env: dict[str, Any], verbose: bool) -> TestResult:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env=test_env,  # HOME=fake_home + CLAUDE_PLUGIN_DATA scrubbed
             )
 
             if result.returncode != 0:
@@ -539,14 +573,12 @@ def phase5_binary_scoring(env: dict[str, Any], verbose: bool) -> TestResult:
     """Phase 5: Test Rust binary direct — prompt matching."""
     try:
         binary_path: Path = env["binary_path"]
-        fake_home: Path = env["fake_home"]
 
         # Build test input — simple prompt
         test_input = json.dumps({"prompt": "help me lint my python code with ruff"})
 
-        # Call binary with HOME override so it finds our test index
-        test_env = os.environ.copy()
-        test_env["HOME"] = str(fake_home)
+        # Call binary with isolated env (HOME + CLAUDE_PLUGIN_DATA scrubbed)
+        test_env = _isolated_env(env)
 
         result = subprocess.run(
             [str(binary_path)],
@@ -604,10 +636,7 @@ def phase6_hook_simulation(env: dict[str, Any], verbose: bool) -> TestResult:
     """Phase 6: Test hook simulation — hook-format output for multiple prompts."""
     try:
         binary_path: Path = env["binary_path"]
-        fake_home: Path = env["fake_home"]
-
-        test_env = os.environ.copy()
-        test_env["HOME"] = str(fake_home)
+        test_env = _isolated_env(env)
 
         matched = 0
         errors: list[str] = []
