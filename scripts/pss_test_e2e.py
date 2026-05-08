@@ -397,10 +397,15 @@ def phase3_pass1_merge(env: dict[str, Any], verbose: bool) -> TestResult:
                 "Reinstall the plugin.",
             )
 
-        merged = 0
         errors: list[str] = []
         test_env = _isolated_env(env)
-
+        # The single-file merge mode REPLACES the CozoDB on each call
+        # (atomic_write_cozodb writes the full skills dict, then swaps
+        # the DB file). For 3 sequential single-file merges, only the
+        # last one's skill survives. The production reindex pipeline
+        # uses --batch-stdin which accumulates all entries in memory
+        # and writes the DB ONCE — that is what the test should mirror.
+        batch_jsonl_lines: list[str] = []
         for skill in TEST_SKILLS:
             pss_data = {
                 "name": skill["name"],
@@ -420,47 +425,61 @@ def phase3_pass1_merge(env: dict[str, Any], verbose: bool) -> TestResult:
                 "intents": skill["intents"],
                 "pass": 1,
             }
+            batch_jsonl_lines.append(json.dumps(pss_data))
 
-            pss_file = queue_dir / f"{skill['name']}.pss"
-            with open(pss_file, "w", encoding="utf-8") as f:
-                json.dump(pss_data, f, indent=2)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(merge_script),
+                "--batch-stdin",
+                "--index",
+                str(index_path),
+            ],
+            input="\n".join(batch_jsonl_lines) + "\n",
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=test_env,  # HOME=fake_home + CLAUDE_PLUGIN_DATA scrubbed
+        )
+        merged = len(TEST_SKILLS) if result.returncode == 0 else 0
+        if result.returncode != 0:
+            errors.append(
+                f"batch merge exit {result.returncode} — {result.stderr[:300]}"
+            )
+        # Suppress unused-name diagnostics from `queue_dir`; batch-stdin
+        # mode doesn't drop .pss files in the queue dir.
+        _ = queue_dir
 
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(merge_script),
-                    str(pss_file),
-                    "--pass",
-                    "1",
-                    "--index",
-                    str(index_path),
-                ],
+        # Verify CozoDB row count. Phase C (v3.0+) made CozoDB the ONLY
+        # canonical store; the legacy JSON skill-index.json is no longer
+        # auto-maintained by pss_merge_queue.py. Assert against the DB
+        # under the test's fake_home — NOT against the user's real cache.
+        cache_dir: Path = env["cache_dir"]
+        db_path = cache_dir / "pss-skill-index.db"
+        skill_count = 0
+        if not db_path.exists():
+            errors.append(
+                f"CozoDB not created at expected test path {db_path}"
+            )
+        else:
+            # Count rows via the binary, which knows how to read CozoDB.
+            binary_path: Path = env["binary_path"]
+            count_result = subprocess.run(
+                [str(binary_path), "--index", str(db_path), "count"],
                 capture_output=True,
                 text=True,
-                timeout=30,
-                env=test_env,  # HOME=fake_home + CLAUDE_PLUGIN_DATA scrubbed
+                timeout=10,
+                env=test_env,
             )
-
-            if result.returncode != 0:
+            try:
+                skill_count = int(count_result.stdout.strip() or "0")
+            except ValueError:
+                skill_count = 0
+            if skill_count != len(TEST_SKILLS):
                 errors.append(
-                    f"{skill['name']}: exit {result.returncode} — {result.stderr[:200]}"
+                    f"CozoDB has {skill_count} skills, expected {len(TEST_SKILLS)}"
+                    f" (binary stderr: {count_result.stderr[:200]})"
                 )
-            else:
-                merged += 1
-
-            # Verify .pss file was deleted
-            if pss_file.exists():
-                errors.append(f"{skill['name']}: .pss file not deleted after merge")
-
-        # Verify index contents
-        with open(index_path, encoding="utf-8") as f:
-            index = json.load(f)
-
-        skill_count = len(index.get("skills", {}))
-        if skill_count != len(TEST_SKILLS):
-            errors.append(
-                f"Index has {skill_count} skills, expected {len(TEST_SKILLS)}"
-            )
 
         if errors:
             detail = f"{merged}/{len(TEST_SKILLS)} merged"
@@ -468,9 +487,11 @@ def phase3_pass1_merge(env: dict[str, Any], verbose: bool) -> TestResult:
                 detail += f"\n  Error: {err}"
             return TestResult("Phase 3: Pass 1 merge", False, detail)
 
-        detail = f"{merged}/{len(TEST_SKILLS)} merged, .pss files deleted"
+        detail = f"{merged}/{len(TEST_SKILLS)} merged via batch-stdin"
         if verbose:
-            detail += f"\n  Index skills: {list(index.get('skills', {}).keys())}"
+            detail += (
+                f"\n  CozoDB rows: {skill_count} at {db_path.relative_to(cache_dir.parent.parent)}"
+            )
 
         return TestResult("Phase 3: Pass 1 merge", True, detail)
 
