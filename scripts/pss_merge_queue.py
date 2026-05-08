@@ -46,7 +46,8 @@ from pss_paths import get_index_path, get_lock_path
 # scripts that only need JSON merge (and run in environments without pycozo)
 # still work.
 try:
-    from pss_cozodb import atomic_write_cozodb, get_db_path as cozo_get_db_path
+    from pss_cozodb import atomic_write_cozodb
+    from pss_cozodb import get_db_path as cozo_get_db_path
     _COZO_AVAILABLE = True
 except ImportError:
     _COZO_AVAILABLE = False

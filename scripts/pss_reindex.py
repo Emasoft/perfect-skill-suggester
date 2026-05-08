@@ -31,7 +31,6 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-
 from pss_paths import get_data_dir
 
 
@@ -266,7 +265,10 @@ def verify_cozodb_has_rows() -> int:
     """
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from pss_cozodb import count_skills, get_db_path  # type: ignore[import-not-found]
+        from pss_cozodb import (  # type: ignore[import-not-found]
+            count_skills,
+            get_db_path,
+        )
     except ImportError:
         return 0
     if not get_db_path().exists():

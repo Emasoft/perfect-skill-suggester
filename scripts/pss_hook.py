@@ -676,7 +676,10 @@ def main() -> None:
         # the PID lockfile consistently with prior releases; it is NOT read.
         index_path = _get_cache_dir() / SKILL_INDEX_FILE
         try:
-            from pss_cozodb import count_skills, get_db_path  # type: ignore[import-not-found]
+            from pss_cozodb import (  # type: ignore[import-not-found]
+                count_skills,
+                get_db_path,
+            )
         except ImportError:
             # pycozo missing is a hard error in Phase C — the entire runtime
             # assumes CozoDB as canonical. Warn and exit without suggestions.
@@ -786,7 +789,10 @@ def _warm_index() -> None:
         # CozoDB is the authoritative store in Phase C; JSON is only a debug
         # export. Verify the DB, not the JSON.
         try:
-            from pss_cozodb import count_skills, get_db_path  # type: ignore[import-not-found]
+            from pss_cozodb import (  # type: ignore[import-not-found]
+                count_skills,
+                get_db_path,
+            )
         except ImportError:
             return  # pycozo missing — defer to the real hook call which warns
 

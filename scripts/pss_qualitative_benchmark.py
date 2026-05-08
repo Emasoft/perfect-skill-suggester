@@ -18,16 +18,15 @@ Usage:
 
 import argparse
 import json
-import re
 import os
 import platform
 import random
+import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
-
 
 # ── Binary detection ─────────────────────────────────────────────────────────
 

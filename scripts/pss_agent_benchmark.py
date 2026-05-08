@@ -26,7 +26,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-
 # Per-type top-K limits (how many suggestions to consider per type)
 TYPE_LIMITS = {
     "skills": 5,

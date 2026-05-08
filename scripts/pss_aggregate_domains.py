@@ -31,7 +31,6 @@ from pathlib import Path
 from typing import Any
 
 # -- Constants --
-
 from pss_paths import get_cache_dir
 
 DEFAULT_INDEX_PATH = get_cache_dir() / "skill-index.json"
