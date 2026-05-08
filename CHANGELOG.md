@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.3.3] - 2026-05-08
+
+### Bug Fixes
+
+- **test:** Phase 3 e2e — assert on CozoDB, use batch-stdin ([#9](https://github.com/Emasoft/perfect-skill-suggester/issues/9))
+
 ## [3.3.2] - 2026-05-08
 
 ### Bug Fixes
