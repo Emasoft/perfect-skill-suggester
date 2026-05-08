@@ -113,13 +113,20 @@ def run_pipeline(
     *,
     exclude_inactive_plugins: bool = False,
 ) -> int:
-    """Run the 3-stage pipeline: discover | enrich | merge.
+    """Run the 4-stage pipeline: discover → enrich → merge → merge-events.
 
-    Writes to a staging index file (not the live one) for crash safety.
-    Uses subprocess.Popen with explicit stdout/stdin chaining (NOT shell=True)
-    so the pipeline is built without invoking a shell — any stage failure is
-    detected by inspecting each Popen's exit code, equivalent to bash's
-    `set -o pipefail`.
+    Stages 1-3 build the legacy `skills` table (CozoDB) consumed by the
+    suggestion hot path. Stage 4 (the temporal-index `merge-events`) reads
+    the same discover output to populate the event-sourced `events` and
+    `elements_state` tables introduced in TRDD-152e697f. The Rust
+    binary's `merge-events` subcommand is the only writer of the events
+    table during normal reindex flow.
+
+    Implementation: discover output is captured once into a tmpfile, then
+    fanned out to (enrich → merge_queue) AND (merge-events). This avoids
+    re-running the slow discover stage at the cost of one tmpfile on disk
+    that is removed in the finally block. The tmpfile lives in
+    $TMPDIR/pss-reindex-<pid>.jsonl.
 
     Args:
         exclude_inactive_plugins: If True, pass --exclude-inactive-plugins to discover
@@ -128,6 +135,7 @@ def run_pipeline(
     """
     warnings_file = Path(tempfile.gettempdir()) / "pss-discover-warnings.txt"
     stats_file = Path(tempfile.gettempdir()) / "pss-pass1-stats.txt"
+    discover_jsonl = Path(tempfile.gettempdir()) / f"pss-reindex-{os.getpid()}.jsonl"
 
     discover_args = [
         sys.executable,
@@ -145,43 +153,91 @@ def run_pipeline(
         "--index",
         str(staging_index),
     ]
+    # merge-events targets the same DB the merge stage writes (default
+    # CozoDB path). The binary resolves it via $CLAUDE_PLUGIN_DATA /
+    # ~/.claude/cache/ unless --index overrides.
+    merge_events_args = [str(binary), "merge-events"]
 
-    p1: subprocess.Popen[bytes] | None = None
+    # Stage 0: discover → tmpfile. We could use Popen to stream into the
+    # next stages, but capturing once and replaying twice is simpler than
+    # tee'ing across two downstream pipes and lets each downstream stage
+    # set its own timeout.
+    try:
+        with open(warnings_file, "wb") as wf:
+            with open(discover_jsonl, "wb") as out:
+                rc_d = subprocess.run(
+                    discover_args, stdout=out, stderr=wf, timeout=300
+                ).returncode
+        if rc_d != 0:
+            print(
+                f"ERROR: Pipeline stage 'discover' exited with code {rc_d}",
+                file=sys.stderr,
+            )
+            return rc_d
+    except subprocess.TimeoutExpired:
+        print("ERROR: discover stage timed out after 5 minutes", file=sys.stderr)
+        return 1
+
+    # Stage 1-2-3: cat tmpfile | enrich | merge_queue
     p2: subprocess.Popen[bytes] | None = None
     p3: subprocess.Popen[bytes] | None = None
     try:
-        with open(warnings_file, "wb") as wf, open(stats_file, "wb") as sf:
-            p1 = subprocess.Popen(discover_args, stdout=subprocess.PIPE, stderr=wf)
-            assert p1.stdout is not None
+        with open(discover_jsonl, "rb") as inp, open(stats_file, "wb") as sf:
             p2 = subprocess.Popen(
-                enrich_args, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=sf
+                enrich_args, stdin=inp, stdout=subprocess.PIPE, stderr=sf
             )
-            p1.stdout.close()
             assert p2.stdout is not None
             p3 = subprocess.Popen(merge_args, stdin=p2.stdout)
             p2.stdout.close()
             try:
                 p3.wait(timeout=300)
             except subprocess.TimeoutExpired:
-                # Kill in reverse pipeline order so children die before parents.
-                for proc in (p3, p2, p1):
+                for proc in (p3, p2):
                     proc.kill()
                 print("ERROR: Pipeline timed out after 5 minutes", file=sys.stderr)
                 return 1
-            rc1 = p1.wait()
             rc2 = p2.wait()
             rc3 = p3.returncode
-            for stage, rc in (("discover", rc1), ("enrich", rc2), ("merge", rc3)):
+            for stage, rc in (("enrich", rc2), ("merge", rc3)):
                 if rc != 0:
-                    print(f"ERROR: Pipeline stage '{stage}' exited with code {rc}", file=sys.stderr)
+                    print(
+                        f"ERROR: Pipeline stage '{stage}' exited with code {rc}",
+                        file=sys.stderr,
+                    )
                     return rc
-            return 0
     finally:
-        # Mypy: typed-tuple to keep `Popen | None` element type explicit.
-        running: tuple[subprocess.Popen[bytes] | None, ...] = (p1, p2, p3)
+        running: tuple[subprocess.Popen[bytes] | None, ...] = (p2, p3)
         for p in running:
             if p is not None and p.poll() is None:
                 p.kill()
+
+    # Stage 4: cat tmpfile | merge-events. This populates the event-
+    # sourced temporal index. Failures here are logged but DO NOT fail
+    # the overall reindex — the legacy skills table (used by the
+    # suggestion hot path) is already up to date. The user can re-run
+    # `pss merge-events` manually.
+    try:
+        with open(discover_jsonl, "rb") as inp:
+            rc_e = subprocess.run(
+                merge_events_args, stdin=inp, timeout=300
+            ).returncode
+        if rc_e != 0:
+            print(
+                f"WARNING: merge-events exited with code {rc_e} (legacy index OK)",
+                file=sys.stderr,
+            )
+    except subprocess.TimeoutExpired:
+        print(
+            "WARNING: merge-events timed out after 5 minutes (legacy index OK)",
+            file=sys.stderr,
+        )
+    finally:
+        try:
+            discover_jsonl.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    return 0
 
 
 def verify_index_file(index_file: Path) -> int:

@@ -965,6 +965,430 @@ def discover_lsp_servers() -> list[dict[str, Any]]:
     return servers
 
 
+def _hash_short(payload: str) -> str:
+    """Short stable hash used as a suffix for hook element names.
+
+    Hooks merge across scopes per CC settings precedence
+    (https://code.claude.com/docs/en/settings.md), so each hook entry needs a
+    deterministic name that survives reordering. We hash the canonical
+    (event_type, matcher, command) triple — the same triple Claude Code uses
+    to dedupe array settings — so a hook keeps the same element_id across
+    scans even if its index in the source array shifts.
+    """
+    import hashlib
+
+    return hashlib.sha1(payload.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
+
+
+def discover_hooks(scan_all_projects: bool = False) -> list[dict[str, Any]]:
+    """Discover hook entries from settings.json files and plugin hooks.json.
+
+    Per https://code.claude.com/docs/en/settings.md array settings (hooks)
+    MERGE across scopes — they do not override. Each hook entry is therefore
+    its own element. The element name is derived from
+    (event_type, matcher, command) so reorders within a settings file do
+    not produce spurious "removed + installed" event pairs.
+
+    Sources:
+    1. ~/.claude/settings.json hooks.<EventName>[]
+    2. .claude/settings.json (project)
+    3. .claude/settings.local.json (local — gitignored)
+    4. <plugin-root>/hooks.json (top-level plugin layout)
+    5. <plugin-root>/hooks/hooks.json (subfolder layout)
+    """
+    elements: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _emit(source: str, settings_path: Path, event_name: str, idx: int,
+              matcher: str, hook_entry: dict[str, Any]) -> None:
+        cmd = str(hook_entry.get("command", ""))
+        htype = str(hook_entry.get("type", "command"))
+        canonical = f"{event_name}|{matcher}|{cmd}"
+        short = _hash_short(canonical)
+        name = f"{event_name}.{short}"
+        dedup_key = f"hook:{source}:{name}"
+        if dedup_key in seen:
+            return
+        seen.add(dedup_key)
+        # Synthetic path uses a JSON-pointer-like fragment so the path
+        # round-trips through size/hash logic without errors (the file
+        # exists, even if the inner array index is part of the locator).
+        path_locator = (
+            f"{settings_path}#hooks.{event_name}[{idx}]"
+        )
+        description = f"{htype} hook on {event_name}"
+        if matcher:
+            description += f" (matcher: {matcher})"
+        if cmd:
+            preview_cmd = cmd if len(cmd) <= 200 else cmd[:200] + "..."
+        else:
+            preview_cmd = ""
+        elements.append({
+            "name": name,
+            "type": "hook",
+            "source": source,
+            "path": path_locator,
+            "description": description[:200],
+            "preview": preview_cmd,
+            "hook_event": event_name,
+            "hook_matcher": matcher,
+            "hook_type": htype,
+            "hook_command": cmd[:500],
+        })
+
+    def _scan_settings(settings_path: Path, source: str) -> None:
+        if not settings_path.exists():
+            return
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+        hooks_obj = data.get("hooks")
+        if not isinstance(hooks_obj, dict):
+            return
+        for event_name, entries in hooks_obj.items():
+            if not isinstance(entries, list):
+                continue
+            for idx, entry in enumerate(entries):
+                if not isinstance(entry, dict):
+                    continue
+                matcher = str(entry.get("matcher", ""))
+                inner_hooks = entry.get("hooks", [])
+                if not isinstance(inner_hooks, list):
+                    continue
+                for inner in inner_hooks:
+                    if isinstance(inner, dict):
+                        _emit(source, settings_path, event_name, idx, matcher, inner)
+
+    def _scan_plugin_hooks(hooks_json: Path, source: str) -> None:
+        if not hooks_json.exists():
+            return
+        try:
+            data = json.loads(hooks_json.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+        hooks_obj = data.get("hooks")
+        if not isinstance(hooks_obj, dict):
+            return
+        for event_name, entries in hooks_obj.items():
+            if not isinstance(entries, list):
+                continue
+            for idx, entry in enumerate(entries):
+                if not isinstance(entry, dict):
+                    continue
+                matcher = str(entry.get("matcher", ""))
+                inner_hooks = entry.get("hooks", [])
+                if not isinstance(inner_hooks, list):
+                    continue
+                for inner in inner_hooks:
+                    if isinstance(inner, dict):
+                        _emit(source, hooks_json, event_name, idx, matcher, inner)
+
+    # 1. User-level settings
+    _scan_settings(get_claude_dir() / "settings.json", "user")
+
+    # 2. Project settings (current cwd)
+    cwd = get_cwd()
+    _scan_settings(cwd / ".claude" / "settings.json", "project")
+    _scan_settings(cwd / ".claude" / "settings.local.json", "local")
+
+    # 3. All projects
+    if scan_all_projects:
+        seen_paths: set[Path] = {cwd}
+        for proj_name, project_path in get_all_projects_from_claude_config():
+            if project_path in seen_paths:
+                continue
+            seen_paths.add(project_path)
+            _scan_settings(
+                project_path / ".claude" / "settings.json",
+                f"project:{proj_name}",
+            )
+            _scan_settings(
+                project_path / ".claude" / "settings.local.json",
+                f"local:{proj_name}",
+            )
+
+    # 4. Plugin-shipped hooks (cache + marketplaces)
+    plugin_cache = get_claude_dir() / "plugins" / "cache"
+    if plugin_cache.exists():
+        for marketplace in plugin_cache.iterdir():
+            if not marketplace.is_dir():
+                continue
+            for plugin in marketplace.iterdir():
+                if not plugin.is_dir():
+                    continue
+                for version in plugin.iterdir():
+                    if not version.is_dir():
+                        continue
+                    src = f"plugin:{marketplace.name}/{plugin.name}"
+                    _scan_plugin_hooks(version / "hooks.json", src)
+                    _scan_plugin_hooks(version / "hooks" / "hooks.json", src)
+    return elements
+
+
+def discover_plugins() -> list[dict[str, Any]]:
+    """Discover installed plugins from ~/.claude/plugins/installed_plugins.json.
+
+    Per CC v2.1.69 the file is version 2 — root has {"version": 2, "plugins":
+    {"<name>@<marketplace>": [{scope, installPath, version, ...}, ...]}}.
+    Each (plugin_id, scope) tuple becomes a separate element (a plugin can
+    be installed in user AND project scope independently).
+    """
+    elements: list[dict[str, Any]] = []
+    plugins_file = get_claude_dir() / "plugins" / "installed_plugins.json"
+    if not plugins_file.exists():
+        return elements
+    try:
+        data = json.loads(plugins_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return elements
+    plugins_obj = data.get("plugins", {})
+    if not isinstance(plugins_obj, dict):
+        return elements
+    for plugin_id, installs in plugins_obj.items():
+        if not isinstance(installs, list):
+            continue
+        for entry in installs:
+            if not isinstance(entry, dict):
+                continue
+            scope = str(entry.get("scope", "user"))
+            install_path = str(entry.get("installPath", ""))
+            version = str(entry.get("version", ""))
+            installed_at = str(entry.get("installedAt", ""))
+            git_sha = str(entry.get("gitCommitSha", ""))
+            description = (
+                f"Plugin {plugin_id} v{version} installed at {scope} scope"
+            )
+            elements.append({
+                "name": plugin_id,
+                "type": "plugin",
+                "source": scope,
+                "path": install_path or f"{plugins_file}#plugins.{plugin_id}",
+                "description": description[:200],
+                "preview": json.dumps(entry, indent=2)[:500],
+                "plugin_version": version,
+                "plugin_installed_at": installed_at,
+                "plugin_git_sha": git_sha,
+            })
+    return elements
+
+
+def discover_marketplaces() -> list[dict[str, Any]]:
+    """Discover known marketplaces from ~/.claude/plugins/known_marketplaces.json.
+
+    Each top-level key is a marketplace name. Each entry has source.{source,
+    repo|url}, installLocation, lastUpdated, autoUpdate.
+    """
+    elements: list[dict[str, Any]] = []
+    mp_file = get_claude_dir() / "plugins" / "known_marketplaces.json"
+    if not mp_file.exists():
+        return elements
+    try:
+        data = json.loads(mp_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return elements
+    if not isinstance(data, dict):
+        return elements
+    for mp_name, entry in data.items():
+        if not isinstance(entry, dict):
+            continue
+        src_obj = entry.get("source", {})
+        repo_or_url = ""
+        src_kind = ""
+        if isinstance(src_obj, dict):
+            src_kind = str(src_obj.get("source", ""))
+            repo_or_url = str(src_obj.get("repo") or src_obj.get("url") or "")
+        install_location = str(entry.get("installLocation", ""))
+        description = (
+            f"Marketplace {mp_name} ({src_kind}: {repo_or_url})"
+            if repo_or_url else f"Marketplace {mp_name}"
+        )
+        elements.append({
+            "name": mp_name,
+            "type": "marketplace",
+            "source": "user",
+            "path": install_location or f"{mp_file}#{mp_name}",
+            "description": description[:200],
+            "preview": json.dumps(entry, indent=2)[:500],
+            "marketplace_kind": src_kind,
+            "marketplace_repo": repo_or_url,
+        })
+    return elements
+
+
+def discover_monitors() -> list[dict[str, Any]]:
+    """Discover monitor declarations from plugin manifests.
+
+    Per CC v2.1.105+ a plugin may declare top-level `monitors`; per v2.1.129
+    these moved under `experimental.monitors`. We accept either form. Each
+    named monitor becomes one element.
+    """
+    elements: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    plugin_cache = get_claude_dir() / "plugins" / "cache"
+    if not plugin_cache.exists():
+        return elements
+    for marketplace in plugin_cache.iterdir():
+        if not marketplace.is_dir():
+            continue
+        for plugin in marketplace.iterdir():
+            if not plugin.is_dir():
+                continue
+            for version in plugin.iterdir():
+                if not version.is_dir():
+                    continue
+                manifest = version / ".claude-plugin" / "plugin.json"
+                if not manifest.exists():
+                    continue
+                try:
+                    data = json.loads(manifest.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    continue
+                monitors_obj = data.get("monitors")
+                if not isinstance(monitors_obj, dict):
+                    experimental = data.get("experimental", {})
+                    if isinstance(experimental, dict):
+                        monitors_obj = experimental.get("monitors")
+                if not isinstance(monitors_obj, dict):
+                    continue
+                src = f"plugin:{marketplace.name}/{plugin.name}"
+                for monitor_name, mon_cfg in monitors_obj.items():
+                    dedup_key = f"monitor:{src}:{monitor_name}"
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+                    description = ""
+                    if isinstance(mon_cfg, dict):
+                        description = str(mon_cfg.get("description", ""))[:200]
+                    elements.append({
+                        "name": monitor_name,
+                        "type": "monitor",
+                        "source": src,
+                        "path": str(manifest),
+                        "description": description or f"Monitor declared by {plugin.name}",
+                        "preview": (
+                            json.dumps(mon_cfg, indent=2)[:500]
+                            if isinstance(mon_cfg, (dict, list))
+                            else str(mon_cfg)[:500]
+                        ),
+                    })
+    return elements
+
+
+def _discover_styled_files_in_dir(
+    parent: Path, source: str, subdir: str, elem_type: str,
+    extensions: tuple[str, ...], seen: set[str],
+) -> list[dict[str, Any]]:
+    """Helper: scan parent/<subdir>/ for files matching extensions."""
+    out: list[dict[str, Any]] = []
+    target = parent / subdir
+    if not target.exists() or not target.is_dir():
+        return out
+    try:
+        entries = sorted(target.iterdir())
+    except OSError:
+        return out
+    for f in entries:
+        if not f.is_file():
+            continue
+        if not any(f.name.endswith(ext) for ext in extensions):
+            continue
+        name = f.stem
+        dedup_key = f"{elem_type}:{source}:{name}"
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        # Best-effort description from .md frontmatter or .json "description"
+        description = ""
+        try:
+            content = f.read_text(encoding="utf-8")
+            if f.suffix == ".md":
+                fm = parse_frontmatter(content)
+                description = str(fm.get("description", ""))[:200]
+            elif f.suffix == ".json":
+                fdata = json.loads(content)
+                if isinstance(fdata, dict):
+                    description = str(fdata.get("description", ""))[:200]
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        out.append({
+            "name": name,
+            "type": elem_type,
+            "source": source,
+            "path": str(f),
+            "description": description,
+            "preview": "",
+        })
+    return out
+
+
+def discover_output_styles() -> list[dict[str, Any]]:
+    """Discover output styles (per https://code.claude.com/docs/en/output-styles.md).
+
+    Locations:
+    - ~/.claude/output-styles/<name>.md (user)
+    - .claude/output-styles/<name>.md (project)
+    - <plugin-root>/output-styles/<name>.md (plugin-shipped)
+    """
+    elements: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    cwd = get_cwd()
+    elements.extend(_discover_styled_files_in_dir(
+        get_claude_dir(), "user", "output-styles", "output-style", (".md",), seen
+    ))
+    elements.extend(_discover_styled_files_in_dir(
+        cwd / ".claude", "project", "output-styles", "output-style", (".md",), seen
+    ))
+    plugin_cache = get_claude_dir() / "plugins" / "cache"
+    if plugin_cache.exists():
+        for marketplace in plugin_cache.iterdir():
+            if not marketplace.is_dir():
+                continue
+            for plugin in marketplace.iterdir():
+                if not plugin.is_dir():
+                    continue
+                for version in plugin.iterdir():
+                    if not version.is_dir():
+                        continue
+                    src = f"plugin:{marketplace.name}/{plugin.name}"
+                    elements.extend(_discover_styled_files_in_dir(
+                        version, src, "output-styles", "output-style",
+                        (".md",), seen
+                    ))
+    return elements
+
+
+def discover_themes() -> list[dict[str, Any]]:
+    """Discover themes (per CC v2.1.118+ ~/.claude/themes/ and plugin themes/).
+
+    Locations:
+    - ~/.claude/themes/<name>.json (user-only — themes are global per
+      claude-directory.md "themes/" section)
+    - <plugin-root>/themes/<name>.json (plugin-shipped, v2.1.118+)
+    """
+    elements: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    elements.extend(_discover_styled_files_in_dir(
+        get_claude_dir(), "user", "themes", "theme", (".json",), seen
+    ))
+    plugin_cache = get_claude_dir() / "plugins" / "cache"
+    if plugin_cache.exists():
+        for marketplace in plugin_cache.iterdir():
+            if not marketplace.is_dir():
+                continue
+            for plugin in marketplace.iterdir():
+                if not plugin.is_dir():
+                    continue
+                for version in plugin.iterdir():
+                    if not version.is_dir():
+                        continue
+                    src = f"plugin:{marketplace.name}/{plugin.name}"
+                    elements.extend(_discover_styled_files_in_dir(
+                        version, src, "themes", "theme", (".json",), seen
+                    ))
+    return elements
+
+
 def _extract_body_preview(content: str, max_len: int = 500) -> str:
     """Extract body preview from markdown content, skipping YAML frontmatter."""
     if content.startswith("---"):
@@ -1333,7 +1757,11 @@ def main() -> int:
     parser.add_argument(
         "--type",
         type=str,
-        help="Comma-separated element types to discover (skill,agent,command,rule,mcp,lsp). Default: all",
+        help=(
+            "Comma-separated element types to discover "
+            "(skill,agent,command,rule,mcp,lsp,hook,plugin,monitor,output-style,theme,marketplace). "
+            "Default: all"
+        ),
     )
     # Checklist mode arguments
     parser.add_argument(
@@ -1364,8 +1792,15 @@ def main() -> int:
     ):
         parser.error("--batch-size must be a positive integer")
 
-    # Validate --type values against known element types
-    VALID_TYPES = {"skill", "agent", "command", "rule", "mcp", "lsp"}
+    # Validate --type values against known element types.
+    # Mirrors the ElementType enum in rust/skill-suggester/src/temporal.rs.
+    # `channel` is intentionally absent: channels are MCP-server capabilities
+    # discovered at runtime via the MCP wire protocol, not persistable
+    # filesystem artifacts.
+    VALID_TYPES = {
+        "skill", "agent", "command", "rule", "mcp", "lsp",
+        "hook", "plugin", "monitor", "output-style", "theme", "marketplace",
+    }
     if args.type:
         for t in args.type.split(","):
             t = t.strip()
@@ -1412,6 +1847,23 @@ def main() -> int:
     if not element_types or "lsp" in element_types:
         lsp_servers = discover_lsp_servers()
         elements.extend(lsp_servers)
+
+    # Phase 2 (TRDD-152e697f): the temporal index also tracks hooks, plugins,
+    # monitors, output styles, themes, and marketplaces. These flow through
+    # the same JSONL pipe as skills/agents so the events table picks up
+    # install/remove/version-change deltas for them.
+    if not element_types or "hook" in element_types:
+        elements.extend(discover_hooks(scan_all_projects=scan_all_projects))
+    if not element_types or "plugin" in element_types:
+        elements.extend(discover_plugins())
+    if not element_types or "marketplace" in element_types:
+        elements.extend(discover_marketplaces())
+    if not element_types or "monitor" in element_types:
+        elements.extend(discover_monitors())
+    if not element_types or "output-style" in element_types:
+        elements.extend(discover_output_styles())
+    if not element_types or "theme" in element_types:
+        elements.extend(discover_themes())
 
     # Apply source filter to MCP/LSP results too.
     # Sources use prefixes like "project:agentskills", "user:codex", "plugin:name"
