@@ -31,7 +31,6 @@ from pss_cozodb import (  # noqa: E402
     open_db,
 )
 
-
 FIXTURE_ENTRY = {
     "source": "user",
     "path": "/tmp/fake-skill/SKILL.md",
