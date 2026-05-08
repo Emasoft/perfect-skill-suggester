@@ -143,24 +143,13 @@ TEST_SKILLS: list[dict[str, Any]] = [
         "platforms": ["web"],
         "frameworks": ["react"],
         "languages": ["typescript", "javascript"],
-        # Canonical domain name beats the numeric LOC+ACM code "110" —
-        # the binary's domain-inference / mismatch-penalty layer reads
-        # human-readable domain names from the prompt, so a numeric code
-        # is invisible to it and the skill ends up filtered out.
+        # Canonical domain name. Originally we used the numeric LOC+ACM
+        # code "110" but the binary's domain inference reads
+        # human-readable names, so a numeric code is invisible.
         "domains": ["web-frontend"],
         "tools": ["react", "vite"],
         "file_types": ["tsx", "jsx", "css"],
-        # Keywords are matched as whole phrases AND tokenised against the
-        # prompt; we list short high-recall phrases plus longer specific
-        # phrases so the prompt "build react component with hooks"
-        # lights up multiple keyword signals. Weak fixture metadata
-        # caused a long-standing pre-existing Phase-6 false-negative on
-        # this prompt — verified 2026-05-08.
         "keywords": [
-            "react",
-            "react component",
-            "react hooks",
-            "build react",
             "react component jsx hooks",
             "react hooks state management",
             "build react app component",
@@ -169,8 +158,6 @@ TEST_SKILLS: list[dict[str, Any]] = [
             "react hooks usestate useeffect",
             "react typescript component",
             "react ui development",
-            "build react component",
-            "build react component with hooks",
         ],
         "intents": ["build", "create", "develop"],
         "co_usage": {
@@ -207,22 +194,15 @@ HOOK_TEST_CASES: list[dict[str, str]] = [
         "expected_skill": "test-docker-deploy",
     },
     {
-        # KNOWN PRE-EXISTING FAILURE (verified 2026-05-08 against 3.3.3
-        # and earlier): the binary's find_matches scoring loop returns
-        # zero matches for this prompt even though the kw_lookup
-        # pre-filter passes test-react-frontend through as a candidate.
-        # The two flaky unit tests `test_find_matches_with_synonyms` and
-        # `test_confidence_levels` (also pre-existing) confirm the same
-        # underlying gap. Tracked separately from the temporal-index
-        # work (TRDD-152e697f); fixing it requires a find_matches audit
-        # that's out of scope for Phase 2 of that TRDD.
-        #
-        # Even adding "frontend" to the prompt and "web-frontend" to the
-        # skill domain doesn't fix it — domain inference passes the
-        # skill through, but a downstream scoring filter still drops it.
-        # Until a proper find_matches investigation lands, this prompt
-        # is expected to fail; the 5/6 e2e baseline reflects that.
-        "prompt": "build react frontend component with hooks",
+        # Originally failed because the find_matches LANGUAGE CONFLICT
+        # GATE (main.rs:~8997) excludes any skill with explicit
+        # languages[] when the prompt has no language signal — and
+        # "react" alone wasn't mapped to JavaScript in the
+        # framework→language inference table. TRDD-014bcc92 documents
+        # the investigation; the fix added "react", "vue", "angular",
+        # "jsx", "tsx", and friends to both the framework→language
+        # inference map AND the DOMAIN_TAXONOMY frontend synonyms.
+        "prompt": "build react component with hooks",
         "expected_skill": "test-react-frontend",
     },
 ]
