@@ -240,6 +240,70 @@ def test_missing_name_entries_are_skipped(scratch_db: Path) -> None:
     assert count == 1, "empty-name entries should be skipped"
 
 
+def test_atomic_write_uses_staging_and_write_lock(scratch_db: Path) -> None:
+    """Verify the staging-file + atomic-rename pattern (v3.5.0+):
+
+    - Writer creates `<db>.write.lock` (not the legacy `<db>.lock`)
+    - The staging file `<db>.staging` is wiped after a successful rename
+    - The final live DB file exists at the original `db_path`
+    """
+    entries = {"user::phase-b-fixture": FIXTURE_ENTRY}
+    count = atomic_write_cozodb(entries, scratch_db, version="3.0")
+    assert count == 1
+
+    write_lock = scratch_db.with_name(scratch_db.name + ".write.lock")
+    staging = scratch_db.with_name(scratch_db.name + ".staging")
+    legacy_lock = scratch_db.with_name(scratch_db.name + ".lock")
+
+    assert scratch_db.exists(), "live DB must exist after atomic rename"
+    assert write_lock.exists(), "writer must leave its lock file behind"
+    assert not staging.exists(), "staging file must be removed after rename"
+    assert not legacy_lock.exists(), (
+        "legacy .lock should NOT be touched by the new writer pathway"
+    )
+
+
+def test_concurrent_reader_not_blocked_by_writer_lock(scratch_db: Path) -> None:
+    """The whole point of the staging-file design: a reader can open the
+    live DB even while a writer holds LOCK_EX on the *write* lock. Models
+    the production race where the hook fires during a `/pss-reindex-skills`.
+    """
+    import fcntl
+    import threading
+
+    # Seed the live DB so the reader has something to read.
+    atomic_write_cozodb({"user::phase-b-fixture": FIXTURE_ENTRY}, scratch_db, version="3.0")
+
+    write_lock = scratch_db.with_name(scratch_db.name + ".write.lock")
+    writer_held = threading.Event()
+    writer_release = threading.Event()
+
+    def hold_writer_lock() -> None:
+        with open(write_lock, "w") as fd:
+            fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+            writer_held.set()
+            writer_release.wait(timeout=5)
+
+    t = threading.Thread(target=hold_writer_lock, daemon=True)
+    t.start()
+    writer_held.wait(timeout=2)
+
+    # Reader path: opens the live DB without taking the write lock. Must
+    # not block on the writer.
+    t0 = time.monotonic()
+    db = open_db(scratch_db)
+    try:
+        rows = db.run("?[name] := *skills{ name } :limit 1").get("rows", [])
+        assert rows, "reader must see at least the seed row"
+    finally:
+        db.close()
+    elapsed = time.monotonic() - t0
+    assert elapsed < 1.0, f"reader was blocked for {elapsed:.2f}s — should be immediate"
+
+    writer_release.set()
+    t.join(timeout=2)
+
+
 def test_schema_has_33_skill_columns(scratch_db: Path) -> None:
     """Validate the skills relation has exactly the columns the Rust hot path reads."""
     entries = {"user::phase-b-fixture": FIXTURE_ENTRY}

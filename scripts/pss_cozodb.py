@@ -103,6 +103,14 @@ import pss_paths  # noqa: E402
 
 DB_FILENAME = "pss-skill-index.db"
 LOCK_FILENAME = "pss-skill-index.db.lock"
+# v3.5.0+: writers now build into a staging file and atomic-rename onto the
+# live DB. Concurrent writers serialize on the *write* lock, NOT on the live
+# DB's lock file, so readers (the Rust binary called by pss_hook) never
+# block on a reindex. The write lock and staging file names are derived
+# from the actual db_path passed in (so unit tests using a temp DB don't
+# collide with the production lock).
+WRITE_LOCK_SUFFIX = ".write.lock"
+STAGING_SUFFIX = ".staging"
 
 
 # ----------------------------------------------------------------------------
@@ -1102,11 +1110,21 @@ def atomic_write_cozodb(
     rehydrates the HashMap to entry-ID keys anyway; we recompute from
     (name, source) here.
 
-    Acquires an fcntl.LOCK_EX lock on a separate .lock file next to the DB
-    (sqlite will itself conflict if you try to flock() the .db), snapshots
-    existing first_indexed_at timestamps to preserve installation time across
-    rebuilds, removes the old DB, creates the schema fresh, and batch-inserts
-    all rows.
+    Staging-file + atomic-rename design (v3.5.0+):
+      1. Acquire fcntl.LOCK_EX on a *write* lock (pss-skill-index.db.write.lock)
+         — serializes concurrent writers without blocking readers.
+      2. Snapshot first_indexed_at from the LIVE DB (read-only; no lock).
+      3. Build the entire new DB at <db_path>.staging (and its sidecars).
+      4. On successful build, os.replace(staging, db_path) — atomic POSIX
+         rename. Readers always see a consistent live DB: either the old
+         inode (in-flight reads keep their FD) or the new inode (new reads).
+      5. Clean leftover sidecars.
+
+    Result: readers (the PSS hook calling the Rust binary) never see a
+    half-built DB and never block on a `database is locked` cozo-ce panic
+    during reindex. The user-visible reindex still takes the same time;
+    only the *visibility* window changes from "during the build" to "at
+    rename time" (a single rename(2) syscall, sub-millisecond on POSIX).
 
     Returns the number of skill rows written.
     """
@@ -1114,31 +1132,39 @@ def atomic_write_cozodb(
         db_path = get_db_path()
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = db_path.parent / LOCK_FILENAME
+    # Writer-only lock: readers do NOT touch this file. Concurrent writers
+    # serialize here (LOCK_EX waits for one writer to finish before the next
+    # starts), so the build queue is preserved without affecting reads.
+    write_lock_path = db_path.with_name(db_path.name + WRITE_LOCK_SUFFIX)
+    # Staging path: the new DB is built here, then atomically renamed onto
+    # db_path. The live file is only touched by the final os.replace().
+    staging_path = db_path.with_name(db_path.name + STAGING_SUFFIX)
 
-    lock_fd = open(lock_path, "w")  # noqa: SIM115
+    lock_fd = open(write_lock_path, "w")  # noqa: SIM115
     try:
         if fcntl is not None:
             fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
 
-        # Snapshot first_indexed_at before removing the DB so we preserve
-        # "installation time" across reindexes.
+        # Snapshot first_indexed_at from the LIVE DB before we start the new
+        # build, so we preserve "installation time" across reindexes. This is
+        # a read-only operation and does not contend with concurrent readers.
         prior = _snapshot_prior_timestamps(db_path)
 
-        # Fresh build: remove the old DB file to drop the schema cleanly.
-        # SQLite-backed CozoDB also creates -journal/-wal sidecars; clean them.
+        # Wipe any stale staging files from a previous interrupted reindex.
+        # SQLite-backed CozoDB may leave -journal/-wal/-shm sidecars next to
+        # the .db file; clean those too so the new build starts fresh.
         for sidecar in (
-            db_path,
-            db_path.with_name(db_path.name + "-journal"),
-            db_path.with_name(db_path.name + "-wal"),
-            db_path.with_name(db_path.name + "-shm"),
+            staging_path,
+            staging_path.with_name(staging_path.name + "-journal"),
+            staging_path.with_name(staging_path.name + "-wal"),
+            staging_path.with_name(staging_path.name + "-shm"),
         ):
             try:
                 sidecar.unlink()
             except FileNotFoundError:
                 pass
 
-        db = Client("sqlite", str(db_path), dataframe=False)
+        db = Client("sqlite", str(staging_path), dataframe=False)
         try:
             _create_db_schema(db)
 
@@ -1250,13 +1276,31 @@ def atomic_write_cozodb(
 
             # skill_ids: id => (name, source)
             _batch_insert_skill_ids(db, id_triples)
-
-            return count
         finally:
             try:
                 db.close()
             except Exception:
                 pass
+
+        # ATOMIC SWAP: rename staging onto live in a single syscall. POSIX
+        # rename(2) guarantees that any reader's open(2) call either sees the
+        # OLD inode (whose FD remains valid until last close) or the NEW one
+        # — never a torn intermediate state. We do this AFTER db.close() so
+        # the staging file is fully flushed and unlocked by SQLite.
+        os.replace(staging_path, db_path)
+
+        # Cleanup: SQLite in DELETE journal mode shouldn't leave sidecars
+        # after a clean close, but be defensive. Remove any -journal/-wal/-shm
+        # next to BOTH the (now-renamed) live db_path AND any orphans that
+        # might still carry the staging suffix.
+        for sidecar_suffix in ("-journal", "-wal", "-shm"):
+            for base_str in (str(db_path), str(staging_path)):
+                try:
+                    Path(base_str + sidecar_suffix).unlink()
+                except FileNotFoundError:
+                    pass
+
+        return count
     finally:
         if fcntl is not None:
             try:

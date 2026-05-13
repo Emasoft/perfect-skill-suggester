@@ -28,14 +28,22 @@ Thin Python wrapper that:
 5. Outputs the binary's hook-formatted result
 """
 
+import contextlib
 import json
 import os
 import platform
 import re
 import subprocess
 import sys
+import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+
+try:
+    import fcntl as _fcntl  # POSIX only
+except ImportError:  # pragma: no cover — Windows has no fcntl
+    _fcntl = None  # type: ignore[assignment]
 
 # Configuration
 MAX_SUGGESTIONS = 5  # Maximum skill suggestions per message (one line each)
@@ -44,6 +52,16 @@ SUBPROCESS_TIMEOUT = (
     8  # Binary timeout in seconds (hooks.json timeout is 10s; keep this < 10)
 )
 SKILL_INDEX_FILE = "skill-index.json"
+# Hook-side coordination with pss_cozodb writers. Writers take fcntl.LOCK_EX
+# on get_db_lock_path() before opening CozoDB for write. Without a matching
+# reader-side LOCK_SH the Rust binary can hit a half-committed SQLite file
+# and cozo-ce panics with `database is locked` (SIGABRT, exit code -6).
+# v3.4.2+: acquire LOCK_SH around the binary subprocess call; retry once on
+# -6 with a short backoff if the lock didn't fully prevent a race (e.g.
+# another process opening the DB without going through our writer path).
+DB_LOCK_ACQUIRE_TIMEOUT = 4.0  # Max seconds to wait for the reader lock
+DB_LOCK_POLL_INTERVAL = 0.05    # Sleep between non-blocking acquire attempts
+DB_RETRY_DELAY = 0.2            # Backoff before the single retry on SIGABRT
 # Prompt length cap for the Rust binary — the scorer only needs the first few
 # thousand chars to determine intent.  Piping 100KB+ prompts causes timeouts
 # (JSON parse + tokenization + scoring can't finish in 4s on huge inputs).
@@ -51,6 +69,73 @@ MAX_PROMPT_CHARS = 4000
 
 
 _debug_mode_cache: bool | None = None
+
+
+@contextlib.contextmanager
+def _db_shared_lock() -> Iterator[None]:
+    """Acquire fcntl.LOCK_SH on pss-skill-index.db.lock for the duration of
+    the binary subprocess call. Compatible with pss_cozodb writers (LOCK_EX).
+
+    On non-POSIX (Windows, where fcntl is unavailable) this is a no-op; the
+    binary call proceeds without coordination and falls back to the
+    retry-on-SIGABRT path below if cozo races on the SQLite file.
+
+    Uses non-blocking acquire + bounded poll (DB_LOCK_ACQUIRE_TIMEOUT). If
+    we can't acquire the shared lock in time (writer is holding LOCK_EX
+    for a very long merge), we yield anyway — the retry-on-SIGABRT path
+    handles the residual race. Better to attempt the binary call and
+    surface a real error than to silently swallow the hook.
+    """
+    if _fcntl is None:
+        yield
+        return
+
+    try:
+        from pss_paths import get_db_lock_path
+
+        lock_path = get_db_lock_path()
+    except Exception:
+        # Path resolution failed (very early in cache install, etc.) — skip
+        # locking and let the binary call proceed.
+        yield
+        return
+
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        yield
+        return
+
+    lock_fd = None
+    try:
+        lock_fd = open(lock_path, "w")  # noqa: SIM115
+    except OSError:
+        yield
+        return
+
+    deadline = time.monotonic() + DB_LOCK_ACQUIRE_TIMEOUT
+    acquired = False
+    try:
+        while True:
+            try:
+                _fcntl.flock(lock_fd.fileno(), _fcntl.LOCK_SH | _fcntl.LOCK_NB)
+                acquired = True
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(DB_LOCK_POLL_INTERVAL)
+        yield
+    finally:
+        try:
+            if acquired:
+                _fcntl.flock(lock_fd.fileno(), _fcntl.LOCK_UN)
+        except OSError:
+            pass
+        try:
+            lock_fd.close()
+        except OSError:
+            pass
 
 
 def _is_debug_mode() -> bool:
@@ -721,22 +806,42 @@ def main() -> None:
         # Timeout MUST be less than hooks.json timeout (5s) to avoid zombie processes.
         # Unset VIRTUAL_ENV to prevent stale venv from interfering with the binary
         clean_env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
-        result = subprocess.run(
-            [
-                str(binary_path),
-                "--format",
-                "hook",
-                "--top",
-                str(MAX_SUGGESTIONS),
-                "--min-score",
-                str(MIN_SCORE),
-            ],
-            input=augmented_stdin,
-            capture_output=True,
-            text=True,
-            timeout=SUBPROCESS_TIMEOUT,
-            env=clean_env,
-        )
+        argv = [
+            str(binary_path),
+            "--format",
+            "hook",
+            "--top",
+            str(MAX_SUGGESTIONS),
+            "--min-score",
+            str(MIN_SCORE),
+        ]
+
+        # Wrap the subprocess call in a shared fcntl lock (LOCK_SH on the
+        # same .db.lock file pss_cozodb writers take LOCK_EX on) so reads
+        # cannot collide with an in-progress merge. cozo-ce calls .unwrap()
+        # on `Connection::open()`, so a lost race becomes SIGABRT (-6)
+        # rather than a recoverable error — see TRDD note in CLAUDE.md.
+        # Retry once with backoff on -6 in case the residual race
+        # (non-fcntl pathway, or another writer that bypasses our lock)
+        # still occurs.
+        def _run_binary() -> subprocess.CompletedProcess[str]:
+            with _db_shared_lock():
+                return subprocess.run(
+                    argv,
+                    input=augmented_stdin,
+                    capture_output=True,
+                    text=True,
+                    timeout=SUBPROCESS_TIMEOUT,
+                    env=clean_env,
+                )
+
+        result = _run_binary()
+        if result.returncode == -6:
+            # cozo-ce panic on a locked DB. Wait briefly for the writer
+            # to release the SQLite file, then retry once. Bounded by
+            # DB_RETRY_DELAY so we stay well under the 10s hook timeout.
+            time.sleep(DB_RETRY_DELAY)
+            result = _run_binary()
 
         # Output the result (binary already limits to MAX_SUGGESTIONS)
         if result.returncode == 0:
@@ -763,9 +868,18 @@ def main() -> None:
             print(json.dumps(hook_out))
         else:
             build_script = Path(__file__).parent / "pss_build.py"
-            _exit_warning(
-                f"binary exited with code {result.returncode}: {result.stderr[:300]}. Try rebuilding: uv run python {build_script}"
-            )
+            # SIGABRT (-6) after retry → genuine concurrency loser. Surface
+            # a targeted message (the "rebuild" suggestion is wrong here).
+            if result.returncode == -6 and "database is locked" in (result.stderr or ""):
+                _exit_warning(
+                    "CozoDB busy after retry (another PSS writer is still holding the lock). "
+                    "This usually clears within seconds; if it persists, check for a stuck "
+                    "pss_merge_queue.py process and remove a stale ~/.claude/cache/pss-skill-index.db.lock."
+                )
+            else:
+                _exit_warning(
+                    f"binary exited with code {result.returncode}: {result.stderr[:300]}. Try rebuilding: uv run python {build_script}"
+                )
 
         sys.exit(0)  # Always exit 0 to not block Claude
 

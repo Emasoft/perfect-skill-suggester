@@ -71,8 +71,20 @@ def get_index_path() -> Path:
 
 
 def get_lock_path() -> Path:
-    """Get the canonical path to skill-index.lock."""
+    """Get the canonical path to skill-index.lock (legacy advisory lock)."""
     return get_data_dir() / "skill-index.lock"
+
+
+def get_db_lock_path() -> Path:
+    """Get the canonical path to pss-skill-index.db.lock.
+
+    This is the fcntl coordination file used by both pss_cozodb (writer,
+    LOCK_EX) and pss_hook (reader, LOCK_SH). Writers and readers must
+    agree on this filename or they will race on the CozoDB SQLite file
+    and cozo-ce will panic with `database is locked` (SIGABRT). See
+    TRDD note in CLAUDE.md for the original incident.
+    """
+    return get_data_dir() / "pss-skill-index.db.lock"
 
 
 # ---------------------------------------------------------------------------
