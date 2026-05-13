@@ -210,13 +210,49 @@
     },
     "dependencies": {
       "type": "object",
-      "description": "External plugins, skills, or tools required for this agent to function. Used to validate that prerequisites are installed before creating the agent from the TOML.",
+      "description": "External plugins, skills, or tools required for this agent to function. `plugins` is propagated verbatim into plugin.json's top-level `dependencies` array (Claude Code v2.1.110+) so Claude Code resolves and auto-installs them. The remaining arrays (skills/agents/commands/rules/mcp_servers/etc.) are documentation-only — Claude Code does not act on them, but consumers can read them to verify prerequisites.",
       "properties": {
         "plugins": {
           "type": "array",
-          "description": "Plugin names that must be installed (e.g., 'ai-maestro-integrator-agent', 'claude-ecosystem')",
-          "items": { "type": "string" },
-          "default": []
+          "description": "Plugin dependencies emitted into plugin.json's `dependencies` array. Each entry is either a bare plugin name string OR an object with `{name, version, marketplace}`. `version` is an npm semver range (e.g. `~2.1.0`, `^2.0`, `>=1.4`); `marketplace` lets a plugin depend on another marketplace (requires `allowCrossMarketplaceDependenciesOn` in the root marketplace.json). See https://code.claude.com/docs/en/plugin-dependencies for full semantics, resolution rules, and error codes (`dependency-unsatisfied`, `range-conflict`, `dependency-version-unsatisfied`, `no-matching-tag`).",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Bare plugin name (resolves within the same marketplace, tracks latest version)",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              {
+                "type": "object",
+                "description": "Plugin dependency object with optional version constraint and/or alternate marketplace",
+                "required": ["name"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Plugin name (required)",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "version": {
+                    "type": "string",
+                    "description": "npm semver range (e.g. `~2.1.0`, `^2.0`, `>=1.4`, `=2.1.0`). Pre-releases excluded unless explicitly opted in (e.g. `^2.0.0-0`). Resolved against `{plugin-name}--v{version}` git tags on the marketplace repo.",
+                    "examples": ["~2.1.0", "^2.0", ">=1.4", "=2.1.0"]
+                  },
+                  "marketplace": {
+                    "type": "string",
+                    "description": "Cross-marketplace dependency. The target marketplace must be listed in the root marketplace.json's `allowCrossMarketplaceDependenciesOn` array, otherwise install fails with `cross-marketplace` error.",
+                    "examples": ["acme-shared"]
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "default": [],
+          "examples": [
+            ["audit-logger"],
+            [{ "name": "secrets-vault", "version": "~2.1.0" }],
+            ["audit-logger", { "name": "secrets-vault", "version": "~2.1.0" }, { "name": "shared-utils", "marketplace": "acme-shared" }]
+          ]
         },
         "skills": {
           "type": "array",
@@ -315,8 +351,54 @@
     },
     "monitors": {
       "type": "object",
-      "description": "Optional monitors section propagated verbatim into the generated plugin.json (CC v2.1.105+). Background monitor plugin manifest key that auto-arms at session start or on skill invoke. Pass-through: PSS does NOT validate the nested structure. Consumers must follow the Claude Code plugins-reference.md monitors schema.",
+      "description": "Optional monitors section propagated verbatim into the generated plugin.json under `experimental.monitors` (CC v2.1.105+; nesting under `experimental` enforced as of CC v2.1.129). Background monitor plugin manifest key that auto-arms at session start or on skill invoke. Pass-through: PSS does NOT validate the nested structure. Consumers must follow the Claude Code plugins-reference.md monitors schema.",
       "additionalProperties": true
+    },
+    "themes": {
+      "type": "object",
+      "description": "Optional themes section propagated verbatim into the generated plugin.json under `experimental.themes` (CC v2.1.118+; nesting under `experimental` enforced as of CC v2.1.129). Each theme is a JSON file in `themes/` with a `base` preset and a sparse `overrides` map of color tokens. Pass-through: PSS does NOT validate the nested structure. Consumers must follow the Claude Code plugins-reference.md themes schema.",
+      "additionalProperties": true
+    },
+    "channels": {
+      "type": "array",
+      "description": "Optional channels section propagated verbatim into the generated plugin.json. Channel declarations for message injection (Telegram, Slack, Discord style) that bind to an MCP server provided by the same plugin. Pass-through: PSS does NOT validate the nested structure. Consumers must follow the Claude Code plugins-reference.md channels schema.",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "data_dir": {
+      "type": "object",
+      "description": "Optional directives for runtime dependency installation into the generated plugin's `${CLAUDE_PLUGIN_DATA}` directory via SessionStart hooks. When present, the generator emits a SessionStart hook that lazily installs declared package-manager deps the first time the plugin loads and after any version that bumps the bundled manifest. The directory survives plugin updates (per CC plugins-reference) and is cleaned up by `claude plugin uninstall` unless `--keep-data` is passed.",
+      "properties": {
+        "npm": {
+          "type": "string",
+          "description": "Relative path (from plugin root) to a `package.json` whose dependencies should be installed into ${CLAUDE_PLUGIN_DATA}/node_modules on first session start. Generated hook re-runs `npm install` only when the bundled file differs from the copy in ${CLAUDE_PLUGIN_DATA}.",
+          "examples": ["./package.json"]
+        },
+        "pip": {
+          "type": "string",
+          "description": "Relative path (from plugin root) to a Python requirements file (`requirements.txt` or `pyproject.toml`) whose dependencies should be installed into ${CLAUDE_PLUGIN_DATA}/.venv via `uv pip install` on first session start.",
+          "examples": ["./requirements.txt", "./pyproject.toml"]
+        },
+        "rust_cargo": {
+          "type": "string",
+          "description": "Relative path (from plugin root) to a `Cargo.toml` whose binary targets should be built into ${CLAUDE_PLUGIN_DATA}/bin on first session start.",
+          "examples": ["./Cargo.toml"]
+        },
+        "downloads": {
+          "type": "array",
+          "description": "List of URL+sha256+dest triples to download into ${CLAUDE_PLUGIN_DATA} on first session start (e.g. model files, large fixtures). Each download is verified against its sha256 before use.",
+          "items": {
+            "type": "object",
+            "required": ["url", "sha256", "dest"],
+            "properties": {
+              "url": { "type": "string", "format": "uri" },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "dest": { "type": "string", "description": "Path relative to ${CLAUDE_PLUGIN_DATA}" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,
@@ -385,7 +467,27 @@
       "hooks": { "recommended": [] },
       "lsp": { "recommended": ["typescript-lsp"] },
       "output_styles": { "recommended": [] },
-      "dependencies": { "plugins": [], "skills": [], "mcp_servers": ["chrome-devtools"], "tools": ["bun", "gh"], "scripts": [], "hooks": [], "rules": [], "agents": [], "commands": [], "lsp_servers": [], "output_styles": [], "frameworks": [] }
+      "dependencies": {
+        "plugins": [
+          "audit-logger",
+          { "name": "secrets-vault", "version": "~2.1.0" },
+          { "name": "shared-utils", "marketplace": "acme-shared" }
+        ],
+        "skills": [],
+        "mcp_servers": ["chrome-devtools"],
+        "tools": ["bun", "gh"],
+        "scripts": [],
+        "hooks": [],
+        "rules": [],
+        "agents": [],
+        "commands": [],
+        "lsp_servers": [],
+        "output_styles": [],
+        "frameworks": []
+      },
+      "data_dir": {
+        "npm": "./package.json"
+      }
     }
   ]
 }

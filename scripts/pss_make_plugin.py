@@ -185,6 +185,42 @@ def copy_rule(name: str, source_path: str, dest_rules_dir: Path) -> bool:
     return True
 
 
+def _normalize_plugin_dependency(entry: Any) -> Any | None:
+    """Normalize one entry from [dependencies].plugins into plugin.json's
+    `dependencies` array shape.
+
+    Accepts:
+      - bare string -> kept as-is
+      - dict with {name, version?, marketplace?} -> kept verbatim,
+        unknown keys filtered out, `name` required
+
+    Returns the normalized entry, or None if the input is invalid (caller
+    should skip and emit a warning).
+    """
+    if isinstance(entry, str):
+        stripped = entry.strip()
+        if not stripped:
+            return None
+        return stripped
+    if isinstance(entry, dict):
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return None
+        obj: dict[str, str] = {"name": name.strip()}
+        version = entry.get("version")
+        if isinstance(version, str) and version.strip():
+            obj["version"] = version.strip()
+        marketplace = entry.get("marketplace")
+        if isinstance(marketplace, str) and marketplace.strip():
+            obj["marketplace"] = marketplace.strip()
+        # If the entry has only `name` and no other fields, collapse to bare
+        # string form for terser plugin.json output (matches the docs idiom).
+        if set(obj.keys()) == {"name"}:
+            return obj["name"]
+        return obj
+    return None
+
+
 def generate_plugin_json(
     plugin_name: str,
     agent_name: str,
@@ -192,8 +228,27 @@ def generate_plugin_json(
     profile: dict,
     version: str = "0.1.0",
 ) -> dict:
-    """Generate the plugin.json manifest."""
-    manifest = {
+    """Generate the plugin.json manifest.
+
+    Emits a manifest conforming to the Claude Code plugins-reference schema
+    at https://code.claude.com/docs/en/plugins-reference and the dependency
+    rules at https://code.claude.com/docs/en/plugin-dependencies.
+
+    Top-level keys emitted (when source data is present):
+      - name, version, description, author, keywords
+      - homepage, repository, license (from [metadata])
+      - userConfig (verbatim from [userConfig])
+      - channels (verbatim from [[channels]])
+      - dependencies (normalized from [dependencies].plugins — CC v2.1.110+)
+      - experimental.themes (verbatim from [themes] — CC v2.1.129+ nesting)
+      - experimental.monitors (verbatim from [monitors] — CC v2.1.129+ nesting)
+
+    NOTE: per CC v2.1.129 the experimental components (themes, monitors)
+    moved under `experimental.{key}`. Top-level keys still work but emit a
+    warning in `claude plugin validate`; new plugins should use the nested
+    form.
+    """
+    manifest: dict[str, Any] = {
         "name": plugin_name,
         "description": description,
         "version": version,
@@ -229,14 +284,47 @@ def generate_plugin_json(
     if isinstance(user_config, dict) and user_config:
         manifest["userConfig"] = user_config
 
-    # Propagate the optional [monitors] section verbatim into plugin.json.
-    # Monitors is a CC v2.1.105+ top-level manifest key for background monitor
-    # plugins that auto-arm at session start or on skill invoke. PSS does NOT
-    # validate the nested structure — consumers must follow the Claude Code
-    # plugins-reference.md monitors schema.
+    # Propagate the optional [[channels]] array verbatim into plugin.json.
+    # Each channel binds to an MCP server in this plugin's mcpServers and can
+    # carry its own userConfig per the plugins-reference channels schema.
+    channels = profile.get("channels")
+    if isinstance(channels, list) and channels:
+        manifest["channels"] = channels
+
+    # Plugin dependencies (CC v2.1.110+). Translate [dependencies].plugins —
+    # which accepts either bare strings or {name, version?, marketplace?}
+    # objects — directly into plugin.json's `dependencies` array. Claude Code
+    # resolves these against `{plugin-name}--v{version}` git tags in the
+    # marketplace repo and auto-installs missing ones at plugin install time.
+    deps_section = profile.get("dependencies", {})
+    if isinstance(deps_section, dict):
+        plugin_deps = deps_section.get("plugins", [])
+        if isinstance(plugin_deps, list) and plugin_deps:
+            normalized: list[Any] = []
+            for entry in plugin_deps:
+                norm = _normalize_plugin_dependency(entry)
+                if norm is not None:
+                    normalized.append(norm)
+                else:
+                    print(
+                        f"WARNING: Skipping malformed plugin dependency entry: {entry!r}",
+                        file=sys.stderr,
+                    )
+            if normalized:
+                manifest["dependencies"] = normalized
+
+    # CC v2.1.129+ requires experimental components (themes, monitors) to be
+    # nested under `experimental`. Top-level still works but emits a
+    # `claude plugin validate` warning. PSS emits the nested form for both.
+    experimental: dict[str, Any] = {}
+    themes = profile.get("themes")
+    if isinstance(themes, dict) and themes:
+        experimental["themes"] = themes
     monitors = profile.get("monitors")
     if isinstance(monitors, dict) and monitors:
-        manifest["monitors"] = monitors
+        experimental["monitors"] = monitors
+    if experimental:
+        manifest["experimental"] = experimental
 
     return manifest
 
@@ -384,6 +472,149 @@ exit 0
 """,
     )
     cleanup_script.chmod(0o755)
+
+
+def generate_data_dir_hook_script(
+    plugin_name: str,
+    data_dir_spec: dict,
+    scripts_dir: Path,
+    output_dir: Path,
+) -> bool:
+    """Generate a SessionStart hook that lazily installs runtime deps into
+    ${CLAUDE_PLUGIN_DATA} on first session start and after manifest bumps.
+
+    The hook compares the bundled manifest in ${CLAUDE_PLUGIN_ROOT} against a
+    copy in ${CLAUDE_PLUGIN_DATA}; if they differ (or the copy is missing),
+    it runs the appropriate install command and updates the copy. If the
+    install fails, the copy is removed so the next session retries.
+
+    Per CC plugins-reference: ${CLAUDE_PLUGIN_DATA} survives plugin updates,
+    is created on first reference, and is deleted on uninstall (unless
+    --keep-data is passed).
+
+    Returns True if the script was generated (data_dir_spec had at least one
+    handled directive), False otherwise.
+    """
+    npm_manifest = data_dir_spec.get("npm")
+    pip_manifest = data_dir_spec.get("pip")
+    cargo_manifest = data_dir_spec.get("rust_cargo")
+    downloads = data_dir_spec.get("downloads")
+
+    if not any([npm_manifest, pip_manifest, cargo_manifest, downloads]):
+        return False
+
+    # Copy bundled manifests into the plugin tree so ${CLAUDE_PLUGIN_ROOT}/
+    # references resolve at install time.
+    for relpath in (npm_manifest, pip_manifest, cargo_manifest):
+        if not isinstance(relpath, str):
+            continue
+        # Strip leading ./ and verify the file exists somewhere we can copy
+        # it from. The plugin generator runs in two contexts: from the dev
+        # tree where these files live next to the profile, OR from a
+        # finished plugin. We can't auto-copy them — surface the requirement
+        # and let the author drop them in manually.
+        cleaned = relpath.lstrip("./")
+        if not (output_dir / cleaned).exists():
+            print(
+                f"WARNING: [data_dir] references '{relpath}' but the file is "
+                f"not present in the generated plugin. Drop the file at "
+                f"{output_dir / cleaned} before publishing.",
+                file=sys.stderr,
+            )
+
+    blocks: list[str] = []
+    if isinstance(npm_manifest, str) and npm_manifest:
+        rel = npm_manifest.lstrip("./")
+        blocks.append(
+            f'# npm: install from {rel} into ${{CLAUDE_PLUGIN_DATA}}/node_modules\n'
+            f'NPM_SRC="${{CLAUDE_PLUGIN_ROOT}}/{rel}"\n'
+            f'NPM_CACHE="${{CLAUDE_PLUGIN_DATA}}/{rel.rsplit("/", 1)[-1]}"\n'
+            f'if [ -f "$NPM_SRC" ]; then\n'
+            f'    if ! diff -q "$NPM_SRC" "$NPM_CACHE" >/dev/null 2>&1; then\n'
+            f'        mkdir -p "${{CLAUDE_PLUGIN_DATA}}"\n'
+            f'        cp "$NPM_SRC" "$NPM_CACHE"\n'
+            f'        (cd "${{CLAUDE_PLUGIN_DATA}}" && npm install --silent 2>&1) || rm -f "$NPM_CACHE"\n'
+            f'    fi\n'
+            f'fi'
+        )
+    if isinstance(pip_manifest, str) and pip_manifest:
+        rel = pip_manifest.lstrip("./")
+        blocks.append(
+            f'# pip: install from {rel} into ${{CLAUDE_PLUGIN_DATA}}/.venv via uv\n'
+            f'PIP_SRC="${{CLAUDE_PLUGIN_ROOT}}/{rel}"\n'
+            f'PIP_CACHE="${{CLAUDE_PLUGIN_DATA}}/{rel.rsplit("/", 1)[-1]}"\n'
+            f'if [ -f "$PIP_SRC" ]; then\n'
+            f'    if ! diff -q "$PIP_SRC" "$PIP_CACHE" >/dev/null 2>&1; then\n'
+            f'        mkdir -p "${{CLAUDE_PLUGIN_DATA}}"\n'
+            f'        cp "$PIP_SRC" "$PIP_CACHE"\n'
+            f'        VENV="${{CLAUDE_PLUGIN_DATA}}/.venv"\n'
+            f'        [ -d "$VENV" ] || uv venv --python 3.12 "$VENV" >/dev/null 2>&1\n'
+            f'        if ! uv pip install --python "$VENV/bin/python" -r "$PIP_CACHE" --quiet 2>&1; then\n'
+            f'            rm -f "$PIP_CACHE"\n'
+            f'        fi\n'
+            f'    fi\n'
+            f'fi'
+        )
+    if isinstance(cargo_manifest, str) and cargo_manifest:
+        rel = cargo_manifest.lstrip("./")
+        blocks.append(
+            f'# rust_cargo: build {rel} into ${{CLAUDE_PLUGIN_DATA}}/bin\n'
+            f'CARGO_SRC="${{CLAUDE_PLUGIN_ROOT}}/{rel}"\n'
+            f'CARGO_CACHE="${{CLAUDE_PLUGIN_DATA}}/{rel.rsplit("/", 1)[-1]}"\n'
+            f'if [ -f "$CARGO_SRC" ]; then\n'
+            f'    if ! diff -q "$CARGO_SRC" "$CARGO_CACHE" >/dev/null 2>&1; then\n'
+            f'        mkdir -p "${{CLAUDE_PLUGIN_DATA}}/bin"\n'
+            f'        cp "$CARGO_SRC" "$CARGO_CACHE"\n'
+            f'        CARGO_DIR="$(dirname "$CARGO_SRC")"\n'
+            f'        (cd "$CARGO_DIR" && cargo build --release --target-dir "${{CLAUDE_PLUGIN_DATA}}/target" 2>&1 && cp "${{CLAUDE_PLUGIN_DATA}}/target/release/"* "${{CLAUDE_PLUGIN_DATA}}/bin/" 2>/dev/null) || rm -f "$CARGO_CACHE"\n'
+            f'    fi\n'
+            f'fi'
+        )
+    if isinstance(downloads, list) and downloads:
+        for dl in downloads:
+            if not isinstance(dl, dict):
+                continue
+            url = dl.get("url")
+            sha256 = dl.get("sha256")
+            dest = dl.get("dest")
+            if not (
+                isinstance(url, str)
+                and isinstance(sha256, str)
+                and isinstance(dest, str)
+            ):
+                continue
+            blocks.append(
+                f'# download: {url} -> ${{CLAUDE_PLUGIN_DATA}}/{dest}\n'
+                f'DL_DEST="${{CLAUDE_PLUGIN_DATA}}/{dest}"\n'
+                f'mkdir -p "$(dirname "$DL_DEST")"\n'
+                f'if [ ! -f "$DL_DEST" ] || ! echo "{sha256}  $DL_DEST" | sha256sum -c --status 2>/dev/null; then\n'
+                f'    curl -fsSL -o "$DL_DEST.tmp" "{url}" && \\\n'
+                f'        echo "{sha256}  $DL_DEST.tmp" | sha256sum -c --status && \\\n'
+                f'        mv "$DL_DEST.tmp" "$DL_DEST" || rm -f "$DL_DEST.tmp" "$DL_DEST"\n'
+                f'fi'
+            )
+
+    install_script = scripts_dir / "install-data-deps.sh"
+    body = "\n\n".join(blocks)
+    install_script.write_text(
+        f"""#!/usr/bin/env bash
+# Auto-generated by PSS — lazily installs runtime deps for plugin '{plugin_name}'
+# into ${{CLAUDE_PLUGIN_DATA}} on first SessionStart and after manifest bumps.
+# Re-runs only when bundled manifests in ${{CLAUDE_PLUGIN_ROOT}} differ from
+# the cached copy in ${{CLAUDE_PLUGIN_DATA}}.
+set -uo pipefail
+
+# CLAUDE_PLUGIN_DATA must be set; CC provides it for hook subprocesses.
+[ -z "${{CLAUDE_PLUGIN_DATA:-}}" ] && exit 0
+[ -z "${{CLAUDE_PLUGIN_ROOT:-}}" ] && exit 0
+
+{body}
+
+exit 0
+"""
+    )
+    install_script.chmod(0o755)
+    return True
 
 
 def main():
@@ -591,17 +822,24 @@ def main():
     # Generate hooks.json — includes rules symlink hooks if rules exist
     has_rules = stats.get("rules", 0) > 0
     has_user_hooks = bool(hook_names)
-    if has_rules or has_user_hooks:
+    data_dir_spec = profile.get("data_dir") or {}
+    has_data_dir = isinstance(data_dir_spec, dict) and any(
+        data_dir_spec.get(k) for k in ("npm", "pip", "rust_cargo", "downloads")
+    )
+    if has_rules or has_user_hooks or has_data_dir:
         hooks_dir = output_dir / "hooks"
         hooks_dir.mkdir(exist_ok=True)
         hooks_json: dict = {"hooks": {}}
+        # Use a list so we can append multiple SessionStart entries (rules +
+        # data_dir) without overwriting one with the other.
+        session_start_entries: list[dict] = []
 
         # Rules symlink hooks: SessionStart installs, SessionEnd cleans up
         if has_rules:
             scripts_dir = output_dir / "scripts"
             scripts_dir.mkdir(exist_ok=True)
             generate_rules_hook_scripts(plugin_name, scripts_dir)
-            hooks_json["hooks"]["SessionStart"] = [
+            session_start_entries.append(
                 {
                     "matcher": "startup|resume|clear|compact",
                     "hooks": [
@@ -612,7 +850,7 @@ def main():
                         }
                     ],
                 }
-            ]
+            )
             hooks_json["hooks"]["SessionEnd"] = [
                 {
                     "hooks": [
@@ -627,6 +865,34 @@ def main():
             print(
                 "  ✓ scripts/install-rules.sh + cleanup-rules.sh (rule symlink hooks)"
             )
+
+        # data_dir runtime deps: SessionStart lazily installs npm/pip/cargo
+        # manifests + sha256-verified downloads into ${CLAUDE_PLUGIN_DATA}.
+        # Skipped on plugin update unless the bundled manifest changed.
+        if has_data_dir:
+            scripts_dir = output_dir / "scripts"
+            scripts_dir.mkdir(exist_ok=True)
+            if generate_data_dir_hook_script(
+                plugin_name, data_dir_spec, scripts_dir, output_dir
+            ):
+                session_start_entries.append(
+                    {
+                        "matcher": "startup|resume",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/install-data-deps.sh",
+                                "timeout": 60000,
+                            }
+                        ],
+                    }
+                )
+                print(
+                    "  ✓ scripts/install-data-deps.sh (${CLAUDE_PLUGIN_DATA} runtime deps hook)"
+                )
+
+        if session_start_entries:
+            hooks_json["hooks"]["SessionStart"] = session_start_entries
 
         if has_user_hooks:
             print(

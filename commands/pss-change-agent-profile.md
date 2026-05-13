@@ -95,6 +95,10 @@ Analyze the natural language instructions and determine the operations:
 | "add subagent for X", "add agent for X" | Search index for matching agent, add to [agents] |
 | "add rule for X" | Search index for matching rule, add to [rules] |
 | "add MCP for X" | Search index for matching MCP server, add to [mcp] |
+| "depend on plugin X", "require plugin X" | Add plugin name to `[dependencies].plugins` (bare string for latest version) |
+| "depend on plugin X version Y", "pin plugin X to Y" | Add `{ name = "X", version = "Y" }` inline table to `[dependencies].plugins` — npm semver range, propagated into plugin.json `dependencies` array (CC v2.1.110+) |
+| "depend on plugin X from marketplace Y" | Add `{ name = "X", marketplace = "Y" }` inline table — cross-marketplace dependency; requires `allowCrossMarketplaceDependenciesOn` in root marketplace.json |
+| "add data-dir npm/pip/cargo for X" | Add `[data_dir].npm` / `.pip` / `.rust_cargo` directive — generator emits a SessionStart hook that lazily installs deps into `${CLAUDE_PLUGIN_DATA}` |
 
 ### Step 4: Search and Resolve Elements
 

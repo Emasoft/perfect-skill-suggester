@@ -561,14 +561,61 @@ recommended = []
 recommended = ["pyright-lsp"]
 
 [dependencies]
-# External requirements for this agent to function
-plugins = []
+# External requirements for this agent to function.
+# `plugins` is the only field propagated into plugin.json's top-level `dependencies`
+# array (Claude Code v2.1.110+) — see https://code.claude.com/docs/en/plugin-dependencies.
+# Each entry is either a bare plugin name or an object with {name, version, marketplace}.
+# `version` is an npm semver range; `marketplace` enables cross-marketplace deps
+# (requires `allowCrossMarketplaceDependenciesOn` in the root marketplace.json).
+plugins = [
+  # "audit-logger",                                                # bare name → latest version
+  # { name = "secrets-vault", version = "~2.1.0" },                # pinned to a semver range
+  # { name = "shared-utils", marketplace = "acme-shared" },        # cross-marketplace
+]
+# The remaining arrays are documentation-only — they are NOT acted on by Claude Code.
 skills = []
 mcp_servers = []
 tools = []
+scripts = []
+hooks = []
+rules = []
+agents = []
+commands = []
+lsp_servers = []
+output_styles = []
+frameworks = []
+
+# [data_dir]
+# Optional runtime dependency installation into the generated plugin's
+# ${CLAUDE_PLUGIN_DATA} directory via a SessionStart hook. Use this when
+# the plugin's scripts need npm/pip/cargo packages or large downloads that
+# should NOT live in the plugin cache (which is ephemeral per-version).
+# The data dir survives plugin updates per CC plugins-reference.
+# npm = "./package.json"             # → npm install into ${CLAUDE_PLUGIN_DATA}/node_modules
+# pip = "./requirements.txt"         # → uv pip install into ${CLAUDE_PLUGIN_DATA}/.venv
+# rust_cargo = "./Cargo.toml"        # → cargo build --release → ${CLAUDE_PLUGIN_DATA}/bin
+# downloads = [
+#   { url = "https://example.com/model.bin", sha256 = "abc...", dest = "models/m.bin" }
+# ]
+
+# [themes]
+# Optional color theme passthrough — emitted under `experimental.themes` in plugin.json
+# (CC v2.1.129+ requires the experimental nesting). Each theme is a JSON file in themes/
+# with a `base` preset and a sparse `overrides` map.
+
+# [monitors]
+# Optional background monitor passthrough — emitted under `experimental.monitors` in
+# plugin.json (CC v2.1.105+; nesting under experimental enforced from CC v2.1.129).
+
+# [[channels]]
+# Optional channel declaration array for message injection (Telegram, Slack, Discord).
+# Each entry must bind to an MCP server name from this plugin's mcpServers.
+# server = "telegram"
+# [channels.userConfig]
+# bot_token = { type = "string", title = "Bot token", description = "...", sensitive = true }
 ```
 
-IMPORTANT: Use proper TOML syntax. String arrays use `["a", "b"]`. All string values in double quotes. Comments with `#`. The `[skills.excluded]` section uses commented-out key-value pairs to document exclusion reasons without breaking TOML parsing.
+IMPORTANT: Use proper TOML syntax. String arrays use `["a", "b"]`. All string values in double quotes. Comments with `#`. The `[skills.excluded]` section uses commented-out key-value pairs to document exclusion reasons without breaking TOML parsing. Dependency objects use TOML inline-table syntax: `{ name = "foo", version = "~1.0" }`.
 
 The full schema is at `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`. Read it before writing to ensure conformance.
 
@@ -721,7 +768,11 @@ Present a profile review summary to the user showing all sections, tier assignme
 - `move <name> to <tier>` — move skill between primary/secondary/specialized
 - `search <query>` — search the index, show results (no TOML modification)
 - `approve` / `done` — accept profile and proceed to Step 9
-- `depend <type> <name>` — add a dependency (type: plugin/skill/mcp/tool)
+- `depend <type> <name> [@<version>] [from <marketplace>]` — add a dependency
+  - `type`: plugin / skill / mcp / tool / script / hook / rule / agent / command / lsp / output_style / framework
+  - `version` (plugin only): npm semver range — `~2.1.0`, `^2.0`, `>=1.4`, `=2.1.0`. Emits an inline-table entry `{ name = "<name>", version = "<v>" }` instead of a bare string. Resolved against `{plugin-name}--v{version}` git tags. Only `type=plugin` is propagated into plugin.json's top-level `dependencies` array.
+  - `from <marketplace>` (plugin only): cross-marketplace dependency. Adds `marketplace = "<m>"` to the inline table. Requires `allowCrossMarketplaceDependenciesOn` in the root marketplace.json.
+  - Examples: `depend plugin audit-logger`, `depend plugin secrets-vault @~2.1.0`, `depend plugin shared from acme-shared`, `depend tool gh`, `depend mcp chrome-devtools`.
 
 After each directive: edit TOML → re-validate (Step 8) → show updated summary. Loop until user approves.
 

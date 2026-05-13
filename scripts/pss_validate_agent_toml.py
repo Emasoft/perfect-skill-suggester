@@ -49,6 +49,9 @@ OPTIONAL_SECTIONS = [
     "metadata",    # v2.9.34+ — plugin provenance fields (homepage, repository, license)
     "userConfig",  # v2.9.35+ — CC plugin.json userConfig pass-through
     "monitors",    # v2.9.38+ — CC v2.1.105+ plugin.json monitors pass-through
+    "themes",      # v3.4.2+ — CC v2.1.118+ plugin.json themes pass-through (under experimental.themes)
+    "channels",    # v3.4.2+ — CC plugin.json channels pass-through
+    "data_dir",    # v3.4.2+ — runtime dependency install hook into ${CLAUDE_PLUGIN_DATA}
 ]
 ALL_KNOWN_SECTIONS = REQUIRED_SECTIONS + OPTIONAL_SECTIONS
 
@@ -384,8 +387,13 @@ DEPENDENCIES_FIELDS = [
     "lsp_servers",
     "output_styles",
     "tools",
+    "scripts",
     "frameworks",
 ]
+
+# Allowed keys inside a plugin-dependency object entry (CC v2.1.110+).
+PLUGIN_DEP_OBJECT_FIELDS = {"name", "version", "marketplace"}
+PLUGIN_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 def validate_description_section(
@@ -409,10 +417,62 @@ def validate_description_section(
             result.warn(f"[description] has unknown field: '{field}'")
 
 
+def _validate_plugin_dep_entry(entry: Any, idx: int, result: ValidationResult) -> None:
+    """Validate one entry of [dependencies].plugins. Allows either:
+      - a bare plugin name string (kebab-case)
+      - a {name, version?, marketplace?} inline table
+    Anything else is an error.
+    """
+    if isinstance(entry, str):
+        if not entry.strip():
+            result.error(f"[dependencies].plugins[{idx}] is an empty string")
+        elif not PLUGIN_NAME_PATTERN.match(entry):
+            result.error(
+                f"[dependencies].plugins[{idx}]='{entry}' is not a valid kebab-case plugin name"
+            )
+        return
+    if isinstance(entry, dict):
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
+            result.error(
+                f"[dependencies].plugins[{idx}] must include a 'name' string field"
+            )
+        elif not PLUGIN_NAME_PATTERN.match(name):
+            result.error(
+                f"[dependencies].plugins[{idx}].name='{name}' is not a valid kebab-case plugin name"
+            )
+        for key in entry:
+            if key not in PLUGIN_DEP_OBJECT_FIELDS:
+                result.warn(
+                    f"[dependencies].plugins[{idx}] has unknown field: '{key}' (allowed: name, version, marketplace)"
+                )
+        version = entry.get("version")
+        if version is not None and (not isinstance(version, str) or not version.strip()):
+            result.error(
+                f"[dependencies].plugins[{idx}].version must be a non-empty semver-range string"
+            )
+        marketplace = entry.get("marketplace")
+        if marketplace is not None and (
+            not isinstance(marketplace, str) or not marketplace.strip()
+        ):
+            result.error(
+                f"[dependencies].plugins[{idx}].marketplace must be a non-empty string"
+            )
+        return
+    result.error(
+        f"[dependencies].plugins[{idx}] must be either a string or {{name, version?, marketplace?}} table, got: {type(entry).__name__}"
+    )
+
+
 def validate_dependencies_section(
     data: dict[str, Any], result: ValidationResult
 ) -> None:
-    """Validate the [dependencies] section (optional)."""
+    """Validate the [dependencies] section (optional).
+
+    `plugins` accepts either bare strings or {name, version, marketplace}
+    inline tables (CC v2.1.110+ plugin.json dependencies shape). The
+    remaining fields are documentation-only string arrays.
+    """
     deps = data.get("dependencies")
     if deps is None:
         return
@@ -425,7 +485,21 @@ def validate_dependencies_section(
         if field not in DEPENDENCIES_FIELDS:
             result.warn(f"[dependencies] has unknown field: '{field}'")
 
+    # plugins gets the special mixed-type validation (CC v2.1.110+ shape).
+    plugin_deps = deps.get("plugins")
+    if plugin_deps is not None:
+        if not isinstance(plugin_deps, list):
+            result.error(
+                f"[dependencies].plugins must be an array, got: {type(plugin_deps).__name__}"
+            )
+        else:
+            for idx, entry in enumerate(plugin_deps):
+                _validate_plugin_dep_entry(entry, idx, result)
+
+    # All other dependency arrays remain string-only (documentation fields).
     for field in DEPENDENCIES_FIELDS:
+        if field == "plugins":
+            continue
         val = deps.get(field)
         if val is not None:
             if not isinstance(val, list):

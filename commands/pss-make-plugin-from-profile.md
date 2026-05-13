@@ -8,9 +8,9 @@ allowed-tools: ["Bash", "Read", "Write", "Glob"]
 
 # PSS Make Plugin from Profile
 
-Generate a complete Claude Code plugin from an `.agent.toml` profile. This is the final step of the PSS pipeline: after `/pss-setup-agent` identifies the best-fit elements for an agent, this command packages them into a self-contained, installable plugin following the Anthropic plugin specification.
+Generate a complete Claude Code plugin from an `.agent.toml` profile. This is the final step of the PSS pipeline: after `/pss-setup-agent` identifies the best-fit elements for an agent, this command packages them into a self-contained, installable plugin following the [Claude Code plugin specification](https://code.claude.com/docs/en/plugins-reference) and the [plugin dependencies rules](https://code.claude.com/docs/en/plugin-dependencies).
 
-The generated plugin contains **copies** of all referenced elements (skills, agents, commands), not symlinks. This makes the plugin fully portable and distributable.
+The generated plugin contains **copies** of all referenced elements (skills, agents, commands) — not symlinks — so the plugin is fully portable and distributable.
 
 ## Usage
 
@@ -33,6 +33,7 @@ The generated plugin contains **copies** of all referenced elements (skills, age
 3. **`--name NAME`** (optional):
    - Override the plugin name (defaults to agent name from the TOML)
    - Must be kebab-case
+   - **AI Maestro triple-match rule**: for Role-Plugins, the plugin name MUST match both the `.agent.toml` filename stem AND `[agent].name` — the generator warns when they diverge
 
 ## Execution
 
@@ -40,8 +41,7 @@ Run the Python generator script:
 
 ```bash
 if [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then echo "ERROR: CLAUDE_PLUGIN_ROOT is not set." >&2; exit 1; fi
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
-uv run --script "$PLUGIN_ROOT/scripts/pss_make_plugin.py" "<profile-path>" --output "<output-path>" [--name "<plugin-name>"]
+uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/pss_make_plugin.py" "<profile-path>" --output "<output-path>" [--name "<plugin-name>"]
 ```
 
 ## What Gets Generated
@@ -49,23 +49,166 @@ uv run --script "$PLUGIN_ROOT/scripts/pss_make_plugin.py" "<profile-path>" --out
 ```
 <plugin-name>/
 ├── .claude-plugin/
-│   └── plugin.json          # Generated from agent metadata
-├── .claude/
-│   └── rules/               # Rules (auto-loaded by Claude Code)
-│       └── <rule-name>.md
+│   └── plugin.json              # Modern manifest (see schema below)
 ├── agents/
-│   └── <agent-name>.md      # The agent definition (copied from [agent].path)
+│   └── <agent-name>.md          # The agent definition (copied from [agent].path)
 ├── skills/
-│   └── <skill-name>/        # Each skill's full directory (SKILL.md + references/ + scripts/)
+│   └── <skill-name>/            # Each skill's full directory
 │       ├── SKILL.md
 │       └── references/
 ├── commands/
-│   └── <command-name>.md    # Each command (copied from index path)
+│   └── <command-name>.md        # Each command from [commands].recommended
+├── rules/
+│   └── <rule-name>.md           # Rules (mirrored into project .claude/rules via hook)
+├── output-styles/
+│   └── <style-name>.md          # From [output_styles].recommended
 ├── hooks/
-│   └── hooks.json           # Aggregated from source hooks (if any)
-├── .mcp.json                # MCP server configs (if any)
-├── <agent-name>.agent.toml  # The profile itself (for reference)
-└── README.md                # Auto-generated documentation
+│   └── hooks.json               # SessionStart entries for rules + data_dir
+├── scripts/
+│   ├── install-rules.sh         # Symlinks rules/ into project .claude/rules/
+│   ├── cleanup-rules.sh         # Removes symlinks on SessionEnd
+│   └── install-data-deps.sh     # (optional) installs runtime deps into ${CLAUDE_PLUGIN_DATA}
+├── .mcp.json                    # MCP server configs (if any)
+├── <agent-name>.agent.toml      # The profile itself (for reference)
+└── README.md                    # Auto-generated documentation
+```
+
+## Generated `plugin.json` schema
+
+The generator emits a manifest conforming to the [plugins-reference schema](https://code.claude.com/docs/en/plugins-reference#plugin-manifest-schema). Concretely:
+
+```json
+{
+  "name": "<plugin-name>",
+  "version": "0.1.0",
+  "description": "<from [description].text or auto-generated>",
+  "author": { "name": "<git author or USER>" },
+  "keywords": ["<tech_stack tags>", "<agent-name>"],
+
+  // From [metadata] (optional)
+  "homepage": "https://github.com/owner/repo",
+  "repository": "https://github.com/owner/repo.git",
+  "license": "MIT",
+
+  // From [userConfig] (optional pass-through)
+  "userConfig": { ... },
+
+  // From [[channels]] (optional pass-through)
+  "channels": [ ... ],
+
+  // From [dependencies].plugins — normalized into plugin.json dependencies
+  // Accepts either bare strings or {name, version, marketplace} objects.
+  // Auto-installed by Claude Code v2.1.110+ at install time.
+  "dependencies": [
+    "audit-logger",
+    { "name": "secrets-vault", "version": "~2.1.0" },
+    { "name": "shared-utils", "marketplace": "acme-shared" }
+  ],
+
+  // Experimental components — CC v2.1.129+ requires nesting under `experimental`.
+  // Top-level still works but emits a `claude plugin validate` warning.
+  "experimental": {
+    "themes": { ... },            // from [themes]
+    "monitors": { ... }           // from [monitors]
+  }
+}
+```
+
+The generator does NOT emit `skills`, `commands`, `agents`, `hooks`, `mcpServers`, `outputStyles`, or `lspServers` manifest keys — it relies on **default folder discovery** (CC v2.1.140+ warns if a manifest key shadows the default folder, which we avoid).
+
+## Plugin dependencies (CC v2.1.110+)
+
+Translate the `.agent.toml` `[dependencies].plugins` array directly into `plugin.json`'s top-level `dependencies` array. Two forms are supported:
+
+| TOML in `.agent.toml`                                                          | plugin.json output                              |
+|--------------------------------------------------------------------------------|-------------------------------------------------|
+| `plugins = ["audit-logger"]`                                                   | `"dependencies": ["audit-logger"]`              |
+| `plugins = [{ name = "secrets-vault", version = "~2.1.0" }]`                   | `"dependencies": [{...}]`                       |
+| `plugins = [{ name = "shared", marketplace = "acme-shared" }]`                 | `"dependencies": [{...}]`                       |
+| Mixed                                                                          | preserves both forms; collapses `{name only}` → bare string |
+
+Claude Code resolves these against `{plugin-name}--v{version}` git tags on the marketplace repo. Tag releases of the generated plugin with `claude plugin tag --push` from inside the plugin directory.
+
+**Cross-marketplace dependencies**: when an entry uses `marketplace = "other-mp"`, the root marketplace.json must include `"allowCrossMarketplaceDependenciesOn": ["other-mp"]`, otherwise install fails with a `cross-marketplace` error. PSS does NOT modify marketplace.json — the maintainer of the root marketplace must add the allowlist entry manually.
+
+**Validation errors** that surface in `claude plugin list`, `/plugin`, and `/doctor`:
+- `dependency-unsatisfied` — required plugin not installed; run `claude plugin install <name>` or add its marketplace
+- `range-conflict` — two installed plugins' version ranges cannot be intersected
+- `dependency-version-unsatisfied` — installed version is outside the declared range
+- `no-matching-tag` — upstream lacks `{name}--v*` tags satisfying the range
+
+## Runtime dependency installation via `${CLAUDE_PLUGIN_DATA}`
+
+When `.agent.toml` declares a `[data_dir]` section, the generator emits a SessionStart hook (`scripts/install-data-deps.sh`) that lazily installs language deps into `${CLAUDE_PLUGIN_DATA}` (`~/.claude/plugins/data/{plugin-id}/`). The data directory survives plugin updates, is created on first reference, and is deleted by `claude plugin uninstall` unless `--keep-data` is passed.
+
+Supported directives:
+
+```toml
+[data_dir]
+npm = "./package.json"           # → npm install into ${CLAUDE_PLUGIN_DATA}/node_modules
+pip = "./requirements.txt"       # → uv pip install into ${CLAUDE_PLUGIN_DATA}/.venv
+rust_cargo = "./Cargo.toml"      # → cargo build --release → ${CLAUDE_PLUGIN_DATA}/bin
+downloads = [                    # → sha256-verified downloads into ${CLAUDE_PLUGIN_DATA}/<dest>
+  { url = "https://example.com/model.bin", sha256 = "abc...", dest = "models/m.bin" }
+]
+```
+
+The generated hook compares the bundled manifest in `${CLAUDE_PLUGIN_ROOT}` against the copy in `${CLAUDE_PLUGIN_DATA}` on every SessionStart; install runs only on first session or when the manifest changed (so plugin updates that bump deps auto-reinstall). If install fails, the cached copy is removed so the next session retries.
+
+**WARNING**: the generator does NOT copy your `package.json`/`requirements.txt`/`Cargo.toml` into the plugin — drop them into the generated tree manually before publishing. The generator emits a warning when the referenced file is missing from the output directory.
+
+## Path semantics
+
+| Manifest key                | Behavior vs default folder                          |
+|-----------------------------|-----------------------------------------------------|
+| `skills`                    | Adds to default `skills/` (always scanned)          |
+| `commands`                  | Replaces default `commands/`                        |
+| `agents`                    | Replaces default `agents/`                          |
+| `outputStyles`              | Replaces default `output-styles/`                   |
+| `experimental.themes`       | Replaces default `themes/`                          |
+| `experimental.monitors`     | Replaces default `monitors/monitors.json`           |
+| `hooks` / `mcpServers` / `lspServers` | Own merge rules — see plugins-reference   |
+
+The generator emits only the default folders, NOT the manifest keys, so default folder discovery applies. Per CC v2.1.140+: setting a manifest key shadows the default folder and triggers a warning in `/doctor` and `claude plugin list` — we explicitly avoid this.
+
+## Versioning and release
+
+The generated plugin starts at `version: "0.1.0"` (explicit in plugin.json). Per [version management](https://code.claude.com/docs/en/plugins-reference#version-management): explicit versions mean users only receive updates when you bump the field, so for active development you may prefer to delete `version` and rely on git commit SHAs.
+
+To release: bump `plugin.json` `version`, commit, run:
+
+```bash
+claude plugin tag --push
+```
+
+This creates a `{plugin-name}--v{version}` git tag and pushes it — the tag is what dependency version constraints resolve against.
+
+## Installation
+
+After generation, install the plugin in any of three scopes:
+
+```bash
+claude plugin install /path/to/<plugin-name>                       # user scope (default)
+claude plugin install /path/to/<plugin-name> --scope project       # team-shared via VCS
+claude plugin install /path/to/<plugin-name> --scope local         # gitignored, project-only
+```
+
+Or test without installing:
+
+```bash
+claude --plugin-dir /path/to/<plugin-name>
+```
+
+Validate the generated plugin against the official schema:
+
+```bash
+claude plugin validate /path/to/<plugin-name>
+```
+
+Inspect components and projected per-session token cost (CC v2.1.139+):
+
+```bash
+claude plugin details <plugin-name>
 ```
 
 ## Error Handling
@@ -75,3 +218,5 @@ uv run --script "$PLUGIN_ROOT/scripts/pss_make_plugin.py" "<profile-path>" --out
 - Output dir has existing plugin: `ERROR: Output directory already contains .claude-plugin/. Use a fresh directory.`
 - Element not found in index: `WARNING: Skipping <name> — not found in skill index`
 - Agent .md not found: `ERROR: Agent definition not found: <path>`
+- Malformed dependency entry: `WARNING: Skipping malformed plugin dependency entry: <repr>`
+- `[data_dir]` references missing file: `WARNING: [data_dir] references '<path>' but the file is not present in the generated plugin. Drop the file at <output>/<path> before publishing.`
