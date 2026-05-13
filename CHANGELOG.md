@@ -2,6 +2,20 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.5.0] - 2026-05-13
+
+### Bug Fixes
+
+- **cozodb:** Non-blocking reindex via staging-file + atomic rename
+
+### Features
+
+- **plugins:** Plugin dependency objects + data_dir runtime install
+
+### Miscellaneous Tasks
+
+- **build:** Add build.sh wrapper for CPV plugin-validation compliance
+
 ## [3.4.1] - 2026-05-08
 
 ### Bug Fixes
