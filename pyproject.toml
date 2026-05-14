@@ -15,6 +15,10 @@ dependencies = [
     # RocksDB backend; wheels ship for darwin-arm64, darwin-x86_64,
     # linux-x86_64, linux-arm64, and windows-x86_64.
     "pycozo[embedded]>=0.7.6",
+    # tomli-w — emits sanitized .agent.toml copies into generated plugins
+    # (audit 20260514 SEC-5). scripts/pss_make_plugin.py mirrors this in its
+    # PEP 723 inline header for direct `uv run --script` invocation.
+    "tomli-w>=1.0.0",
 ]
 
 [project.optional-dependencies]

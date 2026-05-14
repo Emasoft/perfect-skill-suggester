@@ -3,6 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "pycozo[embedded]>=0.7.6",
+#     "tomli-w>=1.0.0",
 # ]
 # ///
 """Generate a Claude Code plugin from an .agent.toml profile.
@@ -20,11 +21,148 @@ import os
 import re
 import shutil
 import sys
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import tomli_w  # type: ignore[import-not-found]  # installed via PEP 723 header
 import tomllib  # Python 3.11+ (required)
+
+# ---------------------------------------------------------------------------
+# Safety helpers (SEC-1..SEC-5 from PSS audit 20260514).
+#
+# These run at PLUGIN-GENERATION time. They MUST also be mirrored in
+# scripts/install_data_deps_template.py which runs at PLUGIN-RUNTIME time
+# (defense in depth: even if a future generator bug leaks an unvalidated
+# field into data-deps.json, the runtime installer will reject it).
+# ---------------------------------------------------------------------------
+
+# Whitelist for plugin names that come from external manifests. Stricter than
+# the schema's kebab-case rule because these names flow into shell-evaluated
+# hook commands ("bash ${CLAUDE_PLUGIN_ROOT}/scripts/<name>.sh") and into
+# filesystem paths; rejecting anything that could be a path traversal or
+# shell metacharacter is mandatory.
+_SAFE_PLUGIN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_SAFE_PLUGIN_NAME_MAX_LEN = 64
+
+# SHA-256 fingerprint: exactly 64 hex characters, checked case-insensitively
+# at runtime but emitted lowercase into data-deps.json for predictability.
+_SHA256_HEX_LEN = 64
+_SHA256_ALPHABET = frozenset("0123456789abcdefABCDEF")
+
+
+def _sanitize_plugin_name(value: Any) -> str:
+    """Validate a plugin name against the strict whitelist.
+
+    Raises ValueError on violation — generator MUST fail-fast rather than
+    emit a plugin that downstream consumers can't trust.
+    """
+    if not isinstance(value, str):
+        raise ValueError(f"plugin name must be a string, got {type(value).__name__}")
+    name = value.strip()
+    if not name or len(name) > _SAFE_PLUGIN_NAME_MAX_LEN:
+        raise ValueError(f"plugin name is empty or too long: {value!r}")
+    if not _SAFE_PLUGIN_NAME_RE.match(name):
+        raise ValueError(
+            f"plugin name must be kebab-case ([a-z0-9][a-z0-9_-]*): {value!r}"
+        )
+    return name
+
+
+def _safe_relpath(value: Any, field: str) -> str:
+    """Reject absolute paths, '..' segments, empty/non-string values.
+
+    Used at generate-time to validate every relative path that flows into
+    the runtime installer's JSON sidecar. Mirrors the runtime check in
+    scripts/install_data_deps_template.py for defense in depth.
+    """
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field}: must be a non-empty string, got {value!r}")
+    candidate = Path(value)
+    if candidate.is_absolute():
+        raise ValueError(f"{field}: must be a relative path, got absolute {value!r}")
+    parts = candidate.parts
+    if not parts:
+        raise ValueError(f"{field}: empty path")
+    if any(part == ".." for part in parts):
+        raise ValueError(f"{field}: '..' segment forbidden in {value!r}")
+    # Normalised string with "./" prefix stripped so downstream consumers
+    # see a uniform shape.
+    return str(candidate)
+
+
+def _validate_https_url(value: Any, field: str) -> str:
+    """Reject anything that isn't a syntactically clean http(s) URL.
+
+    Whitespace, quotes, control chars, and other characters that should never
+    appear in an unencoded URL are blocked. They'd be technically harmless
+    under the shell=False runtime (urllib.request would reject them too) but
+    we fail-fast at generate time so plugin authors get a clear error.
+    """
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field}: must be a non-empty URL string, got {value!r}")
+    # Forbid characters that have no business in an unencoded URL: whitespace,
+    # quotes, semicolons, backticks, parentheses, control chars, '#' anchors
+    # (irrelevant for download), and obvious shell metacharacters.
+    bad_chars = set(' \t\r\n\v\f\'"`;()|&$<>{}[]^*?')
+    if any(ch in bad_chars or ord(ch) < 0x20 for ch in value):
+        raise ValueError(
+            f"{field}: URL contains forbidden character (whitespace, quote, "
+            f"shell metachar, or control char): {value!r}"
+        )
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(
+            f"{field}: scheme must be http or https, got {parsed.scheme!r} in {value!r}"
+        )
+    if not parsed.netloc:
+        raise ValueError(f"{field}: missing host in {value!r}")
+    return value
+
+
+def _validate_sha256(value: Any, field: str) -> str:
+    if not isinstance(value, str) or len(value) != _SHA256_HEX_LEN:
+        raise ValueError(
+            f"{field}: sha256 must be {_SHA256_HEX_LEN} hex characters, got {value!r}"
+        )
+    if not all(ch in _SHA256_ALPHABET for ch in value):
+        raise ValueError(f"{field}: sha256 must be hex, got {value!r}")
+    return value.lower()
+
+
+def _sanitize_profile_for_copy(profile: dict[str, Any], plugin_name: str) -> dict[str, Any]:
+    """Strip home-dir / absolute-path leaks from the profile before embedding it
+    in the generated plugin.
+
+    The plugin generator copies the source `.agent.toml` into the output dir
+    as a reference. Without sanitization the copy leaks the author's home
+    directory through `[agent].path = "/Users/.../..."` and similar absolute
+    paths under `[requirements].files`. CPV's strict validation also flags
+    this as CRITICAL because the path is unportable.
+
+    Returns a NEW dict — does not mutate the input.
+    """
+    sanitized: dict[str, Any] = {}
+    for top_key, top_value in profile.items():
+        if top_key == "agent" and isinstance(top_value, dict):
+            agent_copy = {k: v for k, v in top_value.items() if k != "path"}
+            # Rewrite source to canonical plugin:<name> so the embedded profile
+            # describes the *plugin*, not the original on-disk agent file.
+            agent_copy["source"] = f"plugin:{plugin_name}"
+            sanitized[top_key] = agent_copy
+        elif top_key == "requirements" and isinstance(top_value, dict):
+            req_copy = dict(top_value)
+            files = req_copy.get("files")
+            if isinstance(files, list):
+                req_copy["files"] = [
+                    f for f in files
+                    if isinstance(f, str) and not Path(f).is_absolute()
+                ]
+            sanitized[top_key] = req_copy
+        else:
+            sanitized[top_key] = top_value
+    return sanitized
 
 
 def load_profile(profile_path: Path) -> dict:
@@ -480,140 +618,117 @@ def generate_data_dir_hook_script(
     scripts_dir: Path,
     output_dir: Path,
 ) -> bool:
-    """Generate a SessionStart hook that lazily installs runtime deps into
-    ${CLAUDE_PLUGIN_DATA} on first session start and after manifest bumps.
+    """Emit a SessionStart hook installer for `${CLAUDE_PLUGIN_DATA}` deps.
 
-    The hook compares the bundled manifest in ${CLAUDE_PLUGIN_ROOT} against a
-    copy in ${CLAUDE_PLUGIN_DATA}; if they differ (or the copy is missing),
-    it runs the appropriate install command and updates the copy. If the
-    install fails, the copy is removed so the next session retries.
+    Design (post-audit 20260514 SEC-1/SEC-2):
+      1. Validate every attacker-controlled field from `data_dir_spec` with
+         _safe_relpath / _validate_https_url / _validate_sha256. Anything
+         that fails raises ValueError — generator fail-fasts so a malicious
+         `.agent.toml` cannot ship a corrupt plugin.
+      2. Emit a JSON sidecar at `scripts/data-deps.json` containing the
+         validated, normalised spec.
+      3. Copy the STATIC `install_data_deps_template.py` into
+         `scripts/install-data-deps.py`. The template performs all the
+         actual work with subprocess.run(shell=False) — NO attacker data
+         ever reaches a shell.
+      4. Emit a thin bash wrapper at `scripts/install-data-deps.sh` whose
+         body has no f-string interpolation of user data; it just execs
+         `uv run --script` against the static .py.
 
-    Per CC plugins-reference: ${CLAUDE_PLUGIN_DATA} survives plugin updates,
-    is created on first reference, and is deleted on uninstall (unless
-    --keep-data is passed).
+    Returns True if a JSON sidecar was emitted (at least one directive in
+    the spec), False otherwise.
 
-    Returns True if the script was generated (data_dir_spec had at least one
-    handled directive), False otherwise.
+    Pre-validation rejects:
+      - npm/pip/rust_cargo: absolute paths, '..' segments, non-strings
+      - downloads[*].url: non-http(s) schemes
+      - downloads[*].sha256: non-64-hex strings
+      - downloads[*].dest: absolute paths, '..' segments, non-strings
+
+    The plugin name must already be sanitized (see _sanitize_plugin_name).
     """
-    npm_manifest = data_dir_spec.get("npm")
-    pip_manifest = data_dir_spec.get("pip")
-    cargo_manifest = data_dir_spec.get("rust_cargo")
-    downloads = data_dir_spec.get("downloads")
+    _sanitize_plugin_name(plugin_name)
 
-    if not any([npm_manifest, pip_manifest, cargo_manifest, downloads]):
+    npm_raw = data_dir_spec.get("npm")
+    pip_raw = data_dir_spec.get("pip")
+    cargo_raw = data_dir_spec.get("rust_cargo")
+    downloads_raw = data_dir_spec.get("downloads")
+
+    if not any([npm_raw, pip_raw, cargo_raw, downloads_raw]):
         return False
 
-    # Copy bundled manifests into the plugin tree so ${CLAUDE_PLUGIN_ROOT}/
-    # references resolve at install time.
-    for relpath in (npm_manifest, pip_manifest, cargo_manifest):
-        if not isinstance(relpath, str):
-            continue
-        # Strip leading ./ and verify the file exists somewhere we can copy
-        # it from. The plugin generator runs in two contexts: from the dev
-        # tree where these files live next to the profile, OR from a
-        # finished plugin. We can't auto-copy them — surface the requirement
-        # and let the author drop them in manually.
-        cleaned = relpath.lstrip("./")
-        if not (output_dir / cleaned).exists():
+    sidecar: dict[str, Any] = {}
+    if isinstance(npm_raw, str) and npm_raw:
+        sidecar["npm"] = _safe_relpath(npm_raw, "data_dir.npm")
+    if isinstance(pip_raw, str) and pip_raw:
+        sidecar["pip"] = _safe_relpath(pip_raw, "data_dir.pip")
+    if isinstance(cargo_raw, str) and cargo_raw:
+        sidecar["rust_cargo"] = _safe_relpath(cargo_raw, "data_dir.rust_cargo")
+    if isinstance(downloads_raw, list) and downloads_raw:
+        clean_downloads: list[dict[str, str]] = []
+        for idx, dl in enumerate(downloads_raw):
+            if not isinstance(dl, dict):
+                raise ValueError(
+                    f"data_dir.downloads[{idx}]: must be a table, got {type(dl).__name__}"
+                )
+            clean_downloads.append({
+                "url": _validate_https_url(dl.get("url"), f"data_dir.downloads[{idx}].url"),
+                "sha256": _validate_sha256(dl.get("sha256"), f"data_dir.downloads[{idx}].sha256"),
+                "dest": _safe_relpath(dl.get("dest"), f"data_dir.downloads[{idx}].dest"),
+            })
+        if clean_downloads:
+            sidecar["downloads"] = clean_downloads
+
+    if not sidecar:
+        return False
+
+    # Surface manifest-not-yet-present warnings so plugin authors know what
+    # to drop into the generated tree before publishing.
+    for key in ("npm", "pip", "rust_cargo"):
+        rel = sidecar.get(key)
+        if isinstance(rel, str) and not (output_dir / rel).exists():
             print(
-                f"WARNING: [data_dir] references '{relpath}' but the file is "
-                f"not present in the generated plugin. Drop the file at "
-                f"{output_dir / cleaned} before publishing.",
+                f"WARNING: [data_dir.{key}] references '{rel}' but the file is "
+                f"not yet present in the generated plugin. Drop the file at "
+                f"{output_dir / rel} before publishing.",
                 file=sys.stderr,
             )
 
-    blocks: list[str] = []
-    if isinstance(npm_manifest, str) and npm_manifest:
-        rel = npm_manifest.lstrip("./")
-        blocks.append(
-            f'# npm: install from {rel} into ${{CLAUDE_PLUGIN_DATA}}/node_modules\n'
-            f'NPM_SRC="${{CLAUDE_PLUGIN_ROOT}}/{rel}"\n'
-            f'NPM_CACHE="${{CLAUDE_PLUGIN_DATA}}/{rel.rsplit("/", 1)[-1]}"\n'
-            f'if [ -f "$NPM_SRC" ]; then\n'
-            f'    if ! diff -q "$NPM_SRC" "$NPM_CACHE" >/dev/null 2>&1; then\n'
-            f'        mkdir -p "${{CLAUDE_PLUGIN_DATA}}"\n'
-            f'        cp "$NPM_SRC" "$NPM_CACHE"\n'
-            f'        (cd "${{CLAUDE_PLUGIN_DATA}}" && npm install --silent 2>&1) || rm -f "$NPM_CACHE"\n'
-            f'    fi\n'
-            f'fi'
-        )
-    if isinstance(pip_manifest, str) and pip_manifest:
-        rel = pip_manifest.lstrip("./")
-        blocks.append(
-            f'# pip: install from {rel} into ${{CLAUDE_PLUGIN_DATA}}/.venv via uv\n'
-            f'PIP_SRC="${{CLAUDE_PLUGIN_ROOT}}/{rel}"\n'
-            f'PIP_CACHE="${{CLAUDE_PLUGIN_DATA}}/{rel.rsplit("/", 1)[-1]}"\n'
-            f'if [ -f "$PIP_SRC" ]; then\n'
-            f'    if ! diff -q "$PIP_SRC" "$PIP_CACHE" >/dev/null 2>&1; then\n'
-            f'        mkdir -p "${{CLAUDE_PLUGIN_DATA}}"\n'
-            f'        cp "$PIP_SRC" "$PIP_CACHE"\n'
-            f'        VENV="${{CLAUDE_PLUGIN_DATA}}/.venv"\n'
-            f'        [ -d "$VENV" ] || uv venv --python 3.12 "$VENV" >/dev/null 2>&1\n'
-            f'        if ! uv pip install --python "$VENV/bin/python" -r "$PIP_CACHE" --quiet 2>&1; then\n'
-            f'            rm -f "$PIP_CACHE"\n'
-            f'        fi\n'
-            f'    fi\n'
-            f'fi'
-        )
-    if isinstance(cargo_manifest, str) and cargo_manifest:
-        rel = cargo_manifest.lstrip("./")
-        blocks.append(
-            f'# rust_cargo: build {rel} into ${{CLAUDE_PLUGIN_DATA}}/bin\n'
-            f'CARGO_SRC="${{CLAUDE_PLUGIN_ROOT}}/{rel}"\n'
-            f'CARGO_CACHE="${{CLAUDE_PLUGIN_DATA}}/{rel.rsplit("/", 1)[-1]}"\n'
-            f'if [ -f "$CARGO_SRC" ]; then\n'
-            f'    if ! diff -q "$CARGO_SRC" "$CARGO_CACHE" >/dev/null 2>&1; then\n'
-            f'        mkdir -p "${{CLAUDE_PLUGIN_DATA}}/bin"\n'
-            f'        cp "$CARGO_SRC" "$CARGO_CACHE"\n'
-            f'        CARGO_DIR="$(dirname "$CARGO_SRC")"\n'
-            f'        (cd "$CARGO_DIR" && cargo build --release --target-dir "${{CLAUDE_PLUGIN_DATA}}/target" 2>&1 && cp "${{CLAUDE_PLUGIN_DATA}}/target/release/"* "${{CLAUDE_PLUGIN_DATA}}/bin/" 2>/dev/null) || rm -f "$CARGO_CACHE"\n'
-            f'    fi\n'
-            f'fi'
-        )
-    if isinstance(downloads, list) and downloads:
-        for dl in downloads:
-            if not isinstance(dl, dict):
-                continue
-            url = dl.get("url")
-            sha256 = dl.get("sha256")
-            dest = dl.get("dest")
-            if not (
-                isinstance(url, str)
-                and isinstance(sha256, str)
-                and isinstance(dest, str)
-            ):
-                continue
-            blocks.append(
-                f'# download: {url} -> ${{CLAUDE_PLUGIN_DATA}}/{dest}\n'
-                f'DL_DEST="${{CLAUDE_PLUGIN_DATA}}/{dest}"\n'
-                f'mkdir -p "$(dirname "$DL_DEST")"\n'
-                f'if [ ! -f "$DL_DEST" ] || ! echo "{sha256}  $DL_DEST" | sha256sum -c --status 2>/dev/null; then\n'
-                f'    curl -fsSL -o "$DL_DEST.tmp" "{url}" && \\\n'
-                f'        echo "{sha256}  $DL_DEST.tmp" | sha256sum -c --status && \\\n'
-                f'        mv "$DL_DEST.tmp" "$DL_DEST" || rm -f "$DL_DEST.tmp" "$DL_DEST"\n'
-                f'fi'
-            )
+    # 1. JSON sidecar: every attacker-controlled field is now stored as data,
+    # not interpolated into a shell script. Two-step write (.tmp + rename) so
+    # a crashed generator never leaves a half-written sidecar in place.
+    sidecar_path = scripts_dir / "data-deps.json"
+    tmp_sidecar = sidecar_path.with_suffix(".json.tmp")
+    tmp_sidecar.write_text(json.dumps(sidecar, indent=2) + "\n", encoding="utf-8")
+    tmp_sidecar.replace(sidecar_path)
 
-    install_script = scripts_dir / "install-data-deps.sh"
-    body = "\n\n".join(blocks)
-    install_script.write_text(
-        f"""#!/usr/bin/env bash
-# Auto-generated by PSS — lazily installs runtime deps for plugin '{plugin_name}'
-# into ${{CLAUDE_PLUGIN_DATA}} on first SessionStart and after manifest bumps.
-# Re-runs only when bundled manifests in ${{CLAUDE_PLUGIN_ROOT}} differ from
-# the cached copy in ${{CLAUDE_PLUGIN_DATA}}.
-set -uo pipefail
+    # 2. Copy the STATIC Python installer template into the plugin's scripts
+    # dir. This is the only file that actually consumes data-deps.json, and
+    # it uses subprocess.run(shell=False) for every external call.
+    template_src = Path(__file__).resolve().parent / "install_data_deps_template.py"
+    installer_path = scripts_dir / "install-data-deps.py"
+    shutil.copy2(template_src, installer_path)
+    installer_path.chmod(0o755)
 
-# CLAUDE_PLUGIN_DATA must be set; CC provides it for hook subprocesses.
-[ -z "${{CLAUDE_PLUGIN_DATA:-}}" ] && exit 0
-[ -z "${{CLAUDE_PLUGIN_ROOT:-}}" ] && exit 0
-
-{body}
-
-exit 0
-"""
+    # 3. Thin bash wrapper. NO attacker-controlled interpolation here:
+    # plugin_name is sanitized; every other variable is a CC env var. The
+    # template loads the JSON sidecar at runtime and validates it again
+    # (defense in depth) — see install_data_deps_template.py.
+    wrapper_path = scripts_dir / "install-data-deps.sh"
+    wrapper_body = (
+        "#!/usr/bin/env bash\n"
+        f"# Auto-generated by PSS — runtime data_dir installer for plugin '{plugin_name}'.\n"
+        "# Delegates to install-data-deps.py which reads scripts/data-deps.json.\n"
+        "# This wrapper has NO attacker-controlled interpolation; all attacker\n"
+        "# data lives in the JSON sidecar and is processed by Python with\n"
+        "# shell=False — shell injection is structurally impossible.\n"
+        "set -euo pipefail\n"
+        '[ -z "${CLAUDE_PLUGIN_ROOT:-}" ] && exit 0\n'
+        '[ -z "${CLAUDE_PLUGIN_DATA:-}" ] && exit 0\n'
+        'exec uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/install-data-deps.py"\n'
     )
-    install_script.chmod(0o755)
+    wrapper_path.write_text(wrapper_body, encoding="utf-8")
+    wrapper_path.chmod(0o755)
+
     return True
 
 
@@ -666,11 +781,13 @@ def main():
             file=sys.stderr,
         )
 
-    # Validate plugin name is kebab-case
-    if not re.match(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", plugin_name):
-        print(
-            f"ERROR: Plugin name must be kebab-case: '{plugin_name}'", file=sys.stderr
-        )
+    # Validate plugin name against the strict whitelist (kebab-case + length
+    # cap + path-traversal/shell-metachar rejection). The same validator runs
+    # at runtime in install_data_deps_template.py for defense in depth.
+    try:
+        plugin_name = _sanitize_plugin_name(plugin_name)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
 
     # Load skill index for path resolution
@@ -846,7 +963,9 @@ def main():
                         {
                             "type": "command",
                             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/install-rules.sh",
-                            "timeout": 5000,
+                            # CC hook timeouts are in SECONDS (not milliseconds).
+                            # 5s is generous for the symlink-loop install-rules.sh.
+                            "timeout": 5,
                         }
                     ],
                 }
@@ -857,7 +976,8 @@ def main():
                         {
                             "type": "command",
                             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-rules.sh",
-                            "timeout": 1500,
+                            # SessionEnd hooks must be fast (CC kills slow ones); 2s.
+                            "timeout": 2,
                         }
                     ],
                 }
@@ -882,7 +1002,9 @@ def main():
                             {
                                 "type": "command",
                                 "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/install-data-deps.sh",
-                                "timeout": 60000,
+                                # CC hook timeouts are in SECONDS (not milliseconds).
+                                # 60s covers cold npm/pip/cargo installs and small downloads.
+                                "timeout": 60,
                             }
                         ],
                     }
@@ -917,9 +1039,15 @@ def main():
         f.write("\n")
     print("  ✓ .claude-plugin/plugin.json")
 
-    # Copy the .agent.toml itself for reference
-    shutil.copy2(profile_path, output_dir / profile_path.name)
-    print(f"  ✓ {profile_path.name} (profile reference)")
+    # Embed a SANITIZED copy of the .agent.toml for reference. Strips
+    # [agent].path (absolute home-dir path), rewrites [agent].source to the
+    # canonical plugin:<name> form, and drops absolute paths from
+    # [requirements].files. Per audit 20260514 SEC-5 the raw verbatim copy
+    # leaked the author's home directory and was flagged CRITICAL by CPV.
+    sanitized_profile = _sanitize_profile_for_copy(profile, plugin_name)
+    embedded_profile_path = output_dir / profile_path.name
+    embedded_profile_path.write_bytes(tomli_w.dumps(sanitized_profile).encode("utf-8"))
+    print(f"  ✓ {profile_path.name} (sanitized profile reference)")
 
     # Generate README
     readme = generate_readme(plugin_name, agent_name, description, profile, stats)

@@ -20,6 +20,7 @@ Exit codes:
 import json
 import re
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -464,6 +465,236 @@ def _validate_plugin_dep_entry(entry: Any, idx: int, result: ValidationResult) -
     )
 
 
+# ---------------------------------------------------------------------------
+# Schema constants for [data_dir] / [metadata] / pass-through validators
+# (audit 20260514 SEC-3). The previous validator did not check these sections
+# at all, so a malicious profile could ship javascript: URLs, non-hex SHA256
+# values, '../../<sensitive>' paths, and have them survive validation.
+# ---------------------------------------------------------------------------
+
+DATA_DIR_FIELDS = {"npm", "pip", "rust_cargo", "downloads"}
+DOWNLOAD_REQUIRED_FIELDS = {"url", "sha256", "dest"}
+METADATA_FIELDS = {"homepage", "repository", "license"}
+PASSTHROUGH_MAX_DEPTH = 6  # protects against pathological nested-table bombs
+
+_SHA256_VAL_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def _is_safe_relative_path(value: str) -> bool:
+    """True when `value` is a non-empty relative path with no '..' segments."""
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return False
+    parts = candidate.parts
+    if not parts:
+        return False
+    return all(part != ".." for part in parts)
+
+
+_URL_FORBIDDEN_CHARS = set(' \t\r\n\v\f\'"`;()|&$<>{}[]^*?')
+
+
+def _is_https_url(value: str) -> bool:
+    """True for syntactically clean http(s) URLs.
+
+    Rejects whitespace, quotes, shell metachars, and control chars in any
+    position — they have no business in an unencoded URL and a profile that
+    contains them is almost certainly a shell-injection attempt that was
+    written for the pre-v3.5.1 bash-template generator.
+    """
+    if any(ch in _URL_FORBIDDEN_CHARS or ord(ch) < 0x20 for ch in value):
+        return False
+    parsed = urllib.parse.urlparse(value)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def _dict_max_depth(obj: Any, current: int = 0) -> int:
+    """Compute the maximum nesting depth of a dict-or-list-of-dicts tree."""
+    if isinstance(obj, dict):
+        if not obj:
+            return current
+        return max(_dict_max_depth(v, current + 1) for v in obj.values())
+    if isinstance(obj, list):
+        if not obj:
+            return current
+        return max(_dict_max_depth(v, current + 1) for v in obj)
+    return current
+
+
+def validate_data_dir_section(data: dict[str, Any], result: ValidationResult) -> None:
+    """Validate the [data_dir] runtime-deps section (v3.4.2+, SEC-3).
+
+    Rejects:
+      - npm/pip/rust_cargo: non-string, absolute path, or '..' segment
+      - downloads[*]: missing url/sha256/dest fields
+      - downloads[*].url: non-http(s) schemes, missing host
+      - downloads[*].sha256: not exactly 64 hex characters
+      - downloads[*].dest: non-string, absolute path, or '..' segment
+    """
+    section = data.get("data_dir")
+    if section is None:
+        return
+    if not isinstance(section, dict):
+        result.error(f"[data_dir] must be a table/dict, got: {type(section).__name__}")
+        return
+
+    for field in section:
+        if field not in DATA_DIR_FIELDS:
+            result.warn(f"[data_dir] has unknown field: '{field}'")
+
+    for key in ("npm", "pip", "rust_cargo"):
+        value = section.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            result.error(
+                f"[data_dir].{key} must be a string, got: {type(value).__name__}"
+            )
+            continue
+        if not value.strip():
+            result.error(f"[data_dir].{key} must be a non-empty string")
+            continue
+        if not _is_safe_relative_path(value):
+            result.error(
+                f"[data_dir].{key} must be a relative path with no '..' segments, "
+                f"got: '{value}'"
+            )
+
+    downloads = section.get("downloads")
+    if downloads is None:
+        return
+    if not isinstance(downloads, list):
+        result.error(
+            f"[data_dir].downloads must be an array, got: {type(downloads).__name__}"
+        )
+        return
+
+    for idx, entry in enumerate(downloads):
+        if not isinstance(entry, dict):
+            result.error(
+                f"[data_dir].downloads[{idx}] must be a table, got: {type(entry).__name__}"
+            )
+            continue
+        missing = DOWNLOAD_REQUIRED_FIELDS - set(entry.keys())
+        if missing:
+            result.error(
+                f"[data_dir].downloads[{idx}] is missing required field(s): "
+                f"{sorted(missing)}"
+            )
+
+        url = entry.get("url")
+        if url is not None:
+            if not isinstance(url, str) or not url.strip():
+                result.error(
+                    f"[data_dir].downloads[{idx}].url must be a non-empty string"
+                )
+            elif not _is_https_url(url):
+                result.error(
+                    f"[data_dir].downloads[{idx}].url must use http or https "
+                    f"scheme and include a host, got: '{url}'"
+                )
+
+        sha256 = entry.get("sha256")
+        if sha256 is not None:
+            if not isinstance(sha256, str) or not _SHA256_VAL_RE.match(sha256):
+                result.error(
+                    f"[data_dir].downloads[{idx}].sha256 must be exactly 64 "
+                    f"hex characters, got: {sha256!r}"
+                )
+
+        dest = entry.get("dest")
+        if dest is not None:
+            if not isinstance(dest, str) or not dest.strip():
+                result.error(
+                    f"[data_dir].downloads[{idx}].dest must be a non-empty string"
+                )
+            elif not _is_safe_relative_path(dest):
+                result.error(
+                    f"[data_dir].downloads[{idx}].dest must be a relative path "
+                    f"with no '..' segments, got: '{dest}'"
+                )
+
+        for key in entry:
+            if key not in DOWNLOAD_REQUIRED_FIELDS:
+                result.warn(
+                    f"[data_dir].downloads[{idx}] has unknown field: '{key}'"
+                )
+
+
+def validate_metadata_section(data: dict[str, Any], result: ValidationResult) -> None:
+    """Validate the [metadata] provenance section (v2.9.34+, SEC-3).
+
+    `homepage` and `repository` must be http(s) URLs. `license` must be a
+    non-empty string (SPDX expression validation deferred — too much surface).
+    """
+    section = data.get("metadata")
+    if section is None:
+        return
+    if not isinstance(section, dict):
+        result.error(f"[metadata] must be a table/dict, got: {type(section).__name__}")
+        return
+
+    for field in section:
+        if field not in METADATA_FIELDS:
+            result.warn(f"[metadata] has unknown field: '{field}'")
+
+    for key in ("homepage", "repository"):
+        value = section.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip():
+            result.error(f"[metadata].{key} must be a non-empty string")
+            continue
+        if not _is_https_url(value):
+            result.error(
+                f"[metadata].{key} must use http or https scheme and include "
+                f"a host, got: '{value}'"
+            )
+
+    license_value = section.get("license")
+    if license_value is not None and (
+        not isinstance(license_value, str) or not license_value.strip()
+    ):
+        result.error("[metadata].license must be a non-empty string")
+
+
+def validate_passthrough_section(
+    data: dict[str, Any], section_name: str, result: ValidationResult,
+    allow_list: bool = False,
+) -> None:
+    """Validate a CC pass-through section (userConfig, themes, monitors, channels).
+
+    Pass-through sections are emitted verbatim into plugin.json without
+    transformation, so this validator checks only:
+      - top-level type (table for userConfig/themes/monitors; list for channels)
+      - bounded nesting depth (PASSTHROUGH_MAX_DEPTH) to block pathological
+        nested-table bombs that could OOM the JSON encoder
+    """
+    section = data.get(section_name)
+    if section is None:
+        return
+    if allow_list:
+        if not isinstance(section, (dict, list)):
+            result.error(
+                f"[{section_name}] must be a table or array, got: "
+                f"{type(section).__name__}"
+            )
+            return
+    else:
+        if not isinstance(section, dict):
+            result.error(
+                f"[{section_name}] must be a table/dict, got: "
+                f"{type(section).__name__}"
+            )
+            return
+    depth = _dict_max_depth(section)
+    if depth > PASSTHROUGH_MAX_DEPTH:
+        result.error(
+            f"[{section_name}] nesting depth {depth} exceeds maximum "
+            f"{PASSTHROUGH_MAX_DEPTH} (likely a pathological/malicious table)"
+        )
+
+
 def validate_dependencies_section(
     data: dict[str, Any], result: ValidationResult
 ) -> None:
@@ -537,6 +768,14 @@ def validate_toml(
     ):
         validate_recommendation_section(data, section, result)
     validate_dependencies_section(data, result)
+    # Pass-through and runtime-deps sections (SEC-3 — previously unchecked).
+    validate_data_dir_section(data, result)
+    validate_metadata_section(data, result)
+    validate_passthrough_section(data, "userConfig", result)
+    validate_passthrough_section(data, "themes", result)
+    validate_passthrough_section(data, "monitors", result)
+    # channels can be a list at the top level (per CC plugin.json schema)
+    validate_passthrough_section(data, "channels", result, allow_list=True)
 
 
 def load_index_skills(index_path: Path) -> set[str] | None:

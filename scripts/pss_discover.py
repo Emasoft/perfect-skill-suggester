@@ -67,6 +67,64 @@ def get_cwd() -> Path:
     return Path.cwd()
 
 
+# ---------------------------------------------------------------------------
+# Safe-name boundary check (audit 20260514 SEC-4).
+#
+# Plugin / marketplace / element names that arrive from external manifests
+# (plugin.json, marketplace.json, installed_plugins.json, known_marketplaces.json)
+# MUST flow through _safe_name() before being stored as element identifiers,
+# used in CozoDB keys, hash inputs, or composite paths. A malicious upstream
+# plugin can ship `name = "../..<sensitive-system-file>"` and rely on a downstream consumer
+# treating the field as a path component — _safe_name closes that hole at the
+# import boundary.
+#
+# Whitelist is permissive enough to accept legacy snake_case / PascalCase /
+# dotted names (some real plugins use them), but rejects:
+#   - non-strings, empty, whitespace-only
+#   - length > 64
+#   - any character outside [A-Za-z0-9_.\\-]
+#   - leading dot (hidden-file confusion / dotfile path-traversal trick)
+#   - leading dash (looks like a CLI flag to downstream tools)
+# ---------------------------------------------------------------------------
+_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]+$")
+_SAFE_NAME_MAX_LEN = 64
+
+
+def _safe_name(value: Any) -> str | None:
+    """Return value if it passes the manifest-name safety whitelist, else None.
+
+    None signals "skip this element entirely" — callers MUST check.
+    """
+    if not isinstance(value, str):
+        return None
+    name = value.strip()
+    if not name or len(name) > _SAFE_NAME_MAX_LEN:
+        return None
+    if name.startswith(".") or name.startswith("-"):
+        return None
+    if not _SAFE_NAME_RE.match(name):
+        return None
+    return name
+
+
+def _safe_plugin_id(value: Any) -> str | None:
+    """Validate a composite '<plugin-name>@<marketplace-name>' identifier.
+
+    Returns the original string if BOTH halves pass _safe_name, else None.
+    Used at the installed_plugins.json read boundary where the JSON key is
+    the composite id.
+    """
+    if not isinstance(value, str):
+        return None
+    parts = value.split("@", 1)
+    if len(parts) != 2:
+        return None
+    plugin, marketplace = parts
+    if _safe_name(plugin) is None or _safe_name(marketplace) is None:
+        return None
+    return value
+
+
 def _load_inactive_plugin_ids() -> tuple[set[str], set[str]]:
     """Load inactive plugin identifiers from settings.json.
 
@@ -113,17 +171,25 @@ def _build_marketplace_plugin_map(marketplace_root: Path) -> dict[Path, str]:
     for marketplace_dir in marketplace_root.iterdir():
         if not marketplace_dir.is_dir() or marketplace_dir.name.startswith("."):
             continue
-        mp_name = marketplace_dir.name
+        # Sanitize the marketplace name at the source-directory boundary so
+        # a maliciously-named directory like '..<sensitive-system-file>' is skipped.
+        safe_mp_name = _safe_name(marketplace_dir.name)
+        if safe_mp_name is None:
+            continue
         for plugin_json in marketplace_dir.rglob(".claude-plugin/plugin.json"):
             try:
                 data = json.loads(plugin_json.read_text(encoding="utf-8"))
-                plugin_name = data.get("name", "")
-                if plugin_name:
-                    # Plugin dir is the parent of .claude-plugin/
-                    plugin_dir = plugin_json.parent.parent
-                    plugin_map[plugin_dir] = f"{plugin_name}@{mp_name}"
             except (json.JSONDecodeError, OSError):
                 continue
+            # SEC-4: sanitize plugin name from external manifest. A poisoned
+            # plugin.json with name='../..<sensitive-system-file>' previously survived
+            # discovery and seeded a composite id used in CozoDB keys.
+            safe_plugin_name = _safe_name(data.get("name", ""))
+            if safe_plugin_name is None:
+                continue
+            # Plugin dir is the parent of .claude-plugin/
+            plugin_dir = plugin_json.parent.parent
+            plugin_map[plugin_dir] = f"{safe_plugin_name}@{safe_mp_name}"
     return plugin_map
 
 
@@ -1146,6 +1212,11 @@ def discover_plugins() -> list[dict[str, Any]]:
     if not isinstance(plugins_obj, dict):
         return elements
     for plugin_id, installs in plugins_obj.items():
+        # SEC-4: validate composite '<plugin-name>@<marketplace-name>' id
+        # before any downstream consumer treats it as a path or db key.
+        safe_id = _safe_plugin_id(plugin_id)
+        if safe_id is None:
+            continue
         if not isinstance(installs, list):
             continue
         for entry in installs:
@@ -1157,13 +1228,13 @@ def discover_plugins() -> list[dict[str, Any]]:
             installed_at = str(entry.get("installedAt", ""))
             git_sha = str(entry.get("gitCommitSha", ""))
             description = (
-                f"Plugin {plugin_id} v{version} installed at {scope} scope"
+                f"Plugin {safe_id} v{version} installed at {scope} scope"
             )
             elements.append({
-                "name": plugin_id,
+                "name": safe_id,
                 "type": "plugin",
                 "source": scope,
-                "path": install_path or f"{plugins_file}#plugins.{plugin_id}",
+                "path": install_path or f"{plugins_file}#plugins.{safe_id}",
                 "description": description[:200],
                 "preview": json.dumps(entry, indent=2)[:500],
                 "plugin_version": version,
@@ -1190,6 +1261,10 @@ def discover_marketplaces() -> list[dict[str, Any]]:
     if not isinstance(data, dict):
         return elements
     for mp_name, entry in data.items():
+        # SEC-4: sanitize marketplace name from external manifest.
+        safe_mp = _safe_name(mp_name)
+        if safe_mp is None:
+            continue
         if not isinstance(entry, dict):
             continue
         src_obj = entry.get("source", {})
@@ -1200,14 +1275,14 @@ def discover_marketplaces() -> list[dict[str, Any]]:
             repo_or_url = str(src_obj.get("repo") or src_obj.get("url") or "")
         install_location = str(entry.get("installLocation", ""))
         description = (
-            f"Marketplace {mp_name} ({src_kind}: {repo_or_url})"
-            if repo_or_url else f"Marketplace {mp_name}"
+            f"Marketplace {safe_mp} ({src_kind}: {repo_or_url})"
+            if repo_or_url else f"Marketplace {safe_mp}"
         )
         elements.append({
-            "name": mp_name,
+            "name": safe_mp,
             "type": "marketplace",
             "source": "user",
-            "path": install_location or f"{mp_file}#{mp_name}",
+            "path": install_location or f"{mp_file}#{safe_mp}",
             "description": description[:200],
             "preview": json.dumps(entry, indent=2)[:500],
             "marketplace_kind": src_kind,
