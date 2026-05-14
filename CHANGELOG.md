@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.5.1] - 2026-05-14
+
+### Bug Fixes
+
+- **security:** Phase 0 release — SEC-1..SEC-5 + COR-3 (audit 20260514)
+
 ## [3.5.0] - 2026-05-13
 
 ### Bug Fixes
