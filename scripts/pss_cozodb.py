@@ -154,32 +154,71 @@ def open_db(path: Path | None = None) -> Client:
 def count_skills(db: Client | None = None) -> int:
     """Return the number of rows in the `skills` table.
 
-    Returns 0 if the DB is missing, corrupt, or empty. Never raises — the hook
-    needs a lightweight health check, not an exception-throwing path.
+    Sentinel return values (per DI-5 — audit 20260514):
+        >= 1  : legitimate row count
+        0     : DB file missing OR DB file exists but `skills` schema is
+                absent (first run before reindex completes — auto-reindex
+                is safe and expected here).
+        -1    : DB file exists but open/query failed unexpectedly — the
+                file is corrupt. Per fail-fast rule, the caller (hook)
+                MUST surface a manual-fix warning and NOT auto-reindex,
+                because re-running reindex against a corrupt file just
+                burns CPU on every prompt forever.
+
+    Never raises — the hook needs a lightweight health check, not an
+    exception-throwing path.
     """
     own_db = db is None
+    # Missing DB file is a legitimate "empty" state (e.g. fresh install before
+    # the first /pss-reindex-skills run). Distinguish this from "file exists
+    # but unreadable" so the hook only auto-reindexes when it's safe to do so.
+    if own_db:
+        try:
+            db_path = get_db_path()
+        except Exception:
+            return -1
+        if not db_path.exists():
+            return 0
     try:
         client = db or open_db()
-    except Exception:
+    except FileNotFoundError:
+        # Race with deletion between exists() and open() — treat as missing.
         return 0
+    except Exception:
+        # File exists but open failed → corrupt
+        return -1
     try:
         result = client.run("?[count(name)] := *skills{ name }")
-        rows = result.get("rows", [])
-        if not rows or not rows[0]:
+    except Exception as e:
+        # 'relation does not exist' = schema not yet built (legit empty,
+        # auto-reindex is appropriate). Anything else = corrupt data.
+        msg = str(e).lower()
+        if "relation" in msg and ("does not exist" in msg or "not found" in msg):
             return 0
-        return int(rows[0][0])
-    except Exception:
-        return 0
+        if "no such" in msg:
+            return 0
+        return -1
     finally:
         if own_db:
             try:
                 client.close()
             except Exception:
                 pass
+    rows = result.get("rows", [])
+    if not rows or not rows[0]:
+        return 0
+    try:
+        return int(rows[0][0])
+    except (ValueError, TypeError):
+        return -1
 
 
 def db_is_healthy() -> bool:
-    """True if the DB exists and has at least one row."""
+    """True if the DB exists and has at least one row.
+
+    Note: returns False for both empty (count=0) and corrupt (count=-1).
+    Use `count_skills()` directly if you need to distinguish the two cases.
+    """
     return count_skills() > 0
 
 

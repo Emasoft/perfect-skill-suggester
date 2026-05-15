@@ -125,6 +125,65 @@ def _safe_plugin_id(value: Any) -> str | None:
     return value
 
 
+# ---------------------------------------------------------------------------
+# Bounded file reads (audit 20260514 HP-1).
+#
+# Discovery iterates every SKILL.md / agent / command / README it finds in
+# ~/.claude/{skills,agents,commands,rules,plugins}/* and every project's
+# .claude/. A multi-GB file dropped into any of those trees (a video, a
+# core dump, a runaway log) would OOM the discovery process via Path.read_text.
+#
+# Every read_text() call in this module MUST flow through _safe_read_text.
+# Files over the cap are logged to stderr and skipped (returns None) — the
+# discovery loop continues without crashing.
+#
+# Caps per file kind:
+#   - SKILL.md / agent.md / command.md content reads:   4 MB  (DEFAULT_CAP)
+#   - JSON manifests (plugin.json, settings.json, etc): 1 MB  (MANIFEST_CAP)
+# ---------------------------------------------------------------------------
+DEFAULT_READ_CAP = 4 * 1024 * 1024  # 4 MB for SKILL/agent/README content
+MANIFEST_READ_CAP = 1 * 1024 * 1024  # 1 MB for JSON manifests
+
+
+def _safe_read_text(
+    path: Path,
+    max_bytes: int = DEFAULT_READ_CAP,
+    encoding: str = "utf-8",
+    errors: str = "strict",
+) -> str | None:
+    """Read text file with size cap. Returns None and logs to stderr on:
+      - stat() failure (broken symlink, permission)
+      - file size > max_bytes (logged + skipped per HP-1)
+      - read() OSError (mid-read failure)
+
+    Callers MUST check `if content is None: continue` to skip files that
+    failed the cap or read.
+    """
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        print(
+            f"[pss-discover] WARN: stat failed for {path}: {exc}",
+            file=sys.stderr,
+        )
+        return None
+    if size > max_bytes:
+        print(
+            f"[pss-discover] WARN: skipping {path} — size {size} bytes "
+            f"> cap {max_bytes} (per HP-1 audit-20260514)",
+            file=sys.stderr,
+        )
+        return None
+    try:
+        return path.read_text(encoding=encoding, errors=errors)
+    except OSError as exc:
+        print(
+            f"[pss-discover] WARN: read failed for {path}: {exc}",
+            file=sys.stderr,
+        )
+        return None
+
+
 def _load_inactive_plugin_ids() -> tuple[set[str], set[str]]:
     """Load inactive plugin identifiers from settings.json.
 
@@ -140,7 +199,7 @@ def _load_inactive_plugin_ids() -> tuple[set[str], set[str]]:
     if not settings_path.exists():
         return set(), set()
     try:
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(_safe_read_text(settings_path, max_bytes=MANIFEST_READ_CAP) or "")
         enabled_map = data.get("enabledPlugins", {})
         inactive_ids = {k for k, v in enabled_map.items() if v is False}
 
@@ -178,7 +237,7 @@ def _build_marketplace_plugin_map(marketplace_root: Path) -> dict[Path, str]:
             continue
         for plugin_json in marketplace_dir.rglob(".claude-plugin/plugin.json"):
             try:
-                data = json.loads(plugin_json.read_text(encoding="utf-8"))
+                data = json.loads(_safe_read_text(plugin_json, max_bytes=MANIFEST_READ_CAP) or "")
             except (json.JSONDecodeError, OSError):
                 continue
             # SEC-4: sanitize plugin name from external manifest. A poisoned
@@ -221,7 +280,7 @@ def get_all_projects_from_claude_config() -> list[tuple[str, Path]]:
         return projects
 
     try:
-        config_data = json.loads(config_path.read_text(encoding="utf-8"))
+        config_data = json.loads(_safe_read_text(config_path, max_bytes=MANIFEST_READ_CAP) or "")
         projects_dict = config_data.get("projects", {})
 
         for project_path_str in projects_dict.keys():
@@ -528,7 +587,7 @@ def _find_readme_in_plugin(plugin_dir: Path) -> str | None:
     for c in candidates:
         if c.is_file():
             try:
-                content = c.read_text(errors="replace")
+                content = _safe_read_text(c, errors="replace") or ""
                 if len(content) > 100:
                     return content[:8000]
             except OSError:
@@ -555,7 +614,7 @@ def _find_tool_names_in_source(plugin_dir: Path) -> list[str]:
                 continue
             fpath = Path(root) / fname
             try:
-                content = fpath.read_text(errors="replace")
+                content = _safe_read_text(fpath, errors="replace") or ""
                 for pattern in tool_patterns:
                     for match in re.finditer(pattern, content):
                         tool_name = match.group(1).strip()
@@ -687,7 +746,7 @@ def _discover_marketplace_mcps(
                         if mp in disabled_marketplaces:
                             continue
 
-                data = json.loads(fpath.read_text(encoding="utf-8"))
+                data = json.loads(_safe_read_text(fpath, max_bytes=MANIFEST_READ_CAP) or "")
                 mcp_servers = data.get("mcpServers", data.get("mcp_servers", {}))
                 if not isinstance(mcp_servers, dict) or not mcp_servers:
                     continue
@@ -782,7 +841,7 @@ def discover_mcp_servers(
         if not config_path.exists():
             return
         try:
-            data = json.loads(config_path.read_text(encoding="utf-8"))
+            data = json.loads(_safe_read_text(config_path, max_bytes=MANIFEST_READ_CAP) or "")
             mcp_servers = data.get("mcpServers", {})
             for name, config in mcp_servers.items():
                 if name in seen_names:
@@ -795,7 +854,7 @@ def discover_mcp_servers(
                 readme = server_dir / "README.md"
                 if readme.exists():
                     try:
-                        readme_text = readme.read_text(encoding="utf-8")
+                        readme_text = _safe_read_text(readme) or ""
                         # First non-empty line after any heading
                         for line in readme_text.split("\n"):
                             line = line.strip()
@@ -811,7 +870,7 @@ def discover_mcp_servers(
                     project_readme = project_server_dir / "README.md"
                     if project_readme.exists():
                         try:
-                            readme_text = project_readme.read_text(encoding="utf-8")
+                            readme_text = _safe_read_text(project_readme) or ""
                             for line in readme_text.split("\n"):
                                 line = line.strip()
                                 if line and not line.startswith("#"):
@@ -982,7 +1041,7 @@ def discover_lsp_servers() -> list[dict[str, Any]]:
         return servers
 
     try:
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        data = json.loads(_safe_read_text(settings_path, max_bytes=MANIFEST_READ_CAP) or "")
         enabled_plugins = data.get("enabledPlugins", {})
 
         for plugin_id, enabled in enabled_plugins.items():
@@ -1106,7 +1165,7 @@ def discover_hooks(scan_all_projects: bool = False) -> list[dict[str, Any]]:
         if not settings_path.exists():
             return
         try:
-            data = json.loads(settings_path.read_text(encoding="utf-8"))
+            data = json.loads(_safe_read_text(settings_path, max_bytes=MANIFEST_READ_CAP) or "")
         except (json.JSONDecodeError, OSError):
             return
         hooks_obj = data.get("hooks")
@@ -1130,7 +1189,7 @@ def discover_hooks(scan_all_projects: bool = False) -> list[dict[str, Any]]:
         if not hooks_json.exists():
             return
         try:
-            data = json.loads(hooks_json.read_text(encoding="utf-8"))
+            data = json.loads(_safe_read_text(hooks_json, max_bytes=MANIFEST_READ_CAP) or "")
         except (json.JSONDecodeError, OSError):
             return
         hooks_obj = data.get("hooks")
@@ -1205,8 +1264,28 @@ def discover_plugins() -> list[dict[str, Any]]:
     if not plugins_file.exists():
         return elements
     try:
-        data = json.loads(plugins_file.read_text(encoding="utf-8"))
+        data = json.loads(_safe_read_text(plugins_file, max_bytes=MANIFEST_READ_CAP) or "")
     except (json.JSONDecodeError, OSError):
+        return elements
+    # HP-2 (audit 20260514): CC v2.1.69+ uses installed_plugins.json v2.
+    # Silently reading a v1-format file produces wrong elements (different
+    # layout) — surface the mismatch instead of corrupting the index.
+    if not isinstance(data, dict):
+        print(
+            f"[pss-discover] ERROR: installed_plugins.json at {plugins_file} "
+            f"is not a JSON object — skipping plugin discovery.",
+            file=sys.stderr,
+        )
+        return elements
+    version = data.get("version")
+    if version != 2:
+        print(
+            f"[pss-discover] ERROR: installed_plugins.json at {plugins_file} "
+            f"has version {version!r}, expected 2 (CC v2.1.69+ uses v2). "
+            f"Skipping plugin discovery; run /pss-reindex-skills after CC "
+            f"upgrades the file.",
+            file=sys.stderr,
+        )
         return elements
     plugins_obj = data.get("plugins", {})
     if not isinstance(plugins_obj, dict):
@@ -1255,7 +1334,7 @@ def discover_marketplaces() -> list[dict[str, Any]]:
     if not mp_file.exists():
         return elements
     try:
-        data = json.loads(mp_file.read_text(encoding="utf-8"))
+        data = json.loads(_safe_read_text(mp_file, max_bytes=MANIFEST_READ_CAP) or "")
     except (json.JSONDecodeError, OSError):
         return elements
     if not isinstance(data, dict):
@@ -1316,7 +1395,7 @@ def discover_monitors() -> list[dict[str, Any]]:
                 if not manifest.exists():
                     continue
                 try:
-                    data = json.loads(manifest.read_text(encoding="utf-8"))
+                    data = json.loads(_safe_read_text(manifest, max_bytes=MANIFEST_READ_CAP) or "")
                 except (json.JSONDecodeError, OSError):
                     continue
                 monitors_obj = data.get("monitors")
@@ -1376,7 +1455,7 @@ def _discover_styled_files_in_dir(
         # Best-effort description from .md frontmatter or .json "description"
         description = ""
         try:
-            content = f.read_text(encoding="utf-8")
+            content = _safe_read_text(f) or ""
             if f.suffix == ".md":
                 fm = parse_frontmatter(content)
                 description = str(fm.get("description", ""))[:200]
@@ -1576,7 +1655,7 @@ def discover_elements(
                 if dedup_key in seen_names:
                     continue
                 try:
-                    content = skill_md.read_text(encoding="utf-8")
+                    content = _safe_read_text(skill_md) or ""
                     frontmatter = parse_frontmatter(content)
                     body = _extract_body_preview(content)
                     use_ctx = extract_use_context(content)
@@ -1627,7 +1706,7 @@ def discover_elements(
                     continue
 
                 try:
-                    content = md_file.read_text(encoding="utf-8")
+                    content = _safe_read_text(md_file) or ""
                     frontmatter = parse_frontmatter(content)
 
                     # Extract description per type

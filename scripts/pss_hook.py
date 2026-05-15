@@ -706,9 +706,30 @@ def main() -> None:
     """Main entry point - read stdin, call binary, output result."""
     try:
         # Read JSON input from stdin
-        stdin_data = sys.stdin.read(
-            1_048_576
-        )  # 1MB cap to prevent memory exhaustion from oversized input
+        # HP-3 (audit 20260514): the 1 MB cap previously truncated silently —
+        # json.loads on a cut payload would then raise JSONDecodeError and
+        # produce empty hook output with no user-visible warning. We now
+        # peek for an additional byte AFTER the cap to detect truncation.
+        # If anything is present past the 1 MB mark the payload was clipped;
+        # we still proceed (json.loads will raise on the cut, falling
+        # through the normal empty-output path) but log a warning so a user
+        # debugging "why are my suggestions disappearing on huge prompts"
+        # has a trail.
+        _STDIN_CAP = 1_048_576
+        stdin_data = sys.stdin.read(_STDIN_CAP)
+        if len(stdin_data) == _STDIN_CAP:
+            try:
+                extra = sys.stdin.read(1)
+            except Exception:
+                extra = ""
+            if extra:
+                print(
+                    f"[pss-hook] WARN: stdin truncated at {_STDIN_CAP} bytes "
+                    f"(HP-3 audit-20260514). Suggestions may be missed for "
+                    f"this prompt; consider trimming earlier system reminders.",
+                    file=sys.stderr,
+                )
+                stdin_data += extra
 
         # Parse input to check if we should skip
         input_json: dict[str, Any] = {}
@@ -775,7 +796,21 @@ def main() -> None:
             return
 
         db_path = get_db_path()
-        if not db_path.exists() or count_skills() == 0:
+        if not db_path.exists():
+            _maybe_auto_reindex(index_path)
+            return
+        # Per DI-5 (audit 20260514): count_skills() returns -1 when the DB
+        # file exists but is corrupt. Auto-reindex would burn CPU on every
+        # prompt forever against a broken file — surface a manual-fix
+        # warning instead.
+        count = count_skills()
+        if count == -1:
+            _exit_warning(
+                f"CozoDB at {db_path} appears corrupt. Delete it and "
+                f"run /pss-reindex-skills to rebuild the index."
+            )
+            return
+        if count == 0:
             _maybe_auto_reindex(index_path)
             return
 

@@ -236,6 +236,35 @@ def run_pipeline(
         except OSError:
             pass
 
+    # DI-8 (audit 20260514): rules used to never appear in the DB because
+    # `pss index-rules` was a separate on-demand command. Now invoke it
+    # automatically after merge-events so consumers (pss-agent-profiler,
+    # /pss-get-description) see populated rules without a manual step.
+    # Failures here are logged but DO NOT fail the overall reindex — the
+    # skills/events tables (which drive the suggestion hot path) are
+    # already up to date.
+    try:
+        rc_r = subprocess.run(
+            [str(binary), "index-rules"],
+            timeout=60,
+        ).returncode
+        if rc_r != 0:
+            print(
+                f"WARNING: index-rules exited with code {rc_r} "
+                "(skills/events index OK; rules table may be stale)",
+                file=sys.stderr,
+            )
+    except subprocess.TimeoutExpired:
+        print(
+            "WARNING: index-rules timed out after 60 s (skills/events OK)",
+            file=sys.stderr,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        print(
+            f"WARNING: index-rules failed to spawn: {e} (skills/events OK)",
+            file=sys.stderr,
+        )
+
     return 0
 
 
