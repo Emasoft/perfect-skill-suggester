@@ -62,8 +62,18 @@ esac
 if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
     BIN_DIR="$CLAUDE_PLUGIN_ROOT/bin"
 else
-    # POSIX-portable $0 dirname (handles symlinks via cd+pwd if available)
-    SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || dirname "$0")"
+    # POSIX-portable $0 dirname. shellcheck SC2015: explicit if/else instead
+    # of `cd && pwd || dirname $0` so we never silently fall through to
+    # `dirname` when `cd` succeeded but `pwd` failed (extremely unlikely
+    # but the linter is right that the && || pattern isn't a clean
+    # if-then-else).
+    SCRIPT_DIR=""
+    if cd "$(dirname "$0")" 2>/dev/null; then
+        SCRIPT_DIR="$(pwd)"
+    fi
+    if [ -z "$SCRIPT_DIR" ]; then
+        SCRIPT_DIR="$(dirname "$0")"
+    fi
     BIN_DIR="$SCRIPT_DIR"
 fi
 

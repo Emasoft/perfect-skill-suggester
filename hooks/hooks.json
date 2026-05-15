@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/pss-hook-dispatch.sh",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/pss-hook-dispatch.sh\"",
             "timeout": 10,
             "statusMessage": "Analyzing skill triggers..."
           }
