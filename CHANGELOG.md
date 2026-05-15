@@ -2,6 +2,13 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.6.0] - 2026-05-15
+
+### Bug Fixes
+
+- **audit-20260514:** Phase 1.1-1.3 + PERF-1 — parent + Python + shim
+- **cpv:** Satisfy 2 MINORs from publish.py validation gate
+
 ## [3.5.1] - 2026-05-14
 
 ### Bug Fixes
