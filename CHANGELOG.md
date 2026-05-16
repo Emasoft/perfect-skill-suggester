@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.6.8] - 2026-05-16
+
+### Miscellaneous Tasks
+
+- **rust:** Bump submodule for UX-8 (find-by-{framework,tool,platform}) + UX-9 (--source-prefix)
+
 ## [3.6.7] - 2026-05-16
 
 ### Bug Fixes
