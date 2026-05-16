@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.6.1] - 2026-05-16
+
+### Bug Fixes
+
+- **audit-20260514:** DI-3 + Phase 3 Tier A — parent + Python
+
 ## [3.6.0] - 2026-05-15
 
 ### Bug Fixes
