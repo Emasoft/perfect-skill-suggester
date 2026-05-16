@@ -8,7 +8,7 @@ dependencies = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
     "types-pyyaml>=6.0.12.20250915",
-    "anthropic>=0.84.0",
+    "anthropic>=0.87.0",
     # CozoDB Python bindings — used by scripts/pss_cozodb.py for indexed
     # queries (count, added_since, search_by_*). Required by scripts/pss_hook.py
     # health check since v2.10.0. The [embedded] extra installs the native
