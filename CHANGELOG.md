@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.6.4] - 2026-05-16
+
+### Miscellaneous Tasks
+
+- **rust:** Bump submodule for DI-2 override resolver wiring
+
 ## [3.6.3] - 2026-05-16
 
 ### Miscellaneous Tasks
