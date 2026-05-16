@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.6.10] - 2026-05-16
+
+### Miscellaneous Tasks
+
+- **rust:** Bump submodule for F-6 scope-diff + UX-6 similarity score
+
 ## [3.6.9] - 2026-05-16
 
 ### Miscellaneous Tasks
