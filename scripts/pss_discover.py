@@ -1251,7 +1251,10 @@ def discover_hooks(scan_all_projects: bool = False) -> list[dict[str, Any]]:
     return elements
 
 
-def discover_plugins() -> list[dict[str, Any]]:
+def discover_plugins(
+    inactive_ids: set[str] | None = None,
+    disabled_marketplaces: set[str] | None = None,
+) -> list[dict[str, Any]]:
     """Discover installed plugins from ~/.claude/plugins/installed_plugins.json.
 
     Per CC v2.1.69 the file is version 2 — root has {"version": 2, "plugins":
@@ -1309,6 +1312,19 @@ def discover_plugins() -> list[dict[str, Any]]:
             description = (
                 f"Plugin {safe_id} v{version} installed at {scope} scope"
             )
+            # DI-3 (audit 20260514): effective enabled state. A plugin is
+            # disabled if either (a) the composite plugin_id is explicitly
+            # set to false in `enabledPlugins`, OR (b) every plugin from its
+            # marketplace is set to false. Defaults to True when
+            # `enabledPlugins` doesn't mention the plugin (CC's default).
+            mp_part = ""
+            if "@" in safe_id:
+                mp_part = safe_id.split("@", 1)[1]
+            is_enabled = True
+            if inactive_ids and safe_id in inactive_ids:
+                is_enabled = False
+            elif disabled_marketplaces and mp_part and mp_part in disabled_marketplaces:
+                is_enabled = False
             elements.append({
                 "name": safe_id,
                 "type": "plugin",
@@ -1319,6 +1335,7 @@ def discover_plugins() -> list[dict[str, Any]]:
                 "plugin_version": version,
                 "plugin_installed_at": installed_at,
                 "plugin_git_sha": git_sha,
+                "enabled": is_enabled,
             })
     return elements
 
@@ -2009,7 +2026,13 @@ def main() -> int:
     if not element_types or "hook" in element_types:
         elements.extend(discover_hooks(scan_all_projects=scan_all_projects))
     if not element_types or "plugin" in element_types:
-        elements.extend(discover_plugins())
+        # DI-3 (audit 20260514): pass inactive_ids/disabled_marketplaces so
+        # discover_plugins can emit each entry's effective enabled flag.
+        plugin_inactive, plugin_disabled_mps = _load_inactive_plugin_ids()
+        elements.extend(discover_plugins(
+            inactive_ids=plugin_inactive,
+            disabled_marketplaces=plugin_disabled_mps,
+        ))
     if not element_types or "marketplace" in element_types:
         elements.extend(discover_marketplaces())
     if not element_types or "monitor" in element_types:
