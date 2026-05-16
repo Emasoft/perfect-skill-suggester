@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.6.6] - 2026-05-16
+
+### Bug Fixes
+
+- **hook:** HP-4 doc + HP-5 reindex crash-counter (max 3/h)
+
+### Miscellaneous Tasks
+
+- **rust:** Bump submodule for DI-1 wave 1 (description_changed)
+
 ## [3.6.5] - 2026-05-16
 
 ### Bug Fixes
