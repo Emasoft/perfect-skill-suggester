@@ -2057,8 +2057,43 @@ def main() -> int:
             or e.get("source") == "built-in"
         ]
 
-    # JSONL mode: one JSON object per line with minimal fields
+    # JSONL mode: one JSON object per line with minimal fields.
     if args.jsonl:
+        # DI-4 (audit 20260514): emit a leading manifest line enumerating
+        # EVERY scope_path the discoverer walked — not just the ones with
+        # successful observations. The Rust merge-events writer used to
+        # populate visited_scope_paths from per-observation loops, so a
+        # plugin uninstall that left zero observations for its scope_path
+        # was never detected as a removal (visited_scope_paths missed the
+        # plugin, so its dead elements_state rows stayed exists=true).
+        #
+        # The manifest line is identified by `"_pss_manifest": true` and
+        # MUST come first so the writer can read it before processing
+        # any observation. Older Rust writers (pre-v3.6.2) treat the
+        # unknown record as a non-conforming line and skip it silently,
+        # so the manifest is forward-compatible.
+        scope_paths_walked: set[str] = set()
+        for elem in elements:
+            sp = elem.get("scope_path") or ""
+            if not sp:
+                # Fall back to the parent dir of the element's path when
+                # scope_path isn't explicitly set (older element types).
+                p = elem.get("path") or ""
+                if p:
+                    sp = str(Path(p).parent)
+            if sp:
+                scope_paths_walked.add(sp)
+        manifest = {
+            "_pss_manifest": True,
+            "_pss_manifest_version": 1,
+            "visited_scope_paths": sorted(scope_paths_walked),
+            "discovered_at": datetime.now(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%S+00:00"
+            ),
+            "element_count": len(elements),
+        }
+        print(json.dumps(manifest, ensure_ascii=False))
+
         for elem in elements:
             desc = elem.get("description", "") or ""
             if len(desc) > 200:
@@ -2074,6 +2109,15 @@ def main() -> int:
                 "description": desc,
                 "use_context": use_ctx,
             }
+            # DI-3 (audit 20260514): forward the enabled flag from
+            # discover_plugins() through the JSONL pipe to merge-events.
+            if "enabled" in elem:
+                record["enabled"] = bool(elem["enabled"])
+            # DI-4 helper: forward scope_path explicitly so the writer
+            # can also derive visited_scope_paths from per-observation data
+            # if the manifest line was lost / skipped.
+            if elem.get("scope_path"):
+                record["scope_path"] = elem["scope_path"]
             print(json.dumps(record, ensure_ascii=False))
         return 0
 
