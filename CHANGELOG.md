@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.6.12] - 2026-05-16
+
+### Miscellaneous Tasks
+
+- **rust:** Bump submodule for F-12 version-history subcommand
+
 ## [3.6.11] - 2026-05-16
 
 ### Miscellaneous Tasks
