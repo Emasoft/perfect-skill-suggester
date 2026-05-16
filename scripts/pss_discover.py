@@ -184,6 +184,23 @@ def _safe_read_text(
         return None
 
 
+def _slugify_project_path(project_path: Path) -> str:
+    """DI-10 (audit 20260514): derive a project name slug that is unique
+    per absolute path, so two `/foo/demo` and `/bar/demo` checkouts on
+    the same machine do not collide on element_id.
+
+    Returns ``"<basename>-<8-char-sha256>"``. The basename keeps logs
+    readable; the 8-char hash makes the slug unique across the user's
+    filesystem (collision probability ~1 in 4 billion for random pairs
+    of absolute paths — far below the project-count we ever expect).
+    """
+    import hashlib
+
+    abs_path = str(project_path.resolve())
+    digest = hashlib.sha256(abs_path.encode("utf-8")).hexdigest()[:8]
+    return f"{project_path.name}-{digest}"
+
+
 def _load_inactive_plugin_ids() -> tuple[set[str], set[str]]:
     """Load inactive plugin identifiers from settings.json.
 
@@ -301,8 +318,13 @@ def get_all_projects_from_claude_config() -> list[tuple[str, Path]]:
                 )
                 continue
 
-            # Extract project name from path (last component)
-            project_name = project_path.name
+            # DI-10 (audit 20260514): use a slug derived from the full
+            # absolute path so two different `/repo/demo` directories
+            # don't both collapse to `project:demo` and collide on
+            # element_id. The slug is "<basename>-<8-char-sha>"; the
+            # basename remains readable in logs while the hash makes it
+            # unique across the user's filesystem.
+            project_name = _slugify_project_path(project_path)
             projects.append((project_name, project_path))
 
         return projects

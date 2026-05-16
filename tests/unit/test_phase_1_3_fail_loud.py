@@ -181,3 +181,40 @@ def test_v3_search_by_name_no_silent_empty_on_error(cozodb):
 
     with pytest.raises(RuntimeError):
         cozodb.search_by_name("anything", db=AlwaysFailClient())
+
+
+# ----------------------------------------------------------------------------
+# DI-10: project-path slug must be unique per absolute path
+# ----------------------------------------------------------------------------
+
+
+def test_di10_slugify_project_path_includes_basename(discover, tmp_path):
+    """DI-10: the slug starts with the basename so logs stay readable."""
+    p = tmp_path / "myproj"
+    p.mkdir()
+    slug = discover._slugify_project_path(p)
+    assert slug.startswith("myproj-")
+    assert len(slug) == len("myproj-") + 8  # basename + 8-char hash
+
+
+def test_di10_slugify_project_path_two_same_basename_different_paths(discover, tmp_path):
+    """DI-10: two checkouts named the same but in different dirs must
+    produce DIFFERENT slugs."""
+    a_dir = tmp_path / "a" / "demo"
+    b_dir = tmp_path / "b" / "demo"
+    a_dir.mkdir(parents=True)
+    b_dir.mkdir(parents=True)
+    slug_a = discover._slugify_project_path(a_dir)
+    slug_b = discover._slugify_project_path(b_dir)
+    assert slug_a != slug_b
+    assert slug_a.startswith("demo-")
+    assert slug_b.startswith("demo-")
+
+
+def test_di10_slugify_project_path_is_deterministic(discover, tmp_path):
+    """DI-10: same path → same slug across calls."""
+    p = tmp_path / "stable"
+    p.mkdir()
+    s1 = discover._slugify_project_path(p)
+    s2 = discover._slugify_project_path(p)
+    assert s1 == s2
