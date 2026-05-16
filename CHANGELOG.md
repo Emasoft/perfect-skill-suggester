@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.6.5] - 2026-05-16
+
+### Bug Fixes
+
+- **fail-loud:** V-3/V-4/V-5/V-8 — surface DB and parser errors instead of returning empty
+
+### Miscellaneous Tasks
+
+- **rust:** Bump submodule for UX-5 (--regex) + COR-8 (pss reindex orchestrator)
+
 ## [3.6.4] - 2026-05-16
 
 ### Miscellaneous Tasks
