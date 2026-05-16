@@ -85,6 +85,17 @@ def _db_shared_lock() -> Iterator[None]:
     for a very long merge), we yield anyway — the retry-on-SIGABRT path
     handles the residual race. Better to attempt the binary call and
     surface a real error than to silently swallow the hook.
+
+    HP-4 (audit 20260514): the hot path is intentionally "best-effort
+    under contention." If the writer holds LOCK_EX for >4 s, we let the
+    binary call proceed without the shared lock and rely on the writer's
+    new staging-file + atomic-rename design (v3.5.0+) to keep readers
+    safe. Empirically a hot-path call that times out on the shared lock
+    happens once or twice during a full /pss-reindex-skills cycle and
+    the SIGABRT retry below absorbs it transparently. This is a
+    documented carve-out from CLAUDE.md's fail-fast rule — fail-fast
+    here would mean dropping suggestion output on every reindex, which
+    is worse for the user than the rare retry.
     """
     if _fcntl is None:
         yield
@@ -650,8 +661,19 @@ def _maybe_auto_reindex(index_path: Path) -> None:
     - First call: spawns reindex, writes PID lockfile, notifies user
     - Subsequent calls while reindex runs: detects live PID, just notifies
     - After crash: detects dead PID, cleans up stale files, respawns
+
+    HP-5 (audit 20260514): if the reindex script crashes hard (SIGSEGV,
+    OOM, syntax error) it will never write its PID into the lockfile,
+    and the dead-PID branch will respawn it on the next prompt — for
+    every prompt — forever. To break this infinite crash loop we record
+    each failed attempt in a sibling `.reindex.crashes` file (each line
+    is one ISO-8601 timestamp). If 3 crashes happen within a 1-hour
+    sliding window we stop respawning and surface a one-line warning
+    pointing the user at /pss-reindex-skills so they can run it
+    manually and see the actual error.
     """
     lock_path = index_path.with_suffix(".reindex.pid")
+    crash_log = index_path.with_suffix(".reindex.crashes")
 
     # Check if a reindex is already running
     if lock_path.exists():
@@ -663,11 +685,21 @@ def _maybe_auto_reindex(index_path: Path) -> None:
                 return
         except (ValueError, OSError):
             pass
-        # PID is dead or lockfile corrupt — clean up stale artifacts
+        # PID is dead or lockfile corrupt — record the crash and clean up
+        _record_reindex_crash(crash_log)
         lock_path.unlink(missing_ok=True)
         # Clean up any staging/tmp files left by crashed reindex
         for suffix in (".json.tmp", ".staging.json"):
             index_path.with_suffix(suffix).unlink(missing_ok=True)
+
+        # HP-5: bail out if 3+ crashes in the last hour.
+        recent = _recent_reindex_crashes(crash_log, window_seconds=3600)
+        if len(recent) >= 3:
+            _exit_warning(
+                "auto-reindex has crashed 3 times in the last hour — "
+                "run /pss-reindex-skills manually to see the error"
+            )
+            return
 
     # Spawn background reindex
     script_dir = Path(__file__).parent.resolve()
@@ -699,7 +731,64 @@ def _maybe_auto_reindex(index_path: Path) -> None:
             "skill index not found — auto-reindex started, suggestions available shortly"
         )
     except OSError as e:
+        # OS-level spawn failure also counts as a crash for HP-5.
+        _record_reindex_crash(crash_log)
         _exit_warning(f"CozoDB index not found, auto-reindex failed: {e}")
+
+
+# HP-5 (audit 20260514) — crash-counter helpers for the auto-reindex.
+def _record_reindex_crash(crash_log: Path) -> None:
+    """Append an ISO-8601 UTC timestamp line to the crash log. Best-effort
+    — if the write fails we silently ignore, because the counter is a
+    rate-limiter, not a security mechanism, and any IO problem here
+    would mean the upstream reindex is also going to fail.
+    """
+    from datetime import datetime, timezone
+
+    try:
+        crash_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(crash_log, "a", encoding="utf-8") as f:
+            f.write(datetime.now(timezone.utc).isoformat() + "\n")
+    except OSError:
+        pass
+
+
+def _recent_reindex_crashes(crash_log: Path, *, window_seconds: int) -> list[str]:
+    """Return crash-log lines whose timestamp falls inside the rolling
+    `window_seconds` window ending at now. Older entries are pruned
+    from the file as a side-effect (so the log doesn't grow unbounded
+    over months of usage).
+    """
+    from datetime import datetime, timedelta, timezone
+
+    if not crash_log.exists():
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+    keep: list[str] = []
+    try:
+        with open(crash_log, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ts = datetime.fromisoformat(line)
+                except ValueError:
+                    continue
+                if ts >= cutoff:
+                    keep.append(line)
+    except OSError:
+        return []
+
+    # Best-effort prune of older entries; if the rewrite races we lose
+    # at most a couple of recent entries which the next call replaces.
+    try:
+        with open(crash_log, "w", encoding="utf-8") as f:
+            for line in keep:
+                f.write(line + "\n")
+    except OSError:
+        pass
+    return keep
 
 
 def main() -> None:
