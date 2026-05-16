@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.6.3] - 2026-05-16
+
+### Miscellaneous Tasks
+
+- Rebuild binary + sync submodule for v3.6.3 (F-5 compare-snapshots)
+
 ## [3.6.2] - 2026-05-16
 
 ### Bug Fixes
