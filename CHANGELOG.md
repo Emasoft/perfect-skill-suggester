@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.6.7] - 2026-05-16
+
+### Bug Fixes
+
+- **discover:** DI-10 slugify project name to avoid cross-checkout collisions
+
 ## [3.6.6] - 2026-05-16
 
 ### Bug Fixes
