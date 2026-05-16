@@ -800,8 +800,24 @@ def _discover_marketplace_mcps(
     return servers
 
 
-def parse_frontmatter(content: str) -> dict[str, Any]:
-    """Parse YAML frontmatter from markdown content using PyYAML."""
+def parse_frontmatter(content: str, source_label: str = "<unknown>") -> dict[str, Any]:
+    """Parse YAML frontmatter from markdown content using PyYAML.
+
+    V-8 (audit 20260514): previously this function silently returned `{}`
+    on any YAML parse error, so a malformed frontmatter (unclosed
+    triple-dash, syntax error, embedded tab indentation) silently
+    indexed the element with NO frontmatter — wrong description,
+    missing tools list, undetected. The fix logs the error to stderr
+    so users see "this file has broken YAML" instead of "this file has
+    no frontmatter". Return value still `{}` because callers depend on
+    that to mean "no frontmatter applied" — but at least the error is
+    visible.
+
+    Args:
+        content: Markdown file content.
+        source_label: Display label used in error messages (e.g. file
+            path). Helps users locate the offending file.
+    """
     if not content.startswith("---"):
         return {}
 
@@ -812,10 +828,18 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
     frontmatter_text = content[3:end_idx].strip()
     try:
         import yaml
-
+    except ImportError as e:
+        sys.stderr.write(
+            f"PSS warning: PyYAML not available, frontmatter skipped for {source_label}: {e}\n"
+        )
+        return {}
+    try:
         parsed = yaml.safe_load(frontmatter_text)
         return parsed if isinstance(parsed, dict) else {}
-    except Exception:
+    except yaml.YAMLError as e:
+        sys.stderr.write(
+            f"PSS warning: malformed YAML frontmatter in {source_label}: {e}\n"
+        )
         return {}
 
 
@@ -1474,7 +1498,7 @@ def _discover_styled_files_in_dir(
         try:
             content = _safe_read_text(f) or ""
             if f.suffix == ".md":
-                fm = parse_frontmatter(content)
+                fm = parse_frontmatter(content, source_label=str(f))
                 description = str(fm.get("description", ""))[:200]
             elif f.suffix == ".json":
                 fdata = json.loads(content)
@@ -1673,7 +1697,7 @@ def discover_elements(
                     continue
                 try:
                     content = _safe_read_text(skill_md) or ""
-                    frontmatter = parse_frontmatter(content)
+                    frontmatter = parse_frontmatter(content, source_label=str(skill_md))
                     body = _extract_body_preview(content)
                     use_ctx = extract_use_context(content)
                     entry: dict[str, Any] = {
@@ -1724,7 +1748,7 @@ def discover_elements(
 
                 try:
                     content = _safe_read_text(md_file) or ""
-                    frontmatter = parse_frontmatter(content)
+                    frontmatter = parse_frontmatter(content, source_label=str(md_file))
 
                     # Extract description per type
                     if element_type == "rule" and not frontmatter.get("description"):

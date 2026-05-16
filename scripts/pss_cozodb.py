@@ -323,7 +323,16 @@ def updated_since(
 def search_by_name(
     pattern: str, db: Client | None = None, limit: int = 100
 ) -> list[dict[str, Any]]:
-    """Return entries whose `name` contains `pattern` (case-insensitive substring)."""
+    """Return entries whose `name` contains `pattern` (case-insensitive substring).
+
+    V-3 (audit 20260514): the Cozo `is_in(lowercase(...), ...)` query is
+    stable and supported — previous versions wrapped this call in a
+    silent Python-side LIKE fallback that masked legitimate Cozo
+    rejections (schema drift, missing columns, broken WHERE clauses).
+    The fallback is removed so any Cozo error surfaces as the loud
+    `RuntimeError` the caller can catch and report, rather than being
+    swallowed into an apparently-empty result set.
+    """
     p = pattern.lower()
     own_db = db is None
     client = db or open_db()
@@ -334,20 +343,15 @@ def search_by_name(
                 is_in(lowercase(name), '{_escape(p)}') \
             :limit {int(limit)}
         """
-        # Cozo doesn't have native LIKE — we use string substring check.
-        # The helper below falls back to Python-side filtering if Cozo rejects the expr.
         try:
             result = client.run(query)
-            return _rows_to_dicts(result)
-        except Exception:
-            all_rows = client.run(
-                "?[name, skill_type, source, path, description, first_indexed_at] := "
-                "*skills{ name, skill_type, source, path, description, first_indexed_at }"
-            )
-            filtered = [
-                row for row in all_rows.get("rows", []) if p in row[0].lower()
-            ][: int(limit)]
-            return _rows_to_dicts({"headers": all_rows.get("headers"), "rows": filtered})
+        except Exception as e:
+            # Fail loud — V-3 fix. The previous silent fallback masked
+            # real Cozo schema-drift errors with empty results.
+            raise RuntimeError(
+                f"search_by_name: Cozo query rejected (pattern={pattern!r}): {e}"
+            ) from e
+        return _rows_to_dicts(result)
     finally:
         if own_db:
             client.close()
@@ -885,12 +889,44 @@ def _snapshot_prior_timestamps(db_path: Path) -> dict[tuple[str, str], str]:
     Mirrors the snapshot phase in Rust's run_build_db. Preserves "installation
     time" across rebuilds — without it every reindex would reset the timestamp
     to "now" and added_since/added_between would be useless.
+
+    V-4/V-5 (audit 20260514): previously this function returned `{}` on
+    any exception when opening the prior DB or reading the skills table.
+    That was a silent fallback masking real corruption — a corrupt prior
+    DB would silently reset every element's `first_indexed_at` to "now",
+    making time-based queries (`pss list-added-since 1w`) wrong without
+    warning. Now we distinguish two cases:
+
+      * Genuine missing DB (path does not exist) → return {} (the
+        first-ever reindex path; not an error).
+      * Open / schema-missing / query-rejected → write a one-line stderr
+        warning so the user knows their history is being reset. The
+        return value stays {} to preserve the existing "start fresh"
+        behaviour callers depend on, but the warning lets users notice
+        and run /pss-reindex-skills to rebuild instead of silently
+        accepting bad first_indexed_at timestamps.
     """
     if not db_path.exists():
-        return {}
+        return {}  # First-ever reindex — not an error.
     try:
         client = Client("sqlite", str(db_path), dataframe=False)
-    except Exception:
+    except BaseException as e:  # noqa: BLE001  cozo-ce can raise pyo3.PanicException
+        # cozo-ce's SQLite backend wraps Rust panics through PyO3; in
+        # recent PyO3 versions `pyo3_runtime.PanicException` inherits
+        # from BaseException, NOT Exception — so `except Exception`
+        # would let the panic propagate up through this function and
+        # crash the reindex on a corrupt prior DB. We must catch
+        # BaseException here, scope the recovery to "warn + return
+        # empty", and let everything else (KeyboardInterrupt, SystemExit)
+        # be re-raised by the absence of `pass` — except… we already
+        # need to *return* here, so a narrow BaseException catch is the
+        # right call. The user gets a clear warning instead of an
+        # opaque panic stack trace.
+        sys.stderr.write(
+            f"PSS warning: prior DB at {db_path} could not be opened ({e!r}); "
+            "first_indexed_at timestamps will be reset to now. "
+            "Run /pss-reindex-skills to rebuild from scratch.\n"
+        )
         return {}
     result: dict[tuple[str, str], str] = {}
     try:
@@ -901,14 +937,16 @@ def _snapshot_prior_timestamps(db_path: Path) -> dict[tuple[str, str], str]:
         for row in rows.get("rows", []):
             if len(row) >= 3 and row[0] and row[1] and row[2]:
                 result[(row[0], row[1])] = row[2]
-    except Exception:
-        # Legacy DB layout or missing columns — start fresh.
-        pass
+    except Exception as e:
+        sys.stderr.write(
+            f"PSS warning: prior DB at {db_path} schema-incompatible ({e}); "
+            "first_indexed_at timestamps will be reset to now.\n"
+        )
     finally:
         try:
             client.close()
-        except Exception:
-            pass
+        except OSError:
+            pass  # V-6: close() errors are not actionable.
     return result
 
 
