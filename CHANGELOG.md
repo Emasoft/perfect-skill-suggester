@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.6.2] - 2026-05-16
+
+### Bug Fixes
+
+- **audit-20260514:** DI-4 manifest emitter — Python half
+
 ## [3.6.1] - 2026-05-16
 
 ### Bug Fixes
