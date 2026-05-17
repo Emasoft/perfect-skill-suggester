@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# NOTE: CPV reports RC-PIPELINE-DRIFT-001 against this hook. The divergence
+# from the canonical CPV pre-push is deliberate: PSS adds a process-tree
+# ancestry check (Layer 1) that blocks direct `git push` invocations. The
+# canonical hook only runs `publish.py --gate` (our Layer 2), which means
+# raw `git push` would still pass without a publish.py ancestor. PSS's
+# release rule mandates ALL pushes go through publish.py, so we keep both
+# layers. Last reviewed: 2026-05-17.
+#
 # pre-push hook — Unbypassable gate for every push.
 #
 # Two enforcement layers:

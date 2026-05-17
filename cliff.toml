@@ -1,3 +1,10 @@
+# NOTE: CPV reports RC-PIPELINE-DRIFT-001 against this file. The divergence
+# is deliberate: PSS-specific changelog format keeps `**scope:** message`
+# rendering and the `[**BREAKING**]` tag on breaking commits — both of which
+# the canonical CPV template drops. We rely on the scoped format for the
+# README "What's New" excerpt and for breaking-change auditing. Replacing
+# with canonical would degrade changelog quality. Last reviewed: 2026-05-17.
+
 # git-cliff configuration for perfect-skill-suggester plugin
 # https://git-cliff.org/docs/configuration
 

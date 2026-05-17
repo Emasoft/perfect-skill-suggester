@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# NOTE: CPV reports RC-PIPELINE-DRIFT-001 against this file. The divergence
+# from the canonical CPV publish.py is deliberate: PSS ships a Rust
+# submodule (`rust/`) plus 5+ pre-compiled native binaries, and the canonical
+# template has no logic for cross-compile orchestration, submodule push
+# ordering, or 4-file version-bump (VERSION + Cargo.toml + plugin.json +
+# pyproject.toml). Replacing this script with the canonical breaks releases.
+# Last reviewed: 2026-05-17.
 """
 PSS Publish — Unified release pipeline and pre-push gate for Perfect Skill Suggester.
 
