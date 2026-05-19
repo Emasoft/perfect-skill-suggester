@@ -69,8 +69,8 @@ When given a name (not a path), search in order:
 # Add a single skill by name
 /pss-add-to-index senior-ios
 
-# Add a skill by path
-/pss-add-to-index ~/.claude/skills/my-new-skill/SKILL.md
+# Add a skill by path (replace <skill-name> with the actual folder)
+/pss-add-to-index ~/.claude/skills/<skill-name>/SKILL.md
 
 # Add all elements from a plugin
 /pss-add-to-index --plugin ~/.claude/plugins/cache/my-plugin/my-plugin/1.0.0/
