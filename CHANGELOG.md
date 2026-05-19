@@ -2,6 +2,13 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.7.2] - 2026-05-19
+
+### Documentation
+
+- **cc-compat:** Adopt CC v2.1.144 + v2.1.145 — tested range 2.1.69 → 2.1.145
+- **commands:** Use placeholder syntax in pss-add-to-index example
+
 ## [3.7.1] - 2026-05-19
 
 ### Miscellaneous Tasks
