@@ -3,6 +3,9 @@
 # Create via: gh secret set MARKETPLACE_PAT --repo Emasoft/perfect-skill-suggester \
 #               --body "$MARKETPLACE_PAT"
 # (assumes $MARKETPLACE_PAT is exported in your shell or .env file)
+#
+# IMPORTANT: Do NOT use GITHUB_TOKEN — it lacks permissions to trigger workflows
+# in other repos.
 
 name: Notify Marketplace
 
@@ -28,9 +31,17 @@ env:
   MARKETPLACE_OWNER: 'Emasoft'
   MARKETPLACE_REPO: 'emasoft-plugins'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: notify-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   notify:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       # Sanitization: every `${{ github.* }}` value crossing into a shell `run:`
       # block is first bound to an `env:` mapping; the run-script sees `$VAR`
