@@ -19,80 +19,27 @@
 > **Claude Code version support:** PSS tracks CC compatibility in
 > [`docs/CC-COMPATIBILITY.md`](docs/CC-COMPATIBILITY.md) — see it for the full
 > version-by-version matrix, declared hook events, and migration notes.
-
+>
+> ---
+>
 > Built for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) |
 > Orchestrated by [AI Maestro](https://github.com/Emasoft/ai-maestro) |
 > Part of the [Emasoft Plugins](https://github.com/Emasoft/emasoft-plugins) ecosystem
 
 **High-accuracy skill activation (88%+) for Claude Code** with AI-analyzed keywords, weighted scoring, synonym expansion, and three-tier confidence routing. Indexes 6 element types: skills, agents, commands, rules, MCP servers, and LSP servers — 874+ elements including 246 MCP servers.
 
-## What's New
+## What's New (last 3 releases)
 
-### v3.1.1
-- **Cross-platform hook invocation via `uv run --script`** — hooks/hooks.json now calls `uv run --script` against `scripts/pss_hook.py`. The script carries PEP 723 inline metadata declaring `pycozo[embedded]>=0.7.6` as a dependency; `uv` provisions and caches a venv with pycozo on first invocation (~2–5s cold, <100ms warm). Windows, macOS, and Linux use an identical hook configuration — uv handles the `.venv/Scripts/python.exe` vs `.venv/bin/python` split internally.
-- **Fixes the `ERROR: pycozo is required` hook failure** from v3.0.x/v3.1.0 where the hook's `python3` interpreter fell back to the system Python (no pycozo) and aborted at module load.
-- **`scripts/pss_cozodb.py` degrades gracefully on missing pycozo** — module load no longer calls `sys.exit`; `Client()` construction raises a clear `ImportError` at first use, which callers catch.
-- **New Requirements section in README** — `uv` is now an explicit prerequisite alongside Python ≥3.10 and git.
+### v3.6.12 — 2026-05-16
+- **rust:** Bump submodule for F-12 `version-history` subcommand — focused "what versions has this element gone through?" history, filtered to signal events (installed, content_changed, description_changed, removed) with content hash and diff JSON per row.
 
-### v3.1.0
-- **New `/pss-search` and `/pss-added-since` slash commands** — thin wrappers around Phase D's Rust CLI subcommands (`pss search <query>`, `pss list-added-since <datetime>`) for ad-hoc index queries without firing the UserPromptSubmit scoring pipeline.
-- **`skills/pss-usage/SKILL.md` updated** with a new "Querying the Index Directly" section listing all `pss_cozodb.py` Python helpers and the Rust CLI subcommands with example invocations.
-- **`skills/pss-authoring/SKILL.md`** notes the v3.0 CozoDB-canonical indexing pipeline in a concise "How PSS indexes your skills" subsection.
+### v3.6.11 — 2026-05-16
+- **rust:** Bump submodule for F-17 / F-18 / F-19 Tier B subcommands — `changes-in-batch`, `last-changes`, and `stats-by-scope` for inspecting a single reindex's event set and counting elements per scope.
 
-### v3.0.0 (BREAKING)
-- **CozoDB is now the single canonical store.** `skill-index.json` is demoted to an optional debug export (`bin/pss export --json`). `pss_merge_queue.py`, `pss_make_plugin.py`, `pss_verify_profile.py`, `pss_generate.py`, and `pss_hook.py` all read/write the CozoDB via `scripts/pss_cozodb.py` (a thin pycozo wrapper).
-- **Rust CLI gained query/management subcommands**: `pss count`, `pss stats`, `pss get`, `pss search`, `pss list`, `pss health`, `pss find-by-*`, `pss list-added-since`, `pss list-updated-since`, `pss export --json`. Human-readable tables by default; `--json` for scripting.
-- **`first_indexed_at` and `last_updated_at` timestamps** on every row, preserved across reindexes. Powers "what did I install since 2026-04-01?" queries.
-- **`pycozo[embedded]>=0.7.6`** added as a hard Python dependency. `uv` installs it automatically on first hook run (v3.1.1+).
-- **Rust `pss --build-db` flag removed.** Python writes CozoDB directly via `fcntl`-locked atomic transactions.
-- **Migration safety**: upgrading from v2.x requires no user action — the hook detects missing/empty CozoDB and auto-reindexes.
-- Full design record: `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.md`.
+### v3.6.10 — 2026-05-16
+- **rust:** Bump submodule for F-6 `scope-diff` + UX-6 similarity score — surfaces what's in scope A but not in scope B (and vice versa), plus a similarity score on `pss compare` output.
 
-### v2.10.0
-- **Phase B of the CozoDB unification migration**: Python merge queue writes CozoDB directly; JSON becomes a derived export (still auto-written for backward compatibility — removed in v3.0.0).
-- **`pss export --json` subcommand** added to the Rust binary for ad-hoc JSON snapshots.
-
-### v2.9.41
-- **Phase A of the CozoDB unification migration**: `scripts/pss_cozodb.py` query helpers + `first_indexed_at` / `last_updated_at` columns on the CozoDB `skills` relation. JSON still canonical, CozoDB derived. Preserves install timestamps across reindexes.
-
-### v2.9.40
-- **Bandaid for the `$CLAUDE_PLUGIN_DATA` scope-leak bug** in `scripts/pss_paths.py::get_data_dir()` — PSS was silently writing the index to foreign plugins' data dirs when invoked from their session scope. Fix: only trust `$CLAUDE_PLUGIN_DATA` when its basename contains "perfect-skill-suggester".
-
-### v2.9.38
-- **Claude Code v2.1.109 compatibility** — tested range extended from v2.1.101 to v2.1.109. See [`docs/CC-COMPATIBILITY.md`](docs/CC-COMPATIBILITY.md) for per-version impact notes.
-- **`[monitors]` pass-through** (CC v2.1.105+) — `.agent.toml` `[monitors]` section propagates verbatim into the generated `plugin.json` by `/pss-make-plugin-from-profile`, alongside existing `[metadata]` and `[userConfig]` pass-throughs. Enables background-monitor plugins (auto-arm at session start or on skill invoke).
-- **Skill description cap raised 250→1,536 chars** (CC v2.1.105) — PSS's longest skill description is 60 chars, still well within the new cap.
-- **`PreCompact` hook event noted** (CC v2.1.105) — not declared by PSS (no reason to block compaction), documented as intentional in the compat matrix.
-
-### v2.9.34 – v2.9.37
-- **Claude Code v2.1.69 → v2.1.101 compatibility** — full version-by-version matrix in [`docs/CC-COMPATIBILITY.md`](docs/CC-COMPATIBILITY.md), declared hook events, HookInput schema notes
-- **New hook events** — `SessionStart` (silent lazy index warmup via `--warm-index`, eliminates first-prompt cold-start) and `PostCompact` (reserved stub for future re-suggest-after-compaction)
-- **snake_case HookInput boundary** — `pss_hook.py` and the Rust `HookInput` struct now use the spec-compliant `transcript_path` (was reading a non-existent camelCase key, silently breaking previous-message augmentation)
-- **Rule `path_gates`** — rules with `paths:` frontmatter filter by project file-type + language-to-extension alignment (Python project → rule with `paths: ["**/*.py"]` now matches; previously excluded)
-- **`[userConfig]` pass-through** — `.agent.toml` `[userConfig]` section propagates verbatim into the generated `plugin.json` by `/pss-make-plugin-from-profile`
-- **Profiler frontmatter upgrades** — CC-official `skills:` subagent frontmatter (alongside PSS-internal `auto_skills`), `effort: high`, `maxTurns: 40`
-- **Build pipeline reliability** — all 5 platform binaries (darwin-arm64/x86_64, linux-arm64/x86_64, windows-x86_64) built via `cross` + Docker with `DOCKER_DEFAULT_PLATFORM=linux/amd64` for Apple Silicon hosts; `publish.py` build failures are now FATAL with post-build mtime verification
-- **Conditional pss-nlp rebuild** — `publish.py` tracks `rust/negation-detector/` changes and rebuilds pss-nlp-* binaries only when source changes
-
-### v2.9.20
-- **Cross-client skill discovery** — scans `skills/` directories from 27 known AI clients (Codex, Copilot, Gemini, Kiro, Roo, Trae, Qwen, OpenHands, etc.) following the [AgentSkills](https://agentskills.io) open standard
-- **AgentSkills metadata indexing** — `metadata.language/framework/platform` fields used as authoritative domain gates; `metadata.tags` and `compatibility` extracted as keywords
-- **`effort` frontmatter** on all 8 commands (low/medium/high per complexity)
-- **Claude Code v2.1.92 compatibility** — `disableSkillShellExecution` noted, CPV remote validation updated
-
-### v2.9.9
-- **`/pss-add-element` command** — add standalone elements (skills, agents, commands, hooks, rules, MCP servers, LSP servers, output styles) to existing plugins with duplicate detection and CPV validation
-- **Claude Code v2.1.85 compatibility** — transcript parser updated for new JSONL format (`toolUseResult`/`sourceToolAssistantUUID` entries skipped; `agentId` removal handled)
-- **Ship script hardening** — submodule push verification, `Cargo.lock` staging, `uv.lock` sync, pre-push gate auto-pushes submodules
-
-### v2.8.0
-- **Fast profiling mode** (`/pss-setup-agent --fast`) — Rust binary only, 2-5 seconds, no AI agent needed
-- **25+ mutual exclusivity groups** — automatic conflict detection (React/Vue/Angular, Jest/Vitest, Prisma/TypeORM, etc.)
-- **Plugin generator** (`/pss-make-plugin-from-profile`) — creates installable plugins from `.agent.toml` profiles
-
-### v2.4.6
-- **`${CLAUDE_PLUGIN_DATA}` integration** (CC v2.1.78+) — persistent state directory for `skill-index.json` and CozoDB database
-- **New `.agent.toml` fields**: `effort`, `maxTurns`, `disallowedTools` for fine-grained agent configuration
+Full history: [CHANGELOG.md](CHANGELOG.md)
 
 ## Features
 
@@ -165,6 +112,43 @@ Each skill can have a `.pss` file for custom matching rules:
 
 ### Persistent State via `${CLAUDE_PLUGIN_DATA}` (CC v2.1.78+)
 PSS uses the `${CLAUDE_PLUGIN_DATA}` environment variable (introduced in Claude Code v2.1.78) as the persistent data directory for `skill-index.json` and the CozoDB database. This ensures plugin state survives across sessions and plugin updates. Falls back to `~/.claude/cache/` on older Claude Code versions.
+
+## CLI Reference
+
+PSS ships a native `pss` binary with **62 subcommands** spread across 6 categories. The same binary that powers the `UserPromptSubmit` hook is also a fully scriptable CLI for inspecting the index, querying installation history, running ad-hoc searches, and maintaining the database. Every subcommand prints human-readable tables by default and accepts `--json` (or `--format json`) for piping into other tools.
+
+| Category | # cmds | Examples |
+|---|---|---|
+| Search & inspect | 12 | `pss search`, `pss list`, `pss inspect`, `pss stats`, `pss get-description` |
+| Find by attribute | 7 | `pss find-by-name`, `pss find-by-language`, `pss find-by-framework` |
+| Lifecycle filters | 3 | `pss list-added-since`, `pss list-added-between`, `pss list-updated-since` |
+| Temporal queries | 30 | `pss as-of`, `pss timeline`, `pss version-history`, `pss diff`, `pss compare-snapshots` |
+| Indexing & maintenance | 9 | `pss reindex`, `pss db-stats`, `pss retention`, `pss prune-history`, `pss export` |
+| Internal flags | 3 | `--pass1-batch`, `--index-file`, `--extract-prev-msg` (used by the hook) |
+
+### Canonical one-liners
+
+```bash
+# What's currently installed (any element type)?
+pss list
+
+# Full-text search across name, description, and keywords
+pss search "rate limit"
+
+# What was installed and active on a specific date?
+pss as-of 2026-01-01
+
+# Full event history for one element (installs, content changes, removals)
+pss timeline pss-usage
+
+# Find every element provided by one plugin
+pss by-plugin perfect-skill-suggester
+
+# Catch accidental duplicates (same name in 2+ scopes)
+pss dedup-candidates --type skill
+```
+
+See [docs/pss-cli-reference.md](docs/pss-cli-reference.md) for every subcommand, every flag, and example output.
 
 ## Requirements
 
@@ -750,15 +734,15 @@ automatically.
 
 | Document | Description |
 |----------|-------------|
+| [CHANGELOG.md](CHANGELOG.md) | Full version history (every release since v1.6.1) |
+| [pss-cli-reference.md](docs/pss-cli-reference.md) | Canonical CLI reference: all 62 subcommands, every flag, example output |
+| [CC-COMPATIBILITY.md](docs/CC-COMPATIBILITY.md) | Single home for Claude Code compatibility — version-by-version matrix, declared hook events, HookInput schema notes, Anthropic compliance audit |
 | [PSS-ARCHITECTURE.md](docs/PSS-ARCHITECTURE.md) | Core architecture: two-pass generation, index as superset, categories vs keywords |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Development guide — building binaries, running tests, contributing |
 | [PLUGIN-VALIDATION.md](docs/PLUGIN-VALIDATION.md) | Guide for writing plugin validation scripts |
-| [pss-cli-reference.md](docs/pss-cli-reference.md) | CLI subcommands reference |
-| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Development guide |
-| [CC-COMPATIBILITY.md](docs/CC-COMPATIBILITY.md) | Claude Code version-by-version compatibility matrix, declared hook events, HookInput schema notes |
-| [FEATURE_COMPARISON.md](docs/FEATURE_COMPARISON.md) | Feature comparison |
 | [PSS_FILE_FORMAT_SPEC.md](docs/PSS_FILE_FORMAT_SPEC.md) | PSS file format spec |
-| [pss-reindex-reference.md](docs/pss-reindex-reference.md) | Reindex reference |
-| [ANTHROPIC-COMPLIANCE-REPORT.md](docs/ANTHROPIC-COMPLIANCE-REPORT.md) | Anthropic compliance report |
+| [pss-reindex-reference.md](docs/pss-reindex-reference.md) | Reindex pipeline reference |
+| [FEATURE_COMPARISON.md](docs/FEATURE_COMPARISON.md) | Feature comparison |
 
 ### Key Architecture Concepts
 

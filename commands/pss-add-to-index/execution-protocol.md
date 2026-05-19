@@ -4,7 +4,7 @@ As of v3.0.0 the CozoDB store (`pss-skill-index.db`) is the single canonical
 index. The legacy `skill-index.json` is written only on demand via
 `pss export --json` and is never read by the runtime hook.
 
-### Step 1: Verify Index Health
+## Step 1: Verify Index Health
 
 ```bash
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
@@ -16,7 +16,7 @@ if ! "${BINARY}" health 2>/dev/null; then
 fi
 ```
 
-### Step 2: Resolve Element(s)
+## Step 2: Resolve Element(s)
 
 **For single element (by name):**
 ```bash
@@ -35,7 +35,7 @@ PLUGIN_DIR="<user-provided-plugin-path>"
 # Discover all elements in the plugin
 ```
 
-### Step 3: Check Duplicate
+## Step 3: Check Duplicate
 
 Use `pss get <name>` (exit 0 on hit, non-zero on miss) or
 `pss find-by-name <substring>` to discover whether the target already exists.
@@ -43,7 +43,7 @@ Use `pss get <name>` (exit 0 on hit, non-zero on miss) or
   original `first_indexed_at` is preserved, only `last_updated_at` advances)
 - If NEW: Will be ADDED
 
-### Step 4: Run the Enrichment + Merge Pipeline
+## Step 4: Run the Enrichment + Merge Pipeline
 
 For EACH element to process, pipe it through the discovery + Rust enrichment
 pipeline. `pss_merge_queue.py` writes directly to CozoDB (the `--index` flag
@@ -68,7 +68,7 @@ uv run "${PLUGIN_ROOT}/scripts/pss_discover.py" --jsonl --name "<element-name>" 
 
 For plugin-wide indexing, omit `--name` and use `--type` or no filter to discover all elements, then pipe the full JSONL stream through the enrichment pipeline.
 
-### Step 5: Verify
+## Step 5: Verify
 
 Confirm the element appears in the CozoDB index via the Rust binary:
 
@@ -94,7 +94,7 @@ else:
 "
 ```
 
-### Step 6: Optional JSON Snapshot
+## Step 6: Optional JSON Snapshot
 
 If a human-readable snapshot is needed for `git diff` review, export on demand:
 

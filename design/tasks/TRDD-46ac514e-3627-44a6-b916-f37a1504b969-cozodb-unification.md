@@ -192,7 +192,7 @@ JSON becomes a derived export.
 | pycozo schema drift between Rust and Python writers | High | Share a single SQL-like schema string. Both Rust and Python read/write the same `:create` statements. A schema-version table enforces compatibility. |
 | Losing `git diff skill-index.json` as a debug tool | Low | `pss export --json` preserves it on demand. Document the workflow in DEVELOPMENT.md. |
 | Broken migration for existing installs (stale CozoDB) | Medium | First-launch migration step: detect legacy JSON-only state, import JSON into CozoDB, log "migrated". |
-| Python scripts that currently parse the full JSON structure (for stats, debugging) | Low | Ship a helper: `pss export --json | jq ...` or `python -m pss_cozodb dump` for ad-hoc inspection. |
+| Python scripts that currently parse the full JSON structure (for stats, debugging) | Low | Ship a helper: `pss export --json \| jq ...` or `python -m pss_cozodb dump` for ad-hoc inspection. |
 
 ## Verification
 
@@ -264,8 +264,8 @@ Verified in-code:
 - Rust binary: `cmd_export` implements `pss export --json [--path P]`;
   `run_build_db` removed (three comment markers at rust/.../main.rs:13536,
   13691, 13943 confirm the removal).
-- `tests/unit/test_phase_c_cozodb_migration.py` + `test_pss_cozodb_phase_b.py`
-  + `test_pss_cozodb_escape.py` lock the invariants via 30+ tests (all
+- `tests/unit/test_phase_c_cozodb_migration.py`, `test_pss_cozodb_phase_b.py`,
+  and `test_pss_cozodb_escape.py` lock the invariants via 30+ tests (all
   passing in the 81-test suite as of v3.2.9).
 - `README.md` §391 "Why PSS used to keep two indexes — and what changed
   in v3.0" is rewritten in past tense with the migration story.

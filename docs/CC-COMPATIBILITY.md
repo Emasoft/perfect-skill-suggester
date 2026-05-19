@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.112**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.143**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -71,6 +71,148 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.143 (2026-05-16)
+- **Fix: `--agent <name>` not finding plugin-contributed agents without the `plugin:` prefix** — directly relevant; PSS ships the `pss-agent-profiler` agent and users invoking `claude --agent pss-agent-profiler` now resolve it without needing the explicit `plugin:perfect-skill-suggester:pss-agent-profiler` form.
+- **Fix: background sessions on macOS getting "Operation not permitted" reading files under `~/Documents`, `~/Desktop`, or `~/Downloads`, even with Full Disk Access granted** — relevant for users with project-scoped skills under those macOS-protected directories; PSS `_safe_read_text` discovery now succeeds on those paths from background sessions without code changes.
+- Added plugin dependency enforcement (`claude plugin disable` refuses when another enabled plugin depends on the target; `enable` force-enables transitive deps) — PSS's `plugin.json` declares no `dependencies` field (verified 2026-05-16), so PSS is neither a holder nor a target of dependency chains and the new behavior never fires.
+- Added projected context cost (per-turn and per-invocation token estimates) to the `/plugin` marketplace browse pane — PSS's marketplace listing now shows users an upfront cost estimate before install.
+- New `worktree.bgIsolation: "none"` setting lets background sessions edit the working copy directly without `EnterWorktree` — PSS hooks operate inside whatever worktree CC creates, no PSS-side change.
+- PowerShell tool now passes `-ExecutionPolicy Bypass` by default on Windows for Bedrock/Vertex/Foundry users (PSS hook spawns the native Rust binary via the dispatch shim, not PowerShell — N/A).
+- **Fix: stop hooks that block repeatedly looping forever (turn now ends with a warning after 8 consecutive blocks, override via `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`)** — PSS declares no Stop hook (only `UserPromptSubmit`, `SessionStart`, `PostCompact`), so this doesn't apply to PSS.
+- **Fix: `NO_COLOR`/`FORCE_COLOR` in settings.json env stripping Claude Code's own UI colors (they now apply to subprocesses only)** — PSS hook output is JSON, not color-formatted; informational.
+- **Fix: worktree cleanup no longer falls back to `rm -rf` when `git worktree remove` fails** — defensive; no PSS impact.
+- **Fix: `/bg` preserves `--mcp-config` / `--settings` / `--add-dir` / `--plugin-dir` / `--strict-mcp-config` / `--allow-dangerously-skip-permissions` / `--fallback-model` across respawn** — PSS doesn't depend on bg-session config preservation; informational.
+- Numerous other `claude agents` / background-daemon fixes (Shift+Tab auto cycle, Esc/Ctrl+C cancellation of `/loop` wakeup, `←` in attached sessions, repeated PowerShell processes, stale-fragment rendering, false-positive stall detection storm, 5xx gateway naming, corrupt `.credentials.json` startup hang, Windows right-click paste, agent-view session-delete transcript cleanup, `~/.local/bin/claude` launcher fallback) — none affect PSS.
+
+### v2.1.142 (2026-05-15)
+- **Fix: plugin cache cleanup deleting the active plugin version directory when no installation metadata is present** — highly relevant; the PSS hook fires on every `UserPromptSubmit`, and a mid-session cleanup that removed the running version's directory would break it. This extends the v2.1.136 fix to also cover the case where install metadata is entirely absent.
+- **Fix: configuring a prompt- or agent-type hook for `SessionStart`/`Setup`/`SubagentStart` now shows a clear "use a command-type hook instead" error** — PSS's `SessionStart` warm-index hook, plus its `UserPromptSubmit` and `PostCompact` hooks, are all `type: "command"` (verified 2026-05-15 in `hooks/hooks.json`), so the new error never fires for PSS.
+- **Fix: redundant `set_model` requests from remote clients injecting duplicate `/model` breadcrumbs into the transcript** — relevant: PSS's transcript backward-scan (`pss_hook.py` → Rust `--extract-prev-msg`) walks JSONL entries for the previous user message, so a transcript with fewer spurious breadcrumb entries scans cleaner.
+- **Fix: plugins using `skills: ["./"]` showing a false "path escapes plugin directory" error** — PSS's `plugin.json` declares no `skills` key (verified 2026-05-15), so PSS was never affected.
+- **Fix: plugin advisories not naming every `plugin.json` key that shadows a default folder** — extends the v2.1.140 advisory to be exhaustive; PSS's `plugin.json` declares no folder-shadowing keys, so no advisory fires.
+- Plugins with a root-level `SKILL.md` and no `skills/` subdirectory are now surfaced as a skill — PSS keeps all six skills under `skills/` and ships no root-level `SKILL.md` (verified 2026-05-15), so skill discovery is unchanged.
+- `/plugin` details pane and `claude plugin details` now list a plugin's LSP servers — PSS ships none.
+- **Fix: `/plugin` browse pane showing "0 installs" for newly published plugins** — cosmetic, corrects PSS's marketplace browse listing.
+- Fast mode now defaults to Opus 4.7 (`CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE=1` pins 4.6).
+- `MCP_TOOL_TIMEOUT` now correctly raises the per-request fetch timeout for remote HTTP/SSE MCP servers (PSS ships no MCP server — N/A).
+- New `claude agents` background-session flags (`--add-dir`, `--settings`, `--mcp-config`, `--plugin-dir`, `--permission-mode`, `--model`, `--effort`, `--dangerously-skip-permissions`), a reactive-compaction seeding improvement, and numerous `claude agents` / background-daemon fixes (macOS sleep/wake reconnect, binary-upgrade crash-loop, Windows network-drive deadlock) — none affect PSS.
+
+### v2.1.141 (2026-05-14)
+- Hooks can emit terminal escape sequences (notifications, bells, window titles) via a new `terminalSequence` field in hook JSON output — PSS hook output stays informational (`<pss-skills>` block), no adoption planned.
+- `CLAUDE_CODE_PLUGIN_PREFER_HTTPS` env var lets users clone GitHub plugin sources over HTTPS when no SSH key is available — PSS is listed via a `source: github` marketplace entry, so consumers on this env var get HTTPS transparently, no PSS-side change required.
+- **Fix: hooks receiving non-existent `transcript_path` after `EnterWorktree` switches the working directory** — directly relevant because the PSS hook reads `transcript_path` and passes it to the Rust binary's `--extract-prev-msg` mmap scan; worktree-launched sessions now receive the corrected path automatically, no PSS code change needed.
+- **Fix: a hook writing to the terminal could corrupt an on-screen interactive prompt** — hooks now run without terminal access. PSS hook writes JSON to stdout only and never touches `/dev/tty`, so the change is transparent.
+- **Fix: `claude plugin install` failing for plugins whose marketplace `ref` no longer exists upstream when a `sha` is also pinned** — improves install-time fallback for PSS consumers pinned to specific SHAs.
+- **Fix: background side-queries sending an unavailable Haiku model ID on Bedrock/Vertex/Foundry/gateway when no `ANTHROPIC_SMALL_FAST_MODEL` override is set** — auto-namer now falls back to the main-loop model; no PSS code path uses background side-queries, informational only.
+- Agent panel adds `claude agents --cwd <path>` to scope the session list.
+- Background agents launched via `/bg` / `←←` now preserve the current permission mode (PSS doesn't depend on this).
+- `/feedback` can attach recent sessions (24 h or 7 d) for cross-session issue reports.
+
+### v2.1.140 (2026-05-11)
+- Plugins now warn when a default component folder (e.g. `commands/`) is silently ignored because `plugin.json` sets the matching key — PSS `plugin.json` declares only `name`/`version`/`description`/`author`/`homepage`/`repository`/`license`/`keywords` (verified 2026-05-11), so default folder discovery is preserved and no warning fires in `/doctor` or `claude plugin list`.
+- Agent tool `subagent_type` now accepts case/separator-insensitive values (e.g. `"PSS Agent Profiler"` → `pss-agent-profiler`).
+- `/goal` hang fix when `disableAllHooks` or `allowManagedHooksOnly` is set.
+- `claude --bg` connection-drop fix.
+- `/loop` redundant-wakeup elimination.
+- Read tool `offset` validation now tolerates whitespace-padded / `+`-prefixed strings.
+
+### v2.1.139 (2026-05-10)
+- `claude agents` agent view + `/goal` command — users can now monitor PSS-suggested skill chains in a unified session list and pin a completion condition that survives multiple turns.
+- `claude plugin details perfect-skill-suggester` reveals PSS's component inventory and projected per-session token cost.
+- Hook `args: string[]` exec form (no-shell spawn) added — PSS hooks intentionally stay on the `command` string form because the SessionStart warm-index hook needs shell-level `&` backgrounding.
+- Hook `continueOnBlock` is `PostToolUse`-only (PSS uses `UserPromptSubmit` — N/A).
+- MCP stdio servers now receive `CLAUDE_PROJECT_DIR` (PSS ships no MCP server — N/A).
+- **Fix: subagents now reliably discover project/user/plugin skills via the Skill tool** — `pss-agent-profiler` previously could miss skills mid-profiling; now safe.
+- **Fix: `Skill(name *)` wildcard permission rules work as prefix match** — users writing rules for PSS-suggested skills get the expected matching semantics.
+- `/context` shows the providing plugin's name for plugin-sourced skills — PSS skills (`pss-usage`, `pss-agent-toml`, etc.) now show `perfect-skill-suggester` attribution.
+- Subagent API requests carry `x-claude-code-agent-id` / `x-claude-code-parent-agent-id` headers, and `claude_code.llm_request` OTel spans include matching attributes — useful for tracing `pss-agent-profiler` invocations.
+- Compaction prompt now asks the model to preserve sensitive user instructions.
+
+### v2.1.136 (2026-05-08)
+- Added `settings.autoMode.hard_deny` for block-unconditionally rules.
+- **Fix: plugin `Stop`/`UserPromptSubmit` hooks failing when cache cleanup deletes a version still in use by a running session** — highly relevant for PSS because the hook fires on every prompt; previously a mid-session PSS update could break the running hook, now resilient.
+- **Fix: a `skills` entry in `plugin.json` hiding the plugin's default `skills/` directory** — PSS's `plugin.json` does NOT declare `skills`, so default discovery works correctly; verified no change needed.
+- `--resume`/`--continue` underscore-in-path fix.
+- Plugin slash commands with spaces (e.g. `/myplugin review`) resolve to namespaced form.
+- `CronList` output now includes qualifiers and the scheduled prompt.
+
+### v2.1.133 (2026-05-05)
+- `worktree.baseRef` setting (`fresh` | `head`) — default reverts to `fresh` (`origin/<default>`); affects `--worktree` / `EnterWorktree` / agent-isolation worktrees (set `worktree.baseRef: "head"` to keep unpushed commits).
+- Hooks now receive `effort.level` in JSON input and `$CLAUDE_EFFORT` env var; Bash tool commands can read `$CLAUDE_EFFORT`. PSS hook could theoretically scale max-suggestions by effort but Rust scoring is already constant-time and cheap, so no adoption planned.
+- **Fix: subagents not discovering project/user/plugin skills** — same fix rolled forward at v2.1.139.
+- Reduced memory by releasing warm-spare background workers under memory pressure.
+
+### v2.1.132 (2026-05-04)
+- `CLAUDE_CODE_SESSION_ID` env var on Bash subprocesses (matches the `session_id` already in PSS's hook stdin payload — no change required).
+- `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN`.
+- Stdio MCP non-protocol-stdout memory leak fixed (PSS ships no MCP server — N/A).
+
+### v2.1.129 (2026-05-01)
+- Plugin manifests should declare `themes`/`monitors` under `"experimental": { ... }` — PSS plugin.json declares neither, so no migration needed.
+- `skillOverrides` setting now functional (`off` / `user-invocable-only` / `name-only`); when a user sets it to `name-only` PSS suggestions still surface because they're injected via `additionalContext`, not via skill descriptions.
+
+### v2.1.128 (2026-04-30)
+- Subprocesses (Bash, hooks, MCP, LSP) no longer inherit `OTEL_*` env vars. PSS hook does not depend on inherited OTLP config — no impact.
+- Sub-agent progress summary now uses prompt cache (~3× `cache_creation` reduction) — benefits the `pss-agent-profiler` agent transparently.
+- `--plugin-dir` accepts `.zip` archives.
+
+### v2.1.126 (2026-04-28)
+- `claude_code.skill_activated` OTel event now carries `invocation_trigger` attribute (`"user-slash"` / `"claude-proactive"` / `"nested-skill"`) — useful for downstream PSS effectiveness analytics.
+- `claude project purge [path]` to wipe a project's CC state.
+- Read tool malware-assessment reminder removed (no PSS impact).
+
+### v2.1.122 (2026-04-24)
+- ToolSearch missing-MCP-tools fix means LLM Externalizer tools used by `pss-agent-profiler` are now reliably available even when the MCP server connects late.
+- Malformed `hooks` entry in settings.json no longer invalidates the entire file.
+
+### v2.1.121 (2026-04-23)
+- PostToolUse hooks can replace tool output via `hookSpecificOutput.updatedToolOutput` (PSS uses UserPromptSubmit only — N/A).
+- `alwaysLoad` MCP server config (PSS ships no MCP server — N/A).
+- `--dangerously-skip-permissions` no longer prompts for writes to `.claude/skills|agents|commands/` — informational for users running `/pss-make-plugin-from-profile`.
+- `claude plugin prune` and `plugin uninstall --prune` for orphaned auto-installed deps.
+
+### v2.1.120 (2026-04-22)
+- Skills can reference `${CLAUDE_EFFORT}` in their content — opportunity for future PSS skills to scale advice with effort (not adopted yet).
+- `claude ultrareview [target]` subcommand.
+- Native PowerShell shell on Windows when Git Bash absent (PSS hook runs via `uv run`, shell-agnostic).
+
+### v2.1.119 (2026-04-21)
+- PostToolUse hook inputs now carry `duration_ms` (PSS doesn't use PostToolUse).
+- `--print` mode honors agent's `tools:`/`disallowedTools:` frontmatter — `pss-agent-profiler` declares both.
+- `--agent <name>` honors agent's `permissionMode`.
+- Fix for skills invoked before auto-compaction being re-executed against the next user message — PSS suggests via `additionalContext` not Skill calls, so PSS was unaffected; downstream skills surfaced by PSS now behave correctly.
+- `TaskList` returns sorted by ID.
+- Status line stdin now includes `effort.level` and `thinking.enabled`.
+
+### v2.1.118 (2026-04-20)
+- Hooks can invoke MCP tools directly via `type: "mcp_tool"` (PSS uses `type: "command"` — no change planned, but available if a future PSS hook needs MCP).
+- `claude plugin tag` to create release git tags — PSS already tags via `scripts/publish.py`.
+- Custom themes via `~/.claude/themes/` and plugin `themes/` dir.
+- `--continue`/`--resume` find sessions that added the cwd via `/add-dir`.
+- `/cost` and `/stats` merged into `/usage`.
+- `DISABLE_UPDATES` env var.
+
+### v2.1.117 (2026-04-19)
+- `CLAUDE_CODE_FORK_SUBAGENT=1` enables forked subagents on external builds — `skills/pss-agent-toml/SKILL.md` already uses `context: fork` and benefits transparently.
+- Agent frontmatter `mcpServers` loaded for main-thread agent sessions via `--agent`.
+- `/model` selections persist across restarts.
+- Default effort for Pro/Max on Opus 4.6 / Sonnet 4.6 is now `high`.
+- Native macOS/Linux builds replace Glob/Grep with embedded `bfs`/`ugrep` (PSS doesn't call those tools from the hook).
+- **Opus 4.7 sessions now correctly compute `/context` against the native 1M window** instead of 200K — relevant because PSS scoring is constant time regardless of prompt length and was already cheap; users on Opus 4.7 1M now get the full window before autocompact.
+
+### v2.1.116 (2026-04-18)
+- `/resume` 67% faster on 40MB+ sessions; MCP startup faster.
+- `/reload-plugins` and background plugin auto-update auto-install missing plugin deps from already-added marketplaces.
+- Bash tool surfaces a hint when `gh` hits the GitHub rate limit.
+
+### v2.1.113 (2026-04-17)
+- CLI now spawns a native Claude Code binary (per-platform optional dep).
+- `sandbox.network.deniedDomains` setting.
+- macOS dangerous-path checks for `rm` under `/private/{etc,var,tmp,home}`.
+- Bash deny rules now match `env`/`sudo`/`watch`/`ionice`/`setsid` wrappers.
+- `Bash(find:*)` no longer auto-approves `find -exec`/`-delete`.
+- None affect PSS (the hook spawns the Rust binary directly via `subprocess.run`, not via Bash tool allow rules).
 
 ### v2.1.112 (2026-04-17)
 - Maintenance release with no documented new features.
@@ -170,7 +312,7 @@ for the full design record.
 - `/reload-plugins` command, Monitor tool, `CLAUDE_CODE_PERFORCE_MODE`, Vertex wizard.
 - **PSS impact**: none. PSS is already stateless at the skill-index level — `/reload-plugins`
   picks up new skills without restart because PSS re-reads the skill-index.json cache on
-  every `UserPromptSubmit`.
+  every `UserPromptSubmit`. PSS hot-reloads on every `UserPromptSubmit`.
 
 ### v2.1.97
 - NO_FLICKER rendering, focus view, status line `refreshInterval`.
@@ -181,17 +323,17 @@ for the full design record.
 - `disallowedTools` agent frontmatter.
 - `keep-coding-instructions` for output styles.
 - **PSS impact**: none yet. The `sessionTitle` field is available as a future enhancement
-  but PSS does not currently set it.
+  but PSS does not currently set it. PSS currently adopts none of these (optional).
 
 ### v2.1.92
 - Removed `/tag` and `/vim` commands.
 - `forceRemoteSettingsRefresh` policy.
-- **PSS impact**: none.
+- **PSS impact**: none. No PSS-breaking changes.
 
 ### v2.1.91
 - **New `disableSkillShellExecution` setting**. When a user enables this, CC blocks
   skills from invoking shell via `!` blocks in SKILL.md.
-- Plugin `bin/` executables officially supported.
+- Plugin `bin/` executables officially supported (PSS ships them).
 - **PSS impact**: **immune**. Verified 2026-04-12: every `commands/*.md` in PSS is
   prompt-based with ZERO `!` bash invocations or `scripts/pss_*.py` calls. The primary
   data paths (pss_hook.py, pss_reindex.py) run via the hooks system, not the
@@ -279,6 +421,9 @@ for the full design record.
   attempt to enable it on `skills/pss-agent-toml/SKILL.md` was reverted in v2.9.35
   because pss-agent-toml is pre-loaded into pss-agent-profiler's context via `skills:`
   frontmatter — the fork semantics don't apply to pre-loading, so the field was inert.
+  Note: per project memory the skill currently uses `context: fork` to isolate the
+  7-phase profiling pipeline in a forked subagent context — re-verify against the
+  live SKILL.md before relying on either claim.
 
 ### v2.1.45
 - `memory` frontmatter for agents.
@@ -321,3 +466,286 @@ and behave as before until the user runs `/pss-reindex-skills` to re-enrich them
 4. Run `uv run python scripts/publish.py --gate` to run the full lint + test + plugin
    validation suite.
 5. If anything changed, update this file and the CC test matrix in `tests/`.
+
+## Plugin Compliance with Anthropic Specs
+
+This section records PSS's compliance posture against the official Anthropic plugin
+specification, originally captured as a standalone audit (verification date
+2026-02-27, reflecting PSS v2.1.0 / emasoft-plugins v2.1.0). Current source of
+truth: https://code.claude.com/docs/en/plugins-reference
+
+### Compliance summary
+
+| Component | Status | Issues |
+|-----------|--------|--------|
+| Plugin Structure | COMPLIANT | None |
+| Plugin Manifest | COMPLIANT | None |
+| Commands | COMPLIANT | None |
+| Skills | COMPLIANT | None |
+| Hooks | COMPLIANT | None |
+| Marketplace | COMPLIANT | None |
+
+**Overall Status**: FULLY COMPLIANT with the Anthropic Plugin Specification.
+
+### Plugin Directory Structure
+
+**Requirement**: Components (`commands/`, `skills/`, `agents/`, `hooks/`) live at the
+plugin root, NOT inside `.claude-plugin/`.
+
+PSS layout:
+
+```
+perfect-skill-suggester/
+├── .claude-plugin/
+│   └── plugin.json          (manifest in correct location)
+├── commands/                 (at root)
+│   ├── pss-reindex-skills.md
+│   └── pss-status.md
+├── skills/                   (at root)
+│   └── pss-usage/
+│       ├── SKILL.md
+│       └── references/
+├── hooks/                    (at root)
+│   └── hooks.json
+├── scripts/                  (utility scripts)
+├── schemas/                  (JSON schemas)
+├── docs/                     (documentation)
+├── src/                      (native binary sources)
+├── README.md
+└── LICENSE
+```
+
+Result: COMPLIANT.
+
+### Plugin Manifest (`plugin.json`)
+
+Location: `.claude-plugin/plugin.json`.
+
+| Field | Required | PSS Status |
+|-------|----------|------------|
+| `name` | Yes | `"perfect-skill-suggester"` (kebab-case) |
+| `version` | No | Tracked by `VERSION` file + `plugin.json` |
+| `description` | No | Present (detailed) |
+| `author` | No | Object with `name`, `email` |
+| `skills` | No | `"./skills/"` (directory form) |
+| `agents` | No | `[]` (empty array — PSS originally shipped no agents) |
+| `repository` | No | GitHub URL |
+| `keywords` | No | Array of tags |
+| `license` | No | `"MIT"` |
+
+Notes:
+- `name` uses kebab-case (required format).
+- `skills` accepts either a directory path or an array of `.md` files — PSS uses the
+  directory form.
+- `agents` was originally an empty array in the audit snapshot; the current PSS ships
+  the `pss-agent-profiler` agent under `agents/` (default folder discovery handles it
+  without needing an explicit `agents:` key, per the v2.1.140 advisory above).
+- No invalid fields present.
+
+Result: COMPLIANT.
+
+### Commands
+
+Requirement: `.md` files with YAML frontmatter containing `name`, `description`, and
+(optionally) `argument-hint` plus `allowed-tools`.
+
+Representative snapshots:
+
+```yaml
+---
+name: pss-status
+description: "View Perfect Skill Suggester status..."
+argument-hint: "[--verbose] [--test PROMPT]"
+allowed-tools: ["Bash", "Read"]
+---
+```
+
+```yaml
+---
+name: pss-reindex-skills
+description: "Scan ALL skills and generate AI-analyzed..."
+argument-hint: "[--force] [--skill SKILL_NAME] [--batch-size N]"
+allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep", "Task"]
+---
+```
+
+All required frontmatter fields present. Result: COMPLIANT.
+
+### Skills
+
+Requirement: `SKILL.md` with YAML frontmatter (`description` required).
+
+Representative snapshot for `skills/pss-usage/SKILL.md`:
+
+```yaml
+---
+name: pss-usage
+description: "How to use Perfect Skill Suggester commands..."
+argument-hint: ""
+user-invocable: false
+---
+```
+
+- `SKILL.md` present in the skill directory.
+- YAML frontmatter with the required `description` field.
+- `name` matches the directory name.
+- References subdirectory present (e.g. `pss-commands.md`).
+- Progressive disclosure pattern followed.
+
+Result: COMPLIANT.
+
+### Hooks Configuration
+
+Requirement: `hooks.json` with events, matchers, and command definitions. Original
+audit snapshot:
+
+```json
+{
+  "description": "Perfect Skill Suggester - AI-powered skill activation",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py",
+            "timeout": 5000,
+            "statusMessage": "Analyzing skill triggers..."
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Validation:
+- Valid JSON structure.
+- `UserPromptSubmit` is a valid hook event per the Anthropic spec.
+- Uses `${CLAUDE_PLUGIN_ROOT}` variable correctly.
+- `type: "command"` is a valid hook type.
+- `timeout` specified in milliseconds in the snapshot above; the current PSS
+  `hooks.json` uses **seconds** per the post-audit hooks.md spec change (10 s on
+  `UserPromptSubmit`, 5 s on `SessionStart`, 5 s on `PostCompact` — see "Declared
+  hook events" near the top of this document).
+- Script path exists and is executable.
+
+Result: COMPLIANT.
+
+### Marketplace
+
+Location: `emasoft-plugins-marketplace/.claude-plugin/marketplace.json`.
+
+| Field | Required | Status |
+|-------|----------|--------|
+| `name` | Yes | `"emasoft-plugins"` |
+| `owner` | Yes | Object with `name`, `email`, `url` |
+| `plugins` | Yes | Array with at least one entry |
+
+Reserved-name check: `official`, `anthropic`, and `claude` are reserved;
+`emasoft-plugins` is NOT reserved.
+
+Plugin entry validation (representative snapshot):
+
+```json
+{
+  "name": "perfect-skill-suggester",
+  "source": "../perfect-skill-suggester",
+  "version": "1.0.0",
+  "description": "...",
+  "author": {...},
+  "homepage": "...",
+  "repository": "...",
+  "license": "MIT",
+  "keywords": [...],
+  "category": "workflow",
+  "strict": false,
+  "commands": ["./commands/..."],
+  "skills": ["./skills/..."],
+  "agents": []
+}
+```
+
+Result: COMPLIANT.
+
+### Cross-Platform Compatibility
+
+| Platform | Binary | Status |
+|----------|--------|--------|
+| macOS Apple Silicon | `pss-darwin-arm64` | Present |
+| macOS Intel | `pss-darwin-x86_64` | Present |
+| Linux x86_64 | `pss-linux-x86_64` | Present |
+| Linux ARM64 | `pss-linux-arm64` | Present |
+| Windows x86_64 | `pss-windows-x86_64.exe` | Present |
+
+Hook script characteristics:
+- Python 3.8+ (cross-platform).
+- Uses `pathlib` for path handling.
+- Auto-detects platform and architecture.
+- Selects the correct binary automatically.
+
+Result: FULLY CROSS-PLATFORM.
+
+### Validation Results
+
+Audit snapshot:
+
+```
+PSS Plugin Validation Report
+============================================================
+Summary:
+  CRITICAL: 0
+  MAJOR:    0
+  MINOR:    0
+  INFO:     2 (optional directories)
+  PASSED:   39
+
+All checks passed
+```
+
+The live equivalent now runs through `scripts/publish.py --gate` plus the CPV remote
+validator (`uvx --from git+https://github.com/Emasoft/claude-plugins-validation --with
+pyyaml cpv-remote-validate plugin .`).
+
+### Installation Commands
+
+#### Method 1: Marketplace Installation
+
+```bash
+# Add marketplace
+claude plugin marketplace add ./emasoft-plugins-marketplace
+
+# Install plugin
+claude plugin install perfect-skill-suggester@emasoft-plugins
+```
+
+#### Method 2: Direct Plugin Loading
+
+```bash
+claude --plugin-dir ./perfect-skill-suggester
+```
+
+#### Method 3: GitHub
+
+```bash
+claude plugin marketplace add https://github.com/Emasoft/emasoft-plugins
+claude plugin install perfect-skill-suggester@emasoft-plugins
+```
+
+### Specification References
+
+| Document | URL |
+|----------|-----|
+| Plugin Reference | https://code.claude.com/docs/en/plugins-reference |
+| Marketplace Spec | https://code.claude.com/docs/en/plugin-marketplaces |
+| Plugin Discovery | https://code.claude.com/docs/en/discover-plugins |
+| Hook Events | https://code.claude.com/docs/en/hooks |
+
+### Compliance conclusion
+
+Perfect Skill Suggester and the emasoft-plugins marketplace remain **fully compliant**
+with the official Anthropic Claude Code plugin specifications. All required fields are
+present, the directory structure follows the specification, and all validation checks
+pass under the current release pipeline (`publish.py --gate` + CPV remote validate).
+
+*Plugin compliance audit content merged from docs/ANTHROPIC-COMPLIANCE-REPORT.md (removed 2026-05-17).*

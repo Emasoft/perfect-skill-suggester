@@ -2,6 +2,8 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+Format conforms to [Keep a Changelog](https://keepachangelog.com).
+
 ## [3.6.12] - 2026-05-16
 
 ### Miscellaneous Tasks
@@ -228,44 +230,62 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 ## [3.1.1] - 2026-04-17
 
-### Bug Fixes
+### Fixed
+- **Cross-platform hook invocation via `uv run --script`** — `hooks/hooks.json` now calls `uv run --script` against `scripts/pss_hook.py`. The script carries PEP 723 inline metadata declaring `pycozo[embedded]>=0.7.6` as a dependency; `uv` provisions and caches a venv with pycozo on first invocation (~2–5 s cold, <100 ms warm). Windows, macOS, and Linux use an identical hook configuration — uv handles the `.venv/Scripts/python.exe` vs `.venv/bin/python` split internally.
+- Fixes the `ERROR: pycozo is required` hook failure from v3.0.x / v3.1.0 where the hook's `python3` interpreter fell back to the system Python (no pycozo) and aborted at module load.
+- **`scripts/pss_cozodb.py` degrades gracefully on missing pycozo** — module load no longer calls `sys.exit`; `Client()` construction raises a clear `ImportError` at first use, which callers catch.
 
-- **hooks:** Invoke Python via uv run --script (PEP 723 cross-platform)
+### Added
+- New Requirements section in README — `uv` is now an explicit prerequisite alongside Python ≥ 3.10 and git.
 
 ## [3.1.0] - 2026-04-16
 
-### Features
+### Added
+- **New `/pss-search` and `/pss-added-since` slash commands** — thin wrappers around Phase D's Rust CLI subcommands (`pss search <query>`, `pss list-added-since <datetime>`) for ad-hoc index queries without firing the `UserPromptSubmit` scoring pipeline.
+- `skills/pss-usage/SKILL.md` updated with a new "Querying the Index Directly" section listing all `pss_cozodb.py` Python helpers and the Rust CLI subcommands with example invocations.
+- `skills/pss-authoring/SKILL.md` notes the v3.0 CozoDB-canonical indexing pipeline in a concise "How PSS indexes your skills" subsection.
 
-- **phase-e:** Harmonise skills & commands for CozoDB-canonical index
+### Changed
+- **Harmonise skills & commands for CozoDB-canonical index** (Phase E).
 
-## [3.0.0] - 2026-04-16
+## [3.0.0] - 2026-04-16 — BREAKING
 
-### Bug Fixes
+### Changed
+- **CozoDB is now the single canonical store** (Phase C of the CozoDB unification migration). `skill-index.json` is demoted to an optional debug export (`bin/pss export --json`). `pss_merge_queue.py`, `pss_make_plugin.py`, `pss_verify_profile.py`, `pss_generate.py`, and `pss_hook.py` all read/write the CozoDB via `scripts/pss_cozodb.py` (a thin pycozo wrapper).
+- Rust CLI gained query/management subcommands (Phase D): `pss count`, `pss stats`, `pss get`, `pss search`, `pss list`, `pss health`, `pss find-by-*`, `pss list-added-since`, `pss list-updated-since`, `pss export --json`. Human-readable tables by default; `--json` for scripting.
 
-- **submodule:** Point rust/ at d0a15d7 (Phase C+D rebuild)
+### Added
+- `first_indexed_at` and `last_updated_at` timestamps on every row, preserved across reindexes. Powers "what did I install since 2026-04-01?" queries.
+- `pycozo[embedded]>=0.7.6` added as a hard Python dependency. `uv` installs it automatically on first hook run (v3.1.1+).
 
-### Features
+### Removed
+- Rust `pss --build-db` flag — Python writes CozoDB directly via `fcntl`-locked atomic transactions.
 
-- **cli:** Phase D — query/search/management subcommands + docs
-- **cozodb:** Phase C — JSON demoted to optional debug export
+### Fixed
+- **submodule:** Point rust/ at d0a15d7 (Phase C+D rebuild).
+
+### Migration
+- Upgrading from v2.x requires no user action — the hook detects missing/empty CozoDB and auto-reindexes.
+- Full design record: `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.md`.
 
 ## [2.10.0] - 2026-04-16
 
-### Features
-
-- **cozodb:** Phase B — Python becomes canonical writer, JSON is derived
+### Added
+- **Phase B of the CozoDB unification migration**: Python merge queue writes CozoDB directly; JSON becomes a derived export (still auto-written for backward compatibility — removed in v3.0.0).
+- `pss export --json` subcommand added to the Rust binary for ad-hoc JSON snapshots.
 
 ## [2.9.41] - 2026-04-16
 
-### Features
-
-- **cozodb:** Phase A — indexed_at timestamps + pycozo query helpers
+### Added
+- **Phase A of the CozoDB unification migration**: `scripts/pss_cozodb.py` query helpers + `first_indexed_at` / `last_updated_at` columns on the CozoDB `skills` relation. JSON still canonical, CozoDB derived. Preserves install timestamps across reindexes.
 
 ## [2.9.40] - 2026-04-16
 
-### Bug Fixes
+### Fixed
+- **Bandaid for the `$CLAUDE_PLUGIN_DATA` scope-leak bug** in `scripts/pss_paths.py::get_data_dir()` — PSS was silently writing the index to foreign plugins' data dirs when invoked from their session scope. Fix: only trust `$CLAUDE_PLUGIN_DATA` when its basename contains "perfect-skill-suggester".
 
-- **paths:** Guard $CLAUDE_PLUGIN_DATA scope leak + TRDD for CozoDB unification
+### Added
+- TRDD for CozoDB unification.
 
 ## [2.9.39] - 2026-04-15
 
@@ -275,9 +295,13 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 ## [2.9.38] - 2026-04-15
 
-### Features
+### Added
+- **Claude Code v2.1.109 compatibility** — tested range extended from v2.1.101 to v2.1.109. See [`docs/CC-COMPATIBILITY.md`](docs/CC-COMPATIBILITY.md) for per-version impact notes.
+- **`[monitors]` pass-through** (CC v2.1.105+) — `.agent.toml` `[monitors]` section propagates verbatim into the generated `plugin.json` by `/pss-make-plugin-from-profile`, alongside existing `[metadata]` and `[userConfig]` pass-throughs. Enables background-monitor plugins (auto-arm at session start or on skill invoke).
 
-- **cc-compat:** V2.1.109 compat + monitors pass-through
+### Changed
+- Skill description cap raised 250 → 1,536 chars (CC v2.1.105) — PSS's longest skill description is 60 chars, still well within the new cap.
+- `PreCompact` hook event noted (CC v2.1.105) — not declared by PSS (no reason to block compaction), documented as intentional in the compat matrix.
 
 ## [2.9.37] - 2026-04-13
 
@@ -303,9 +327,17 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 ## [2.9.34] - 2026-04-12
 
-### Features
+### Added (cumulative across 2.9.34 – 2.9.37)
+- **Claude Code v2.1.69 → v2.1.101 compatibility** — full version-by-version matrix in [`docs/CC-COMPATIBILITY.md`](docs/CC-COMPATIBILITY.md), declared hook events, HookInput schema notes.
+- New hook events — `SessionStart` (silent lazy index warmup via `--warm-index`, eliminates first-prompt cold-start) and `PostCompact` (reserved stub for future re-suggest-after-compaction).
+- Rule `path_gates` — rules with `paths:` frontmatter filter by project file-type + language-to-extension alignment (Python project → rule with `paths: ["**/*.py"]` now matches; previously excluded).
+- `[userConfig]` pass-through — `.agent.toml` `[userConfig]` section propagates verbatim into the generated `plugin.json` by `/pss-make-plugin-from-profile`.
+- Profiler frontmatter upgrades — CC-official `skills:` subagent frontmatter (alongside PSS-internal `auto_skills`), `effort: high`, `maxTurns: 40`.
 
-- **cc-compat:** Claude Code v2.1.79+ compatibility + hook spec compliance
+### Changed
+- **snake_case HookInput boundary** — `pss_hook.py` and the Rust `HookInput` struct now use the spec-compliant `transcript_path` (was reading a non-existent camelCase key, silently breaking previous-message augmentation).
+- Build pipeline reliability — all 5 platform binaries (darwin-arm64/x86_64, linux-arm64/x86_64, windows-x86_64) built via `cross` + Docker with `DOCKER_DEFAULT_PLATFORM=linux/amd64` for Apple Silicon hosts; `publish.py` build failures are now FATAL with post-build mtime verification.
+- Conditional pss-nlp rebuild — `publish.py` tracks `rust/negation-detector/` changes and rebuilds pss-nlp-* binaries only when source changes.
 
 ## [2.9.33] - 2026-04-10
 
@@ -431,12 +463,13 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 ## [2.9.20] - 2026-04-07
 
-### Features
-
-- Scan 27 known AI client skill directories for cross-client discovery
+### Added
+- **Cross-client skill discovery** — scans `skills/` directories from 27 known AI clients (Codex, Copilot, Gemini, Kiro, Roo, Trae, Qwen, OpenHands, etc.) following the [AgentSkills](https://agentskills.io) open standard.
+- AgentSkills metadata indexing — `metadata.language/framework/platform` fields used as authoritative domain gates; `metadata.tags` and `compatibility` extracted as keywords.
+- `effort` frontmatter on all 8 commands (low/medium/high per complexity).
+- Claude Code v2.1.92 compatibility — `disableSkillShellExecution` noted, CPV remote validation updated.
 
 ### Bump
-
 - Version 2.9.19 → 2.9.20
 
 ## [2.9.19] - 2026-04-07
@@ -544,12 +577,15 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 ## [2.9.9] - 2026-03-28
 
-### Miscellaneous Tasks
+### Added
+- **`/pss-add-element` command** — add standalone elements (skills, agents, commands, hooks, rules, MCP servers, LSP servers, output styles) to existing plugins with duplicate detection and CPV validation.
+- Claude Code v2.1.85 compatibility — transcript parser updated for new JSONL format (`toolUseResult` / `sourceToolAssistantUUID` entries skipped; `agentId` removal handled).
+- Ship script hardening — submodule push verification, `Cargo.lock` staging, `uv.lock` sync, pre-push gate auto-pushes submodules.
 
-- Stage rust submodule lockfile and uv.lock updates
+### Miscellaneous Tasks
+- Stage rust submodule lockfile and uv.lock updates.
 
 ### Bump
-
 - Version 2.9.8 → 2.9.9
 
 ## [2.9.8] - 2026-03-28
@@ -746,21 +782,19 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 ## [2.8.0] - 2026-03-20
 
-### Bug Fixes
+### Added
+- **Fast profiling mode** (`/pss-setup-agent --fast`) — Rust binary only, 2-5 seconds, no AI agent needed.
+- 25+ mutual exclusivity groups — automatic conflict detection (React/Vue/Angular, Jest/Vitest, Prisma/TypeORM, etc.).
+- Plugin generator (`/pss-make-plugin-from-profile`) — creates installable plugins from `.agent.toml` profiles.
 
-- Lint fixes in pss_make_plugin.py
-- Remove tomli fallback (require Python 3.11+)
-
-### Features
-
-- /pss-make-plugin-from-profile command
+### Fixed
+- Lint fixes in `pss_make_plugin.py`.
+- Remove tomli fallback (require Python 3.11+).
 
 ### Miscellaneous Tasks
-
-- Update uv.lock
+- Update uv.lock.
 
 ### Bump
-
 - Version 2.7.3 → 2.8.0
 
 ## [2.7.3] - 2026-03-20
@@ -922,12 +956,12 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 
 ## [2.4.6] - 2026-03-18
 
-### Features
-
-- CC v2.1.76-2.1.78 compatibility update
+### Added
+- **`${CLAUDE_PLUGIN_DATA}` integration** (CC v2.1.78+) — persistent state directory for `skill-index.json` and CozoDB database.
+- New `.agent.toml` fields: `effort`, `maxTurns`, `disallowedTools` for fine-grained agent configuration.
+- CC v2.1.76-2.1.78 compatibility update.
 
 ### Bump
-
 - Version 2.4.5 → 2.4.6
 
 ## [2.4.5] - 2026-03-16
