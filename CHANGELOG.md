@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.7.1] - 2026-05-19
+
+### Miscellaneous Tasks
+
+- **ci:** Adopt canonical safety hardening for notify-marketplace.yml
+
 ## [3.7.0] - 2026-05-19
 
 ### Documentation
