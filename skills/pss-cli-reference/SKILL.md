@@ -7,89 +7,69 @@ context: fork
 
 # PSS CLI Reference Skill
 
-**Loaded by `pss-agent-profiler`** and **Used by** any agent that needs to route a natural-language request to the PSS CLI surface (62 subcommands).
+**Loaded by `pss-agent-profiler`** and **Used by** any agent that routes a natural-language request to the PSS CLI surface (62 subcommands).
 
 ## Overview
 
-The PSS Rust binary (`bin/pss-<platform>-<arch>`) exposes 62 read-only subcommands plus three internal flags across six categories: search/inspect, find-by-attribute, lifecycle filters, temporal queries, indexing/maintenance, and plugin authoring (slash-command wrapped). All query subcommands default to JSON, accept `--format table` for human display, and complete in <10 ms against an 8000+ entry index. Canonical store: CozoDB at `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` (fallback `~/.claude/cache/`).
+The PSS Rust binary (`bin/pss-<platform>-<arch>`) exposes 62 read-only subcommands across six categories: search/inspect, find-by-attribute, lifecycle filters, temporal queries, indexing/maintenance, plugin authoring. Defaults to JSON, `--format table` for human display. <10 ms against 8000+ entries. Store: CozoDB at `$CLAUDE_PLUGIN_DATA/pss-skill-index.db`.
 
 ## Prerequisites
 
-- PSS plugin enabled (`/plugin list`).
-- Index healthy: `pss health --verbose`; if empty, run `/pss-reindex-skills`.
-- Binary at `$CLAUDE_PLUGIN_ROOT/bin/pss-<platform>-<arch>`.
+PSS enabled; `pss health --verbose` passes. If empty, run `/pss-reindex-skills`.
 
 ## Instructions
 
-When a request matches the decision table, route via these numbered steps:
+1. Match the request against the [Quick decision table](#quick-decision-table).
+2. `BIN="$CLAUDE_PLUGIN_ROOT/bin/pss-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"`.
+3. Run with flags: `--format table|json`, `--limit N`, `--as-of <DATE>`.
+4. Hand off to a slash command for follow-up (`/pss-search`, `/pss-setup-agent`, `/pss-make-plugin-from-profile`).
 
-1. Classify the intent against the leftmost column of the [Quick decision table](#quick-decision-table).
-2. Pick the subcommand (or its slash-command wrapper if listed).
-3. Resolve the binary: `BIN="$CLAUDE_PLUGIN_ROOT/bin/pss-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"`.
-4. Run with appropriate flags — `--format table` for display, `--format json` for piping, `--limit N` to cap, `--as-of <DATE>` for point-in-time.
-5. Inspect the result. Empty result sets exit 0 with `[]` (JSON) or empty table.
-6. Verify termination: results returned and rendered; for maintenance commands the exit code is 0 and stderr is empty.
-7. Hand off — if the user wants follow-up action (open a file, install a plugin), invoke the matching slash command.
-
-For ready-to-paste shell recipes covering inventory, find-a-skill, history, plugin authoring, and maintenance, see [references/workflows.md](references/workflows.md).
+Shell recipes: [references/workflows.md](references/workflows.md).
 
 ## Quick decision table
 
 | User says… | Command |
 |---|---|
-| "what's installed" | `pss list`, `pss stats`, `pss by-plugin <name>` |
-| "find a skill that does X" | `pss search "X"`, `pss find-by-keyword X`, `/pss-search X` |
-| "show me the details of X" | `pss inspect X`, `pss get X`, `/pss-get-description X` |
-| "languages / frameworks / tools covered" | `pss coverage`, `pss vocab languages` |
-| "skills for Python / React / Docker / Linux" | `pss find-by-language python`, `find-by-framework react`, `find-by-tool docker`, `find-by-platform linux` |
-| "installed since last week" | `pss list-added-since 1w`, `/pss-added-since 1w` |
-| "changed since last reindex" | `pss list-updated-since 24h`, `pss last-changes`, `pss changes-summary --window 24h` |
+| "what's installed" | `pss summary`, `pss list`, `pss stats`, `pss tree` |
+| "find a skill for X" | `pss search "X"`, `pss find-by-keyword X`, `/pss-search X` |
+| "details of X" | `pss inspect X`, `pss get X`, `/pss-get-description X` |
+| "skills for \<attribute\>" | `pss find-by-{language,framework,tool,platform,domain} X` |
+| "installed since \<when\>" | `pss list-added-since 1w`, `/pss-added-since 1w` |
+| "changed since \<when\>" | `pss list-updated-since 24h`, `pss last-changes`, `pss changes-summary` |
 | "snapshot at \<date\>" | `pss as-of <DATE>`, `pss show X --as-of <DATE>` |
 | "history of X" | `pss timeline X`, `pss version-history X`, `pss lifespan X` |
-| "diff X between two dates" | `pss diff X <D1> <D2>`, `pss compare-snapshots <D1> <D2>` |
+| "diff between dates" | `pss diff X <D1> <D2>`, `pss compare-snapshots <D1> <D2>` |
 | "what disappeared" | `pss removed-since <DATE>`, `pss currently-missing-but-once-was` |
-| "duplicate skills across scopes" | `pss dedup-candidates`, `pss multi-scope <NAME>`, `pss scope-diff <S1> <S2>` |
-| "what's in plugin / marketplace X" | `pss by-plugin <name>`, `pss by-marketplace <name>`, `pss plugin-history <name>` |
-| "tune an agent profile" | `/pss-setup-agent <agent>` (fast: `--fast`) |
-| "change an existing profile" | `/pss-change-agent-profile <profile.toml>` |
-| "make a plugin from this profile" | `/pss-make-plugin-from-profile <profile.toml>` |
-| "rebuild index" | `/pss-reindex-skills`, `pss reindex [--dry-run]` |
-| "index health / DB stats" | `pss health [--verbose]`, `pss db-stats`, `pss stats-by-scope` |
-| "export the index" | `pss export --json [--path P]` |
-| "prune history" | `pss prune-history [--dry-run]`, `pss retention [--set 9m]` |
+| "duplicates across scopes" | `pss dedup-candidates`, `pss multi-scope <NAME>`, `pss scope-diff` |
+| "in plugin / marketplace X" | `pss by-plugin <name>`, `pss by-marketplace <name>`, `pss plugin-history <name>` |
+| "tune / build plugin from profile" | `/pss-setup-agent`, `/pss-change-agent-profile`, `/pss-make-plugin-from-profile` |
+| "rebuild / health / export" | `/pss-reindex-skills`, `pss health`, `pss db-stats`, `pss export --json` |
 
-Date formats: RFC 3339 (`<YYYY-MM-DD>T<HH:MM:SS>Z`), date-only (`<YYYY-MM-DD>` interpreted as UTC midnight), relative (`1d`, `2w`, `24h`), or tokens (`now`, `yesterday`).
+Dates: RFC 3339, `<YYYY-MM-DD>` (UTC midnight), relative (`1d`, `2w`, `24h`), tokens (`now`, `yesterday`).
 
 ## Error Handling
 
-- **Binary not found** → check `$CLAUDE_PLUGIN_ROOT/bin/` for your platform; rebuild with `uv run scripts/pss_build.py`.
-- **`health` exit 2 (missing)** → `/pss-reindex-skills` to build the DB.
-- **`health` exit 1 (empty/corrupt)** → delete `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` then reindex.
-- **`get` / `inspect` returns nothing** → `find-by-name <substring>` to verify the name; try `--source` to disambiguate scopes.
-- **Invalid date** → temporal commands fail fast with stderr parse error; no silent fallback.
+- Binary missing → rebuild via `uv run scripts/pss_build.py`.
+- `health` exit 2 → `/pss-reindex-skills`. Exit 1 → delete `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` then reindex.
+- `get`/`inspect` empty → `find-by-name <substring>`; use `--source` to disambiguate.
+- Invalid date → temporal cmds fail fast with stderr parse error.
 
 ## Output
 
-Query subcommands accept `--format json` (default) or `--format table` (human-readable). JSON is machine-readable; tables use Unicode box drawing with bold header rows. Empty result sets exit 0 with `[]` (JSON) or an empty table.
+Query subcommands accept `--format json` (default) or `--format table` (Unicode box drawing). Empty result sets exit 0 with `[]` or an empty table.
 
 ## Examples
 
 ```bash
-BIN="$CLAUDE_PLUGIN_ROOT/bin/pss-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
-
-"$BIN" list-added-since 1d
+BIN="$CLAUDE_PLUGIN_ROOT/bin/pss-$(uname -s)-$(uname -m)"
+"$BIN" summary
 "$BIN" search docker --top 5 --format table
-"$BIN" get tailwind-4-docs --json
 "$BIN" version-history skill:python@plugin:perfect-skill-suggester:
-"$BIN" compare-snapshots 1mo now --format table
 ```
 
 ## Resources
 
-- Architecture overview: docs/PSS-ARCHITECTURE.md
-- Full CLI reference: docs/pss-cli-reference.md (rebuilt in v3.7 to cover every subcommand)
-- Companion skill: pss-usage (interpreting suggestions and troubleshooting)
-- Authoring guide: pss-authoring
+`docs/pss-cli-reference.md` documents every subcommand. Companion skill: `pss-usage`.
 
 ## References
 
