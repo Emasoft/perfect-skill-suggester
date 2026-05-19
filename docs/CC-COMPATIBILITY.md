@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.143**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.145**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -71,6 +71,17 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.145 (2026-05-19)
+- **Fix: `context: fork` skills triggering infinite-loop re-invocation** — directly relevant; PSS ships `skills/pss-cli-reference/SKILL.md` with `context: fork` frontmatter. The skill is loaded by the `pss-agent-profiler` agent (not self-loading), so PSS was never at risk of the bug, but the fix removes a latent failure mode for any future PSS skill that opts into forked context.
+- `claude agents --json` for scripting (informational; PSS ships its own `pss-agent-profiler` agent and never invoked `claude agents` programmatically).
+- `/plugin` Discover/Browse pane now lists a plugin's skills/agents/commands/hooks **before install** — relevant: users browsing the PSS marketplace listing now see PSS's six skills, the `pss-agent-profiler` agent, and the eight `/pss-*` commands upfront without installing first.
+- `claude plugin validate` now enforces that every entry in `plugin.json` `skills:` resolves to an existing directory — PSS's `.claude-plugin/plugin.json` declares no `skills:` key (verified 2026-05-19), uses default `./skills/` directory discovery, so the new strict validation never fails for PSS.
+- `Stop` / `SubagentStop` hook input now includes `background_tasks` and `session_crons` arrays — PSS declares no `Stop` hook (only `UserPromptSubmit`, `SessionStart`, `PostCompact`), so the new fields are not consumed by PSS.
+
+### v2.1.144 (2026-05-18)
+- `/resume` background session support — sessions launched via `/bg` are now resumable through `/resume`, with a `[bg]` marker shown in the session list to distinguish background from interactive sessions. PSS's `SessionStart` hook fires on both `startup` and `resume` matchers, so resumed background sessions still warm the PSS index correctly.
+- `/extra-usage` renamed to `/usage-credits` — cosmetic CC rename; PSS doesn't reference either slash command in its hooks, scripts, or docs (verified 2026-05-18).
 
 ### v2.1.143 (2026-05-16)
 - **Fix: `--agent <name>` not finding plugin-contributed agents without the `plugin:` prefix** — directly relevant; PSS ships the `pss-agent-profiler` agent and users invoking `claude --agent pss-agent-profiler` now resolve it without needing the explicit `plugin:perfect-skill-suggester:pss-agent-profiler` form.
