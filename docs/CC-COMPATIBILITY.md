@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.145**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.178**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -29,6 +29,10 @@ All three hooks use `timeout` values in **seconds** (per hooks.md spec).
   would want to catch errors from.
 - `FileChanged` / `CwdChanged` (CC v2.1.83+) — PSS re-suggests on every
   `UserPromptSubmit` which already covers directory-change scenarios.
+- `MessageDisplay` (CC v2.1.152+) — lets a hook transform or hide assistant
+  message text as it's displayed. PSS suggests skills via `additionalContext`
+  on `UserPromptSubmit`; it has no reason to rewrite Claude's rendered output,
+  so this event is not registered.
 
 ## Hook input/output schema
 
@@ -71,6 +75,127 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.178 (2026-06-15)
+- New `Tool(param:value)` permission-rule syntax (with `*` wildcard) matches a tool's input parameters, e.g. `Agent(model:opus)` to block Opus subagents — relevant: a user can now write a permission rule targeting PSS's `pss-agent-profiler` by parameter (e.g. allow only `Agent(subagent_type:pss-agent-profiler)`); PSS ships no such rule itself.
+- Skills in nested `.claude/skills` directories now load when working on files there; on a name clash the nested skill is exposed as `<dir>:<name>` so both stay available — relevant: PSS's discovery (`pss_discover.py`) already scans nested `.claude/skills`; the new directory-qualified element IDs are a superset of what PSS indexes, and a `/pss-reindex-skills` picks up any newly-loadable nested skills.
+- Nested `.claude/` directories: the agent/workflow/output-style closest to the working directory now wins on a name collision — informational; aligns with PSS's most-specific-scope-wins discovery model.
+- **Fix: MCP server-level specs (`mcp__server`, `mcp__server__*`, `mcp__*`) in a subagent's `disallowedTools` being silently ignored** — PSS's `pss-agent-profiler` uses an **allowlist** `tools:` (Bash/Read/Write/Edit/Glob/Grep/WebSearch/WebFetch + two `llm-externalizer` MCP tools), not `disallowedTools`, so the bug never applied to PSS.
+- **Fix: nested `.claude/skills` skills with directory-qualified names blocked by permission prompts in non-interactive runs** — relevant to any project-scoped skill PSS indexes; no PSS-side change.
+- Auto mode now evaluates subagent spawns with the classifier before launch, and the skill-listing truncation warning now reports how many skill descriptions are affected — informational; PSS contributes 6 skills to that listing.
+
+### v2.1.176 (2026-06-12)
+- **Fix: hook `if` conditions for Read/Edit/Write tool paths (`Edit(src/**)`, `Read(~/.ssh/**)`, `Read(.env)`) now match correctly** — PSS's three hooks declare no `if` conditions, so this is informational for PSS.
+- Remaining items (conversation-language session titles, `footerLinksRegexes`, Bedrock credential caching, `availableModels` enforcement, Linux-sandbox symlink, tmux `/copy`, Remote Control, `/cd` branch) — no PSS impact.
+
+### v2.1.175 (2026-06-12)
+- `enforceAvailableModels` managed setting constrains the Default model to the `availableModels` allowlist — no PSS impact (PSS pins no model; `pss-agent-profiler` inherits the session model).
+
+### v2.1.174 (2026-06-12)
+- **Fix: skill hot-reload re-sending the entire skill listing when a single skill changed — only changed skills are now re-announced** — relevant: when `/pss-reindex-skills` rewrites PSS's own skills, CC now re-announces just the changed entries instead of the whole listing, a small latency win at reindex time.
+- [VSCode] `/usage` now attributes cost per-skill/agent/plugin/MCP over 24h/7d — informational: PSS's hook + `pss-agent-profiler` now surface as line items so users can see PSS's token footprint.
+- `wheelScrollAccelerationEnabled`, `/model` picker fixes, Fable 5 banner, Bedrock GovCloud, Workflow `agent()` attribution — no PSS impact.
+
+### v2.1.173 (2026-06-11)
+- Fable 5 `[1m]`-suffix normalization and a Windows spurious-sandbox-warning fix — no PSS impact (model-name handling / Windows sandbox).
+
+### v2.1.172 (2026-06-10)
+- Sub-agents can now spawn their own sub-agents (up to 5 levels deep) — informational: `pss-agent-profiler` is a leaf subagent that spawns none, so PSS neither benefits nor regresses.
+- Added a marketplace plugin search bar in `/plugin` — informational; eases discovery of the PSS marketplace listing.
+- **Fix: `WebFetch(domain:*.example.com)` wildcard domain rules and file-permission rules with mid-pattern wildcards (`Read(secrets-*/config.json)`) being rejected at startup** — informational; `pss-agent-profiler` has `WebFetch` in its toolset but ships no such rules.
+- **Fix: workflow validation rejecting scripts whose prompt strings merely mention `Date.now()`/`Math.random()`** — N/A (PSS ships no Workflow scripts).
+
+### v2.1.170 (2026-06-09)
+- **Claude Fable 5 introduced** (Mythos-class) — relevant: `pss-agent-profiler` omits a `model:` pin and inherits the session model, so Fable 5 is usable for profiling automatically with no PSS change.
+- **Fix: sessions not saving transcripts (and not appearing in `--resume`) when launched from the VS Code integrated terminal or any shell that inherited Claude Code env vars** — directly relevant: PSS's hot path reads `transcript_path` via the Rust `--extract-prev-msg` mmap scan to recover the previous user message; before this fix a VS-Code-terminal session could have an unwritten transcript, leaving that scan empty. PSS already degrades gracefully (no prev-message augmentation) in that case, but the fix restores full behavior.
+
+### v2.1.169 (2026-06-08)
+- New `--safe-mode` flag and `CLAUDE_CODE_SAFE_MODE` env var start CC with all customizations (CLAUDE.md, plugins, skills, hooks, MCP) disabled — relevant as a **troubleshooting** lever: launching with `--safe-mode` disables PSS entirely, a clean way for a user to confirm whether PSS's `UserPromptSubmit` hook is implicated in a problem.
+- **Fix: `claude -p` slow/hanging on Windows while waiting for the slash-command/skill scan (regression in 2.1.161)** — relevant: PSS contributes 6 skills + 8 commands to that scan, so headless PSS users on Windows are unblocked.
+- **Fix: plugin `.in_use` PID lock files accumulating without bound — stale markers are now swept once per day** — informational; affects PSS's plugin-cache footprint, no PSS code change.
+- `disableBundledSkills` / `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS` hides bundled (built-in) skills — does not affect PSS, which is a marketplace plugin, not a bundled skill.
+- "CLAUDE.md too long" warning threshold now scales with the model's context window — informational.
+
+### v2.1.168 (2026-06-06)
+- Bug fixes and reliability improvements — no PSS-specific impact.
+
+### v2.1.167 (2026-06-06)
+- Bug fixes and reliability improvements — no PSS-specific impact.
+
+### v2.1.166 (2026-06-06)
+- `fallbackModel` setting (up to three fallbacks) and glob support in deny-rule tool-name position — informational; no PSS change.
+- **Hardened cross-session messaging: `SendMessage`-relayed messages no longer carry user authority** — N/A (PSS uses no cross-session messaging).
+
+### v2.1.165 (2026-06-05)
+- Bug fixes and reliability improvements — no PSS-specific impact.
+
+### v2.1.163 (2026-06-04)
+- **Skills: added `\$` escape syntax to include a literal `$` before a digit in command bodies** — relevant to PSS's `/pss-*` command bodies if any ever need a literal `$1`/`$2`; current commands don't, so informational.
+- **Hooks: Stop and SubagentStop hooks can now return `hookSpecificOutput.additionalContext`** — informational; PSS declares no Stop/SubagentStop hook.
+- **Fix: hook `if: "Bash(...)"` conditions firing on every Bash command containing `$()` or `$VAR`** — PSS hooks use no `if` conditions, so informational.
+- `/plugin list` (with `--enabled`/`--disabled`), `requiredMinimumVersion`/`requiredMaximumVersion`, stdio-MCP `CLAUDE_CODE_SESSION_ID` on `--resume` — informational / N/A (PSS ships no MCP server).
+
+### v2.1.162 (2026-06-03)
+- **`--tools`: explicitly listing `Grep`/`Glob` now provides the dedicated search tools on native builds with embedded search (previously these names were silently ignored)** — relevant: `pss-agent-profiler` lists `Grep` and `Glob` in its `tools:`, so on native builds those now resolve to the fast embedded search tools.
+- **Fix: WebFetch permission rules not applied to built-in preapproved domains** — informational; the profiler uses `WebFetch`.
+- `/effort` persist confirmation, `claude mcp` secret redaction, LSP `workspaceSymbol` — N/A.
+
+### v2.1.161 (2026-06-02)
+- **Parallel tool calls: a failed `Bash` command no longer cancels the other calls in the same batch — each returns its own result** — relevant: `pss-agent-profiler` issues parallel `Bash` calls (e.g. building the binary path + running queries); a single failure no longer aborts the siblings.
+- **Fix: background subagent output corrupting `claude -p` stdout under `--output-format text`/`json`** — informational; affects how a backgrounded `pss-agent-profiler` would interleave with headless output.
+
+### v2.1.160 (2026-06-02)
+- **Edit no longer requires a separate Read after viewing a file with `grep` — single-file `grep`/`egrep`/`fgrep` now satisfies the read-before-edit check** — relevant: `pss-agent-profiler` reads-then-edits `.agent.toml` files; this removes a redundant Read in its workflow.
+- Removed `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE` (now a no-op) — informational; the v2.1.142 PSS note referenced this env var, which is now retired.
+- Added prompts before writing shell-startup / build-tool config files (`.zshenv`, `.npmrc`, etc.) — N/A; PSS hooks write none of these.
+
+### v2.1.159 (2026-05-31)
+- Internal infrastructure improvements (no user-facing changes) — no PSS impact.
+
+### v2.1.158 (2026-05-30)
+- Auto mode available on Bedrock/Vertex/Foundry for Opus 4.7/4.8 (`CLAUDE_CODE_ENABLE_AUTO_MODE=1`) — no PSS impact.
+
+### v2.1.157 (2026-05-29)
+- **Plugins in `.claude/skills` directories are now auto-loaded, no marketplace required**, plus `claude plugin init <name>` to scaffold one there — relevant: PSS's discovery already scans `.claude/skills`, so newly auto-loaded local skills become indexable; remind users to `/pss-reindex-skills` after dropping a skill there.
+- `EnterWorktree` mid-session switching, `/plugin` arg autocomplete, `tool_decision` telemetry `tool_parameters` — informational / N/A.
+
+### v2.1.156 (2026-05-29)
+- **Fix: Opus 4.8 thinking blocks being modified, causing API errors** — informational; stability fix for the model `pss-agent-profiler` may inherit.
+
+### v2.1.154 (2026-05-28)
+- **Opus 4.8 released** (defaults to high effort; `/effort xhigh` for the hardest tasks) — relevant: `pss-agent-profiler` inherits the session model, so AI-mode profiling now runs on Opus 4.8 by default; matches the project convention that PSS fix/profiling agents are Opus-class.
+- **Plugins can now declare `defaultEnabled: false` in `plugin.json` or a marketplace entry** — relevant decision: PSS deliberately **does not** set `defaultEnabled: false` — it is a suggestion engine that must run on every `UserPromptSubmit`, so it stays enabled-by-default on install.
+- The lean system prompt is now the default for all models except Haiku/Sonnet/Opus 4.7-and-earlier — informational.
+- Stdio MCP subprocesses now receive `CLAUDE_CODE_SESSION_ID` and `CLAUDECODE=1`; dynamic workflows; `/plugin` Discover directory-relevance pinning — N/A / informational (PSS ships no MCP server and no Workflow scripts).
+
+### v2.1.153 (2026-05-28)
+- **Fix: subagent (Agent tool) frontmatter MCP servers ignoring `--strict-mcp-config`, `--bare`, remote mode, enterprise managed MCP config, and managed-settings MCP allow/deny policies** — relevant: `pss-agent-profiler` declares two `llm-externalizer` MCP tools in frontmatter, which now correctly respect `--strict-mcp-config` and managed policies. PSS already falls back to direct file reading when those MCP tools are unavailable, so a now-correctly-blocked MCP server degrades gracefully.
+- **`--strict-mcp-config` no longer strips inline `mcpServers` from explicitly-passed agent definitions; blocked subagent MCP servers now surface a visible warning** — same area; the warning makes a blocked `llm-externalizer` visible instead of silent.
+- `skipLfs` marketplace sources, status-line `COLUMNS`/`LINES` — informational / N/A.
+
+### v2.1.152 (2026-05-27)
+- **Skills and slash commands can now set `disallowed-tools` in frontmatter to remove tools from the model while active** — a new capability PSS *could* adopt (e.g. restrict `pss-cli-reference` to `Bash`/`Read`); not adopted yet, noted as available.
+- **`SessionStart` hooks can now return `reloadSkills: true` to re-scan skill directories**, and set the session title via `hookSpecificOutput.sessionTitle` — relevant context: PSS's `SessionStart` hook only **warms the index** (`--warm-index &`); it installs no skills mid-session and sets no title, so it returns neither field. If PSS ever installs a skill from a hook, `reloadSkills` is the right mechanism.
+- **Added the `MessageDisplay` hook event** (transform/hide assistant text as displayed) — PSS does not register it (see "Not declared (intentional)" above).
+- `/reload-skills` command, `pluginSuggestionMarketplaces` managed setting, `claude plugin marketplace remove --scope` — informational; `/reload-skills` lets users refresh after a `/pss-reindex-skills`.
+- **Fix: plugin MCP servers with the same command but different env being incorrectly deduplicated; stale `enabledPlugins` `/doctor` warnings; git-branch-tracking plugins silently not updating** — informational; no PSS code change.
+
+### v2.1.150 (2026-05-23)
+- Internal infrastructure improvements (no user-facing changes) — no PSS impact.
+
+### v2.1.149 (2026-05-22)
+- **`/usage` now shows a per-category breakdown — skills, subagents, plugins, and per-MCP-server cost** — informational: PSS's hook-driven suggestions and `pss-agent-profiler` now appear as attributable usage line items.
+- **Fix: argument-hint and progressive arg suggestions not appearing after Tab-completing a skill whose frontmatter `name:` differs from its directory basename** — verified non-issue for PSS: every PSS skill's `name:` equals its directory basename (e.g. `pss-cli-reference`).
+- **Fix: status bar showing the baseline `/effort` instead of the effort applied by skill/agent `effort:` frontmatter** — informational; `pss-agent-profiler` sets no `effort:`, so it always reflected the baseline.
+
+### v2.1.148 (2026-05-22)
+- **Fix: the Bash tool returning exit code 127 on every command for some users (regression in 2.1.147)** — relevant: PSS's `UserPromptSubmit` hot path and `pss-agent-profiler` both shell out via Bash, so this regression could have broken PSS's hook dispatch on affected installs; the fix restores it.
+
+### v2.1.147 (2026-05-21)
+- **Fix: plugin component counts in `claude plugin details` and `/plugin` being doubled when a plugin's manifest listed paths overlapping its default directories** — validates a PSS design choice: PSS's `.claude-plugin/plugin.json` declares **no** explicit `skills:`/`agents:`/`commands:` keys (it relies on default `./skills/`, `./agents/`, `./commands/` discovery), so PSS never triggered the double-count.
+- **Fix: plugin agents that declare multiple `Agent(...)` types in `tools:` frontmatter dropping all but the last** — N/A: `pss-agent-profiler` declares no `Agent(...)` entries in its `tools:`.
+- **Fix: hook `if` conditions like `PowerShell(git push*)` never matching** — informational; PSS hooks use no `if` conditions.
+- Renamed `/simplify` to `/code-review` — N/A.
 
 ### v2.1.145 (2026-05-19)
 - **Fix: `context: fork` skills triggering infinite-loop re-invocation** — directly relevant; PSS ships `skills/pss-cli-reference/SKILL.md` with `context: fork` frontmatter. The skill is loaded by the `pss-agent-profiler` agent (not self-loading), so PSS was never at risk of the bug, but the fix removes a latent failure mode for any future PSS skill that opts into forked context.
