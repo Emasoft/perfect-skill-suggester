@@ -42,28 +42,23 @@ Score: {score}/500 (delta: {+/-N} from previous)
 
 ## How to Run the Benchmark
 
-```bash
-# Run the benchmark and save per-prompt results
-uv run python3 -c "
-import subprocess, json, sys
-BINARY = './target/release/skill-suggester'
-PROMPTS = 'docs_dev/benchmark-v2-prompts-100.jsonl'
-GOLD = 'docs_dev/benchmark-v2-gold-100.json'
-with open(GOLD) as f: gold = json.load(f)
-with open(PROMPTS) as f: prompts = [l.strip() for l in f if l.strip()]
-total_hits = 0
-for i, line in enumerate(prompts, 1):
-    proc = subprocess.run([BINARY, '--format', 'json', '--top', '10'],
-        input=line, capture_output=True, text=True, timeout=30)
-    try:
-        results = json.loads(proc.stdout)
-        suggested = [r.get('name','') for r in results] if isinstance(results, list) else []
-    except: suggested = []
-    hits = sum(1 for s in gold.get(str(i), []) if s in suggested)
-    total_hits += hits
-    print(f'P{i}: {hits}/5 | suggested: {suggested[:5]}...')
-print(f'\\nTotal: {total_hits}/500')
-"
-```
+Drive the benchmark from a short Python harness (illustration only — write it
+to a `.py` file and run it with `uv run`, rather than copy-pasting it into a
+shell). The procedure is:
+
+1. Load the gold set `docs_dev/benchmark-v2-gold-100.json` and the prompt set
+   `docs_dev/benchmark-v2-prompts-100.jsonl`.
+2. For each prompt line, invoke the release binary
+   `./target/release/skill-suggester` with the argv list
+   `["--format", "json", "--top", "10"]`, feeding the prompt on stdin (an argv
+   list, never a shell string — no shell interpolation occurs).
+3. Parse the JSON result, collect the suggested element names, and count how
+   many of that prompt's gold answers appear.
+4. Accumulate hits across all prompts and print the running `P{i}: hits/5`
+   line plus a final `Total: total_hits/500`.
+
+The harness is a thin loop over the prompt file: read the gold/prompt files,
+call the binary once per prompt with the fixed argv above, tally hits against
+the gold answers, and report per-prompt and total scores.
 
 Save the full output to the benchmark log, then update your work tracker.

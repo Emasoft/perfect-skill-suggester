@@ -18,9 +18,5 @@
     "hooks",
     "performance",
     "ml"
-  ],
-  "cpv": {
-    "max_chars": 8000,
-    "skill_size_severity": "NIT"
-  }
+  ]
 }

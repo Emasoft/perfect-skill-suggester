@@ -126,9 +126,13 @@ def check_rust_installed() -> bool:
         " add cross-compilation targets."
     )
     print(
-        "         Install: curl --proto '=https' --tlsv1.2"
-        " -sSf https://sh.rustup.rs | sh"
+        "         Install (download, review, then run the installer):"
     )
+    print(
+        "           curl --proto '=https' --tlsv1.2"
+        " -sSfo rustup-init.sh https://sh.rustup.rs"
+    )
+    print("           sh rustup-init.sh")
     print("         Then: source $HOME/.cargo/env")
     return False
 

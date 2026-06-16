@@ -14,8 +14,11 @@ input/output schema notes, and migration guidance when new CC versions land.
 
 1. **Rust Toolchain**
    ```bash
-   # Install rustup (Rust toolchain installer)
-   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   # Install rustup (Rust toolchain installer).
+   # Download the installer first, review it, then run it — never pipe a
+   # remote script straight into a shell.
+   curl --proto '=https' --tlsv1.2 -sSfo rustup-init.sh https://sh.rustup.rs
+   sh rustup-init.sh   # after reviewing rustup-init.sh
 
    # Verify installation
    rustc --version
@@ -376,8 +379,10 @@ during the current run via build-start mtime comparison.
 For automated builds in CI/CD pipelines (GitHub Actions, GitLab CI, etc.):
 
 ```bash
-# Install rustup (NOT Homebrew rust — lacks cross target support)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+# Install rustup (NOT Homebrew rust — lacks cross target support).
+# Download first, then run — avoid piping a remote script into a shell.
+curl --proto '=https' --tlsv1.2 -sSfo rustup-init.sh https://sh.rustup.rs
+sh rustup-init.sh -y
 source $HOME/.cargo/env
 
 # Add all targets (musl for Linux — produces static binaries with no libc dep)

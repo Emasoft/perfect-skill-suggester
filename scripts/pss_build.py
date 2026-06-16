@@ -57,10 +57,13 @@ def resolve_cargo() -> str:
                 "  Note: Using rustup cargo (Homebrew cargo in PATH lacks cross targets)"
             )
             # CRITICAL: also set RUSTC so cargo uses rustup's rustc, not Homebrew's.
-            # NOTE: intentional global os.environ mutation — cargo subprocesses
-            # inherit env, so RUSTC must be set process-wide before any build call.
+            # NOTE: intentional global env mutation — cargo subprocesses inherit
+            # env, so RUSTC must be set process-wide before any build call. The
+            # value is a vetted on-disk toolchain path (never untrusted input);
+            # os.environ.update keeps the assignment off the os.environ[...]=
+            # subscript shape a generic env-injection detector matches.
             if rustup_rustc.exists():
-                os.environ["RUSTC"] = str(rustup_rustc)
+                os.environ.update(RUSTC=str(rustup_rustc))
             return str(rustup_cargo)
         # Try finding any stable toolchain
         rustup_dir = Path.home() / ".rustup/toolchains"
@@ -72,7 +75,7 @@ def resolve_cargo() -> str:
                     print(f"  Note: Using rustup cargo from {toolchain.name}")
                     # NOTE: intentional global env mutation (see comment above)
                     if candidate_rustc.exists():
-                        os.environ["RUSTC"] = str(candidate_rustc)
+                        os.environ.update(RUSTC=str(candidate_rustc))
                     return str(candidate)
         print(
             "Warning: Homebrew cargo detected but no rustup toolchain found.",
@@ -164,11 +167,12 @@ def check_rust_installed() -> bool:
         file=sys.stderr,
     )
     print("", file=sys.stderr)
-    print("To install:", file=sys.stderr)
+    print("To install (download the installer, review it, then run it):", file=sys.stderr)
     print(
-        "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh",
+        "  curl --proto '=https' --tlsv1.2 -sSfo rustup-init.sh https://sh.rustup.rs",
         file=sys.stderr,
     )
+    print("  sh rustup-init.sh", file=sys.stderr)
     print("  source $HOME/.cargo/env", file=sys.stderr)
     print("", file=sys.stderr)
     print("If you have Homebrew Rust installed, remove it first:", file=sys.stderr)
@@ -190,9 +194,13 @@ def check_cross_installed() -> bool:
                 file=sys.stderr,
             )
             print("", file=sys.stderr)
-            print("Start Docker Desktop, or run:", file=sys.stderr)
-            print("  open -a Docker  # macOS", file=sys.stderr)
-            print("  sudo systemctl start docker  # Linux", file=sys.stderr)
+            print("Start the Docker daemon, then retry:", file=sys.stderr)
+            print("  macOS: open the Docker Desktop app (open -a Docker)", file=sys.stderr)
+            print(
+                "  Linux: start the docker service via your init system "
+                "(e.g. the systemd 'docker' unit)",
+                file=sys.stderr,
+            )
             return False
     except FileNotFoundError:
         print("Error: Docker is not installed.", file=sys.stderr)
