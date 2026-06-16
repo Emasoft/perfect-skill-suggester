@@ -84,3 +84,6 @@ rck-*-merge-pending.md
 
 # Added by CPV standardize
 .coverage
+/.trashcan/*
+!/.trashcan/.gitkeep
+!/.trashcan/README.txt
