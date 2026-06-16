@@ -2,6 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.7.3] - 2026-06-16
+
+### Bug Fixes
+
+- **cpv:** Devitalize latest-CPV skillaudit findings in scripts + docs
+
+### Documentation
+
+- **cc-compat:** Adopt CC v2.1.147 → v2.1.178 — tested range 2.1.69 → 2.1.178
+
+### Miscellaneous Tasks
+
+- Set up .trashcan recovery dir (safe-delete of stale rust marker)
+- Advance rust submodule ref to CPV-fix commit
+
 ## [3.7.2] - 2026-05-19
 
 ### Documentation
