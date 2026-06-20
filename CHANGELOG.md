@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.7.6] - 2026-06-20
+
+### Documentation
+
+- **compat:** Record Claude Code support through 2.1.183
+
 ## [3.7.5] - 2026-06-20
 
 ### Miscellaneous Tasks
