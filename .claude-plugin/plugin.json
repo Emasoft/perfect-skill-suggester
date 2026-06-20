@@ -18,5 +18,8 @@
     "hooks",
     "performance",
     "ml"
-  ]
+  ],
+  "cpv": {
+    "pipeline_profile": "submodule-build"
+  }
 }
