@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.7.4] - 2026-06-20
+
+### Bug Fixes
+
+- **deps:** Remove unused anthropic SDK dependency
+
 ## [3.7.3] - 2026-06-16
 
 ### Bug Fixes
