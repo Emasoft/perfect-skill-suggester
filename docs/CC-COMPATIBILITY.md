@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.178**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.183**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -75,6 +75,22 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.183 (2026-06-19)
+- **Fix: WebSearch returning empty results inside subagents** — directly relevant: `pss-agent-profiler` declares `WebSearch` in its `tools:` allowlist (used to research a skill/agent's domain during profiling), so this fix restores correct research in profiling runs; PSS needs no change to benefit.
+- **Fix: `thinking.disabled.display: Extra inputs are not permitted` 400 errors on subagent spawns and session-title generation** — informational; this affected any subagent launch (including `pss-agent-profiler`) and is resolved entirely CC-side.
+- **Fix: user-level skills appearing multiple times in slash-command autocomplete when several plugins are enabled** — cosmetic but relevant: PSS's `/pss-*` commands no longer risk duplicate autocomplete entries on multi-plugin hosts; no PSS-side change.
+- Scheduled-task and webhook-trigger deliveries are now classified as task-notifications (not keyboard input) and can no longer approve a pending action or set the session title in auto mode — no PSS impact; PSS schedules no cron jobs (this concerns the separate ai-maestro-janitor heartbeat, not PSS).
+- **Fix: MCP servers requiring auth exposing auth-stub tools to the model in headless/SDK mode** — informational; `pss-agent-profiler` references two `llm-externalizer` MCP tools and already degrades gracefully (direct file reads) when that MCP is absent.
+
+### v2.1.181 (2026-06-17)
+- Foreground subagents now respect the same 5-level depth limit as background subagents — informational: `pss-agent-profiler` is a leaf subagent that spawns none, so the cap never binds.
+- **Fix: agent creation failing with `EEXIST: file already exists` when the agents directory already exists (Windows/OneDrive)** — beneficial for installing PSS (which ships `agents/pss-agent-profiler.md`) on Windows/OneDrive; no PSS-side change.
+- New `/config key=value` prompt syntax, MCP `! Connected · tools fetch failed` status, and `~/.claude/settings.json` relative-symlink ENOENT fixes — no PSS impact.
+
+### v2.1.179 (2026-06-16)
+- **Improved plugin loading performance in remote sessions** — beneficial: PSS (its `UserPromptSubmit` hook, skills, `pss-agent-profiler` agent, and slash commands) loads faster in remote sessions; no PSS-side change.
+- `Ctrl+O` not showing the subagent's transcript fix and assorted terminal/UI fixes — no PSS impact.
 
 ### v2.1.178 (2026-06-15)
 - New `Tool(param:value)` permission-rule syntax (with `*` wildcard) matches a tool's input parameters, e.g. `Agent(model:opus)` to block Opus subagents — relevant: a user can now write a permission rule targeting PSS's `pss-agent-profiler` by parameter (e.g. allow only `Agent(subagent_type:pss-agent-profiler)`); PSS ships no such rule itself.
