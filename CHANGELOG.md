@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.7.5] - 2026-06-20
+
+### Miscellaneous Tasks
+
+- **cpv:** Pin submodule-build pipeline profile in plugin.json
+
+### Performance
+
+- **assets:** Downsize logo header 3.66MB -> ~272KB
+
 ## [3.7.4] - 2026-06-20
 
 ### Bug Fixes
