@@ -1,6 +1,6 @@
 # Querying the PSS Index — Temporal Queries
 
-Focused guide to the 28 temporal subcommands. For the non-temporal verbs (search, list, find-by-*, etc.) see `quick-reference.md`.
+Focused guide to the 29 temporal subcommands. For the non-temporal verbs (search, list, find-by-*, etc.) see `quick-reference.md`.
 
 ## Table of Contents
 
@@ -15,6 +15,7 @@ Focused guide to the 28 temporal subcommands. For the non-temporal verbs (search
 - Plugin and marketplace queries
 - Operations and retention
 - Putting it together — common recipes
+- External time-travel consumers — known limitations
 
 ## The event-sourced data model
 
@@ -83,6 +84,12 @@ pss as-of 2w                       # snapshot from 2 weeks ago
 pss as-of 2026-04-01 --type skill  # restrict to skills
 pss as-of 2026-04-01 --scope user --scope-path /Users/me
 
+# Everything active in ONE FOLDER at a time (the union query) —
+# = local-scope rows for the folder slug + all user-scope rows
+#   + currently-enabled plugin/marketplace rows. Same row shape as `as-of`.
+pss active-in /Users/me/Code/my-project
+pss active-in /Users/me/Code/my-project --as-of 2026-04-01
+
 # One element at a point in time
 pss show skill:my-skill@user: --as-of 2026-04-01
 
@@ -92,6 +99,8 @@ pss tokens-at skill:my-skill@user: --as-of 2026-04-01  # cl100k approximation
 ```
 
 `--as-of` defaults to `now` on every command that accepts it — so `pss show X` is equivalent to `pss show X --as-of now`.
+
+`as-of` and `active-in` return the FULL set by default (no `--limit` truncation — P-7). Each of their rows also carries `first_seen` (the earliest install event's `observed_at`) and `first_seen_is_synthetic` (`true` = a v1→v2 migration placeholder, not a real install — treat as "at least this old"). To build `active-in`'s `<ABS_PATH>` → slug yourself, use `pss project-slug <ABS_PATH>` (the same `<basename>-<first8 sha256>` hash). Note that `active-in`'s plugin/marketplace members reflect CURRENT enablement, not per-folder enablement at a past `--as-of` (P-8 — see the limitations section).
 
 ## Walking the timeline of one element
 
@@ -161,7 +170,7 @@ pss compare-snapshots 2026-04-01 2026-05-01
 pss compare-snapshots 1mo now --type skill
 ```
 
-`compare-snapshots` is the cheap, set-only diff. Use it for audits like "what got installed vs removed last month?". Use `pss diff` when you want the per-element textual delta.
+`compare-snapshots` is the cheap, set-only diff. Use it for audits like "what got installed vs removed last month?". Use `pss diff` when you want the per-element textual delta — **but note `pss diff` is hash-only unless blob capture is enabled** (`element_blobs` is empty by default, so it reports a content-hash change, not the line-by-line text — P-5; see the limitations section).
 
 ## Set queries — missing, never-current, multi-scope
 
@@ -291,5 +300,17 @@ pss prune-history              # commit
 # Or shorten the retention window first:
 pss retention --set 6m
 ```
+
+## External time-travel consumers — known limitations
+
+These temporal commands are meant to back external "time-travel" consumers (a dashboard, an audit tool, a janitor lifecycle monitor). Four constraints to design around:
+
+- **History only accrues when reindex runs (P-3).** Lifecycle events are written ONLY by a reindex (`merge-events` populating `events`/`elements_state`). PSS does not reindex on every prompt — `_warm_index()` early-returns the moment the DB is non-empty, so after the initial seed the ONLY writers are a manual `/pss-reindex-skills` or the janitor **`pss-reindex-due` cron** detector. With a single scan, every element's history is one synthetic `installed` event and there is nothing to diff/trace. A recurring reindex (the janitor cron, or a periodic manual `pss reindex`) is therefore a **hard prerequisite** for any meaningful `as-of`/`active-in`/`diff`/`timeline` series.
+
+- **`pss diff` is hash-only unless blob capture is enabled (P-5).** A true textual delta needs both snapshots in the `element_blobs` table, but blob capture is OFF by default (storage cost), so `element_blobs` is normally empty and `diff` reports that the content hash changed — not what changed. Do not expect a unified diff unless blob capture has been explicitly enabled for the store you query.
+
+- **Never read `pss-skill-index.db` directly (P-10).** The store is guarded by an undocumented `fcntl` advisory-lock protocol (`LOCK_SH` for readers, `LOCK_EX` for the atomic-rename writer); the cozo-ce engine SIGABRTs on a read/write race instead of blocking. The native `pss` binary is the ONLY sanctioned reader — it speaks the lock protocol and survives concurrent reindexes. Shell out with an argument array, never a shell string: `execFile(BIN, ["active-in", absPath, "--format", "json"])` in Node, or `subprocess.run([BIN, "active-in", abs_path, "--format", "json"], shell=False)` in Python. Resolve the store path via `pss db-path` if you need it for backup, but read its CONTENTS only through the binary.
+
+- **Per-project plugin enablement at a past instant is not recorded (P-8).** `active-in`'s plugin/marketplace members reflect CURRENT/global enablement, not what was enabled in that folder at the requested `--as-of` instant — the index does not yet carry per-project plugin enablement history. The local-scope and user-scope portions of an `active-in` result ARE time-travelled; the plugin/marketplace portion is not. A focused follow-up issue tracks the per-project enablement-history schema work; until it lands, treat those rows as "currently enabled", not "enabled then".
 
 For non-temporal queries (`search`, `list`, `find-by-*`, plugin generation), see `quick-reference.md`. For the suggestion hot path itself, see the parent `SKILL.md`.

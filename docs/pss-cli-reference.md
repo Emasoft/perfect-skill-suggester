@@ -2,8 +2,8 @@
 
 The `pss` binary is a Rust CLI that backs every PSS feature: the hook hot path,
 agent profiling, temporal history queries, and ad-hoc index inspection. It
-exposes **61 subcommands** in six functional groups, plus three internal flags
-reserved for orchestration callers.
+exposes **64 subcommands** in six functional groups, plus three internal flags
+reserved for orchestration callers and one `--contract-version` probe flag.
 
 Most commands return JSON by default. Newer commands also accept `--format
 table` for human inspection; older lifecycle/find-by commands use a simpler
@@ -23,6 +23,9 @@ table` for human inspection; older lifecycle/find-by commands use a simpler
 | What changed since yesterday? | [`pss list-added-since`](#pss-list-added-since) |
 | What did the last reindex touch? | [`pss last-changes`](#pss-last-changes) |
 | Snapshot index state on a past date | [`pss as-of`](#pss-as-of) |
+| What's active in a project folder at a date | [`pss active-in`](#pss-active-in) |
+| Canonical resolved DB path | [`pss db-path`](#pss-db-path) |
+| Scope-path slug for a project folder | [`pss project-slug`](#pss-project-slug) |
 | Full event log for one element | [`pss timeline`](#pss-timeline) |
 | Diff one element over time | [`pss diff`](#pss-diff) |
 | Compare two scopes | [`pss scope-diff`](#pss-scope-diff) |
@@ -316,6 +319,52 @@ pss health --verbose
 
 ---
 
+### `pss db-path`
+
+Print the canonical resolved path to the CozoDB store (`pss-skill-index.db`),
+applying the same `$CLAUDE_PLUGIN_DATA` → `~/.claude/cache/` fallback the
+runtime uses. The binary is the single source of truth for this path — an
+external consumer asks `db-path` instead of re-deriving the fallback chain
+itself. Flag: `--format` (string, default text — `json` wraps it as
+`{"db_path":"..."}`).
+
+**Synopsis:** `pss db-path [--format json]`
+
+```bash
+pss db-path
+pss db-path --format json
+```
+
+**Output:** `/Users/.../pss-skill-index.db` (or `{"db_path":"/Users/.../pss-skill-index.db"}`).
+
+**When to use:** Locate the store for backup, inspection, or a health probe —
+without hard-coding the fallback logic. Do NOT open the file directly; see
+[External time-travel consumers — known limitations](#external-time-travel-consumers--known-limitations).
+
+---
+
+### `pss project-slug`
+
+Compute the project scope-path slug for an absolute folder path — byte-for-byte
+identical to the Python `_slugify_project_path` (`<basename>-<first8 sha256>`).
+This is the slug that appears as the `scope_path` of `local`-scope rows and as
+the `<scope_path_slug>` tail of a `project`/`local` element_id. Flag:
+`--format` (string, default text — `json` wraps it as `{"slug":"..."}`).
+
+**Synopsis:** `pss project-slug <ABS_PATH> [--format json]`
+
+```bash
+pss project-slug /Users/me/Code/my-project
+pss project-slug /Users/me/Code/my-project --format json
+```
+
+**Output:** `my-project-1a2b3c4d` (or `{"slug":"my-project-1a2b3c4d"}`).
+
+**When to use:** Build the `--scope-path` argument for `as-of`/`active-in`, or
+map a folder to its local-scope rows, without reimplementing the slug hash.
+
+---
+
 ## Find by Attribute
 
 7 commands that filter by a single attribute. All accept `--limit` (int,
@@ -498,7 +547,7 @@ element_ids; discover them via `pss show <name>` or `pss inspect <name>`.
 List every element installed and active at the given date. Flags:
 `--type` (string, all), `--scope` (string, all —
 `local`/`project`/`user`/`plugin`/`marketplace`), `--scope-path` (string,
-all), `--limit` (int, default 1000).
+all), `--limit` (int, **default unlimited** — pass `--limit N` to cap).
 
 **Synopsis:** `pss as-of [OPTIONS] <DATE>`
 
@@ -508,9 +557,57 @@ pss as-of yesterday --type skill
 pss as-of now --scope user --limit 200
 ```
 
-**Output:** `skill:react@user: first_seen=2026-01-10 exists=true` (per row).
+**Output:** per row, `skill:react@user: first_seen=2026-01-10 exists=true`.
+Each row also carries:
+
+- `first_seen` — the `observed_at` of the element's earliest install event.
+- `first_seen_is_synthetic` — `true` when that instant is the v1→v2 migration
+  placeholder (the element pre-existed the temporal index, so its "install"
+  was backfilled, not really observed) rather than a real install event. Treat
+  a synthetic `first_seen` as "at least this old", not as a true install date.
 
 **When to use:** Reconstruct exactly what was installed at a past date.
+
+> **Default changed (P-7):** `as-of` (and `active-in`) now return the FULL set
+> by default — they no longer truncate at 1000. Pass `--limit N` to cap.
+
+---
+
+### `pss active-in`
+
+List every component **active in a specific folder** at a point in time — the
+single call an external "what's available here right now / on date T" consumer
+should make. The result is the union of three membership sources:
+
+1. **local-scope** rows whose `scope_path` equals the folder's slug (see
+   [`pss project-slug`](#pss-project-slug)),
+2. **all user-scope** rows (user-scope elements are active in every folder),
+3. currently-enabled **plugin / marketplace** rows.
+
+Row shape is identical to [`pss as-of`](#pss-as-of) (same `element_id`,
+`first_seen`, `first_seen_is_synthetic`, `exists` fields). Flags: `--as-of`
+(date, default `now`), `--limit` (int, **default unlimited**), `--format`
+(string, default `json`).
+
+**Synopsis:** `pss active-in [OPTIONS] <ABS_PATH>`
+
+```bash
+pss active-in /Users/me/Code/my-project
+pss active-in /Users/me/Code/my-project --as-of 2026-03-14
+pss active-in /Users/me/Code/my-project --limit 200 --format table
+```
+
+**Output:** per-row `element_id first_seen=... exists=true` lines (JSON array
+with `--format json`), one row per active component.
+
+**When to use:** Answer "which skills/agents/commands are in effect for folder
+X at time T" in one call — instead of unioning `as-of --scope-path <slug>`,
+`as-of --scope user`, and the enabled plugin/marketplace sets by hand.
+
+> **Caveat (P-8):** the plugin/marketplace members reflect **current/global**
+> enablement — per-project plugin enablement at a PAST instant is not yet
+> recorded. See
+> [External time-travel consumers — known limitations](#external-time-travel-consumers--known-limitations).
 
 ---
 
@@ -574,7 +671,11 @@ pss diff skill:react@user: 2026-01-01 2026-04-01
 pss diff skill:react@user: yesterday now
 ```
 
-**Output:** Unified-diff-style block showing frontmatter and body changes.
+**Output:** Unified-diff-style block showing frontmatter and body changes —
+**but only when blob capture is enabled.** Blob capture is off by default
+(storage cost), so the `element_blobs` table is normally empty and `diff`
+reports a **content-hash change**, not a textual delta. See
+[External time-travel consumers — known limitations](#external-time-travel-consumers--known-limitations).
 
 **When to use:** Forensic before-vs-after analysis. Combine with
 `version-history` to find the right snapshot dates.
@@ -1069,6 +1170,79 @@ pss last-changes --limit 50
 
 ---
 
+## External time-travel consumers — known limitations
+
+The temporal commands above are designed for external "time-travel" consumers
+(dashboards, audit tooling, a janitor lifecycle monitor). Four constraints
+matter before you build on them:
+
+### History only accrues when reindex runs (P-3)
+
+Lifecycle history is written **only by a reindex** — `merge-events` emitting
+events into the `events`/`elements_state` tables. PSS does **not** reindex on
+every prompt: `_warm_index()` early-returns the moment the DB is non-empty, so
+after the initial seed the ONLY writers are a manual `/pss-reindex-skills` or
+the janitor **`pss-reindex-due` cron** detector.
+
+**Consequence:** with a single scan, every element's "history" is one synthetic
+`installed` event — there is nothing to diff or to trace. For real lifecycle
+history to accumulate (and for `as-of`/`active-in`/`diff`/`timeline` to return
+meaningful series), the janitor `pss-reindex-due` cron — or an equivalent
+periodic manual `pss reindex` — **must** be running on a cadence. Treat a
+recurring reindex as a hard prerequisite of any time-travel consumer.
+
+### `pss diff` is hash-only unless blob capture is enabled (P-5)
+
+`pss diff <EID> <D1> <D2>` produces a true textual delta **only when the
+`element_blobs` table holds the two snapshots**. Blob capture is **off by
+default** (the captured bodies are large and inflate the store), so
+`element_blobs` is normally empty and `diff` reports **that the content hash
+changed**, not what changed line-by-line. Do not expect a unified diff unless
+blob capture has been explicitly enabled for the store you are querying.
+
+### Never read `pss-skill-index.db` directly (P-10)
+
+External consumers MUST NOT open `pss-skill-index.db` (or its CozoDB sidecars)
+themselves. The store is guarded by an **undocumented `fcntl` advisory-lock
+protocol** (`LOCK_SH` for readers, `LOCK_EX` for the atomic-rename writer); the
+underlying cozo-ce engine **SIGABRTs on a read/write race** rather than
+blocking. The native `pss` binary is the **only sanctioned reader** — it speaks
+the lock protocol and survives concurrent reindexes.
+
+Shell out to the binary with an **argument array**, never a shell string
+(avoids quoting/injection):
+
+```js
+// Node — correct: argv array, no shell
+const { execFile } = require("node:child_process");
+execFile(BIN, ["active-in", absPath, "--format", "json"], (err, stdout) => { /* … */ });
+```
+
+```python
+# Python — correct: list args, shell=False
+import subprocess, json
+out = subprocess.run([BIN, "active-in", abs_path, "--format", "json"],
+                     capture_output=True, text=True, check=True)
+rows = json.loads(out.stdout)
+```
+
+Resolve `BIN` to the platform binary, and resolve the store path via
+[`pss db-path`](#pss-db-path) if you need it for backup/inspection — but read
+its CONTENTS only through the binary.
+
+### Per-project plugin enablement at a past instant is not recorded (P-8)
+
+[`pss active-in`](#pss-active-in)'s plugin/marketplace members reflect
+**current/global** enablement, not what was enabled in that specific folder at
+the requested `--as-of` instant. The temporal index does not yet carry
+per-project plugin enablement history, so the plugin/marketplace portion of an
+`active-in` result is *not* time-travelled even when `--as-of` is in the past
+(the local-scope and user-scope portions ARE). A focused follow-up issue tracks
+the per-project enablement-history schema work; until it lands, treat the
+plugin/marketplace rows as "currently enabled", not "enabled then".
+
+---
+
 ## Indexing & Maintenance
 
 7 commands that build, mutate, or clean the index.
@@ -1272,6 +1446,29 @@ Example: `pss --extract-prev-msg /path/to/transcript.jsonl`
 
 **When to use:** Internal — used by `scripts/pss_hook.py` to avoid Python
 I/O overhead on large transcripts. Critical to PSS's <30 ms hot-path budget.
+
+---
+
+### `--contract-version`
+
+Print the binary's machine-readable contract triple and exit. An external
+consumer probes this once at startup to confirm it understands the binary's
+on-the-wire shapes before issuing any other call. This is a top-level flag,
+not a subcommand — output is always JSON.
+
+**Synopsis:** `pss --contract-version`
+
+```bash
+pss --contract-version
+```
+
+**Output:** `{"cli_version":"3.8.0","schema_version":"2","contract_version":"1"}`
+where `cli_version` is the release version, `schema_version` is the CozoDB
+schema generation, and `contract_version` is the CLI input/output contract
+generation (bumped only on a breaking change to argument or JSON shapes).
+
+**When to use:** Version-gate an external integration — fail fast if
+`contract_version` differs from the one the consumer was written against.
 
 ---
 

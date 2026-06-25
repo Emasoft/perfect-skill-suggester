@@ -43,6 +43,10 @@ ROOT = Path(__file__).resolve().parent.parent
 # -- File paths relative to project root --
 VERSION_FILE = ROOT / "VERSION"
 CARGO_TOML = ROOT / "rust" / "skill-suggester" / "Cargo.toml"
+# The lockfile cargo actually maintains is the WORKSPACE root lock (rust/Cargo.lock),
+# NOT the stale orphan rust/skill-suggester/Cargo.lock. git_commit() stages this same
+# workspace lock inside the submodule, so #51's self-version sync must target it.
+CARGO_LOCK = ROOT / "rust" / "Cargo.lock"
 MAIN_RS = ROOT / "rust" / "skill-suggester" / "src" / "main.rs"
 PLUGIN_JSON = ROOT / ".claude-plugin" / "plugin.json"
 PYPROJECT_TOML = ROOT / "pyproject.toml"
@@ -477,6 +481,46 @@ def bump_file(
         success(f"  Updated {filepath.relative_to(ROOT)} ({label})")
 
 
+def bump_cargo_lock_self_version(new: str, dry_run: bool) -> None:
+    """Sync the rust crate's OWN version entry inside Cargo.lock to `new`.
+
+    bump_versions() updates Cargo.toml's [package].version, but the lockfile
+    carries a SECOND copy of the crate's version in its own [[package]] stanza.
+    On a release that changes a .rs file, `cargo build` regenerates the lock and
+    the two stay in sync. On a NO-.rs release the build is skipped, so the lock's
+    self-version is never refreshed and silently drifts — it had drifted to
+    2.4.10 while the crate shipped 3.7.x (issue #51).
+
+    We patch it directly here rather than shelling out to `cargo update`, so it
+    works even when cargo is never invoked (the no-build case that causes the
+    drift). The match is anchored on the crate NAME, not the old version, so it
+    self-heals any prior drift, and it runs on EVERY release so the lockfile can
+    never fall behind the crate version again.
+    """
+    if not CARGO_LOCK.exists():
+        warn(f"Cargo.lock not found at {CARGO_LOCK.relative_to(ROOT)}, skipping self-version sync.")
+        return
+    content = CARGO_LOCK.read_text(encoding="utf-8")
+    # The crate's own stanza is a `name = "perfect-skill-suggester"` line
+    # immediately followed by its `version = "..."` line. Anchor on the name so
+    # we replace regardless of (and thereby repair) the currently-recorded version.
+    pattern = r'(name = "perfect-skill-suggester"\nversion = ")[^"]*(")'
+    new_content, count = re.subn(pattern, rf"\g<1>{new}\2", content, count=1)
+    if count == 0:
+        fatal(
+            "No 'perfect-skill-suggester' [[package]] stanza found in "
+            f"{CARGO_LOCK.relative_to(ROOT)} — cannot sync its self-version (issue #51)."
+        )
+    if new_content == content:
+        info(f"  Cargo.lock self-version already {new}, no change.")
+        return
+    if dry_run:
+        info(f"  [DRY-RUN] Would sync Cargo.lock self-version -> {new}")
+    else:
+        CARGO_LOCK.write_text(new_content, encoding="utf-8")
+        success(f"  Synced Cargo.lock self-version -> {new}")
+
+
 def bump_versions(old: str, new: str, dry_run: bool) -> None:
     """Bump version string in all 4 source files (VERSION, Cargo.toml, plugin.json, pyproject.toml)."""
     info("Bumping versions...")
@@ -496,6 +540,10 @@ def bump_versions(old: str, new: str, dry_run: bool) -> None:
         dry_run,
         label="Cargo.toml [package].version",
     )
+    # Keep the lockfile's own crate-version entry in lockstep with Cargo.toml so
+    # it does not drift on no-.rs releases where the build (which would otherwise
+    # regenerate it) is skipped. See issue #51.
+    bump_cargo_lock_self_version(new, dry_run)
     bump_file(
         PLUGIN_JSON,
         rf'("version"\s*:\s*"){old_re}(")',

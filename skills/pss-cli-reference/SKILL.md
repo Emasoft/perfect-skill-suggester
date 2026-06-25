@@ -7,11 +7,11 @@ context: fork
 
 # PSS CLI Reference Skill
 
-**Loaded by `pss-agent-profiler`** and **Used by** any agent that routes a natural-language request to the PSS CLI surface (62 subcommands).
+**Loaded by `pss-agent-profiler`** and **Used by** any agent that routes a natural-language request to the PSS CLI surface (64 subcommands).
 
 ## Overview
 
-The PSS Rust binary (`bin/pss-<platform>-<arch>`) exposes 62 read-only subcommands across six categories: search/inspect, find-by-attribute, lifecycle filters, temporal queries, indexing/maintenance, plugin authoring. Defaults to JSON, `--format table` for human display. <10 ms against 8000+ entries. Store: CozoDB at `$CLAUDE_PLUGIN_DATA/pss-skill-index.db`.
+The PSS Rust binary (`bin/pss-<platform>-<arch>`) exposes 64 read-only subcommands across six categories: search/inspect, find-by-attribute, lifecycle filters, temporal queries, indexing/maintenance, plugin authoring. Defaults to JSON, `--format table` for human display. <10 ms against 8000+ entries. Store: CozoDB at `$CLAUDE_PLUGIN_DATA/pss-skill-index.db` — read it ONLY via this binary (it is `fcntl`-locked; a raw read races the reindex writer and SIGABRTs).
 
 ## Prerequisites
 
@@ -37,6 +37,10 @@ Shell recipes: [references/workflows.md](references/workflows.md).
 | "installed since \<when\>" | `pss list-added-since 1w`, `/pss-added-since 1w` |
 | "changed since \<when\>" | `pss list-updated-since 24h`, `pss last-changes`, `pss changes-summary` |
 | "snapshot at \<date\>" | `pss as-of <DATE>`, `pss show X --as-of <DATE>` |
+| "what's active in folder X at time T" | `pss active-in <ABS_PATH> --as-of <DATE>` |
+| "canonical db path" | `pss db-path` |
+| "project slug for folder X" | `pss project-slug <ABS_PATH>` |
+| "binary version / contract" | `pss --contract-version` |
 | "history of X" | `pss timeline X`, `pss version-history X`, `pss lifespan X` |
 | "diff between dates" | `pss diff X <D1> <D2>`, `pss compare-snapshots <D1> <D2>` |
 | "what disappeared" | `pss removed-since <DATE>`, `pss currently-missing-but-once-was` |
@@ -82,20 +86,20 @@ BIN="$CLAUDE_PLUGIN_ROOT/bin/pss-$(uname -s)-$(uname -m)"
   - Workflow 5 — Database / health / maintenance
 - [references/quick-reference.md](references/quick-reference.md) — one-line description per subcommand
   - Table of Contents
-  - Category 1: Search and inspect (12 commands)
+  - Category 1: Search and inspect (14 commands) — incl. `db-path`, `project-slug`
   - Category 2: Find by attribute (7 commands)
   - Category 3: Lifecycle filters (3 commands)
-  - Category 4: Temporal queries (28 commands)
+  - Category 4: Temporal queries (29 commands) — incl. `active-in`
   - Category 5: Indexing and maintenance (7 commands)
-  - Category 6: Internal flags (3 flags)
+  - Category 6: Internal flags (3 flags + `--contract-version`)
   - Common output flags
   - Discovering element IDs and scope IDs
-- [references/querying-the-index.md](references/querying-the-index.md) — 28 temporal subcommands deep-dive
+- [references/querying-the-index.md](references/querying-the-index.md) — 29 temporal subcommands deep-dive
   - Table of Contents
   - The event-sourced data model
   - Date and duration formats
   - Element ID grammar
-  - Reading point-in-time snapshots
+  - Reading point-in-time snapshots (incl. `active-in`, the per-folder union)
   - Walking the timeline of one element
   - Window queries across the whole index
   - Diffing snapshots
@@ -103,3 +107,4 @@ BIN="$CLAUDE_PLUGIN_ROOT/bin/pss-$(uname -s)-$(uname -m)"
   - Plugin and marketplace queries
   - Operations and retention
   - Putting it together — common recipes
+  - External time-travel consumers — known limitations

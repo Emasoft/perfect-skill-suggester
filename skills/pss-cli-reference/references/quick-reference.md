@@ -6,16 +6,16 @@ Invoke as: `"$CLAUDE_PLUGIN_ROOT/bin/pss-$(uname -s | tr '[:upper:]' '[:lower:]'
 
 ## Table of Contents
 
-- Category 1: Search and inspect (12 commands)
+- Category 1: Search and inspect (14 commands)
 - Category 2: Find by attribute (7 commands)
 - Category 3: Lifecycle filters (3 commands)
-- Category 4: Temporal queries (28 commands)
+- Category 4: Temporal queries (29 commands)
 - Category 5: Indexing and maintenance (7 commands)
-- Category 6: Internal flags (3 flags)
+- Category 6: Internal flags (3 flags + `--contract-version`)
 - Common output flags
 - Discovering element IDs and scope IDs
 
-## Category 1: Search and inspect (12 commands)
+## Category 1: Search and inspect (14 commands)
 
 General-purpose query verbs. They all read from the current snapshot (`elements_state` view) — no temporal cutoff.
 
@@ -33,6 +33,8 @@ General-purpose query verbs. They all read from the current snapshot (`elements_
 | `pss count` | Total entry count. Default = bare integer; `--json` = `{"count": N}`. Exits non-zero if DB missing/unreadable. |
 | `pss get <NAME>` | Fetch one entry by exact name. `--source` to disambiguate (user / plugin:... / marketplace:...). `--json` for raw row. |
 | `pss health` | Probe DB. Exit 0 = populated, 1 = empty/corrupt, 2 = missing. `--verbose` adds a one-line diagnostic. |
+| `pss db-path` | Print the canonical resolved DB path (`$CLAUDE_PLUGIN_DATA` → `~/.claude/cache/` fallback, same as the runtime). `--format json` = `{"db_path":"..."}`. Locate the store — but read its contents only via this binary. |
+| `pss project-slug <ABS_PATH>` | Compute a folder's scope-path slug (`<basename>-<first8 sha256>`, identical to Python `_slugify_project_path`). `--format json` = `{"slug":"..."}`. Use it to build `--scope-path` for `as-of`/`active-in`. |
 
 ## Category 2: Find by attribute (7 commands)
 
@@ -58,19 +60,22 @@ Simple "added since" / "added between" / "updated since" filters against `first_
 | `pss list-added-between <START> <END>` | Entries whose `first_indexed_at` falls within `[start, end]` (inclusive). |
 | `pss list-updated-since <WHEN>` | Entries whose `last_updated_at` >= `<WHEN>`. "What changed in the last reindex?" |
 
-## Category 4: Temporal queries (28 commands)
+## Category 4: Temporal queries (29 commands)
 
 Event-sourced history queries. Each row reads from the `events` table and/or the materialized `elements_state` view. Date formats are the same as Category 3 plus the tokens `now` / `yesterday`. See `querying-the-index.md` for the full schema and date grammar.
+
+> **History only accrues when reindex runs (P-3):** these series are meaningful only if a recurring reindex is running — the janitor `pss-reindex-due` cron, or a periodic manual `pss reindex`. With a single scan, every element's history is one synthetic `installed` event. And external consumers must read the store ONLY via this binary (it is `fcntl`-locked; a raw read races the writer and SIGABRTs). See `querying-the-index.md` → "External time-travel consumers — known limitations".
 
 ### Point-in-time snapshots
 
 | Command | One-line purpose |
 |---|---|
-| `pss as-of <DATE>` | List every element installed and active at the given date. Filters: `--type`, `--scope`, `--scope-path`. `--limit` (default 1000). |
+| `pss as-of <DATE>` | List every element installed and active at the given date. Filters: `--type`, `--scope`, `--scope-path`. `--limit` (**default unlimited**, P-7). Each row carries `first_seen` + `first_seen_is_synthetic` (true = v1→v2 migration placeholder, not a real install). |
+| `pss active-in <ABS_PATH>` | Every component active in a FOLDER at a time = union of (a) local-scope rows for the folder slug, (b) all user-scope rows, (c) enabled plugin/marketplace rows. Same row shape as `as-of`. `--as-of <DATE>` (default `now`), `--limit` (default unlimited). Plugin/marketplace members reflect CURRENT enablement (P-8). |
 | `pss show <ELEMENT_ID>` | Snapshot of one element. `--as-of <DATE>` (default `now`). |
 | `pss size-at <ELEMENT_ID>` | File size at a date. `--as-of <DATE>`. |
 | `pss tokens-at <ELEMENT_ID>` | Token count (cl100k approximation) at a date. `--as-of <DATE>`. |
-| `pss diff <ELEMENT_ID> <DATE1> <DATE2>` | Diff snapshots of one element between two dates. |
+| `pss diff <ELEMENT_ID> <DATE1> <DATE2>` | Diff snapshots of one element between two dates. **Hash-only unless blob capture is enabled** (`element_blobs` is empty by default → reports a content-hash change, not a textual delta) (P-5). |
 | `pss compare-snapshots <DATE1> <DATE2>` | Diff two whole-index snapshots — `only_at_date1`, `only_at_date2`, `common_count`. `--type` filter. |
 
 ### Walking one element's timeline
@@ -138,15 +143,16 @@ Write-side and operational subcommands. Most users hit these through `/pss-reind
 | `pss retention` | Get or set the retention window. `--set <DURATION>` accepts ISO 8601 (`P9M`, `P30D`) or shorthand (`9m`, `30d`, `1y`). |
 | `pss export` | Export a JSON snapshot of the CozoDB for `git diff` workflows. `--json` (only format supported), `--path` (default `$CLAUDE_PLUGIN_DATA/skill-index.export.json`). Runtime hook no longer reads JSON — this exists for power users. |
 
-## Category 6: Internal flags (3 flags)
+## Category 6: Internal flags (3 flags + `--contract-version`)
 
-These flags live on the top-level `pss` invocation rather than as subcommands. They drive the hook pipeline and indexing internals; user-facing usage is rare.
+These flags live on the top-level `pss` invocation rather than as subcommands. They drive the hook pipeline and indexing internals; user-facing usage is rare. `--contract-version` is the one exception meant for external callers.
 
 | Flag | One-line purpose |
 |---|---|
 | `--pass1-batch` | Pass 1 batch enrichment. Reads JSONL on stdin, enriches each line with deterministic keywords/category/intents/languages/frameworks, writes enriched JSONL on stdout. Replaces the legacy Sonnet enrichment for 10K-scale indexing. |
 | `--index-file <PATH>` | Index a single element file. Reads `.md`, parses frontmatter + body, runs Pass 1 enrichment, prints enriched JSON on stdout. Used to add one element without a full reindex. |
 | `--extract-prev-msg <PATH>` | Extract the previous user message from a JSONL transcript file. Uses mmap + backward scan (zero-copy, constant memory, ~3 ms on 500 MB transcripts). Outputs the 2nd most recent user message text; empty string if not found. Used by the Python hook. |
+| `--contract-version` | Print the binary's machine-readable contract triple and exit: `{"cli_version":...,"schema_version":"2","contract_version":"1"}`. Always JSON. An external integration probes this once to version-gate its assumptions about the CLI's argument/JSON shapes (`contract_version` bumps only on a breaking shape change). |
 
 Other top-level flags (`--incomplete-mode`, `--top`, `--min-score`, `--format`, `--load-pss`, `--index`, `--registry`, `--agent`) configure the suggestion hot path that the `UserPromptSubmit` hook drives. They are documented inline in `pss --help` and rarely invoked manually.
 
@@ -158,7 +164,7 @@ Most query subcommands accept some combination of these:
 |---|---|
 | `--json` | Boolean flag: emit JSON instead of human-readable output. (Legacy form; being replaced by `--format` in v3.7.) |
 | `--format json\|table` | Newer form: pick the output format explicitly. Default is `json` for most subcommands, `table` for `list`/`stats` and a few others. |
-| `--limit N` / `--top N` | Cap rows returned. Defaults vary: 20 (`search`), 50 (most lists), 200 (timelines), 500 (window queries), 1000 (`as-of`), 5000 (`compare-snapshots`). |
+| `--limit N` / `--top N` | Cap rows returned. Defaults vary: 20 (`search`), 50 (most lists), 200 (timelines), 500 (window queries), 5000 (`compare-snapshots`). Snapshot verbs `as-of` / `active-in` default to **unlimited** (P-7). |
 | `--type T` | Restrict to one element type: `skill`, `agent`, `command`, `rule`, `mcp`, `lsp`, `hook`, `plugin`, `channel`, `monitor`, `output-style`, `theme`, `marketplace`. |
 | `--scope S` | Restrict to one scope: `user`, `project`, `local`, `plugin`, `marketplace`. |
 
