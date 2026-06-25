@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.183**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.191**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -76,6 +76,27 @@ for the full design record.
 
 ## Version-by-version compatibility matrix
 
+### v2.1.191 (2026-06-24)
+- **Fix: hooks with comma-separated matchers (e.g. `"Bash,PowerShell"`) silently never firing** — PSS is immune: its only matcher is `SessionStart: startup|resume` (regex alternation via a pipe `|`, which always fired); PSS declares no comma-separated matchers (verified in `hooks/hooks.json`).
+- **MCP capability discovery (`tools/list` / `prompts/list` / `resources/list`) and OAuth now retry transient network errors, and HTTP 404 names the URL + points to the MCP config** — beneficial: `pss-agent-profiler`'s two `llm-externalizer` MCP tools connect more reliably; PSS already degrades to direct file reads when that MCP is absent, so no PSS change.
+- Streaming CPU −37%, long-session memory reduction, `/rewind` after `/clear`, and permanent background-agent stop — no PSS impact.
+
+### v2.1.187 (2026-06-23)
+- **Fix: remote MCP tool calls that hang for 5 minutes now abort with an error (override `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`)** — beneficial for the profiler's `llm-externalizer` MCP calls; no PSS change.
+- **`Agent(type)` deny rules and `Agent(x,y)` allowed-types now enforced for named subagent spawns** — relevant: a host can now gate `pss-agent-profiler` by type/param; PSS ships no such rule and the profiler is a leaf agent.
+- **Fix: `--json-schema` / Workflow `agent({schema})` structured output no longer lets the model re-call `StructuredOutput` indefinitely** — N/A to PSS (ships no Workflow scripts; the profiler uses plain tool calls, not StructuredOutput).
+- `sandbox.credentials`, org-configured model restrictions on the picker / `--model` / `/model` / `ANTHROPIC_MODEL`, and optional `/install-github-app` workflow setup — no PSS impact (PSS pins no model; the profiler inherits the session model).
+
+### v2.1.186 (2026-06-22)
+- **Skill frontmatter `display-name` / `default-enabled` / `fallback` / `metadata.*` keys now accept kebab-case, snake_case, and camelCase** — PSS is immune: discovery reads only the standard lowercase `name`, `description`, and `metadata` keys (`pss_discover.py`), none of the case-flexible ones (verified).
+- **Malformed `SKILL.md` YAML frontmatter now loads the body with empty metadata instead of failing silently** — PSS already matches this behavior: `parse_frontmatter` catches `yaml.YAMLError`, warns on stderr, and returns `{}` (the V-8 audit fix), so a broken-frontmatter skill indexes body-only instead of aborting discovery (verified). Such skills now load in CC, and PSS handles them the same way.
+- **`!` bash output now auto-prompts a model response (set `respondToBashCommands: false` to opt out)** — no PSS behavior change: PSS's three hooks issue no `!` bash commands; the new default concerns interactive user `!` usage only.
+- A "Skills" section in `/plugin`'s Installed tab; `/plugin` surfacing stale plugins; `CLAUDE_CODE_MAX_RETRIES` capped at 15; `/review <pr>` reusing the `/code-review medium` engine; named-subagent permission prompts now surfacing in the main session — informational; PSS contributes 6 skills + 1 agent to these surfaces.
+
+### v2.1.185 (2026-06-20) — stream-stall hint wording/timing only; no plugin surface. No PSS impact.
+
+### v2.1.184 / v2.1.188 / v2.1.189 / v2.1.190 — bug-fix / reliability-only releases with no plugin-ecosystem surface. No PSS impact.
+
 ### v2.1.183 (2026-06-19)
 - **Fix: WebSearch returning empty results inside subagents** — directly relevant: `pss-agent-profiler` declares `WebSearch` in its `tools:` allowlist (used to research a skill/agent's domain during profiling), so this fix restores correct research in profiling runs; PSS needs no change to benefit.
 - **Fix: `thinking.disabled.display: Extra inputs are not permitted` 400 errors on subagent spawns and session-title generation** — informational; this affected any subagent launch (including `pss-agent-profiler`) and is resolved entirely CC-side.
@@ -94,7 +115,7 @@ for the full design record.
 
 ### v2.1.178 (2026-06-15)
 - New `Tool(param:value)` permission-rule syntax (with `*` wildcard) matches a tool's input parameters, e.g. `Agent(model:opus)` to block Opus subagents — relevant: a user can now write a permission rule targeting PSS's `pss-agent-profiler` by parameter (e.g. allow only `Agent(subagent_type:pss-agent-profiler)`); PSS ships no such rule itself.
-- Skills in nested `.claude/skills` directories now load when working on files there; on a name clash the nested skill is exposed as `<dir>:<name>` so both stay available — relevant: PSS's discovery (`pss_discover.py`) already scans nested `.claude/skills`; the new directory-qualified element IDs are a superset of what PSS indexes, and a `/pss-reindex-skills` picks up any newly-loadable nested skills.
+- Skills in nested `.claude/skills` directories now load when working on files there; on a name clash the nested skill is exposed as `<dir>:<name>` so both stay available — **PSS currently indexes the project-ROOT `.claude/skills` only** (`pss_discover.py` scans `cwd/.claude`), NOT per-subtree nested `.claude/skills`. This is a deliberate product decision, not an oversight: PSS's flat global index feeds a per-prompt suggester that has no working-file context, so globally indexing subtree-scoped skills would surface them on prompts *outside* their intended subtree and erode suggestion precision (PSS's core value). Context-aware nested-skill discovery (scoping a nested skill to prompts whose cwd is under its subtree) is a tracked future enhancement. *(Corrected 2026-06-25: a prior revision of this entry wrongly asserted PSS "already scans nested `.claude/skills`" — verified false against `pss_discover.py`, which scans only the root project `.claude`.)*
 - Nested `.claude/` directories: the agent/workflow/output-style closest to the working directory now wins on a name collision — informational; aligns with PSS's most-specific-scope-wins discovery model.
 - **Fix: MCP server-level specs (`mcp__server`, `mcp__server__*`, `mcp__*`) in a subagent's `disallowedTools` being silently ignored** — PSS's `pss-agent-profiler` uses an **allowlist** `tools:` (Bash/Read/Write/Edit/Glob/Grep/WebSearch/WebFetch + two `llm-externalizer` MCP tools), not `disallowedTools`, so the bug never applied to PSS.
 - **Fix: nested `.claude/skills` skills with directory-qualified names blocked by permission prompts in non-interactive runs** — relevant to any project-scoped skill PSS indexes; no PSS-side change.

@@ -31,9 +31,13 @@ per-project is **MCP-server** enablement (`enabledMcpjsonServers` /
 past T" (P-8 as literally worded) has **no observable data source** for plugins.
 This is the central open question below — it must be resolved before building P-8.
 
-**NEXT ACTION:** get user decisions on the **Open design questions** (Q1–Q4),
-then implement the approved subset (likely P-9 MCP first — it's unblocked — and a
-reframed P-8 keyed to whatever per-project signal is real).
+**NEXT ACTION — APPROVED 2026-06-25 (path: "P-9 now; P-8 = MCP+flag"):** build &
+ship the P-9 MCP server first (v3.9.0); then reframe P-8 to record per-project
+**MCP-server** enablement history (schema S1 — reuse `scope_path` + an
+Enabled/Disabled event_type) and report **plugin** enablement as GLOBAL with an
+explicit `enablement_is_global_fallback` flag. Defaults taken: Q2=S1, Q3=Python
+stdio wrapper, Q4=P-9 first. **PAUSED** — user redirected to the CC changelog
+v2.1.170→191 compatibility sweep first; resume the P-9 build after that lands.
 
 ## Grounded current state (verified in code this session)
 
