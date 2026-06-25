@@ -2,6 +2,14 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.8.2] - 2026-06-25
+
+### Documentation
+
+- **trdd:** Record v3.8.1 ship + the submodule build-skip lesson ([#10](https://github.com/Emasoft/perfect-skill-suggester/issues/10))
+- **trdd:** Design doc for #12 — per-project enablement (P-8) + MCP (P-9)
+- **compat:** Record Claude Code support through 2.1.191; fix false nested-skills claim
+
 ## [3.8.1] - 2026-06-25
 
 ### Bug Fixes
