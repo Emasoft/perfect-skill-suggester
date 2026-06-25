@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.8.3] - 2026-06-25
+
+### Miscellaneous Tasks
+
+- **rust:** Bump submodule to the cli_version contract fix (1624e56)
+
 ## [3.8.2] - 2026-06-25
 
 ### Documentation
