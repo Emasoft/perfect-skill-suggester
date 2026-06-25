@@ -1241,6 +1241,16 @@ per-project plugin enablement history, so the plugin/marketplace portion of an
 the per-project enablement-history schema work; until it lands, treat the
 plugin/marketplace rows as "currently enabled", not "enabled then".
 
+### Opt-in MCP server wraps these read verbs (P-9)
+
+An optional **stdio MCP server** (`scripts/pss_mcp_server.py`) packages the
+read-only verbs above — `active-in`, `as-of`, `timeline`, `db-path`,
+`project-slug`, and the `--contract-version` handle — as MCP tools, each
+shelling out to this same binary (one source of truth; the hot path is
+untouched; consumers still never read the `.db` directly). It is **opt-in** —
+register it in your `.mcp.json`, it is not loaded by the plugin's live hooks.
+See **[PSS MCP Server](./PSS-MCP-SERVER.md)**.
+
 ---
 
 ## Indexing & Maintenance

@@ -548,45 +548,19 @@ def should_skip_prompt(prompt: str) -> bool:
 
 
 def detect_platform() -> str:
-    """Detect platform and architecture, return binary name."""
-    system = platform.system().lower()
-    machine = platform.machine().lower()
+    """Detect platform and architecture, return binary name.
 
-    # Normalize architecture names
-    if machine in ("aarch64",):
-        machine = "arm64"
-    elif machine in ("amd64",):
-        machine = "x86_64"
+    Delegates to ``pss_paths.detect_platform()`` — the single Python source of
+    truth for the platform→binary mapping (also mirrored by the hot-path shell
+    dispatch ``bin/pss-hook-dispatch.sh``). Kept as a thin wrapper so this
+    module's ``find_binary()`` and the existing tests keep their call site,
+    while the mapping itself lives in exactly one place. The local import
+    matches the existing ``from pss_paths import ...`` idiom used elsewhere in
+    this PEP 723 script (pss_paths is stdlib-only and sits beside this file).
+    """
+    from pss_paths import detect_platform as _detect_platform
 
-    # Detect Android (reports as linux arm64 but uses separate binary)
-    if system == "linux" and machine == "arm64":
-        android_markers = (
-            os.environ.get("ANDROID_ROOT"),
-            os.environ.get("TERMUX_VERSION"),
-        )
-        if any(android_markers):
-            # Android/Termux uses the linux-arm64 binary
-            return "pss-linux-arm64"
-
-    # Map to binary names
-    if system == "darwin":
-        if machine == "arm64":
-            return "pss-darwin-arm64"
-        if machine == "x86_64":
-            return "pss-darwin-x86_64"
-    elif system == "linux":
-        if machine == "arm64":
-            return "pss-linux-arm64"
-        if machine == "x86_64":
-            return "pss-linux-x86_64"
-    elif system == "windows":
-        # ARM64 Windows runs x86_64 via emulation
-        return "pss-windows-x86_64.exe"
-
-    # Unsupported platform
-    raise RuntimeError(
-        f"Unsupported platform: {system} {machine}. Supported: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64, windows-x86_64. Build from source for other platforms."
-    )
+    return _detect_platform()
 
 
 def find_binary() -> Path:

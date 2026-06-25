@@ -3,7 +3,7 @@ trdd-id: LIFE12FU
 title: v3.9 design — per-project enablement history (P-8) + MCP surface (P-9), issue #12
 column: design
 created: 2026-06-25T19:18:33+0200
-updated: 2026-06-25T19:18:33+0200
+updated: 2026-06-25T20:53:33+0200
 current-owner: pss-main-session
 task-type: feature
 release-via: publish
@@ -36,8 +36,13 @@ ship the P-9 MCP server first (v3.9.0); then reframe P-8 to record per-project
 **MCP-server** enablement history (schema S1 — reuse `scope_path` + an
 Enabled/Disabled event_type) and report **plugin** enablement as GLOBAL with an
 explicit `enablement_is_global_fallback` flag. Defaults taken: Q2=S1, Q3=Python
-stdio wrapper, Q4=P-9 first. **PAUSED** — user redirected to the CC changelog
-v2.1.170→191 compatibility sweep first; resume the P-9 build after that lands.
+stdio wrapper, Q4=P-9 first. **The changelog detour LANDED** (v3.8.2 compat +
+v3.8.3 cli_version fix, both shipped+verified). **P-9 build IN PROGRESS** —
+delegated to a kraken (TDD) agent: `scripts/pss_mcp_server.py` (FastMCP stdio,
+6 read-verb tools shelling to the binary), `tests/unit/test_pss_mcp_server.py`
+(real binary, no mocks), `docs/PSS-MCP-SERVER.md` (opt-in `.mcp.json`). Files left
+uncommitted for orchestrator review; the **release (v3.9.0) is held for the user's
+explicit nod** (new public MCP surface = the one irreversible step).
 
 ## Grounded current state (verified in code this session)
 

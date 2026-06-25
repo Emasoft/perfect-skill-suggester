@@ -13,6 +13,7 @@ Priority order for data storage:
 """
 
 import os
+import platform
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -85,6 +86,84 @@ def get_db_lock_path() -> Path:
     TRDD note in CLAUDE.md for the original incident.
     """
     return get_data_dir() / "pss-skill-index.db.lock"
+
+
+# ---------------------------------------------------------------------------
+# Native-binary resolution — the single Python source of truth for the
+# platform→binary mapping and the bin/ lookup. Mirrors the POSIX-sh logic in
+# bin/pss-hook-dispatch.sh (the hot UserPromptSubmit path); pss_hook.py and
+# pss_mcp_server.py both delegate here so the mapping lives in exactly one
+# place instead of being copy-pasted a third time.
+# ---------------------------------------------------------------------------
+
+
+def detect_platform() -> str:
+    """Return the PSS native-binary filename for the current platform/arch.
+
+    e.g. ``pss-darwin-arm64``, ``pss-linux-x86_64``, ``pss-windows-x86_64.exe``.
+    Raises RuntimeError on an unsupported platform (fail-fast — no silent
+    fallback to a wrong-arch binary).
+    """
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    # Normalize architecture aliases.
+    if machine in ("aarch64",):
+        machine = "arm64"
+    elif machine in ("amd64",):
+        machine = "x86_64"
+
+    # Android/Termux reports as linux arm64 but ships the linux-arm64 binary.
+    if system == "linux" and machine == "arm64":
+        if os.environ.get("ANDROID_ROOT") or os.environ.get("TERMUX_VERSION"):
+            return "pss-linux-arm64"
+
+    if system == "darwin":
+        if machine == "arm64":
+            return "pss-darwin-arm64"
+        if machine == "x86_64":
+            return "pss-darwin-x86_64"
+    elif system == "linux":
+        if machine == "arm64":
+            return "pss-linux-arm64"
+        if machine == "x86_64":
+            return "pss-linux-x86_64"
+    elif system == "windows":
+        # ARM64 Windows runs the x86_64 binary via emulation.
+        return "pss-windows-x86_64.exe"
+
+    raise RuntimeError(
+        f"Unsupported platform: {system} {machine}. Supported: darwin-arm64, "
+        "darwin-x86_64, linux-arm64, linux-x86_64, windows-x86_64. Build from "
+        "source for other platforms."
+    )
+
+
+def resolve_pss_binary() -> Path:
+    """Resolve the absolute path to the PSS native binary, fail-fast if absent.
+
+    Resolution mirrors ``bin/pss-hook-dispatch.sh``:
+      1. ``$CLAUDE_PLUGIN_ROOT/bin/<name>`` — Claude Code sets CLAUDE_PLUGIN_ROOT
+         to the plugin install dir; this is the production location.
+      2. else ``<repo>/bin/<name>`` — this file is ``scripts/pss_paths.py`` so
+         the repo's ``bin/`` is the parent's sibling. Covers local dev / tests.
+
+    Raises FileNotFoundError when the resolved binary does not exist, so callers
+    surface a clear error instead of shelling out to a missing executable.
+    """
+    binary_name = detect_platform()
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip()
+    if plugin_root and Path(plugin_root).is_absolute():
+        bin_dir = Path(plugin_root) / "bin"
+    else:
+        bin_dir = Path(__file__).resolve().parent.parent / "bin"
+    binary_path = bin_dir / binary_name
+    if not binary_path.exists():
+        raise FileNotFoundError(
+            f"PSS binary not found at: {binary_path}. Build it with: "
+            f"uv run python {Path(__file__).resolve().parent / 'pss_build.py'}"
+        )
+    return binary_path
 
 
 # ---------------------------------------------------------------------------
