@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.8.0] - 2026-06-25
+
+### Features
+
+- **lifeline:** Document v3.8 temporal verbs + fix Cargo.lock drift (issues #10, #51)
+
 ## [3.7.6] - 2026-06-20
 
 ### Documentation
