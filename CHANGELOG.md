@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.8.1] - 2026-06-25
+
+### Bug Fixes
+
+- **publish:** Detect rust .rs changes inside the submodule (v3.8.0 shipped stale binaries)
+
 ## [3.8.0] - 2026-06-25
 
 ### Features
