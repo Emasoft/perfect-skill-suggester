@@ -3,7 +3,7 @@ trdd-id: LIFEV38X
 title: v3.8 — Lifeline engine for external time-travel consumers (issue #10)
 column: complete
 created: 2026-06-25T07:36:06+0200
-updated: 2026-06-25T07:36:06+0200
+updated: 2026-06-25T08:10:59+0200
 current-owner: pss-main-session
 task-type: feature
 release-via: publish
@@ -26,8 +26,10 @@ This TRDD tracks the v3.8.0 resolution. Task #43 ("v3.8 roadmap umbrella") is th
 backlog entry this fulfills; #43's old label (schema-v3 / DBE / DI-1 waves) was a
 broader speculative roadmap — the ACTUAL actionable work is issue #10.
 
-**Current state — IMPLEMENTED + TESTED (185 Rust tests pass, release build clean,
-verified on the real 59 MB DB), shipping as v3.8.0:**
+**Current state — SHIPPED as v3.8.1 + VERIFIED (185 Rust tests pass; the rebuilt
+binaries answer `--contract-version`/`active-in`/`db-path`/`project-slug`; #10
+closed; #12 filed for the deferred P-8/P-9-MCP). v3.8.0 was a broken interim tag
+(stale binaries — see lesson [^2]); v3.8.1 is the correct release. Per-P:**
 
 | P | Disposition in v3.8.0 |
 |---|---|
@@ -48,8 +50,9 @@ own version inside the WORKSPACE lock `rust/Cargo.lock` (NOT the orphan
 it self-heals prior drift (HEAD lock was stuck at 3.7.3 because 3.7.6 was a no-.rs
 release). Verified the regex matches the real workspace lock (count=1, 1 stanza).
 
-**NEXT ACTION:** ship v3.8.0 via `publish.py --bump minor` (after feature commits),
-then file the P-8 + P-9-MCP follow-up issue(s) and comment on / close #10.
+**NEXT ACTION:** none — DONE. v3.8.1 shipped + verified; publish.py submodule
+build-skip + Cargo.lock-sync (#51) fixes shipped; #10 closed; #12 filed; tasks
+#43/#51 completed. Future work (if wanted): #12 (P-8 schema + P-9 MCP).
 
 **SUPERSEDED — do NOT carry forward:**
 - ✗ "#43 = CozoDB schema-v3 migration / DBE 48→12MB compaction / DI-1 waves" — that
@@ -91,3 +94,17 @@ Both are genuinely going-forward / larger-surface than a feature add:
   workspace the authoritative lockfile is at the workspace root, not beside the
   crate manifest; verify which file the build/commit actually touches before
   patching it.
+[^2]: [ocd:2026-06-25 lmd:2026-06-25] v3.8.0 shipped with STALE binaries: the
+  lifeline-verb build was silently skipped. Root cause — `publish.py`'s
+  `rust_source_changed()`/`nlp_source_changed()` ran `git diff <tag> HEAD --
+  rust/.../src` in the PARENT repo, but the `.rs` sources live in the `rust/`
+  SUBMODULE, which the parent tracks only as a gitlink (a single commit SHA). The
+  diff therefore never saw file-level changes and always reported "no Rust source
+  changes" → build skipped → bin/ never recompiled. Detected by VERIFYING the
+  shipped binary (`./bin/pss-darwin-arm64 --contract-version` was rejected), not
+  by trusting the release's "complete" signal. Fix: diff INSIDE the submodule
+  between `git rev-parse <tag>:rust` and the submodule HEAD; v3.8.1 with
+  `--force-build` shipped the correct binaries. Lesson: in a submodule
+  architecture, EVERY parent-repo `git diff -- <submodule>/...` is blind to file
+  changes — diff inside the submodule. And always verify the actual artifact
+  (run the shipped binary), never the wrapper exit code or the "done" notification.
