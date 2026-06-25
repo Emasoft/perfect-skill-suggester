@@ -666,6 +666,42 @@ def create_github_release(new: str, dry_run: bool) -> None:
         Path(notes_path).unlink(missing_ok=True)
 
 
+def _submodule_src_changed(last_tag: str, rel_path: str) -> bool | None:
+    """Did files under rel_path (relative to the rust/ submodule root) change in
+    the SUBMODULE between the commit the parent recorded at last_tag and the
+    submodule's current HEAD? Returns None when rust/ is NOT a submodule (caller
+    then falls back to a plain parent-repo diff).
+
+    WHY this exists: the .rs sources live INSIDE the rust/ submodule, which the
+    parent repo tracks only as a gitlink (a single commit SHA). A parent-repo
+    `git diff <tag> HEAD -- rust/skill-suggester/src` therefore NEVER sees the
+    file-level changes — it only ever sees the gitlink flip — so it always
+    reported "no Rust source changes" and the binary build was skipped. That bug
+    shipped v3.8.0 with STALE binaries (the lifeline-verb build was wrongly
+    skipped). The correct check diffs the .rs files INSIDE the submodule between
+    the two gitlink SHAs.
+    """
+    rust_submodule = ROOT / "rust"
+    if not (rust_submodule / ".git").exists():
+        return None
+    old = run(["git", "rev-parse", f"{last_tag}:rust"])
+    if old.returncode != 0:
+        # The submodule gitlink can't be resolved at last_tag (e.g. submodule was
+        # added after that tag) — be safe and treat source as changed.
+        return True
+    old_sha = old.stdout.strip()
+    new = run(["git", "-C", str(rust_submodule), "rev-parse", "HEAD"])
+    new_sha = new.stdout.strip() if new.returncode == 0 else ""
+    if not new_sha:
+        return True
+    if old_sha == new_sha:
+        return False
+    diff = run(
+        ["git", "-C", str(rust_submodule), "diff", "--name-only", old_sha, new_sha, "--", rel_path],
+    )
+    return bool(diff.stdout.strip())
+
+
 def rust_source_changed() -> bool:
     """Check if any .rs files in the main skill-suggester crate changed since the last tag."""
     result = run(["git", "describe", "--tags", "--abbrev=0"])
@@ -673,7 +709,12 @@ def rust_source_changed() -> bool:
     if not last_tag:
         # No tags exist yet — assume source changed
         return True
-    # Only check .rs files — Cargo.toml version changes don't trigger recompilation
+    # .rs lives in the rust/ submodule — diff INSIDE it (a parent-repo diff only
+    # sees the gitlink, never the files; that gap shipped v3.8.0 stale binaries).
+    sub = _submodule_src_changed(last_tag, "skill-suggester/src")
+    if sub is not None:
+        return sub
+    # Fallback: rust/ is a plain directory (not a submodule) — diff the parent.
     diff_result = run(
         ["git", "diff", "--name-only", last_tag, "HEAD", "--", str(RUST_SRC_DIR)],
     )
@@ -691,6 +732,12 @@ def nlp_source_changed() -> bool:
     last_tag = result.stdout.strip() if result.returncode == 0 else ""
     if not last_tag:
         return True
+    # negation-detector/ also lives inside the rust/ submodule — diff inside it
+    # for the same reason as rust_source_changed (parent-repo diff sees only the
+    # gitlink, never the files).
+    sub = _submodule_src_changed(last_tag, "negation-detector/src")
+    if sub is not None:
+        return sub
     diff_result = run(
         ["git", "diff", "--name-only", last_tag, "HEAD", "--", str(NLP_SRC_DIR)],
     )
