@@ -50,6 +50,12 @@ def _run_pss_json(args: list[str]) -> Any:
         [str(binary), *args],
         capture_output=True,
         text=True,
+        # Pin UTF-8 explicitly: the pss binary emits UTF-8 JSON, but text=True
+        # otherwise decodes with the locale codec — on Windows (a supported
+        # build target, default cp1252) a non-ASCII element name (CJK, accented,
+        # em-dash) would raise UnicodeDecodeError or silently mojibake. Keep
+        # fail-fast (no errors="replace") so genuinely invalid bytes still surface.
+        encoding="utf-8",
         timeout=_TIMEOUT_SECONDS,
         check=False,
     )
