@@ -3,7 +3,7 @@ trdd-id: LIFE12FU
 title: v3.9 design — per-project enablement history (P-8) + MCP surface (P-9), issue #12
 column: design
 created: 2026-06-25T19:18:33+0200
-updated: 2026-06-25T20:53:33+0200
+updated: 2026-07-02T17:59:47+0200
 current-owner: pss-main-session
 task-type: feature
 release-via: publish
@@ -43,6 +43,14 @@ delegated to a kraken (TDD) agent: `scripts/pss_mcp_server.py` (FastMCP stdio,
 (real binary, no mocks), `docs/PSS-MCP-SERVER.md` (opt-in `.mcp.json`). Files left
 uncommitted for orchestrator review; the **release (v3.9.0) is held for the user's
 explicit nod** (new public MCP surface = the one irreversible step).
+
+**UPDATE 2026-07-02 (resume):** P-9 is now COMMITTED locally + reviewed —
+`64acde1` (server) + `26c3937` (UTF-8 `_run_pss_json` fix from a `/code-review
+xhigh`); 14/14 real-binary tests pass, ruff clean; **still unpushed / v3.9.0 still
+held for an explicit "ship".** P-8 DESIGN is now FIRMED to implementation-ready
+(section "P-8 — FIRMED design" below): Q1→P-8a+P-8b, Q2→S1, Q3→Python(done),
+Q4→P-9-first(done). P-8 IMPLEMENTATION stays gated on (a) P-9 shipped and (b)
+consumer confirms Q1/P-8c — do NOT start coding P-8 before both.
 
 ## Grounded current state (verified in code this session)
 
@@ -142,6 +150,56 @@ ONE source of truth and zero hot-path change. Tool schemas are versioned against
   existing rows untouched; tested.
 - [ ] Honest docs: `active-in --help` + cli-reference state exactly what is
   per-project (MCP) vs global (plugins).
+
+## P-8 — FIRMED design (implementation-ready) — 2026-07-02
+
+Decisions (supersede the Q1-Q4 recommendations above): **Q1 = P-8a + P-8b**
+(record per-project MCP-server enablement history + report plugin enablement as
+GLOBAL with an honest flag; **P-8c** = confirm with the AI-Maestro consumer that
+this meets the "active in folder X at T" need — a NON-blocking follow-up, not a
+design gate). **Q2 = S1** (reuse `scope_path` + a distinct `event_type`). **Q3 =
+Python** (already realized by P-9). **Q4 = P-9 first** (done).
+
+**Implementation spec (do NOT code until P-9 ships + P-8c confirmed):**
+
+1. **Read per-project MCP enablement** — `scripts/pss_discover.py`. Add
+   `_load_project_mcp_enablement() -> dict[str, dict[str, bool]]` beside the
+   existing `_load_inactive_plugin_ids()` (L204) and `_extract_servers()` (L945):
+   parse `~/.claude.json` `projects[<path>].enabledMcpjsonServers` (list) and
+   `disabledMcpjsonServers` (list) → `{project_path: {mcp_server_name: enabled}}`.
+   Absence of both keys ⇒ no per-project override recorded (fall to global).
+2. **Emit enablement events (S1)** — merge/discover stage. For each
+   (mcp-element, project) with a recorded override, emit an event with
+   `event_type` ∈ {`EnabledInProject`, `DisabledInProject`}, `scope_path` = the
+   project path, `element_type = mcp`, and NO `content_hash` churn (enablement is
+   not a content observation — keep it out of the diff/size/token columns). The
+   existing `element_id` scheme (`mcp:<name>@project:<slug>`) already keys these
+   per-project, so `as-of` resolves them for free.
+3. **`active-in` resolves MCP enablement at T** — `rust/skill-suggester/src/temporal.rs`,
+   the `active-in` clause (c). For MCP elements, replace the "current global
+   `elements_state.enabled`" read with the latest `EnabledInProject/DisabledInProject`
+   event for that (element, project) with `observed_at <= T`; if none, fall back to
+   the element's global `enabled` at T and set the row's
+   `enablement_is_global_fallback: true`.
+4. **Plugin fallback flag** — plugins have no per-project signal, so their
+   `active-in` rows ALWAYS carry `enablement_is_global_fallback: true`. Add the
+   field to the `active-in` row struct + JSON output (additive; the P-9 MCP
+   `pss_active_in` tool passes it through unchanged — no server edit needed).
+5. **Migration** — additive/forward only: new `event_type` values + one new
+   output field with a default; existing `events`/`elements_state` rows untouched.
+   Pre-v3.9 per-project MCP history is unreconstructable ⇒ those rows read
+   `enablement_is_global_fallback: true` until new events accrue.
+
+**Tests (real, no mocks):** unit — `_load_project_mcp_enablement` parses
+enabled/disabled/absent from a fixture `~/.claude.json`; unit — event emission
+carries `scope_path` + the new `event_type` and no content churn; integration —
+`active-in <proj> --as-of T` flips an MCP server's enabled state across a recorded
+Disabled event, and a plugin row always shows the global-fallback flag; `--help`
++ cli-reference state exactly what is per-project (MCP) vs global (plugins).
+
+**Ships:** a later **v3.9.x** (after v3.9.0/P-9). Column stays `design` — design
+is complete but implementation is gated; promote to `dispatch` only once P-9 has
+shipped and P-8c is confirmed.
 
 ## Notes and lessons learned
 
