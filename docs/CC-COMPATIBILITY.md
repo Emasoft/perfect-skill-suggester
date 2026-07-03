@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.191**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.200**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -75,6 +75,30 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.200 (2026-07-03)
+
+- **Permission mode `default` renamed `Manual`** across the CLI, `--help`, VS Code, and JetBrains (`--permission-mode manual` / `"defaultMode": "manual"` accepted alongside `default`). PSS ships no permission-mode config and no command pins `--permission-mode default`, so the rename is transparent to PSS. No PSS impact.
+- **`AskUserQuestion` no longer auto-continues by default.** No PSS command or agent relies on AskUserQuestion auto-continue. No PSS impact.
+
+### v2.1.199 (2026-07-02) — stacked `/skill-a /skill-b …` now loads up to 5 leading skills.
+
+PSS surfaces suggestions via `additionalContext` on `UserPromptSubmit`; it never *invokes* skills, so the multi-skill stacking change is orthogonal to PSS. No PSS impact.
+
+### v2.1.198 (2026-07-01)
+
+- **Subagents run in the background by default; built-in Explore inherits the session model (capped at opus).** PSS's `pss-agent-profiler` sets no `model:` frontmatter and is unaffected.
+- **`/dataviz` skill added; the `/agents` wizard was removed.** PSS discovers skills/agents dynamically (`/pss-reindex-skills`) and holds no reference to the `/agents` wizard (verified: no stale refs in docs/agents/commands/skills). New built-ins are picked up on the next reindex. No PSS code impact.
+- **`.claude/rules/` conditional rules now load through symlinked paths.** PSS's plugin generator (`/pss-make-plugin-from-profile`) symlinks rules into a project's `.claude/rules/` (prefix `_plugin_<name>_`); this CC fix makes that approach strictly more robust. No PSS change required.
+
+### v2.1.196 – v2.1.197 (2026-06-29 – 06-30)
+
+- **v2.1.197: Claude Sonnet 5 is the new default model (native 1M context).** PSS pins no model anywhere — agents inherit the session model — so the default-model change is transparent to PSS.
+- **v2.1.196: `claude plugin validate` no longer skips local plugins whose source is `"."`; `/plugin` gains a "Skills" section.** PSS validates via the CPV remote pipeline (not `claude plugin validate`), and the Installed-tab Skills section is display-only. No PSS impact.
+
+### v2.1.193 / v2.1.195 (2026-06-25 – 06-26) — hook-matcher & misc fixes; no PSS surface.
+
+**v2.1.195:** hyphenated hook matchers now exact-match (no accidental substring match). **v2.1.193:** comma-separated matchers fixed; `autoMode.classifyAllShell` added. PSS's `hooks.json` matchers are `UserPromptSubmit` (none), `SessionStart` (`startup\|resume`), and `PostCompact` (none) — no hyphenated or comma-list tool matchers — so both fixes leave PSS unaffected. No PSS impact.
 
 ### v2.1.191 (2026-06-24)
 - **Fix: hooks with comma-separated matchers (e.g. `"Bash,PowerShell"`) silently never firing** — PSS is immune: its only matcher is `SessionStart: startup|resume` (regex alternation via a pipe `|`, which always fired); PSS declares no comma-separated matchers (verified in `hooks/hooks.json`).
