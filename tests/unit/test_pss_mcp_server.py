@@ -14,7 +14,11 @@ Covered:
   * ``pss_contract_version`` returns exactly the 3 contract fields and its
     ``cli_version`` equals ``<binary> --version`` — the regression guard for
     the cli_version-mismatch bug fixed just before P-9;
-  * all 6 tools are registered on the FastMCP instance.
+  * all 6 tools are registered on the FastMCP instance;
+  * the ERROR contract — a bad date raises instead of returning an innocent
+    ``[]`` (the binary soft-errors: stderr + ``[]`` + exit 0), a relative
+    project path is rejected, and the ``--`` fence makes a leading-dash value
+    parse as data rather than a flag.
 """
 
 from __future__ import annotations
@@ -29,9 +33,10 @@ from types import ModuleType
 
 import pytest
 
-# The server imports the `mcp` SDK; skip the whole module cleanly if it is not
-# present. The documented run command supplies it:
-#   uv run --with "mcp[cli]" --with pytest pytest tests/unit/test_pss_mcp_server.py
+# The server imports the `mcp` SDK. It is in the `dev` extra precisely so this
+# module RUNS in the publish gate (`uv run --extra dev pytest`) — when it was not,
+# this importorskip silently skipped every test below and the gate went green on
+# zero coverage. The guard stays only for an ad-hoc run in a bare interpreter.
 pytest.importorskip("mcp.server.fastmcp")
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -134,14 +139,21 @@ def test_as_of_returns_list(server: ModuleType, repo_binary: Path) -> None:
     """pss_as_of returns a JSON list snapshot of active elements at a date."""
     rows = server.pss_as_of("now")
     assert isinstance(rows, list)
-    assert rows, "the real index should report active elements at now"
+    # An EMPTY index is a legitimate machine state (fresh clone, CI, pre-reindex).
+    # Asserting rows is non-empty tests the ambient machine, not this code — so
+    # skip rather than fail, and still assert the shape whenever rows DO exist.
+    if not rows:
+        pytest.skip(
+            "installed index reports no active elements — nothing to shape-check"
+        )
     assert "element_id" in rows[0]
 
 
 def test_timeline_returns_list(server: ModuleType, repo_binary: Path) -> None:
     """pss_timeline returns a JSON list of lifecycle events for one element."""
     snapshot = server.pss_as_of("now")
-    assert snapshot, "need at least one active element to timeline"
+    if not snapshot:
+        pytest.skip("installed index has no active element to timeline")
     element_id = snapshot[0]["element_id"]
     events = server.pss_timeline(element_id)
     assert isinstance(events, list)
@@ -226,3 +238,59 @@ def test_tool_raises_when_binary_missing(
     monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path))  # empty dir, no bin/
     with pytest.raises(FileNotFoundError):
         server.pss_db_path()
+
+
+# ---------------------------------------------------------------------------
+# The error contract — the soft-error trap, argv fencing, and path validation
+# ---------------------------------------------------------------------------
+
+
+def test_bad_date_raises_instead_of_returning_empty(
+    server: ModuleType, repo_binary: Path
+) -> None:
+    """A bad date RAISES — it must never come back as an innocent empty list.
+
+    The binary reports an unparseable date by writing to stderr, printing `[]`,
+    and STILL exiting 0. Returning that `[]` would be a plausible lie ("nothing
+    was installed then"), so the wrapper must turn any stderr into an error.
+    """
+    with pytest.raises(RuntimeError, match="Invalid date"):
+        server.pss_as_of("not-a-date")
+
+
+def test_bad_as_of_on_active_in_raises(server: ModuleType, repo_binary: Path) -> None:
+    """The same soft-error trap on active-in's --as-of raises, not returns []."""
+    with pytest.raises(RuntimeError, match="Invalid as-of"):
+        server.pss_active_in(str(ROOT), as_of="not-a-date")
+
+
+def test_empty_as_of_is_treated_as_omitted(
+    server: ModuleType, repo_binary: Path
+) -> None:
+    """as_of="" means "now", not an empty date the binary would soft-error on."""
+    rows = server.pss_active_in(str(ROOT), as_of="")
+    assert isinstance(rows, list)
+    assert rows == server.pss_active_in(str(ROOT))
+
+
+def test_relative_project_path_is_rejected(
+    server: ModuleType, repo_binary: Path
+) -> None:
+    """A relative project_path raises: the server's CWD is the client's, not ours."""
+    with pytest.raises(ValueError, match="absolute path"):
+        server.pss_active_in("relative/dir")
+    with pytest.raises(ValueError, match="absolute path"):
+        server.pss_project_slug("relative/dir")
+
+
+def test_leading_dash_value_is_data_not_a_flag(
+    server: ModuleType, repo_binary: Path
+) -> None:
+    """The `--` fence makes a leading-dash element_id parse as DATA, not a flag.
+
+    Without it, `pss timeline --help` would print help text (non-JSON) and
+    `-x` would be an unknown-flag error — both driven by attacker-ish input.
+    """
+    events = server.pss_timeline("--help")
+    assert isinstance(events, list)
+    assert events == [], "an element literally named --help does not exist"

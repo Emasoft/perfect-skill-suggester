@@ -20,6 +20,7 @@ the CozoDB ``.db`` file directly. Version-gate against ``pss_contract_version``.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -39,11 +40,29 @@ mcp = FastMCP("pss")
 _TIMEOUT_SECONDS = 30
 
 
+def _require_abs_path(param: str, value: str) -> str:
+    """Reject a non-absolute folder path before it reaches the binary.
+
+    The binary resolves a relative path against the CWD — but an MCP server's
+    CWD is the *client's* launch dir, which has nothing to do with the folder
+    the caller means. That would silently key the query to the wrong project
+    (a wrong ANSWER, not an error), so require the absolute path the tool's
+    contract already documents.
+    """
+    if not os.path.isabs(value):
+        raise ValueError(
+            f"{param} must be an absolute path (got {value!r}); "
+            "the MCP server's CWD is the client's, not the project's"
+        )
+    return value
+
+
 def _run_pss_json(args: list[str]) -> Any:
     """Run ``pss <args>``, return its parsed JSON stdout; raise on any failure.
 
-    Fail-fast (no fallback): a missing binary, a non-zero exit, or non-JSON
-    output each raise a clear error the MCP client surfaces to the caller.
+    Fail-fast (no fallback): a missing binary, a non-zero exit, anything written
+    to stderr, or non-JSON output each raise a clear error the MCP client
+    surfaces to the caller.
     """
     binary = resolve_pss_binary()  # FileNotFoundError if the binary is absent
     proc = subprocess.run(
@@ -56,6 +75,11 @@ def _run_pss_json(args: list[str]) -> Any:
         # em-dash) would raise UnicodeDecodeError or silently mojibake. Keep
         # fail-fast (no errors="replace") so genuinely invalid bytes still surface.
         encoding="utf-8",
+        # The MCP server owns stdin for its own stdio transport. Without this the
+        # child would INHERIT that stdin and could consume the client's protocol
+        # bytes; DEVNULL keeps the transport intact and makes a would-be-blocking
+        # read fail fast instead of hanging.
+        stdin=subprocess.DEVNULL,
         timeout=_TIMEOUT_SECONDS,
         check=False,
     )
@@ -64,6 +88,15 @@ def _run_pss_json(args: list[str]) -> Any:
         raise RuntimeError(
             f"pss {' '.join(args)} failed (exit {proc.returncode}): {detail}"
         )
+    # SOFT ERRORS: several verbs (every date-taking one) report a bad argument by
+    # writing a diagnostic to stderr, printing an empty `[]`, and STILL exiting 0.
+    # An exit-code-only guard would hand that empty list back as a truthful "no
+    # results" — the worst failure mode a query surface has. Empirically all 6
+    # verbs emit EMPTY stderr on success, so any stderr at all means the answer
+    # is not trustworthy: raise rather than return a plausible lie.
+    stderr = proc.stderr.strip()
+    if stderr:
+        raise RuntimeError(f"pss {' '.join(args)} reported an error: {stderr}")
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
@@ -85,9 +118,15 @@ def pss_active_in(project_path: str, as_of: str | None = None) -> list[dict[str,
     per-project plugin enablement at a PAST instant is not yet recorded, so (c)
     reflects current/global enablement; (a)/(b) ARE resolved as-of the date.)
     """
-    args = ["active-in", project_path, "--format", "json"]
-    if as_of is not None:
-        args += ["--as-of", as_of]
+    _require_abs_path("project_path", project_path)
+    # Options in `=` form BEFORE the `--` fence, positionals after it: a path or
+    # date that begins with `-` is then parsed as DATA, never as a flag.
+    # An empty `as_of` means "omitted" — passing `--as-of=` through would make
+    # the binary soft-error on an empty date instead of answering for now.
+    args = ["active-in", "--format=json"]
+    if as_of:
+        args.append(f"--as-of={as_of}")
+    args += ["--", project_path]
     return _run_pss_json(args)
 
 
@@ -101,8 +140,8 @@ def pss_as_of(date: str) -> list[dict[str, Any]]:
     placeholder rather than a real observed install).
     """
     # `as-of` emits a JSON array by DEFAULT and REJECTS --format json (exit 2),
-    # unlike the other verbs — so it is called bare.
-    return _run_pss_json(["as-of", date])
+    # unlike the other verbs — so it is called bare, with only the `--` fence.
+    return _run_pss_json(["as-of", "--", date])
 
 
 @mcp.tool()
@@ -114,7 +153,7 @@ def pss_timeline(element_id: str) -> list[dict[str, Any]]:
     (event_type, observed_at, content_hash, file_size, token_count, diff_json),
     oldest first.
     """
-    return _run_pss_json(["timeline", element_id, "--format", "json"])
+    return _run_pss_json(["timeline", "--format=json", "--", element_id])
 
 
 @mcp.tool()
@@ -126,7 +165,7 @@ def pss_db_path() -> dict[str, Any]:
     for every query and NEVER open this ``.db`` file directly (a concurrent
     reindex would race them).
     """
-    return _run_pss_json(["db-path", "--format", "json"])
+    return _run_pss_json(["db-path", "--format=json"])
 
 
 @mcp.tool()
@@ -137,7 +176,8 @@ def pss_project_slug(project_path: str) -> dict[str, Any]:
     PSS uses to key project/local elements, so the slug reconstructs an
     element_id's scope_path from an absolute path.
     """
-    return _run_pss_json(["project-slug", project_path, "--format", "json"])
+    _require_abs_path("project_path", project_path)
+    return _run_pss_json(["project-slug", "--format=json", "--", project_path])
 
 
 @mcp.tool()

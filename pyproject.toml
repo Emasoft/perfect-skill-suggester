@@ -23,4 +23,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    # The MCP server (scripts/pss_mcp_server.py, opt-in at runtime) is a HARD
+    # dependency of its test module: without it the whole module hits
+    # `pytest.importorskip` and every test in it SKIPS — the gate goes green
+    # having verified nothing. `mcp` stays out of [project.dependencies] so the
+    # hot UserPromptSubmit path keeps its lean install.
+    "mcp[cli]>=1.2",
 ]
