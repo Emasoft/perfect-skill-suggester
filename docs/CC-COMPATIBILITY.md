@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.200**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.209**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -75,6 +75,31 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.209 (2026-07-14)
+
+- Fixed `/model` and other dialogs being blocked in `claude agents` background sessions. CC-internal; PSS ships no such dialog. No PSS impact.
+
+### v2.1.208 (2026-07-14) — two CC-internal fixes that *benefit* PSS
+
+- **MCP stdio-server stderr no longer accumulates 64 MB+** (a CC memory-leak fix). This caps CC's retention of an MCP server's stderr — CC protecting itself from a chatty server. PSS's opt-in MCP server (`scripts/pss_mcp_server.py`, P-9) is already well-behaved here: `_run_pss_json` treats *any* non-empty stderr on exit 0 as an error, and all six verbs emit empty stderr on success, so PSS never streams stderr at CC. No PSS change; PSS is on the safe side of this fix.
+- **Permission-rule matchers compiled once and cached** (multi-second per-turn speedup in sessions with many allow/deny/ask rules). PSS's `UserPromptSubmit` hook runs on every prompt; a faster per-turn permission path is pure upside. No PSS change.
+- Remaining items (LSP LRU cap, transcript-size pruning, tool-pool caching, agent-view worktree safety) are CC-internal. No PSS impact.
+
+### v2.1.207 (2026-07-11) — plugin-system hardening; PSS assessed COMPLIANT on all three axes
+
+Two changes touch how *every* plugin's hooks/options are read. PSS was checked against each, not assumed:
+
+- **`${user_config.*}` in shell-form hook/monitor/headersHelper commands is now REJECTED** (shell-injection fix); authors must use exec form (`args` array) or `$CLAUDE_PLUGIN_OPTION_<KEY>`.
+  - *PSS's own hooks* (`hooks/hooks.json`): all three commands are `sh`/`uv run … "${CLAUDE_PLUGIN_ROOT}/…"` — a built-in **env var**, never `${user_config.*}`. Unaffected.
+  - *PSS's plugin GENERATOR* (`scripts/pss_make_plugin.py`): the hooks it emits into generated plugins are `bash ${CLAUDE_PLUGIN_ROOT}/scripts/{install-rules,cleanup-rules,install-data-deps}.sh` — env-var shell-form only, never `${user_config.*}`. The data-dir installer already validates every attacker-controlled field and runs `subprocess.run(shell=False)` (post-audit SEC-1/SEC-2), so no user data reaches a shell. **Generated plugins are 2.1.207-compatible.**
+- **Plugin option values (`pluginConfigs`) are no longer read from project-level `.claude/settings.json`** (only user / `--settings` / managed settings). PSS reads **zero** plugin options at runtime (no `CLAUDE_PLUGIN_OPTION_*`, no `pluginConfigs` — grep-verified), so this narrowing is transparent to PSS.
+
+No PSS code change required. If PSS's generator ever wires a `userConfig` value into a generated hook command, it must use `$CLAUDE_PLUGIN_OPTION_<KEY>` (env-var), not `${user_config.*}` — a guardrail for future generator work.
+
+### v2.1.201–2.1.206 (2026-07-03 → 2026-07-09) — no PSS impact
+
+All CC-internal: background-agent/daemon reliability, worktree-isolation fixes, `/doctor` becoming a full checkup (2.1.205), the `/dataviz` skill, `/review <pr>` reverting to single-pass (2.1.202), and Sonnet-5 harness-reminder role handling (2.1.201). None touch PSS's hook surface, the Rust scorer, the CozoDB index, the MCP server, or the plugin manifest. No PSS change.
 
 ### v2.1.200 (2026-07-03)
 
