@@ -2,6 +2,23 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.9.0] - 2026-07-14
+
+### Bug Fixes
+
+- **mcp:** Decode pss output as UTF-8 in the MCP server (P-9, issue #12)
+- **mcp:** Harden the P-9 MCP surface after xhigh code review ([#12](https://github.com/Emasoft/perfect-skill-suggester/issues/12))
+- **publish:** Create the {plugin-name}--v{version} dependency-resolver tag ([#13](https://github.com/Emasoft/perfect-skill-suggester/issues/13))
+
+### Documentation
+
+- **trdd:** Firm P-8 design to implementation-ready (LIFE12FU, issue #12)
+- **compat:** Record CC support through 2.1.200 (issue #12 adjacent)
+
+### Features
+
+- **mcp:** Add opt-in stdio MCP server wrapping PSS read verbs (P-9, issue #12)
+
 ## [3.8.3] - 2026-06-25
 
 ### Miscellaneous Tasks
