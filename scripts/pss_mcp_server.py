@@ -40,21 +40,21 @@ mcp = FastMCP("pss")
 _TIMEOUT_SECONDS = 30
 
 
-def _require_abs_path(param: str, value: str) -> str:
+def _require_abs_path(param: str, value: str) -> None:
     """Reject a non-absolute folder path before it reaches the binary.
 
     The binary resolves a relative path against the CWD — but an MCP server's
     CWD is the *client's* launch dir, which has nothing to do with the folder
     the caller means. That would silently key the query to the wrong project
     (a wrong ANSWER, not an error), so require the absolute path the tool's
-    contract already documents.
+    contract already documents. A pure validator: it raises or returns None —
+    callers pass the original value straight through to the binary.
     """
     if not os.path.isabs(value):
         raise ValueError(
             f"{param} must be an absolute path (got {value!r}); "
             "the MCP server's CWD is the client's, not the project's"
         )
-    return value
 
 
 def _run_pss_json(args: list[str]) -> Any:

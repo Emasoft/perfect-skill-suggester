@@ -77,8 +77,14 @@ commit_parsers = [
 protect_breaking_commits = false
 # filter out the commits that are not matched by commit parsers
 filter_commits = false
-# regex for matching git tags
-tag_pattern = "v[0-9].*"
+# regex for matching git tags — ANCHORED at start so it matches ONLY the
+# release tag `v3.9.0`, never the dependency-resolver tag
+# `perfect-skill-suggester--v3.9.0` (publish.py git_tag creates both on the same
+# commit). Unanchored, "v[0-9].*" also matched the `v3.9.0` substring inside the
+# namespaced tag; git-cliff breaks same-commit ties alphabetically, so a plugin
+# whose name sorts after 'v' would get changelog/release headers labelled with
+# the resolver tag. `^v` excludes the namespaced tag (it starts with the name).
+tag_pattern = "^v[0-9].*"
 # regex for skipping tags
 skip_tags = ""
 # regex for ignoring tags

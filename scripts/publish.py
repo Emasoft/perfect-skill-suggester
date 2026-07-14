@@ -157,14 +157,20 @@ def run_validation() -> int:
     info("Running plugin validation (uvx remote)...")
 
     if not shutil.which("uvx"):
-        fatal("'uvx' not found. Install uv — validation is mandatory, no bypass allowed.")
+        fatal(
+            "'uvx' not found. Install uv — validation is mandatory, no bypass allowed."
+        )
 
     result = run(
         [
             "uvx",
-            "--from", CPV_UVX_FROM,
-            "--with", "pyyaml",
-            "cpv-remote-validate", "plugin", ".",
+            "--from",
+            CPV_UVX_FROM,
+            "--with",
+            "pyyaml",
+            "cpv-remote-validate",
+            "plugin",
+            ".",
         ],
         timeout=180,
     )
@@ -499,7 +505,9 @@ def bump_cargo_lock_self_version(new: str, dry_run: bool) -> None:
     never fall behind the crate version again.
     """
     if not CARGO_LOCK.exists():
-        warn(f"Cargo.lock not found at {CARGO_LOCK.relative_to(ROOT)}, skipping self-version sync.")
+        warn(
+            f"Cargo.lock not found at {CARGO_LOCK.relative_to(ROOT)}, skipping self-version sync."
+        )
         return
     content = CARGO_LOCK.read_text(encoding="utf-8")
     # The crate's own stanza is a `name = "perfect-skill-suggester"` line
@@ -600,9 +608,15 @@ def generate_changelog(new: str, dry_run: bool) -> None:
         info(f"  [DRY-RUN] Would run: git-cliff --tag v{new} -o CHANGELOG.md")
         return
 
-    result = run([
-        "git-cliff", "--tag", f"v{new}", "-o", str(CHANGELOG_MD),
-    ])
+    result = run(
+        [
+            "git-cliff",
+            "--tag",
+            f"v{new}",
+            "-o",
+            str(CHANGELOG_MD),
+        ]
+    )
     if result.returncode != 0:
         fatal(f"git-cliff failed: {result.stderr.strip()}")
     success("  CHANGELOG.md generated (full history).")
@@ -621,9 +635,14 @@ def generate_release_notes(new: str) -> str:
     *released* tag, ignoring the `--tag` argument entirely. `--latest` correctly
     tracks the just-tagged version.
     """
-    result = run([
-        "git-cliff", "--latest", "--strip", "header",
-    ])
+    result = run(
+        [
+            "git-cliff",
+            "--latest",
+            "--strip",
+            "header",
+        ]
+    )
     if result.returncode != 0:
         fatal(f"git-cliff release notes failed: {result.stderr.strip()}")
     notes = result.stdout.strip()
@@ -648,6 +667,7 @@ def create_github_release(new: str, dry_run: bool) -> None:
     notes = generate_release_notes(new)
     # Write notes to a temp file (avoids shell escaping issues with multiline notes)
     import tempfile
+
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", suffix=".md", delete=False
     ) as tmp:
@@ -655,11 +675,19 @@ def create_github_release(new: str, dry_run: bool) -> None:
         notes_path = tmp.name
 
     try:
-        result = run([
-            "gh", "release", "create", f"v{new}",
-            "--title", f"v{new}",
-            "--notes-file", notes_path,
-        ], timeout=60)
+        result = run(
+            [
+                "gh",
+                "release",
+                "create",
+                f"v{new}",
+                "--title",
+                f"v{new}",
+                "--notes-file",
+                notes_path,
+            ],
+            timeout=60,
+        )
         if result.returncode != 0:
             fatal(f"gh release create failed: {result.stderr.strip()}")
         success(f"  GitHub release v{new} published.")
@@ -698,7 +726,17 @@ def _submodule_src_changed(last_tag: str, rel_path: str) -> bool | None:
     if old_sha == new_sha:
         return False
     diff = run(
-        ["git", "-C", str(rust_submodule), "diff", "--name-only", old_sha, new_sha, "--", rel_path],
+        [
+            "git",
+            "-C",
+            str(rust_submodule),
+            "diff",
+            "--name-only",
+            old_sha,
+            new_sha,
+            "--",
+            rel_path,
+        ],
     )
     return bool(diff.stdout.strip())
 
@@ -760,7 +798,9 @@ def build_pss_nlp(dry_run: bool, force_build: bool = False) -> None:
     info("Checking pss-nlp (negation-detector) binaries...")
 
     if not force_build and not nlp_source_changed():
-        info("  No negation-detector source changes since last tag — skipping pss-nlp rebuild.")
+        info(
+            "  No negation-detector source changes since last tag — skipping pss-nlp rebuild."
+        )
         return
 
     if dry_run:
@@ -976,8 +1016,22 @@ def git_commit(_old: str, new: str) -> None:
     success(f"  Committed: {commit_msg}")
 
 
+def plugin_name() -> str:
+    """Read the plugin's manifest name, routing any failure through fatal().
+
+    Read from plugin.json (not hard-coded) so the resolver tag can never drift
+    from the manifest name Claude Code's resolver matches against. A malformed
+    manifest or a missing "name" key must NOT crash with a bare traceback
+    mid-release — it exits cleanly through fatal() like every other gate.
+    """
+    try:
+        return json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))["name"]
+    except (OSError, ValueError, KeyError) as exc:
+        fatal(f"could not read plugin name from {PLUGIN_JSON}: {exc}")
+
+
 def git_tag(new: str) -> None:
-    """Create the version tag AND the dependency-resolver tag.
+    """Create the version tag AND the dependency-resolver tag, atomically.
 
     Two tags per release:
       * ``v{new}``                    — the human/release tag (gh release, cliff).
@@ -993,14 +1047,38 @@ def git_tag(new: str) -> None:
                                         is read from plugin.json so the tag can
                                         never drift from the manifest the resolver
                                         matches against.
+
+    ATOMIC: creating one tag then failing on the second would leave a dangling
+    local tag that makes EVERY subsequent release abort at `git tag` ('already
+    exists') until an operator manually deletes it. So we (a) refuse up front if
+    EITHER tag already exists, and (b) roll back any tag created in this call if
+    a later one fails — the pipeline either creates both tags or leaves none.
     """
-    plugin_name = json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))["name"]
-    tags = [f"v{new}", f"{plugin_name}--v{new}"]
+    tags = [f"v{new}", f"{plugin_name()}--v{new}"]
+
+    existing = [
+        t
+        for t in tags
+        if run(["git", "rev-parse", "-q", "--verify", f"refs/tags/{t}"]).returncode == 0
+    ]
+    if existing:
+        fatal(
+            f"tag(s) already exist: {', '.join(existing)}. Delete them first "
+            f"(git tag -d {' '.join(existing)}) — refusing a partial re-tag."
+        )
+
+    created: list[str] = []
     for tag in tags:
         info(f"Tagging {tag}...")
         result = run(["git", "tag", tag])
         if result.returncode != 0:
-            fatal(f"git tag failed: {result.stderr.strip()}")
+            for done in created:  # roll back so the next run starts clean
+                run(["git", "tag", "-d", done])
+            fatal(
+                f"git tag {tag} failed: {result.stderr.strip()} "
+                f"(rolled back {len(created)} tag(s))"
+            )
+        created.append(tag)
         success(f"  Tagged: {tag}")
 
 
@@ -1032,7 +1110,15 @@ def git_push() -> None:
             if sha:
                 # fetch --dry-run checks reachability without downloading
                 fetch_check = run(
-                    ["git", "-C", str(rust_submodule), "fetch", "--dry-run", "origin", sha],
+                    [
+                        "git",
+                        "-C",
+                        str(rust_submodule),
+                        "fetch",
+                        "--dry-run",
+                        "origin",
+                        sha,
+                    ],
                     timeout=30,
                 )
                 if fetch_check.returncode != 0:
@@ -1206,7 +1292,7 @@ def print_summary(old: str, new: str, args: argparse.Namespace) -> None:
         print("  GH release:    skipped")
     else:
         print(f"  Git commit:    chore(release): {new}")
-        print(f"  Git tag:       v{new}")
+        print(f"  Git tag:       v{new} + {plugin_name()}--v{new} (resolver)")
         print("  Git push:      done")
         print(f"  GH release:    published v{new}")
     print(f"{BOLD}{'=' * 60}{RESET}")
@@ -1292,11 +1378,15 @@ def rotate_reports_mode(args: argparse.Namespace) -> int:
     """
     moved, bytes_moved = rotate_old_reports(dry_run=args.dry_run)
     if moved == 0:
-        info(f"No files older than {REPORTS_MAX_AGE_HOURS} hours under reports/ — nothing to rotate.")
+        info(
+            f"No files older than {REPORTS_MAX_AGE_HOURS} hours under reports/ — nothing to rotate."
+        )
         return 0
     action = "would move" if args.dry_run else "moved"
-    info(f"Report rotation: {action} {moved} file(s) ({bytes_moved / 1024:.1f} KB) "
-         f"older than {REPORTS_MAX_AGE_HOURS} hours from reports/ -> reports_dev/.")
+    info(
+        f"Report rotation: {action} {moved} file(s) ({bytes_moved / 1024:.1f} KB) "
+        f"older than {REPORTS_MAX_AGE_HOURS} hours from reports/ -> reports_dev/."
+    )
     return 0
 
 
@@ -1375,7 +1465,7 @@ def main() -> None:
         "--clean",
         action="store_true",
         help="Remove regenerable build artifacts (rust/target, orphan src targets, "
-             ".venv, .mypy_cache). Standalone mode: runs cleanup and exits.",
+        ".venv, .mypy_cache). Standalone mode: runs cleanup and exits.",
     )
     parser.add_argument(
         "--rust-only",
@@ -1394,8 +1484,8 @@ def main() -> None:
         "--rotate-reports",
         action="store_true",
         help=f"Standalone: move files in reports/ older than "
-             f"{REPORTS_MAX_AGE_HOURS} hours into reports_dev/ and exit. "
-             "Also runs automatically at release start.",
+        f"{REPORTS_MAX_AGE_HOURS} hours into reports_dev/ and exit. "
+        "Also runs automatically at release start.",
     )
     args = parser.parse_args()
 
