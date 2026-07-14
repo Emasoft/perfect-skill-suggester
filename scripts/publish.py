@@ -29,6 +29,7 @@ Modes:
 """
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -976,13 +977,31 @@ def git_commit(_old: str, new: str) -> None:
 
 
 def git_tag(new: str) -> None:
-    """Create a git tag for the new version."""
-    info(f"Tagging v{new}...")
-    tag = f"v{new}"
-    result = run(["git", "tag", tag])
-    if result.returncode != 0:
-        fatal(f"git tag failed: {result.stderr.strip()}")
-    success(f"  Tagged: {tag}")
+    """Create the version tag AND the dependency-resolver tag.
+
+    Two tags per release:
+      * ``v{new}``                    — the human/release tag (gh release, cliff).
+      * ``{plugin-name}--v{new}``     — the ONLY tag Claude Code's plugin-
+                                        dependency resolver reads (spec since CC
+                                        2.1.110). Without it, the moment any
+                                        plugin pins a version on PSS the install
+                                        fails with `no git tag satisfying <range>`
+                                        on a repo full of `v*` tags — an invisible
+                                        break (an already-installed copy keeps
+                                        working) that cost the ai-maestro fleet a
+                                        day (issue #13, TRDD-JT3U4ZVM). The name
+                                        is read from plugin.json so the tag can
+                                        never drift from the manifest the resolver
+                                        matches against.
+    """
+    plugin_name = json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))["name"]
+    tags = [f"v{new}", f"{plugin_name}--v{new}"]
+    for tag in tags:
+        info(f"Tagging {tag}...")
+        result = run(["git", "tag", tag])
+        if result.returncode != 0:
+            fatal(f"git tag failed: {result.stderr.strip()}")
+        success(f"  Tagged: {tag}")
 
 
 def git_push() -> None:
