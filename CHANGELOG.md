@@ -2,6 +2,17 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.10.0] - 2026-07-15
+
+### Bug Fixes
+
+- **publish,mcp:** Apply xhigh code-review findings on the v3.9.0 tag+MCP work
+- **manifest:** Align generated plugin.json to CC value shapes + displayName/defaultEnabled (TRDD-LIFE12FU)
+
+### Documentation
+
+- **compat:** Assess CC 2.1.201–2.1.209, record 2.1.207 plugin-system compliance
+
 ## [3.9.0] - 2026-07-14
 
 ### Bug Fixes
