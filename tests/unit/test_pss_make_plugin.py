@@ -388,3 +388,86 @@ def test_install_template_ships_with_pss() -> None:
     assert "# /// script" in content, "missing PEP 723 inline metadata"
     assert "shell=False" in content, "template MUST use subprocess shell=False"
     assert "subprocess.run" in content
+
+
+# ---------------------------------------------------------------------------
+# CC manifest alignment — displayName / defaultEnabled (v2.1.143 / v2.1.154)
+# and the experimental.themes / experimental.monitors VALUE TYPES.
+# The generator must emit a CC-correct plugin.json: displayName/defaultEnabled
+# from [metadata]; themes as path string/array; monitors as typed array/path.
+# A dict in [themes]/[monitors] is the pre-v3.10 mistake and must be dropped.
+# ---------------------------------------------------------------------------
+
+
+def _gen(profile: dict) -> dict:
+    """Run generate_plugin_json with a minimal fixed identity + the profile."""
+    return make_plugin.generate_plugin_json(
+        "my-plugin", "my-agent", "A test agent.", profile, version="1.0.0"
+    )
+
+
+def test_manifest_display_name_emitted_from_metadata() -> None:
+    """[metadata].display_name → plugin.json displayName (CC v2.1.143+)."""
+    m = _gen({"metadata": {"display_name": "My Fancy Plugin"}})
+    assert m["displayName"] == "My Fancy Plugin"
+
+
+def test_manifest_display_name_absent_when_blank() -> None:
+    """A blank/whitespace display_name is not emitted (falls back to name)."""
+    m = _gen({"metadata": {"display_name": "   "}})
+    assert "displayName" not in m
+
+
+def test_manifest_default_enabled_false_is_honored() -> None:
+    """default_enabled=false must emit defaultEnabled:false, not be dropped."""
+    m = _gen({"metadata": {"default_enabled": False}})
+    assert m["defaultEnabled"] is False
+
+
+def test_manifest_default_enabled_true_emitted() -> None:
+    """default_enabled=true → plugin.json defaultEnabled:true (CC v2.1.154+)."""
+    m = _gen({"metadata": {"default_enabled": True}})
+    assert m["defaultEnabled"] is True
+
+
+def test_manifest_default_enabled_non_bool_ignored() -> None:
+    """A non-bool default_enabled (e.g. the string 'yes') is ignored, not coerced."""
+    m = _gen({"metadata": {"default_enabled": "yes"}})
+    assert "defaultEnabled" not in m
+
+
+def test_manifest_themes_path_string_passed_through() -> None:
+    """experimental.themes accepts a path string (CC plugins-reference)."""
+    m = _gen({"themes": "./themes"})
+    assert m["experimental"]["themes"] == "./themes"
+
+
+def test_manifest_themes_array_passed_through() -> None:
+    """experimental.themes accepts an array of path strings."""
+    m = _gen({"themes": ["./themes/a.json", "./themes/b.json"]})
+    assert m["experimental"]["themes"] == ["./themes/a.json", "./themes/b.json"]
+
+
+def test_manifest_themes_dict_is_dropped() -> None:
+    """A dict [themes] is the invalid pre-v3.10 shape and must NOT be emitted."""
+    m = _gen({"themes": {"base": "dark", "overrides": {}}})
+    assert "experimental" not in m
+
+
+def test_manifest_monitors_array_passed_through() -> None:
+    """experimental.monitors accepts a typed array of monitor entries."""
+    mons = [{"name": "watch", "command": "tail -f x", "description": "d"}]
+    m = _gen({"monitors": mons})
+    assert m["experimental"]["monitors"] == mons
+
+
+def test_manifest_monitors_path_string_passed_through() -> None:
+    """experimental.monitors accepts a relative path string."""
+    m = _gen({"monitors": "./config/monitors.json"})
+    assert m["experimental"]["monitors"] == "./config/monitors.json"
+
+
+def test_manifest_monitors_dict_is_dropped() -> None:
+    """A dict [monitors] is the invalid pre-v3.10 shape and must NOT be emitted."""
+    m = _gen({"monitors": {"foo": "bar"}})
+    assert "experimental" not in m

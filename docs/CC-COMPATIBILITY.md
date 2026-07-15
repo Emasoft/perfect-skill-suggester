@@ -250,7 +250,7 @@ PSS surfaces suggestions via `additionalContext` on `UserPromptSubmit`; it never
 
 ### v2.1.154 (2026-05-28)
 - **Opus 4.8 released** (defaults to high effort; `/effort xhigh` for the hardest tasks) — relevant: `pss-agent-profiler` inherits the session model, so AI-mode profiling now runs on Opus 4.8 by default; matches the project convention that PSS fix/profiling agents are Opus-class.
-- **Plugins can now declare `defaultEnabled: false` in `plugin.json` or a marketplace entry** — relevant decision: PSS deliberately **does not** set `defaultEnabled: false` — it is a suggestion engine that must run on every `UserPromptSubmit`, so it stays enabled-by-default on install.
+- **Plugins can now declare `defaultEnabled: false` in `plugin.json` or a marketplace entry** — relevant decision: PSS deliberately **does not** set `defaultEnabled: false` — it is a suggestion engine that must run on every `UserPromptSubmit`, so it stays enabled-by-default on install. **v3.10.0:** PSS's plugin GENERATOR now passes a profile's `[metadata].default_enabled` (bool) through to `defaultEnabled` so users can generate opt-in-disabled plugins; a literal `false` is honored (checked bool-only, not truthy) and a non-bool is ignored.
 - The lean system prompt is now the default for all models except Haiku/Sonnet/Opus 4.7-and-earlier — informational.
 - Stdio MCP subprocesses now receive `CLAUDE_CODE_SESSION_ID` and `CLAUDECODE=1`; dynamic workflows; `/plugin` Discover directory-relevance pinning — N/A / informational (PSS ships no MCP server and no Workflow scripts).
 
@@ -296,6 +296,7 @@ PSS surfaces suggestions via `additionalContext` on `UserPromptSubmit`; it never
 
 ### v2.1.143 (2026-05-16)
 - **Fix: `--agent <name>` not finding plugin-contributed agents without the `plugin:` prefix** — directly relevant; PSS ships the `pss-agent-profiler` agent and users invoking `claude --agent pss-agent-profiler` now resolve it without needing the explicit `plugin:perfect-skill-suggester:pss-agent-profiler` form.
+- **`displayName` (human-readable UI label, falls back to `name`)** — PSS's own manifest omits it (name is already display-friendly). **v3.10.0:** PSS's plugin GENERATOR now passes a profile's `[metadata].display_name` through to `displayName`, so generated plugins can carry a spaced/cased label in the `/plugin` picker.
 - **Fix: background sessions on macOS getting "Operation not permitted" reading files under `~/Documents`, `~/Desktop`, or `~/Downloads`, even with Full Disk Access granted** — relevant for users with project-scoped skills under those macOS-protected directories; PSS `_safe_read_text` discovery now succeeds on those paths from background sessions without code changes.
 - Added plugin dependency enforcement (`claude plugin disable` refuses when another enabled plugin depends on the target; `enable` force-enables transitive deps) — PSS's `plugin.json` declares no `dependencies` field (verified 2026-05-16), so PSS is neither a holder nor a target of dependency chains and the new behavior never fires.
 - Added projected context cost (per-turn and per-invocation token estimates) to the `/plugin` marketplace browse pane — PSS's marketplace listing now shows users an upfront cost estimate before install.
@@ -371,7 +372,7 @@ PSS surfaces suggestions via `additionalContext` on `UserPromptSubmit`; it never
 - Stdio MCP non-protocol-stdout memory leak fixed (PSS ships no MCP server — N/A).
 
 ### v2.1.129 (2026-05-01)
-- Plugin manifests should declare `themes`/`monitors` under `"experimental": { ... }` — PSS plugin.json declares neither, so no migration needed.
+- Plugin manifests should declare `themes`/`monitors` under `"experimental": { ... }` — PSS plugin.json declares neither, so no migration needed. PSS's plugin GENERATOR already emits the nested `experimental.{themes,monitors}` form. **v3.10.0 manifest-alignment fix:** the generator/validator/schema previously modeled `[themes]`/`[monitors]` as inline OBJECTS, but CC types `experimental.themes` as a path string / array-of-path-strings and `experimental.monitors` as a typed array of `{name,command,description,when?}` entries (or a path string) — never inline objects. The generator now emits those correct value shapes (a dict is dropped), and the validator type-checks them (a monitor `command` referencing `${user_config.*}` is rejected per v2.1.207). See the 2026-07-15 PSS↔CC manifest audit.
 - `skillOverrides` setting now functional (`off` / `user-invocable-only` / `name-only`); when a user sets it to `name-only` PSS suggestions still surface because they're injected via `additionalContext`, not via skill descriptions.
 
 ### v2.1.128 (2026-04-30)

@@ -340,6 +340,14 @@
         "license": {
           "type": "string",
           "description": "SPDX license identifier (e.g., MIT, Apache-2.0)"
+        },
+        "display_name": {
+          "type": "string",
+          "description": "Human-readable plugin name shown in the /plugin picker and other UI (emitted as plugin.json displayName, CC v2.1.143+). Falls back to name when omitted; may contain spaces and any casing."
+        },
+        "default_enabled": {
+          "type": "boolean",
+          "description": "Whether the generated plugin starts enabled when the user has not set a preference (emitted as plugin.json defaultEnabled, CC v2.1.154+). Defaults to true when omitted; set false to ship a plugin that installs disabled."
         }
       },
       "additionalProperties": false
@@ -350,14 +358,31 @@
       "additionalProperties": true
     },
     "monitors": {
-      "type": "object",
-      "description": "Optional monitors section propagated verbatim into the generated plugin.json under `experimental.monitors` (CC v2.1.105+; nesting under `experimental` enforced as of CC v2.1.129). Background monitor plugin manifest key that auto-arms at session start or on skill invoke. Pass-through: PSS does NOT validate the nested structure. Consumers must follow the Claude Code plugins-reference.md monitors schema.",
-      "additionalProperties": true
+      "description": "Optional monitors propagated into the generated plugin.json under `experimental.monitors` (CC v2.1.105+; nesting under `experimental` enforced as of CC v2.1.129). CC types this as an ARRAY of monitor entries OR a relative path string — NOT an inline object. Declare inline as `[[monitors]]` array-of-tables, or point at a file with `monitors = \"./config/monitors.json\"`. Each monitor `command` must NOT reference ${user_config.*} (rejected by CC 2.1.207). Consumers must follow the Claude Code plugins-reference.md monitors schema.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "command", "description"],
+            "properties": {
+              "name": { "type": "string" },
+              "command": { "type": "string" },
+              "description": { "type": "string" },
+              "when": { "type": "string", "description": "\"always\" or \"on-skill-invoke:<skill>\"" }
+            },
+            "additionalProperties": true
+          }
+        },
+        { "type": "string" }
+      ]
     },
     "themes": {
-      "type": "object",
-      "description": "Optional themes section propagated verbatim into the generated plugin.json under `experimental.themes` (CC v2.1.118+; nesting under `experimental` enforced as of CC v2.1.129). Each theme is a JSON file in `themes/` with a `base` preset and a sparse `overrides` map of color tokens. Pass-through: PSS does NOT validate the nested structure. Consumers must follow the Claude Code plugins-reference.md themes schema.",
-      "additionalProperties": true
+      "description": "Optional themes propagated into the generated plugin.json under `experimental.themes` (CC v2.1.118+; nesting under `experimental` enforced as of CC v2.1.129). CC types this as a path STRING or an ARRAY of path strings pointing at theme JSON files/dirs — NOT an inline object (a theme is a JSON file in `themes/`). Set `themes = \"./themes\"` or `themes = [\"./themes/a.json\", \"./themes/b.json\"]`. Consumers must follow the Claude Code plugins-reference.md themes schema.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
     },
     "channels": {
       "type": "array",

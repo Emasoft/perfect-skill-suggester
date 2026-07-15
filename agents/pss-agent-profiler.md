@@ -598,14 +598,20 @@ frameworks = []
 #   { url = "https://example.com/model.bin", sha256 = "abc...", dest = "models/m.bin" }
 # ]
 
-# [themes]
-# Optional color theme passthrough — emitted under `experimental.themes` in plugin.json
-# (CC v2.1.129+ requires the experimental nesting). Each theme is a JSON file in themes/
-# with a `base` preset and a sparse `overrides` map.
+# themes — emitted under `experimental.themes` in plugin.json (CC v2.1.129+ nesting).
+# CC types this as a path STRING or an ARRAY of path strings pointing at theme JSON
+# files/dirs — NOT an inline object. Each theme is a JSON file in themes/ with a
+# `base` preset and a sparse `overrides` map.
+# themes = "./themes"                       # or ["./themes/dark.json", "./themes/light.json"]
 
-# [monitors]
-# Optional background monitor passthrough — emitted under `experimental.monitors` in
-# plugin.json (CC v2.1.105+; nesting under experimental enforced from CC v2.1.129).
+# [[monitors]] — emitted under `experimental.monitors` in plugin.json (CC v2.1.105+;
+# nesting from CC v2.1.129). CC types this as an ARRAY of {name,command,description,when?}
+# entries — NOT an inline object — or a path string. A monitor `command` must NOT
+# reference ${user_config.*} (rejected by CC 2.1.207); use $CLAUDE_PLUGIN_OPTION_<KEY>.
+# name = "watcher"
+# command = "tail -f log"
+# description = "watch the log"
+# when = "always"                           # or "on-skill-invoke:<skill>"
 
 # [[channels]]
 # Optional channel declaration array for message injection (Telegram, Slack, Discord).

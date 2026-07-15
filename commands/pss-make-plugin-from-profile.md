@@ -89,6 +89,8 @@ The generator emits a manifest conforming to the [plugins-reference schema](http
   "homepage": "https://github.com/owner/repo",
   "repository": "https://github.com/owner/repo.git",
   "license": "MIT",
+  "displayName": "My Plugin",     // from [metadata].display_name (CC v2.1.143+)
+  "defaultEnabled": false,        // from [metadata].default_enabled (CC v2.1.154+)
 
   // From [userConfig] (optional pass-through)
   "userConfig": { ... },
@@ -107,12 +109,16 @@ The generator emits a manifest conforming to the [plugins-reference schema](http
 
   // Experimental components — CC v2.1.129+ requires nesting under `experimental`.
   // Top-level still works but emits a `claude plugin validate` warning.
+  // themes = path string OR array of path strings (from [themes]);
+  // monitors = array of {name,command,description,when?} OR path string (from [[monitors]]).
   "experimental": {
-    "themes": { ... },            // from [themes]
-    "monitors": { ... }           // from [monitors]
+    "themes": "./themes",                                              // from [themes]
+    "monitors": [ { "name": "...", "command": "...", "description": "..." } ]  // from [[monitors]]
   }
 }
 ```
+
+`displayName` (from `[metadata].display_name`, CC v2.1.143+) and `defaultEnabled` (from `[metadata].default_enabled`, CC v2.1.154+) are also emitted when present in the profile.
 
 The generator does NOT emit `skills`, `commands`, `agents`, `hooks`, `mcpServers`, `outputStyles`, or `lspServers` manifest keys — it relies on **default folder discovery** (CC v2.1.140+ warns if a manifest key shadows the default folder, which we avoid).
 

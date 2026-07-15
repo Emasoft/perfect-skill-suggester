@@ -375,16 +375,23 @@ def generate_plugin_json(
     Top-level keys emitted (when source data is present):
       - name, version, description, author, keywords
       - homepage, repository, license (from [metadata])
+      - displayName (from [metadata].display_name — CC v2.1.143+)
+      - defaultEnabled (from [metadata].default_enabled — CC v2.1.154+)
       - userConfig (verbatim from [userConfig])
       - channels (verbatim from [[channels]])
       - dependencies (normalized from [dependencies].plugins — CC v2.1.110+)
-      - experimental.themes (verbatim from [themes] — CC v2.1.129+ nesting)
-      - experimental.monitors (verbatim from [monitors] — CC v2.1.129+ nesting)
+      - experimental.themes (from [themes] — path string or array of path
+        strings, CC v2.1.129+ nesting)
+      - experimental.monitors (from [[monitors]] — array of
+        {name,command,description,when?} entries, or a path string; CC
+        v2.1.129+ nesting)
 
     NOTE: per CC v2.1.129 the experimental components (themes, monitors)
     moved under `experimental.{key}`. Top-level keys still work but emit a
     warning in `claude plugin validate`; new plugins should use the nested
-    form.
+    form. CC types experimental.themes as a path string/array and
+    experimental.monitors as a typed array (or path) — NOT inline objects —
+    so a dict in those sections is ignored (see the isinstance guards below).
     """
     manifest: dict[str, Any] = {
         "name": plugin_name,
@@ -414,6 +421,17 @@ def generate_plugin_json(
             value = metadata.get(key)
             if isinstance(value, str) and value.strip():
                 manifest[key] = value.strip()
+        # displayName (CC v2.1.143+): human-readable UI label; falls back to
+        # `name` when absent. defaultEnabled (CC v2.1.154+): ship a plugin that
+        # installs disabled. Both optional — emitted only when explicitly set.
+        # defaultEnabled is checked bool-only (not truthy) so `default_enabled =
+        # false` in the profile is honored instead of silently dropped.
+        display_name = metadata.get("display_name")
+        if isinstance(display_name, str) and display_name.strip():
+            manifest["displayName"] = display_name.strip()
+        default_enabled = metadata.get("default_enabled")
+        if isinstance(default_enabled, bool):
+            manifest["defaultEnabled"] = default_enabled
 
     # Propagate the optional [userConfig] section verbatim into plugin.json.
     # PSS does NOT validate the nested structure — consumers must follow the
@@ -455,11 +473,17 @@ def generate_plugin_json(
     # nested under `experimental`. Top-level still works but emits a
     # `claude plugin validate` warning. PSS emits the nested form for both.
     experimental: dict[str, Any] = {}
+    # experimental.themes is a path STRING or ARRAY of path strings pointing at
+    # theme JSON files/dirs — never an inline object (CC plugins-reference).
     themes = profile.get("themes")
-    if isinstance(themes, dict) and themes:
+    if isinstance(themes, (str, list)) and themes:
         experimental["themes"] = themes
+    # experimental.monitors is an ARRAY of {name,command,description,when?}
+    # entries or a relative path string — never an inline object. The validator
+    # (validate_monitors_section) is the gate that rejects a monitor command
+    # referencing ${user_config.*} (CC 2.1.207); the generator passes through.
     monitors = profile.get("monitors")
-    if isinstance(monitors, dict) and monitors:
+    if isinstance(monitors, (str, list)) and monitors:
         experimental["monitors"] = monitors
     if experimental:
         manifest["experimental"] = experimental

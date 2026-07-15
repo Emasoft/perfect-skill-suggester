@@ -49,8 +49,8 @@ OPTIONAL_SECTIONS = [
     "dependencies",
     "metadata",    # v2.9.34+ — plugin provenance fields (homepage, repository, license)
     "userConfig",  # v2.9.35+ — CC plugin.json userConfig pass-through
-    "monitors",    # v2.9.38+ — CC v2.1.105+ plugin.json monitors pass-through
-    "themes",      # v3.4.2+ — CC v2.1.118+ plugin.json themes pass-through (under experimental.themes)
+    "monitors",    # v2.9.38+ — CC v2.1.105+ experimental.monitors (typed array or path string; validate_monitors_section)
+    "themes",      # v3.4.2+ — CC v2.1.118+ experimental.themes (path string or array of strings; validate_themes_section)
     "channels",    # v3.4.2+ — CC plugin.json channels pass-through
     "data_dir",    # v3.4.2+ — runtime dependency install hook into ${CLAUDE_PLUGIN_DATA}
 ]
@@ -474,7 +474,13 @@ def _validate_plugin_dep_entry(entry: Any, idx: int, result: ValidationResult) -
 
 DATA_DIR_FIELDS = {"npm", "pip", "rust_cargo", "downloads"}
 DOWNLOAD_REQUIRED_FIELDS = {"url", "sha256", "dest"}
-METADATA_FIELDS = {"homepage", "repository", "license"}
+METADATA_FIELDS = {
+    "homepage",
+    "repository",
+    "license",
+    "display_name",     # CC v2.1.143+ → plugin.json displayName
+    "default_enabled",  # CC v2.1.154+ → plugin.json defaultEnabled
+}
 PASSTHROUGH_MAX_DEPTH = 6  # protects against pathological nested-table bombs
 
 _SHA256_VAL_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -657,18 +663,35 @@ def validate_metadata_section(data: dict[str, Any], result: ValidationResult) ->
     ):
         result.error("[metadata].license must be a non-empty string")
 
+    # displayName (CC v2.1.143+) — non-empty string, falls back to name.
+    display_name = section.get("display_name")
+    if display_name is not None and (
+        not isinstance(display_name, str) or not display_name.strip()
+    ):
+        result.error("[metadata].display_name must be a non-empty string")
+
+    # defaultEnabled (CC v2.1.154+) — bool only. Checked with `is not None` +
+    # isinstance(bool) so a literal `false` is validated, not treated as unset.
+    default_enabled = section.get("default_enabled")
+    if default_enabled is not None and not isinstance(default_enabled, bool):
+        result.error("[metadata].default_enabled must be a boolean")
+
 
 def validate_passthrough_section(
     data: dict[str, Any], section_name: str, result: ValidationResult,
     allow_list: bool = False,
 ) -> None:
-    """Validate a CC pass-through section (userConfig, themes, monitors, channels).
+    """Validate a CC pass-through section (userConfig, channels).
 
     Pass-through sections are emitted verbatim into plugin.json without
     transformation, so this validator checks only:
-      - top-level type (table for userConfig/themes/monitors; list for channels)
+      - top-level type (table for userConfig; table-or-list for channels)
       - bounded nesting depth (PASSTHROUGH_MAX_DEPTH) to block pathological
         nested-table bombs that could OOM the JSON encoder
+
+    themes and monitors have CC-specific value shapes (path string / typed
+    array), so they get dedicated validators (validate_themes_section /
+    validate_monitors_section) rather than this generic pass-through check.
     """
     section = data.get(section_name)
     if section is None:
@@ -693,6 +716,79 @@ def validate_passthrough_section(
             f"[{section_name}] nesting depth {depth} exceeds maximum "
             f"{PASSTHROUGH_MAX_DEPTH} (likely a pathological/malicious table)"
         )
+
+
+def validate_themes_section(data: dict[str, Any], result: ValidationResult) -> None:
+    """Validate [themes] → plugin.json experimental.themes.
+
+    CC plugins-reference types experimental.themes as a path STRING or an ARRAY
+    of path strings pointing at theme JSON files/dirs — never an inline object.
+    (Was mis-typed as a table before v3.10.0; the object form produced an
+    invalid manifest and the CC-correct path was silently dropped.)
+    """
+    section = data.get("themes")
+    if section is None:
+        return
+    if isinstance(section, str):
+        if not section.strip():
+            result.error("[themes] path string must be non-empty")
+        return
+    if isinstance(section, list):
+        for i, item in enumerate(section):
+            if not isinstance(item, str) or not item.strip():
+                result.error(
+                    f"themes[{i}] must be a non-empty path string, got: "
+                    f"{type(item).__name__}"
+                )
+        return
+    result.error(
+        f"[themes] must be a path string or array of path strings, got: "
+        f"{type(section).__name__}"
+    )
+
+
+def validate_monitors_section(data: dict[str, Any], result: ValidationResult) -> None:
+    """Validate [[monitors]] / monitors → plugin.json experimental.monitors.
+
+    CC plugins-reference types experimental.monitors as an ARRAY of
+    {name, command, description, when?} entries OR a relative path string —
+    never an inline object. Each monitor `command` must NOT reference
+    ${user_config.*} (rejected by CC 2.1.207 as a shell-injection vector;
+    authors must use exec form or $CLAUDE_PLUGIN_OPTION_<KEY>).
+    """
+    section = data.get("monitors")
+    if section is None:
+        return
+    if isinstance(section, str):
+        if not section.strip():
+            result.error("[monitors] path string must be non-empty")
+        return
+    if not isinstance(section, list):
+        result.error(
+            f"[monitors] must be an array of monitor tables or a path string, "
+            f"got: {type(section).__name__}"
+        )
+        return
+    for i, entry in enumerate(section):
+        if not isinstance(entry, dict):
+            result.error(
+                f"monitors[{i}] must be a table with name/command/description, "
+                f"got: {type(entry).__name__}"
+            )
+            continue
+        for req_field in ("name", "command", "description"):
+            value = entry.get(req_field)
+            if not isinstance(value, str) or not value.strip():
+                result.error(
+                    f"monitors[{i}].{req_field} must be a non-empty string"
+                )
+        command = entry.get("command")
+        if isinstance(command, str) and "${user_config" in command:
+            result.error(
+                f"monitors[{i}].command must not reference ${{user_config.*}} "
+                f"(rejected by CC 2.1.207); use exec form or "
+                f"$CLAUDE_PLUGIN_OPTION_<KEY>"
+            )
 
 
 def validate_dependencies_section(
@@ -772,8 +868,10 @@ def validate_toml(
     validate_data_dir_section(data, result)
     validate_metadata_section(data, result)
     validate_passthrough_section(data, "userConfig", result)
-    validate_passthrough_section(data, "themes", result)
-    validate_passthrough_section(data, "monitors", result)
+    # themes/monitors have CC-specific value shapes (path string / typed array),
+    # NOT free-form tables — so they get dedicated validators, not pass-through.
+    validate_themes_section(data, result)
+    validate_monitors_section(data, result)
     # channels can be a list at the top level (per CC plugin.json schema)
     validate_passthrough_section(data, "channels", result, allow_list=True)
 

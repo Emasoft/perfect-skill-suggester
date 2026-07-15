@@ -111,3 +111,123 @@ class TestDisallowedTools:
             MINIMAL_TOML.format(extra="disallowedTools = []"), tmp_path
         )
         assert rc == 0
+
+
+def _toml_with(prefix: str = "", suffix: str = "") -> str:
+    """Build a full agent-toml fixture.
+
+    Top-level scalar keys (e.g. `themes = "..."`) go in `prefix` — TOML requires
+    them BEFORE any table header. Table sections (`[metadata]`, `[[monitors]]`)
+    go in `suffix`, after [skills].
+    """
+    return (
+        f"{prefix}"
+        "[agent]\n"
+        'name = "fixture"\n'
+        'path = "<AGENT_PATH>"\n\n'
+        "[skills]\n"
+        'primary = ["testing"]\n'
+        "secondary = []\n"
+        "specialized = []\n"
+        f"{suffix}"
+    )
+
+
+class TestMetadataDisplayNameAndDefaultEnabled:
+    """[metadata].display_name (CC v2.1.143+) and default_enabled (v2.1.154+)."""
+
+    def test_display_name_string_accepted(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(
+            _toml_with(suffix='\n[metadata]\ndisplay_name = "My Plugin"\n'), tmp_path
+        )
+        assert rc == 0, out
+        assert "unknown field" not in out
+
+    def test_display_name_non_string_rejected(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(
+            _toml_with(suffix="\n[metadata]\ndisplay_name = 123\n"), tmp_path
+        )
+        assert rc != 0
+        assert "display_name" in out
+
+    def test_default_enabled_bool_accepted(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(
+            _toml_with(suffix="\n[metadata]\ndefault_enabled = false\n"), tmp_path
+        )
+        assert rc == 0, out
+        assert "unknown field" not in out
+
+    def test_default_enabled_non_bool_rejected(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(
+            _toml_with(suffix='\n[metadata]\ndefault_enabled = "yes"\n'), tmp_path
+        )
+        assert rc != 0
+        assert "default_enabled" in out
+
+
+class TestThemesValueType:
+    """experimental.themes is a path string or array of path strings, not a dict."""
+
+    def test_path_string_accepted(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(_toml_with(prefix='themes = "./themes"\n\n'), tmp_path)
+        assert rc == 0, out
+
+    def test_array_of_strings_accepted(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(
+            _toml_with(prefix='themes = ["./a.json", "./b.json"]\n\n'), tmp_path
+        )
+        assert rc == 0, out
+
+    def test_object_rejected(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(
+            _toml_with(suffix='\n[themes]\nbase = "dark"\n'), tmp_path
+        )
+        assert rc != 0
+        assert "themes" in out
+
+
+class TestMonitorsValueType:
+    """experimental.monitors is a typed array (or path string), not a dict."""
+
+    def test_array_of_tables_accepted(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(
+            _toml_with(
+                suffix='\n[[monitors]]\nname = "m"\ncommand = "tail -f x"\n'
+                'description = "watch x"\n'
+            ),
+            tmp_path,
+        )
+        assert rc == 0, out
+
+    def test_path_string_accepted(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(
+            _toml_with(prefix='monitors = "./config/monitors.json"\n\n'), tmp_path
+        )
+        assert rc == 0, out
+
+    def test_object_rejected(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(
+            _toml_with(suffix='\n[monitors]\nfoo = "bar"\n'), tmp_path
+        )
+        assert rc != 0
+        assert "monitors" in out
+
+    def test_missing_required_field_rejected(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(
+            _toml_with(suffix='\n[[monitors]]\nname = "m"\ncommand = "echo hi"\n'),
+            tmp_path,
+        )
+        assert rc != 0
+        assert "description" in out
+
+    def test_user_config_in_command_rejected(self, tmp_path: Path) -> None:
+        """CC 2.1.207 rejects ${user_config.*} in a monitor command (injection)."""
+        rc, out = _run_validator(
+            _toml_with(
+                suffix='\n[[monitors]]\nname = "m"\n'
+                'command = "echo ${user_config.token}"\ndescription = "d"\n'
+            ),
+            tmp_path,
+        )
+        assert rc != 0
+        assert "user_config" in out
