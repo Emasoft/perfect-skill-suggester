@@ -23,7 +23,6 @@ Steps:
 import argparse
 import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -31,7 +30,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from pss_paths import get_data_dir
+from pss_paths import detect_platform, get_data_dir
 
 
 def resolve_plugin_root() -> Path:
@@ -39,17 +38,21 @@ def resolve_plugin_root() -> Path:
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_root:
         return Path(env_root)
-    # Fallback: find latest version in plugin cache
-    cache_base = (
-        Path.home()
-        / ".claude"
-        / "plugins"
-        / "cache"
-        / "emasoft-plugins"
-        / "perfect-skill-suggester"
-    )
-    if not cache_base.exists():
-        sys.exit(f"ERROR: Plugin cache not found: {cache_base}")
+    # Fallback: find the plugin under ANY installed marketplace cache dir.
+    # A single hardcoded marketplace name (formerly "emasoft-plugins") broke
+    # for anyone installing PSS from a fork, a private marketplace, or a
+    # renamed channel — glob across all of them instead.
+    cache_root = Path.home() / ".claude" / "plugins" / "cache"
+    candidates = sorted(cache_root.glob("*/perfect-skill-suggester"))
+    if not candidates:
+        sys.exit(f"ERROR: Plugin cache not found under {cache_root}/*/perfect-skill-suggester")
+    if len(candidates) > 1:
+        sys.exit(
+            "ERROR: perfect-skill-suggester found in multiple marketplace caches ("
+            + ", ".join(c.parent.name for c in candidates)
+            + "). Set CLAUDE_PLUGIN_ROOT to disambiguate."
+        )
+    cache_base = candidates[0]
 
     def _version_key(p: Path) -> tuple[int, ...]:
         """Parse '2.3.28' into (2, 3, 28) for correct numeric sorting."""
@@ -65,19 +68,18 @@ def resolve_plugin_root() -> Path:
 
 
 def resolve_binary(plugin_root: Path) -> Path:
-    """Resolve the PSS binary for the current platform."""
-    system = platform.system()
-    machine = platform.machine()
-    if system == "Darwin" and machine == "arm64":
-        name = "pss-darwin-arm64"
-    elif system == "Darwin" and machine == "x86_64":
-        name = "pss-darwin-x86_64"
-    elif system == "Linux" and machine == "x86_64":
-        name = "pss-linux-x86_64"
-    elif system == "Linux" and machine == "aarch64":
-        name = "pss-linux-arm64"
-    else:
-        sys.exit(f"ERROR: Unsupported platform: {system}/{machine}")
+    """Resolve the PSS binary for the current platform.
+
+    Delegates the platform→filename mapping to pss_paths.detect_platform() —
+    the single source of truth already shared by pss_hook.py, pss_mcp_server.py,
+    and bin/pss-hook-dispatch.sh — instead of re-implementing a second,
+    narrower Darwin/Linux-only table here (which also lacked Windows and
+    Android/Termux support that detect_platform() already handles).
+    """
+    try:
+        name = detect_platform()
+    except RuntimeError as e:
+        sys.exit(f"ERROR: {e}")
     binary = plugin_root / "bin" / name
     if not binary.exists() or not os.access(binary, os.X_OK):
         sys.exit(f"ERROR: Binary not found or not executable: {binary}")
@@ -210,11 +212,16 @@ def run_pipeline(
             if p is not None and p.poll() is None:
                 p.kill()
 
-    # Stage 4: cat tmpfile | merge-events. This populates the event-
-    # sourced temporal index. Failures here are logged but DO NOT fail
-    # the overall reindex — the legacy skills table (used by the
-    # suggestion hot path) is already up to date. The user can re-run
-    # `pss merge-events` manually.
+    # Stage 4: cat tmpfile | merge-events. Populates the event-sourced
+    # temporal index (events + elements_state, TRDD-152e697f). merge-events is
+    # the ONLY writer of the events table during reindex, so a swallowed
+    # failure here silently stops temporal tracking from advancing while
+    # `pss-reindex-skills` still reports SUCCESS. That violates the project
+    # fail-fast rule, so a failure/timeout now propagates a NON-ZERO result —
+    # EXACTLY like stages 1-3 (which `return rc`) — instead of a stderr
+    # WARNING. The skills table (stages 1-3) is already committed at this
+    # point, so the messages make the partial state explicit; main() then
+    # exits non-zero so the caller learns the reindex did not fully complete.
     try:
         with open(discover_jsonl, "rb") as inp:
             rc_e = subprocess.run(
@@ -222,14 +229,18 @@ def run_pipeline(
             ).returncode
         if rc_e != 0:
             print(
-                f"WARNING: merge-events exited with code {rc_e} (legacy index OK)",
+                f"ERROR: Pipeline stage 'merge-events' exited with code {rc_e} "
+                "(skills table updated; temporal events/elements_state NOT updated)",
                 file=sys.stderr,
             )
+            return rc_e
     except subprocess.TimeoutExpired:
         print(
-            "WARNING: merge-events timed out after 5 minutes (legacy index OK)",
+            "ERROR: Pipeline stage 'merge-events' timed out after 5 minutes "
+            "(skills table updated; temporal events/elements_state NOT updated)",
             file=sys.stderr,
         )
+        return 1
     finally:
         try:
             discover_jsonl.unlink(missing_ok=True)
@@ -395,8 +406,14 @@ def main() -> None:
         exclude_inactive_plugins=args.exclude_inactive_plugins,
     )
     if pipeline_rc != 0:
+        # run_pipeline already printed the stage-specific ERROR. A stage 1-3
+        # failure leaves the previous skills DB intact (the atomic swap never
+        # ran); a stage-4 (merge-events) failure means the skills DB WAS
+        # swapped but the temporal index did not update. Don't assert a blanket
+        # "old index preserved" here — it is only true for stages 1-3.
         print(
-            f"ERROR: Pipeline failed with exit code {pipeline_rc}. Old index preserved.",
+            f"ERROR: Reindex pipeline failed with exit code {pipeline_rc}. "
+            "See the stage error above.",
             file=sys.stderr,
         )
         staging_index.unlink(missing_ok=True)

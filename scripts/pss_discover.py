@@ -49,6 +49,33 @@ from pathlib import Path
 from typing import Any
 
 
+def scope_path_from_discovery_source(source: str) -> str:
+    """Derive the scope_path used to key an element in the temporal index.
+
+    MUST mirror `scope_path_from_discovery_source()` in
+    rust/skill-suggester/src/temporal.rs byte-for-byte. The Rust merge-events
+    writer computes each observation's scope_path from its own `source`
+    field (not from the JSONL record's `path`), so the DI-4 manifest's
+    `visited_scope_paths` set must be built the same way — otherwise the
+    manifest lines never match any real elements_state.scope_path value and
+    the removal-detection query (`read_active_in_scope_paths`) silently
+    finds nothing (audit 20260514 follow-up: the previous fallback derived
+    scope_path from `Path(path).parent`, which is a different value space
+    entirely and made every manifest-contributed entry a no-op).
+    """
+    if source.startswith("project:"):
+        return source[len("project:"):]
+    if source.startswith("local:"):
+        return source[len("local:"):]
+    if source.startswith("plugin:"):
+        return source[len("plugin:"):]
+    if source.startswith("user:"):
+        return source[len("user:"):]
+    if source.startswith("marketplace:"):
+        return source[len("marketplace:"):]
+    return ""
+
+
 def get_home_dir() -> Path:
     """Get user home directory."""
     return Path.home()
@@ -2106,12 +2133,16 @@ def main() -> int:
     # JSONL mode: one JSON object per line with minimal fields.
     if args.jsonl:
         # DI-4 (audit 20260514): emit a leading manifest line enumerating
-        # EVERY scope_path the discoverer walked — not just the ones with
-        # successful observations. The Rust merge-events writer used to
-        # populate visited_scope_paths from per-observation loops, so a
-        # plugin uninstall that left zero observations for its scope_path
-        # was never detected as a removal (visited_scope_paths missed the
-        # plugin, so its dead elements_state rows stayed exists=true).
+        # every scope_path this run's SURVIVING elements belong to, so a
+        # PARTIAL removal (one element gone from a scope that still has
+        # others) is detected even if that element itself produced no
+        # observation. NOTE (review 20260715): this manifest is built only
+        # from `elements` that ARE still present, so a scope reduced to
+        # ZERO elements this run (e.g. a plugin fully uninstalled) never
+        # appears here at all and its removal still goes undetected — that
+        # gap needs enumerating scan roots independently of results, which
+        # is a larger, cross-file design change (deferred; see
+        # reports/pss-extension-tracking-review/).
         #
         # The manifest line is identified by `"_pss_manifest": true` and
         # MUST come first so the writer can read it before processing
@@ -2122,11 +2153,13 @@ def main() -> int:
         for elem in elements:
             sp = elem.get("scope_path") or ""
             if not sp:
-                # Fall back to the parent dir of the element's path when
-                # scope_path isn't explicitly set (older element types).
-                p = elem.get("path") or ""
-                if p:
-                    sp = str(Path(p).parent)
+                # Derive from `source` using the SAME algorithm the Rust
+                # writer uses for its own scope_path (see
+                # scope_path_from_discovery_source docstring above) — a
+                # value derived any other way (e.g. from the file path)
+                # never matches a real elements_state.scope_path and makes
+                # the manifest line a silent no-op.
+                sp = scope_path_from_discovery_source(elem.get("source") or "")
             if sp:
                 scope_paths_walked.add(sp)
         manifest = {
