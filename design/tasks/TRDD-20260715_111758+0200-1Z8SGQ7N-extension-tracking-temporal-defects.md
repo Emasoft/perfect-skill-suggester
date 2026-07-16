@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T00:51:33+0200
+updated: 2026-07-17T01:06:08+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -191,6 +191,23 @@ correction came from a LATER ground-truth enumeration. For any key migration, st
 enumerate every carrier of the key from the LIVE data — key columns, value columns, ids
 EMBEDDED in string values, indices — and every writer path's locking. Column-name scans
 structurally cannot see embedded refs.
+
+**UPDATE 2026-07-17 01:06 — F4+F5 SHIPPED (v3.10.5) + LIVE DB MIGRATED + PROVEN.**
+- v3.10.5 released via publish.py (submodule 6cd61bf + cc6dc41, parent 09e9871 + release
+  commit); both tags on remote; GH release live; shipped binary verified (reports 3.10.5,
+  carries the verb + gate key). CPV at ship: CRITICAL=0 MAJOR=0 MINOR=0 (two skillaudit FPs
+  devitalized: INTENT_DESTRUCTIVE_INTENT on the safety prose; TOOL_SHADOW on a test fixture
+  named "CoolTool" — renamed CoolSkill, uppercase property preserved).
+- LIVE migration: fresh backup (`…db.pre-f4f5-live.20260717_010504+0200`) → shipped binary
+  `migrate-element-ids` → {"changed":1574}, rerun {"changed":0}; db-stats invariant
+  (19,258 events / 11,891 state); FINAL validator PASS (PRE=fresh backup, POST=live);
+  `timeline 'agent:Explore@marketplace:my-plugins'` resolves on live.
+- Backups retained (do not delete): `…db.pre-f4f5-validation.20260717_001310+0200` (pristine
+  pre-migration), `…db.pre-f4f5-live.20260717_010504+0200` (pre-live-migration),
+  `~/.claude/cache/f4f5-gate-validation/` (migrated copy used for the gate).
+- Installed-plugin note: local install still lags the marketplace; when it updates to
+  3.10.5+, the auto-run in merge-events is a gated no-op here (live already migrated).
+  Fresh installs / other machines auto-migrate on their first reindex, behind backup_index.
 
 **STILL OPEN:**
 - **F9** (P3, observed_at tz/format) + the stage-4 "temporal NOT updated" partial-wording
