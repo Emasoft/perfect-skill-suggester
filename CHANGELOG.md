@@ -2,6 +2,13 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.10.4] - 2026-07-16
+
+### Bug Fixes
+
+- F2 disabled-state freeze + F8 PathChanged drop + bump rust submodule to f8c463f (TRDD-1Z8SGQ7N)
+- F6 override read-own-write + bump rust submodule to f92226f (TRDD-1Z8SGQ7N)
+
 ## [3.10.3] - 2026-07-16
 
 ### Bug Fixes
