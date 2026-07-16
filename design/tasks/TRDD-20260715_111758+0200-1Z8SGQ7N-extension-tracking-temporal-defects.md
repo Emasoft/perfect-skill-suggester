@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-16T18:20:00+0200
+updated: 2026-07-16T18:55:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -98,10 +98,31 @@ clean. The stage-4 "temporal NOT updated" wording tightening is folded into F9's
 (still open). NOTE: on macOS a `cp`-overwritten binary is SIGKILLed by codesign (rc 137) —
 a test-harness artifact, not a code path; publish rebuilds the binaries cleanly.
 
-**STILL OPEN, batch next:** F2 (obs.enabled→update_state freeze), F4 (element_id
-collision, needs migration), F5 (migration scope_path=""), F6 (override-reads-own-write),
-F7 (full-scope-removal), F8 (PathChanged drop), F9 (observed_at tz + the stage-4 partial
-wording) + the xhigh-skipped events full-scan growth.
+**UPDATE 2026-07-16 18:55 — F2 + F8 DONE + COMMITTED (submodule `f8c463f`).**
+- **F2**: removed the `update_state` bool from `persist_event_and_state` (all 4 callers
+  now materialize state); the DI-3 change had wired `obs.enabled` into it, freezing
+  disabled elements' `elements_state`. Removed rather than pinned to `true` so the footgun
+  can't return. **Caveat recorded:** this makes the still-open **F6** (override pass reads
+  its own write) apply uniformly to disabled elements — NOT a regression (F6 already broke
+  the enabled case); F6's fix must snapshot prior `override_status` before the emit loop.
+- **F8**: `compare_and_emit` now emits `PathChanged` on ANY path change (was an `else if`
+  that dropped it when content/size also changed → move+edit lost the relocation).
+- Tests: F8 unit (move+edit → both events; +size → all three), F2 real-writer in-mem-DB
+  (disabled element gets a state row). 188 Rust tests, my-code clippy clean. Production:
+  reindex exit 0, events 18555→19258, elements_state grew by the disabled elements F2 tracks.
+
+**STILL OPEN:**
+- **F6** (P1, override-reads-own-write) — fix: snapshot each element's prior
+  `override_status` into a map BEFORE the main emit loop upserts, and have the override
+  pass compare against that snapshot instead of `read_prior`. Entangled with F2 (above);
+  do next. No migration.
+- **F9** (P3, observed_at tz/format) + the stage-4 "temporal NOT updated" partial-wording
+  tighten. Needs the exact comparison site pinned first. Likely no migration.
+- **F7** (P2, full-scope-removal undetectable) — Python cross-file design change
+  (enumerate scanned roots independently of results). No migration but larger.
+- **F4** (P1, element_id collision) + **F5** (P1, migration scope_path="") — BOTH re-key
+  stored `element_id`s ⇒ **need a data migration ⇒ need USER scoping before coding.**
+- xhigh-skipped events full-scan growth — batch with F9.
 
 **F1 step 3 — retire the plugin-data orphan — NEEDS USER PERMISSION, NOT DONE.** It sits
 OUTSIDE the project (`~/.claude/plugins/data/perfect-skill-suggester-emasoft-plugins/`)
