@@ -2,6 +2,17 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.10.5] - 2026-07-16
+
+### Bug Fixes
+
+- F4+F5 element_id lossless re-key + bump rust submodule to cc6dc41 (TRDD-1Z8SGQ7N)
+
+### Documentation
+
+- **trdd:** TRDD-1Z8SGQ7N — F4/F5 execution plan (verified, ready to code pending name-case decision)
+- **trdd:** TRDD-1Z8SGQ7N — F4 name-case settled on facts + proven on live data
+
 ## [3.10.4] - 2026-07-16
 
 ### Bug Fixes
