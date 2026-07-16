@@ -96,21 +96,32 @@ def resolve_binary(plugin_root: Path) -> Path:
     return binary
 
 
-def backup_index(cache_dir: Path) -> Path:
+def backup_index(cache_dir: Path, db_path: Path) -> Path:
     """Back up existing index files (does NOT delete originals — crash-safe).
 
     The old index stays in place until the new one is verified and swapped in.
     Backup is kept as a safety net for manual recovery only.
     Non-fatal: backup failure does not block reindexing.
+
+    Args:
+        cache_dir: PSS's data dir (get_data_dir()) — holds the non-DB state.
+        db_path: the canonical CozoDB path from pss_cozodb.get_db_path().
+                 Passed in rather than composed here so this function cannot
+                 drift from the one resolver (see the comment below).
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = Path(tempfile.gettempdir()) / f"pss-backup-{timestamp}"
     backup_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("skill-index.json", "pss-skill-index.db"):
-        src = cache_dir / name
+    # The DB is NOT `cache_dir / "pss-skill-index.db"`: since TRDD-1Z8SGQ7N F1
+    # step 2 the DB is pinned to ~/.claude/cache while `cache_dir`
+    # (get_data_dir()) may be $CLAUDE_PLUGIN_DATA. Composing the DB name onto
+    # cache_dir here would silently back up a file that no longer exists and
+    # leave the REAL db — the only copy of the temporal history — unprotected
+    # during the swap. Take the canonical path from the one resolver instead.
+    for src in (cache_dir / "skill-index.json", db_path):
         try:
             if src.exists():
-                shutil.copy2(src, backup_dir / name)
+                shutil.copy2(src, backup_dir / src.name)
         except OSError as e:
             # Backup is best-effort — don't block reindex if copy fails
             print(f"WARNING: Could not back up {src}: {e}", file=sys.stderr)
@@ -164,9 +175,14 @@ def run_pipeline(
         "--index",
         str(staging_index),
     ]
-    # merge-events targets the same DB the merge stage writes (default
-    # CozoDB path). The binary resolves it via $CLAUDE_PLUGIN_DATA /
-    # ~/.claude/cache/ unless --index overrides.
+    # merge-events targets the same DB the merge stage writes. No --index is
+    # passed, so the binary resolves the canonical path itself:
+    # $PSS_INDEX_PATH's sibling DB, else ~/.claude/cache/pss-skill-index.db.
+    # It does NOT consult $CLAUDE_PLUGIN_DATA — an earlier version of this
+    # comment claimed it did, and that false claim is what let the Python and
+    # Rust resolvers drift onto two different DB files (TRDD-1Z8SGQ7N F1).
+    # pss_cozodb.get_db_path() now mirrors this resolution exactly, so the
+    # skills stage and this stage land on one file.
     merge_events_args = [str(binary), "merge-events"]
 
     # Stage 0: discover → tmpfile. We could use Popen to stream into the
@@ -403,8 +419,12 @@ def main() -> None:
     # if it exists, but no JSON file is produced as output.
     staging_index = cache_dir / "skill-index.staging.json"
 
-    # Step 1: Back up (old index stays in place — crash-safe)
-    backup_dir = backup_index(cache_dir)
+    # Step 1: Back up (old index stays in place — crash-safe). The DB path
+    # comes from the canonical resolver, NOT from cache_dir (F1 step 2: the DB
+    # is pinned to ~/.claude/cache; cache_dir may be $CLAUDE_PLUGIN_DATA).
+    from pss_cozodb import get_db_path  # noqa: PLC0415
+
+    backup_dir = backup_index(cache_dir, get_db_path())
 
     # Step 2: Pipeline writes to staging file (not the live index)
     # If crash/blackout happens here, old index is still intact and usable

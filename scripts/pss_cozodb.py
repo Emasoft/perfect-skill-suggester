@@ -102,7 +102,11 @@ if str(_SCRIPTS_DIR) not in sys.path:
 import pss_paths  # noqa: E402
 
 DB_FILENAME = "pss-skill-index.db"
-LOCK_FILENAME = "pss-skill-index.db.lock"
+# NOTE: no LOCK_FILENAME constant here on purpose. The legacy `<db>.lock` is
+# resolved by pss_paths.get_db_lock_path() and by nothing else; a second
+# spelling of that name in this module was dead code and a standing invitation
+# to compose it against the wrong directory — precisely how the DB path itself
+# drifted (TRDD-1Z8SGQ7N F1). One name, one resolver.
 # v3.5.0+: writers now build into a staging file and atomic-rename onto the
 # live DB. Concurrent writers serialize on the *write* lock, NOT on the live
 # DB's lock file, so readers (the Rust binary called by pss_hook) never
@@ -119,8 +123,43 @@ STAGING_SUFFIX = ".staging"
 
 
 def get_db_path() -> Path:
-    """Resolve the CozoDB file path via the same logic the Rust binary uses."""
-    return pss_paths.get_data_dir() / DB_FILENAME
+    """Resolve the CozoDB file path — byte-for-byte mirror of the Rust binary.
+
+    F1 step 2 (TRDD-1Z8SGQ7N): this used to return
+    `pss_paths.get_data_dir() / DB_FILENAME`, whose docstring CLAIMED parity
+    with the binary but did not have it. `get_data_dir()` prefers a
+    PSS-scoped `$CLAUDE_PLUGIN_DATA`; the Rust resolver
+    (`resolve_db_path_canonical` / `get_db_path` in main.rs) NEVER reads that
+    variable and always lands on `~/.claude/cache`. So with the env var set —
+    the normal case when the hook or /pss-reindex-skills runs inside a PSS
+    plugin session — Python wrote the `skills` table into
+    plugin-data/pss-skill-index.db while the Rust `merge-events` writer and
+    the suggestion hot path used ~/.claude/cache/pss-skill-index.db. Two
+    divergent DBs: one with skills and no history, one with the real history.
+
+    The DB path is therefore canonicalized on ~/.claude/cache for EVERY
+    surface: it is env-independent, it matches where the live
+    8965-skill/9135-event DB already is, it needs no migration, and it kills
+    the whole flip-flop class — the DB can no longer move because a different
+    plugin's session happened to export a different env var.
+    `$CLAUDE_PLUGIN_DATA` still backs PSS's NON-DB state via
+    `pss_paths.get_data_dir()` (staging JSON, lockfiles, backups); only the
+    DB is pinned.
+
+    Resolution order mirrors main.rs exactly:
+      1. `$PSS_INDEX_PATH` → the sibling DB in that JSON path's directory
+         (Rust ignores the given filename and joins DB_FILE onto the parent,
+         so a value already ending in .db resolves to its sibling, not to
+         itself — mirrored here on purpose; divergence is the bug).
+      2. `~/.claude/cache/pss-skill-index.db`.
+    Rust's step 0 (an explicit `--index`) has no Python counterpart: no
+    Python caller passes one (pss_merge_queue's `--index` names the JSON
+    seed, never the DB).
+    """
+    index_path = os.environ.get("PSS_INDEX_PATH", "")
+    if index_path:
+        return Path(index_path).parent / DB_FILENAME
+    return pss_paths.get_claude_config_dir() / "cache" / DB_FILENAME
 
 
 def open_db(path: Path | None = None) -> Client:

@@ -52,13 +52,18 @@ SUBPROCESS_TIMEOUT = (
     8  # Binary timeout in seconds (hooks.json timeout is 10s; keep this < 10)
 )
 SKILL_INDEX_FILE = "skill-index.json"
-# Hook-side coordination with pss_cozodb writers. Writers take fcntl.LOCK_EX
-# on get_db_lock_path() before opening CozoDB for write. Without a matching
-# reader-side LOCK_SH the Rust binary can hit a half-committed SQLite file
-# and cozo-ce panics with `database is locked` (SIGABRT, exit code -6).
+# Hook-side coordination with pss_cozodb writers. A PRE-v3.5.0 writer took
+# fcntl.LOCK_EX on get_db_lock_path() and edited the live DB in place; without
+# a matching reader-side LOCK_SH the Rust binary could hit a half-committed
+# SQLite file and cozo-ce panics with `database is locked` (SIGABRT, exit -6).
 # v3.4.2+: acquire LOCK_SH around the binary subprocess call; retry once on
 # -6 with a short backoff if the lock didn't fully prevent a race (e.g.
 # another process opening the DB without going through our writer path).
+# v3.5.0+ writers no longer touch this lock at all — they serialize on
+# `<db>.write.lock` and atomically rename a staging file into place, so a
+# reader is never exposed to a partial write. This LOCK_SH is kept purely as
+# defense-in-depth against a stale pre-v3.5.0 writer still on the machine;
+# against a current writer it is a no-op, not a guarantee.
 DB_LOCK_ACQUIRE_TIMEOUT = 4.0  # Max seconds to wait for the reader lock
 DB_LOCK_POLL_INTERVAL = 0.05    # Sleep between non-blocking acquire attempts
 DB_RETRY_DELAY = 0.2            # Backoff before the single retry on SIGABRT
