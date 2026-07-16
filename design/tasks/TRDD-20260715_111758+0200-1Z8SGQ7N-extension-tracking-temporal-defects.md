@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-16T17:42:00+0200
+updated: 2026-07-16T18:20:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -80,9 +80,28 @@ readers there). F3 is P1 with a first-try repro; the fail-fast from `ea09f30` re
 honestly instead of claiming success. Note the stage-4 message says temporal is "NOT
 updated" when it can in fact be PARTIALLY updated — tighten when F3 lands.
 
-**NEXT ACTION — F3** (`merge-events` writer takes no lock). Fix: give the Rust writer an
-fcntl advisory lock matching Python's `<db>.write.lock` discipline. Rust change ⇒ rebuild
-⇒ ship. Batch with F9 (observed_at tz) and the xhigh-skipped events full-scan growth.
+**UPDATE 2026-07-16 18:20 — F3 IS DONE + COMMITTED (submodule `20b2da2`).** The
+`merge-events` arm is intercepted in `main()` BEFORE the DB opens (mirroring Health/DbPath)
+and takes two blocking flocks in a fixed, deadlock-free order: `<db>.write.lock` (EX,
+excludes a concurrent Python skills-write) then `<db>.lock` (EX, excludes the hook's
+LOCK_SH readers). Acquired pre-open because a Python writer `os.replace()`s a fresh inode
+over the path. Uses **`fs2`** not `std::fs::File::lock` (the latter is Rust-1.89-only; the
+release cross-builds 5 targets in Docker containers with uncontrolled rustc — fs2 removes
+the MSRV bet). The now-unreachable old `MergeEvents` arm in `run_query_command` was turned
+into an internal-error guard (no duplicate working path).
+
+**F3 PRODUCTION VERIFICATION:** a real reindex under **40 concurrent readers hammering
+`LOCK_SH`** — the exact contention that killed the earlier run — completed **exit 0**;
+the 17966 events survived and grew to 18555; a standalone probe confirmed the writer
+**blocks 1.9s** on a held reader lock instead of racing it. 185 Rust tests, my-code clippy
+clean. The stage-4 "temporal NOT updated" wording tightening is folded into F9's batch
+(still open). NOTE: on macOS a `cp`-overwritten binary is SIGKILLed by codesign (rc 137) —
+a test-harness artifact, not a code path; publish rebuilds the binaries cleanly.
+
+**STILL OPEN, batch next:** F2 (obs.enabled→update_state freeze), F4 (element_id
+collision, needs migration), F5 (migration scope_path=""), F6 (override-reads-own-write),
+F7 (full-scope-removal), F8 (PathChanged drop), F9 (observed_at tz + the stage-4 partial
+wording) + the xhigh-skipped events full-scan growth.
 
 **F1 step 3 — retire the plugin-data orphan — NEEDS USER PERMISSION, NOT DONE.** It sits
 OUTSIDE the project (`~/.claude/plugins/data/perfect-skill-suggester-emasoft-plugins/`)
