@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T01:06:08+0200
+updated: 2026-07-17T01:09:30+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -214,9 +214,9 @@ structurally cannot see embedded refs.
   tighten. Needs the exact comparison site pinned first. Likely no migration.
 - **F7** (P2, full-scope-removal undetectable) — Python cross-file design change
   (enumerate scanned roots independently of results). No migration but larger.
-- **F10** (P3, NEW 2026-07-17): `PruneHistory` is a WRITER dispatched on the unlocked
-  `run_query_command` path — latent F3-class race with hook readers (same SIGABRT mode).
-  Fix = main() intercept with both flocks, like MergeEvents/MigrateElementIds.
+- ~~F10~~ DONE 2026-07-17 01:15 (submodule `bbdfa8f`, local commit — rides the next
+  release): prune-history now intercepted in main() holding both F3 flocks; old arm is an
+  internal-error guard; 203/203 tests; dry-run verified against the live DB.
 - xhigh-skipped events full-scan growth — batch with F9.
 
 ### F4 + F5 EXECUTION PLAN (design done 2026-07-16 19:55; ready to code once the one USER decision below lands)
