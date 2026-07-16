@@ -24,6 +24,8 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from pss_cozodb import (  # noqa: E402
+    _KNOWN_SCHEMA_RELATIONS,
+    _create_db_schema,
     _fnv1a_entry_id,
     atomic_write_cozodb,
     count_skills,
@@ -304,6 +306,170 @@ def test_concurrent_reader_not_blocked_by_writer_lock(scratch_db: Path) -> None:
     t.join(timeout=2)
 
 
+def _seed_temporal_relations(db_path: Path) -> None:
+    """Create the Rust temporal-index tables directly on a live DB, mirroring
+    temporal.rs::TEMPORAL_DDL (events / elements_state / scan_runs), and
+    insert one row each. Used to prove atomic_write_cozodb preserves them.
+    """
+    db = open_db(db_path)
+    try:
+        db.run(
+            """
+            {:create events {
+                event_id: String =>
+                observed_at: String,
+                scan_id: String,
+                event_type: String,
+                element_type: String,
+                element_name: String,
+                element_id: String,
+                scope: String,
+                scope_path: String,
+                source: String,
+                path: String,
+                content_hash: String,
+                file_size: Int default -1,
+                token_count: Int default -1,
+                enabled: Bool default true,
+                override_status: String default "none",
+                diff_json: String default "{}",
+                snapshot_ref: String default "",
+            }}
+            """
+        )
+        db.run(
+            """
+            {:create elements_state {
+                element_id: String =>
+                last_event_id: String,
+                current_path: String,
+                current_hash: String,
+                current_size: Int default -1,
+                current_token_count: Int default -1,
+                enabled: Bool default true,
+                override_status: String default "none",
+                installed_at: String,
+                last_changed_at: String,
+                exists: Bool default true,
+            }}
+            """
+        )
+        db.run(
+            """
+            {:create scan_runs {
+                scan_id: String =>
+                started_at: String,
+                finished_at: String,
+                scope_paths_json: String,
+                events_emitted: Int default 0,
+                rust_binary_version: String,
+                pss_version: String,
+            }}
+            """
+        )
+        db.run(
+            """
+            ?[event_id, observed_at, scan_id, event_type, element_type, element_name,
+              element_id, scope, scope_path, source, path, content_hash, file_size,
+              token_count, enabled, override_status, diff_json, snapshot_ref] <- [[
+              "01EVT0000000000000000001", "2026-01-01T00:00:00+00:00", "scan-1",
+              "installed", "skill", "phase-b-fixture", "abc123fnv", "user", "/",
+              "user", "/tmp/fake-skill/SKILL.md", "deadbeef", 42, 7, true, "none",
+              "{}", ""
+            ]]
+            :put events { event_id => observed_at, scan_id, event_type, element_type,
+              element_name, element_id, scope, scope_path, source, path,
+              content_hash, file_size, token_count, enabled, override_status,
+              diff_json, snapshot_ref }
+            """
+        )
+        db.run(
+            """
+            ?[element_id, last_event_id, current_path, current_hash, current_size,
+              current_token_count, enabled, override_status, installed_at,
+              last_changed_at, exists] <- [[
+              "abc123fnv", "01EVT0000000000000000001", "/tmp/fake-skill/SKILL.md",
+              "deadbeef", 42, 7, true, "none", "2026-01-01T00:00:00+00:00",
+              "2026-01-01T00:00:00+00:00", true
+            ]]
+            :put elements_state { element_id => last_event_id, current_path,
+              current_hash, current_size, current_token_count, enabled,
+              override_status, installed_at, last_changed_at, exists }
+            """
+        )
+        db.run(
+            """
+            ?[scan_id, started_at, finished_at, scope_paths_json, events_emitted,
+              rust_binary_version, pss_version] <- [[
+              "scan-1", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:01+00:00",
+              "[]", 1, "3.10.0", "3.10.0"
+            ]]
+            :put scan_runs { scan_id => started_at, finished_at, scope_paths_json,
+              events_emitted, rust_binary_version, pss_version }
+            """
+        )
+    finally:
+        db.close()
+
+
+def test_atomic_write_preserves_temporal_relations(scratch_db: Path) -> None:
+    """The P0 data-loss bug: a full reindex must NOT wipe the Rust
+    temporal-index tables (events/elements_state/scan_runs). Seed a live DB
+    with one row in each, run atomic_write_cozodb, and assert the rows and
+    schema survive the staging swap untouched.
+    """
+    entries = {"user::phase-b-fixture": FIXTURE_ENTRY}
+    atomic_write_cozodb(entries, scratch_db, version="3.0")
+    _seed_temporal_relations(scratch_db)
+
+    # A second full reindex is exactly the operation that used to destroy
+    # the temporal tables (brand-new staging DB, no knowledge of them).
+    atomic_write_cozodb(entries, scratch_db, version="3.1")
+
+    db = open_db(scratch_db)
+    try:
+        events = db.run(
+            "?[event_id, element_name, event_type] := "
+            "*events{event_id, element_name, event_type}"
+        ).get("rows", [])
+        assert events == [
+            ["01EVT0000000000000000001", "phase-b-fixture", "installed"]
+        ], f"events table not preserved across reindex: {events}"
+
+        state = db.run(
+            "?[element_id, current_hash, exists] := "
+            "*elements_state{element_id, current_hash, exists}"
+        ).get("rows", [])
+        assert state == [["abc123fnv", "deadbeef", True]], (
+            f"elements_state not preserved across reindex: {state}"
+        )
+
+        runs = db.run(
+            "?[scan_id, events_emitted] := *scan_runs{scan_id, events_emitted}"
+        ).get("rows", [])
+        assert runs == [["scan-1", 1]], f"scan_runs not preserved: {runs}"
+    finally:
+        db.close()
+
+
+def test_atomic_write_fresh_db_has_no_temporal_relations(scratch_db: Path) -> None:
+    """A brand-new install (no prior DB at all) must still swap cleanly —
+    there is nothing to preserve, and that must not raise.
+    """
+    entries = {"user::phase-b-fixture": FIXTURE_ENTRY}
+    count = atomic_write_cozodb(entries, scratch_db, version="3.0")
+    assert count == 1
+
+    db = open_db(scratch_db)
+    try:
+        # None of the temporal tables should exist; querying one must fail
+        # (relation not found) rather than silently returning rows.
+        with pytest.raises(Exception):  # noqa: PT011 — cozo raises its own error type
+            db.run("?[event_id] := *events{event_id}")
+    finally:
+        db.close()
+
+
 def test_schema_has_33_skill_columns(scratch_db: Path) -> None:
     """Validate the skills relation has exactly the columns the Rust hot path reads."""
     entries = {"user::phase-b-fixture": FIXTURE_ENTRY}
@@ -327,3 +493,28 @@ def test_schema_has_33_skill_columns(scratch_db: Path) -> None:
         assert len(rows[0]) == 32  # 32 SELECTed fields (excludes id)
     finally:
         db.close()
+
+
+def test_known_schema_relations_matches_create_db_schema(tmp_path: Path) -> None:
+    """Drift guard: _KNOWN_SCHEMA_RELATIONS lists EXACTLY what _create_db_schema creates.
+
+    If a relation is added to _create_db_schema without updating the constant,
+    _snapshot_extra_relations would classify it as Rust-owned and re-:create it
+    in staging over the schema's copy — failing every subsequent reindex at
+    runtime. Conversely a stale constant entry (schema no longer creates it)
+    would silently DROP that relation's rows on the next swap. Catch both in CI.
+    """
+    from pycozo.client import Client  # local: only this test needs a raw client
+
+    db = Client("sqlite", str(tmp_path / "schema-only.db"), dataframe=False)
+    try:
+        _create_db_schema(db)
+        rows = db.run("::relations").get("rows", [])
+        created = {r[0] for r in rows if r[2] == "normal"}
+    finally:
+        db.close()
+    assert created == set(_KNOWN_SCHEMA_RELATIONS), (
+        "drift between _create_db_schema and _KNOWN_SCHEMA_RELATIONS — "
+        f"missing from constant: {sorted(created - set(_KNOWN_SCHEMA_RELATIONS))}; "
+        f"stale in constant: {sorted(set(_KNOWN_SCHEMA_RELATIONS) - created)}"
+    )

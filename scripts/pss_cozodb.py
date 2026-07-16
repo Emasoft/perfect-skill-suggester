@@ -883,6 +883,121 @@ def _create_db_schema(db: Client) -> None:
     )
 
 
+# Every relation name `_create_db_schema` creates. Anything else found in
+# the live DB (via ::relations introspection) is relation created by a
+# DIFFERENT writer — currently the Rust `merge-events` temporal-index
+# subcommand (events / elements_state / scan_runs / element_blobs /
+# element_descriptions, TRDD-152e697f). This module must never hardcode
+# that list: the Rust DDL evolves independently (temporal.rs::TEMPORAL_DDL)
+# and a duplicated Python copy would silently drift and corrupt the DB.
+# Instead `_snapshot_extra_relations` below discovers "everything the Rust
+# side owns" by set difference against this constant.
+_KNOWN_SCHEMA_RELATIONS: frozenset[str] = frozenset(
+    {
+        "skills",
+        "domain_registry",
+        "domain_aliases",
+        "domain_keywords",
+        "domain_skills",
+        "kw_lookup",
+        "skill_ids",
+        "pss_metadata",
+        "rules",
+    }
+    | {rel for rel, _field in _AUX_RELATIONS}
+)
+
+
+def _snapshot_extra_relations(db_path: Path) -> dict[str, dict[str, Any]]:
+    """Read every relation the LIVE db has that `_create_db_schema` does NOT
+    create, plus their rows, so `atomic_write_cozodb` can carry them across
+    the staging-file swap.
+
+    P0 FIX (data-loss bug, verified pre-fix): `atomic_write_cozodb` builds a
+    brand-new DB from `_create_db_schema` and `os.replace`s it over the live
+    file. That schema has no knowledge of the Rust `merge-events` temporal
+    tables (events / elements_state / scan_runs / ...) — every full reindex
+    silently destroyed the entire event-sourced history, and the NEXT
+    `merge-events` run would then see an empty `elements_state` and treat
+    every element as newly "installed" (thousands of spurious events).
+
+    Schema is DERIVED from the live DB at runtime via Cozo's `::columns`
+    introspection — never hardcoded — so this stays correct even as
+    temporal.rs's DDL evolves. Column DEFAULT clauses are intentionally
+    NOT reproduced: every Rust `:put` statement against these relations
+    names all columns explicitly (verified by reading temporal.rs), so a
+    default is never actually relied upon at write time, only at the
+    original `:create` — reproducing it here would require guessing the
+    default *value*, which `::columns` does not expose (only whether one
+    exists), and guessing would be a silent-fallback landmine.
+
+    Returns `{relation_name: {"create_stmt": str, "data": <export_relations
+    payload>}}`. On a genuinely missing live DB (first-ever reindex) returns
+    `{}` — not an error. On a corrupt/unreadable live DB, mirrors
+    `_snapshot_prior_timestamps`'s precedent: warn loudly on stderr and
+    return `{}` rather than crash the reindex — the alternative (raising)
+    would turn a temporal-history read failure into a total suggestion
+    outage, which is strictly worse than losing history the user can
+    rebuild by re-running `pss merge-events`.
+    """
+    if not db_path.exists():
+        return {}  # First-ever reindex — nothing to preserve.
+    try:
+        client = Client("sqlite", str(db_path), dataframe=False)
+    except BaseException as e:  # noqa: BLE001  cozo-ce can raise pyo3.PanicException
+        sys.stderr.write(
+            f"PSS warning: prior DB at {db_path} could not be opened while "
+            f"preserving temporal relations ({e!r}); event-sourced history "
+            "(events/elements_state/scan_runs) will be LOST by this reindex. "
+            "Run `pss merge-events` after to rebuild materialized state.\n"
+        )
+        return {}
+    preserved: dict[str, dict[str, Any]] = {}
+    try:
+        rels = client.run("::relations")
+        extra_names = [
+            row[0]
+            for row in rels.get("rows", [])
+            if row[2] == "normal" and row[0] not in _KNOWN_SCHEMA_RELATIONS
+        ]
+        for relname in extra_names:
+            try:
+                cols_result = client.run(f"::columns {relname}")
+                cols = sorted(cols_result.get("rows", []), key=lambda r: r[2])
+                key_cols = [c for c in cols if c[1]]
+                nonkey_cols = [c for c in cols if not c[1]]
+                if not key_cols:
+                    raise ValueError(f"relation {relname!r} has no key columns")
+
+                def _fmt(col_rows: list[Any]) -> str:
+                    return ", ".join(f"{c[0]}: {c[3]}" for c in col_rows)
+
+                create_stmt = (
+                    f":create {relname} {{ {_fmt(key_cols)} => {_fmt(nonkey_cols)} }}"
+                    if nonkey_cols
+                    else f":create {relname} {{ {_fmt(key_cols)} }}"
+                )
+                data = client.export_relations([relname])
+                preserved[relname] = {"create_stmt": create_stmt, "data": data}
+            except Exception as e:
+                sys.stderr.write(
+                    f"PSS warning: could not preserve relation {relname!r} "
+                    f"from {db_path} ({e}); its rows will be LOST by this "
+                    "reindex.\n"
+                )
+    except Exception as e:
+        sys.stderr.write(
+            f"PSS warning: prior DB at {db_path} relation introspection "
+            f"failed ({e}); temporal history will be LOST by this reindex.\n"
+        )
+    finally:
+        try:
+            client.close()
+        except OSError:
+            pass
+    return preserved
+
+
 def _snapshot_prior_timestamps(db_path: Path) -> dict[tuple[str, str], str]:
     """Read (name, source) → first_indexed_at from the prior DB if it exists.
 
@@ -1227,6 +1342,12 @@ def atomic_write_cozodb(
         # a read-only operation and does not contend with concurrent readers.
         prior = _snapshot_prior_timestamps(db_path)
 
+        # P0 fix: snapshot every relation _create_db_schema does NOT own
+        # (the Rust temporal-index tables: events / elements_state /
+        # scan_runs / ...) so the swap below doesn't erase them. See
+        # _snapshot_extra_relations's docstring for the full incident.
+        extra_relations = _snapshot_extra_relations(db_path)
+
         # Wipe any stale staging files from a previous interrupted reindex.
         # SQLite-backed CozoDB may leave -journal/-wal/-shm sidecars next to
         # the .db file; clean those too so the new build starts fresh.
@@ -1244,6 +1365,14 @@ def atomic_write_cozodb(
         db = Client("sqlite", str(staging_path), dataframe=False)
         try:
             _create_db_schema(db)
+
+            # Recreate + repopulate the preserved non-owned relations
+            # (temporal-index tables) in the staging DB, BEFORE the atomic
+            # rename. `_create_db_schema` never defines these, so without
+            # this step the swap below would silently discard them.
+            for relname, snapshot in extra_relations.items():
+                db.run(snapshot["create_stmt"])
+                db.import_relations(snapshot["data"])
 
             # Insert version metadata.
             db.run(
