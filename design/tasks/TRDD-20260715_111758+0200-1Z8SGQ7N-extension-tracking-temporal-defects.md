@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-16T18:55:00+0200
+updated: 2026-07-16T19:20:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -111,11 +111,16 @@ a test-harness artifact, not a code path; publish rebuilds the binaries cleanly.
   (disabled element gets a state row). 188 Rust tests, my-code clippy clean. Production:
   reindex exit 0, events 18555→19258, elements_state grew by the disabled elements F2 tracks.
 
+**UPDATE 2026-07-16 19:20 — F6 DONE + COMMITTED (submodule `f92226f`).** The override
+pass now snapshots each element's `override_status` into a map BEFORE the emit loop upserts,
+and compares against that snapshot instead of `read_prior` (which returned the value the
+emit loop had just written). Red-green test: scan 1 establishes user-overrides-plugin (2
+override_started), scan 2 moves the plugin file (clobbers override_status via the emit
+loop) without changing the override decision → fixed total 2, buggy total 3 (spurious). 189
+Rust tests. This closes the F2 caveat — the override tracking is now correct for both
+enabled and disabled elements.
+
 **STILL OPEN:**
-- **F6** (P1, override-reads-own-write) — fix: snapshot each element's prior
-  `override_status` into a map BEFORE the main emit loop upserts, and have the override
-  pass compare against that snapshot instead of `read_prior`. Entangled with F2 (above);
-  do next. No migration.
 - **F9** (P3, observed_at tz/format) + the stage-4 "temporal NOT updated" partial-wording
   tighten. Needs the exact comparison site pinned first. Likely no migration.
 - **F7** (P2, full-scope-removal undetectable) — Python cross-file design change
