@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.10.3] - 2026-07-16
+
+### Bug Fixes
+
+- F3 merge-events writer flock + bump rust submodule to 20b2da2 (TRDD-1Z8SGQ7N)
+
 ## [3.10.2] - 2026-07-16
 
 ### Bug Fixes
