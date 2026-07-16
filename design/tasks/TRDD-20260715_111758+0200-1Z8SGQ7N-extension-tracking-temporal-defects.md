@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-16T10:51:50+0200
+updated: 2026-07-16T15:35:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -34,8 +34,14 @@ clean, pytest 256, cargo check clean + 185/185.
 swap via `_snapshot_extra_relations` (schema derived from the live DB via
 `::relations`/`::columns` — no hardcoded Rust-DDL copy), with a drift-guard test
 (`_KNOWN_SCHEMA_RELATIONS` == exactly what `_create_db_schema` creates). 259 tests green.
-⚠ The INSTALLED plugin (v3.10.0) still carries the clobber until a release ships and the
-plugin updates — do NOT run `/pss-reindex-skills` on this machine before then.
+**UPDATE 2026-07-16 15:35 — v3.10.1 SHIPPED (release commit `c7296e3`).** Carries F1
+step 1 + the review fixes + the xhigh fixes (`4453b11`) + the CPV env-poison
+devitalization (`6538cdc`). Both tags (`v3.10.1`, `perfect-skill-suggester--v3.10.1`)
+verified on remote; GH release live; shipped `pss-darwin-arm64` verified to contain the
+rebuilt temporal.rs (new "events scan failed" string present, reports 3.10.1).
+⚠ The INSTALLED plugin on this machine remains v3.10.0 (clobber still live locally)
+until the marketplace update propagates and the plugin updates — do NOT run
+`/pss-reindex-skills` here before the local install shows 3.10.1.
 
 **NEXT ACTION — F1 step 2 needs ONE design decision before coding (Rust rebuild either
 way):** the path split is caused by ENV-DEPENDENT resolution (Python `get_data_dir`
