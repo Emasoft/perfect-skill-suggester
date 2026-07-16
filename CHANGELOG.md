@@ -2,6 +2,17 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.10.2] - 2026-07-16
+
+### Bug Fixes
+
+- **cozodb:** Canonicalize the DB path on ~/.claude/cache across Python and Rust (TRDD-1Z8SGQ7N F1 step 2)
+
+### Documentation
+
+- **trdd:** TRDD-1Z8SGQ7N — record v3.10.1 shipped (c7296e3), local-install warning stands
+- **trdd:** TRDD-1Z8SGQ7N — F1 step 2 done (7e66077, option B); F3 reproduced; step 3 needs permission
+
 ## [3.10.1] - 2026-07-16
 
 ### Bug Fixes
