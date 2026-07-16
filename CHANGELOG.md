@@ -2,6 +2,20 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.10.1] - 2026-07-16
+
+### Bug Fixes
+
+- **reindex,discover:** Apply extension-tracking review fixes + bump rust submodule
+- **cozodb:** Preserve temporal relations across the atomic staging swap (TRDD-1Z8SGQ7N F1 step 1)
+- **review:** Apply xhigh findings on the F1/extension-tracking work
+- **cpv:** Devitalize reserved-env-poison FP in multi-cache error message
+
+### Documentation
+
+- Add TRDD-1Z8SGQ7N — deferred extension-tracking temporal-index design defects
+- **trdd:** TRDD-1Z8SGQ7N — F1 step 1 landed (e6d94b9); record step-2 canonical-path design fork
+
 ## [3.10.0] - 2026-07-15
 
 ### Bug Fixes
