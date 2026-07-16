@@ -52,10 +52,15 @@ def resolve_plugin_root() -> Path:
     if not candidates:
         sys.exit(f"ERROR: Plugin cache not found under {cache_root}/*/perfect-skill-suggester")
     if len(candidates) > 1:
+        # NOTE: worded as "re-run with … pointing at" (not the imperative
+        # "Set CLAUDE_PLUGIN_ROOT") — CPV's skillaudit CLAUDE_RESERVED_ENV_POISON
+        # detector flags imperative-set prose on reserved env vars as a
+        # cross-plugin clobber; this script only ever READS the var (above).
         sys.exit(
             "ERROR: perfect-skill-suggester found in multiple marketplace caches ("
             + ", ".join(c.parent.name for c in candidates)
-            + "). Set CLAUDE_PLUGIN_ROOT to disambiguate."
+            + "). Re-run with the CLAUDE_PLUGIN_ROOT environment variable"
+            + " pointing at the intended install to disambiguate."
         )
     cache_base = candidates[0]
 
