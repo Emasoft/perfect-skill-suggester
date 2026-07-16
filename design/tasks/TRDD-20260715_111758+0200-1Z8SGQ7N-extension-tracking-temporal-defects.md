@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-16T15:35:00+0200
+updated: 2026-07-16T17:42:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -43,19 +43,52 @@ rebuilt temporal.rs (new "events scan failed" string present, reports 3.10.1).
 until the marketplace update propagates and the plugin updates — do NOT run
 `/pss-reindex-skills` here before the local install shows 3.10.1.
 
-**NEXT ACTION — F1 step 2 needs ONE design decision before coding (Rust rebuild either
-way):** the path split is caused by ENV-DEPENDENT resolution (Python `get_data_dir`
-prefers `$CLAUDE_PLUGIN_DATA` when set+guarded; Rust `get_db_path` and any non-plugin
-invocation always use `~/.claude/cache`) — different surfaces resolve different DBs.
-- Option A: mirror Python's env preference in Rust `get_db_path` + add a one-time
-  history migration (plugin-data lacking events + legacy cache having them → migrate),
-  because a path flip strands the 9135-event history.
-- Option B (RECOMMENDED): canonicalize the DB at `~/.claude/cache` on every surface
-  (env-independent, matches live reality where skills+events already co-reside, zero
-  migration, kills the flip-flop class entirely); plugin-data keeps non-DB state only.
-  Costs: reverses the documented v2.4.6 plugin-data preference for the DB.
-F1 step 3 (retire the April orphan at the plugin-data path — 0 real events, regenerable)
-follows whichever option lands.
+**UPDATE 2026-07-16 17:40 — F1 STEP 2 IS DONE + COMMITTED (`7e66077`). OPTION B CHOSEN.**
+Decided on verified facts, not preference:
+- Probed the SHIPPED binary's `db-path` under 3 envs: Rust resolves
+  `~/.claude/cache/pss-skill-index.db` with `$CLAUDE_PLUGIN_DATA` set, unset, and
+  PSS-scoped — it **never** reads that variable. Only `$PSS_INDEX_PATH`/`--index`
+  move it. So Rust was ALREADY canonical; Option A would have moved the ONE correct
+  surface and stranded the history behind a migration.
+- Live census confirmed the premise exactly: cache = 8965 skills / **9135 events**;
+  plugin-data = 8488 skills / **0 events**. The history is at cache. B = zero migration.
+- **B is Python-only ⇒ NO Rust rebuild.** The TRDD's "Rust rebuild either way"
+  assumption was WRONG — recorded here so it is not repeated.
+
+`pss_cozodb.get_db_path()` now mirrors main.rs exactly (`$PSS_INDEX_PATH` sibling →
+`~/.claude/cache`). `$CLAUDE_PLUGIN_DATA` still backs NON-DB state via `get_data_dir()`
+(staging JSON, lockfiles, backups); only the DB is pinned.
+
+**Derived fix (found by rechecking consequences, NOT in the original finding):**
+`backup_index()` composed `pss-skill-index.db` onto `cache_dir` — a SECOND resolver.
+Once the DB pinned to cache, that backup silently copied nothing, leaving the only copy
+of the history unprotected during the swap. Now takes the canonical path. Also deleted
+the dead `LOCK_FILENAME` constant and corrected `pss_hook`'s false claim that current
+writers take LOCK_EX on the legacy `db.lock`.
+
+**PRODUCTION VERIFICATION (real reindex, bug-triggering env, live DB backed up first):**
+skills → cache DB (9474); the 9135 events **survived the atomic swap and grew to 17966**;
+plugin-data orphan stayed frozen at 8488/0; the backup dir held a real **95 MB** DB
+(pre-fix: a silent no-op). Run 1 exit 1 / run 2 exit 0 — see F3 below. 274 tests, ruff clean.
+
+**NEW EVIDENCE FOR F3 (reproduced on the FIRST real run):** run 1's merge-events died
+with `state upsert failed: database is locked (code 5)` — the Rust writer racing this
+session's own hook readers on the cache DB. It left `events` advanced but
+`elements_state` lagging until run 2 reconciled it. **NOT a regression from step 2**
+(proved: merge-events targets the cache DB regardless of the env var, so it always raced
+readers there). F3 is P1 with a first-try repro; the fail-fast from `ea09f30` reported it
+honestly instead of claiming success. Note the stage-4 message says temporal is "NOT
+updated" when it can in fact be PARTIALLY updated — tighten when F3 lands.
+
+**NEXT ACTION — F3** (`merge-events` writer takes no lock). Fix: give the Rust writer an
+fcntl advisory lock matching Python's `<db>.write.lock` discipline. Rust change ⇒ rebuild
+⇒ ship. Batch with F9 (observed_at tz) and the xhigh-skipped events full-scan growth.
+
+**F1 step 3 — retire the plugin-data orphan — NEEDS USER PERMISSION, NOT DONE.** It sits
+OUTSIDE the project (`~/.claude/plugins/data/perfect-skill-suggester-emasoft-plugins/`)
+and is untracked, so RULE 0 forbids deleting it autonomously. It is now inert (nothing
+writes it; verified frozen across two reindexes) and regenerable, so leaving it costs
+36 MB and nothing else. Ask before removing.
 
 ### Deferred findings, ranked
 
