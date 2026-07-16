@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-15T11:17:58+0200
+updated: 2026-07-16T10:51:50+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -29,9 +29,27 @@ clean, pytest 256, cargo check clean + 185/185.
 `reports/pss-extension-tracking-review/20260715_104606+0200-pss_reindex.md`,
 `…-085200+0000-pss_discover.md`, `…-083000+0200-temporal.md`.
 
-**NEXT ACTION — promote P0 first.** The P0 data-loss defect (F1) is the one to schedule
-immediately; it silently destroys all historical temporal data on the next full reindex
-and is independent of the others. The rest can batch.
+**UPDATE 2026-07-16 — F1 STEP 1 (the P0 clobber) IS FIXED + COMMITTED (`e6d94b9`).**
+`atomic_write_cozodb` now preserves every non-schema-owned relation across the staging
+swap via `_snapshot_extra_relations` (schema derived from the live DB via
+`::relations`/`::columns` — no hardcoded Rust-DDL copy), with a drift-guard test
+(`_KNOWN_SCHEMA_RELATIONS` == exactly what `_create_db_schema` creates). 259 tests green.
+⚠ The INSTALLED plugin (v3.10.0) still carries the clobber until a release ships and the
+plugin updates — do NOT run `/pss-reindex-skills` on this machine before then.
+
+**NEXT ACTION — F1 step 2 needs ONE design decision before coding (Rust rebuild either
+way):** the path split is caused by ENV-DEPENDENT resolution (Python `get_data_dir`
+prefers `$CLAUDE_PLUGIN_DATA` when set+guarded; Rust `get_db_path` and any non-plugin
+invocation always use `~/.claude/cache`) — different surfaces resolve different DBs.
+- Option A: mirror Python's env preference in Rust `get_db_path` + add a one-time
+  history migration (plugin-data lacking events + legacy cache having them → migrate),
+  because a path flip strands the 9135-event history.
+- Option B (RECOMMENDED): canonicalize the DB at `~/.claude/cache` on every surface
+  (env-independent, matches live reality where skills+events already co-reside, zero
+  migration, kills the flip-flop class entirely); plugin-data keeps non-DB state only.
+  Costs: reverses the documented v2.4.6 plugin-data preference for the DB.
+F1 step 3 (retire the April orphan at the plugin-data path — 0 real events, regenerable)
+follows whichever option lands.
 
 ### Deferred findings, ranked
 
