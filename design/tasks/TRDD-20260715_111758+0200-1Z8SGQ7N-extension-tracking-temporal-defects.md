@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T01:09:30+0200
+updated: 2026-07-17T01:42:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -209,11 +209,53 @@ structurally cannot see embedded refs.
   3.10.5+, the auto-run in merge-events is a gated no-op here (live already migrated).
   Fresh installs / other machines auto-migrate on their first reindex, behind backup_index.
 
+**UPDATE 2026-07-17 01:40 — F7 GROUND-TRUTHED + SPECED + IN FLIGHT.** Step-0 carrier
+enumeration FIRST (the F4/F5 meta-lesson), on the live DB + a real discovery run:
+
+- **Removal detection is not leaky, it is INOPERATIVE.** Of 10,484 active elements,
+  **799 are genuinely gone** (absent from a real `--jsonl --all-projects` run); today's
+  policy marks **1** of them removed — **0.13 %**. 7.6 % of the index is zombie state.
+  Measured, then reproduced independently by the ship gate against the shipped v3.10.5
+  binary (`removed=1`). Probes: `scripts_dev/f7_probe.py`, `f7_blast.py` (gitignored).
+- **Three real shapes, all verified on disk:** (1) scope ROOT GONE (`kazuph-dotfiles` 46,
+  `serena-refactor-marketplace` 32); (2) root PRESENT but now yields ZERO elements
+  (**`melodic-software` 599** — dir + marketplace.json still there, content changed to 4
+  formatter plugins; all 599 rows are `installed` at the single 2026-05-13 seed scan and
+  were never seen again); (3) scope RENAMED (`APIAS` → `APIAS-4cc52adb`).
+- **DESIGN CHANGED vs this TRDD's original suggestion.** "Derive visited scopes from the
+  set of SCANNED ROOTS" **cannot fix shape 1** — a root that no longer exists cannot be
+  enumerated from the filesystem. So the fix is a **domain-level claim**: the discoverer
+  emits `exhaustive_scopes` (manifest v2) naming the scopes it enumerated COMPLETELY;
+  removal detection then sweeps any unobserved active in a claimed scope. One rule, all
+  three shapes, ~2 files, no migration. Spec: `scripts_dev/F7-scan-coverage-spec.md`.
+- **The claim is the danger** — a false one mass-deletes history — so every filter drops
+  a scope (name/type filter ⇒ claim nothing; no `--all-projects` ⇒ no project/local;
+  `--exclude-inactive-plugins` ⇒ no plugin/marketplace, since a DISABLED plugin's
+  elements are unobserved-but-present and would be reported removed, re-breaking F2's
+  distinction; zero elements ⇒ claim nothing; any walk I/O error ⇒ claim nothing —
+  `os.walk` at pss_discover.py L548 has NO `onerror`, so an unreadable dir is silently
+  indistinguishable from an empty one). Under-claiming only delays a sweep.
+- **Predicted post-fix outcome (to be reproduced):** the next full reindex emits **799**
+  Removed events over 25 buckets — marketplace 726, plugin 50, project 22, local 1,
+  **user 0** — and every one of those 25 buckets is FULLY wiped (100 % of its actives),
+  the signature of full-scope removal and the proof the policy does not over-reach into
+  partially-present scopes.
+- **Ship gate** `scripts_dev/f7_validate.py` (end-to-end on a COPY of the live 19k index;
+  predicts the removal SET from PRE+JSONL independently, then asserts POST matches it
+  exactly — set equality, not a count). **RED-TESTED: FAILs on the shipped pre-F7 binary**
+  (2 checks: 798 zombies survive; removal set off by 798). Also asserts no over-reach,
+  no collateral exists-flips, element_ids untouched, idempotency, and non-vacuity.
+- **Implementation delegated** (kraken, TDD) against the complete spec — the F4/F5 pattern
+  (a mid-flight correction costs a full agent cold-restart, so the spec is finished first).
+- **BYCATCH: F11 discovered by the gate's idempotency check** (see below) — an identical
+  rescan emitted 51 events; root cause is 64 same-scope install entries collapsing to one
+  element_id. Recorded, NOT fixed here (F7 stays one atomic change).
+
 **STILL OPEN:**
 - **F9** (P3, observed_at tz/format) + the stage-4 "temporal NOT updated" partial-wording
   tighten. Needs the exact comparison site pinned first. Likely no migration.
-- **F7** (P2, full-scope-removal undetectable) — Python cross-file design change
-  (enumerate scanned roots independently of results). No migration but larger.
+- **F11** (P2, NEW 2026-07-17) — same-scan element_id collision ⇒ ~51 churn events per
+  scan + non-deterministic recorded version. Batch with F9.
 - ~~F10~~ DONE 2026-07-17 01:15 (submodule `bbdfa8f`, local commit — rides the next
   release): prune-history now intercepted in main() holding both F3 flocks; old arm is an
   internal-error guard; 203/203 tests; dry-run verified against the live DB.
@@ -324,6 +366,27 @@ a move+edit records only the content change and loses the relocation (temporal.r
 **F9 — P3 — `observed_at` tz/format.** Written with `chrono::Utc::now().to_rfc3339()`
 (`+00:00`, fractional seconds) but compared elsewhere against a differently-formatted
 timestamp; pin down the exact comparison site before fixing (temporal.rs ~L2953).
+
+**F11 — P2 — same-scan element_id collision in `discover_plugins` ⇒ permanent event
+churn + NON-DETERMINISTIC state.** FOUND 2026-07-17 by the F7 ship gate's idempotency
+check (a re-run of an IDENTICAL scan emitted 51 events — a no-change rescan must emit
+zero). `discover_plugins` (pss_discover.py ~L1377) emits one element per install ENTRY,
+but its own docstring states the intended grain: "Each (plugin_id, **scope**) tuple
+becomes a separate element". `installed_plugins.json` v2 accumulates one entry per
+install, so the same (plugin_id, scope) recurs — **verified live: `ai-maestro-plugin@
+ai-maestro-plugins` has 64 entries ALL at scope `local`** (versions 2.5.0 … 2.10.0),
+`dev-browser@ai-maestro-plugins` has 3; 67 colliding entries over 2 plugin ids. All
+64 collapse to the single element_id `plugin:ai-maestro-plugin@ai-maestro-plugins@local:`
+(the id has no version component — correctly so, per F4), so within ONE scan they
+overwrite each other, each transition emitting content/description/size/path_changed.
+Consequences: (a) ~51 spurious events EVERY scan, forever — a prime suspect for the
+"events full-scan growth" item below; (b) `elements_state` ends up holding whichever
+entry the HashMap happened to yield last, so the recorded version is non-deterministic
+across runs; (c) `version-history`/`plugin-history` read that churn as real version
+flapping. Fix: dedupe to ONE entry per (plugin_id, scope) with a DETERMINISTIC winner
+(newest `lastUpdated`/`installedAt`, tie-broken explicitly) so a genuine upgrade emits
+exactly one `version_changed`. NOT a temporal-index bug — the writer is faithfully
+recording what the discoverer hands it. Batch with F9 (both are event-quality).
 
 ## Scope
 
