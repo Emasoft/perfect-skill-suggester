@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-16T19:20:00+0200
+updated: 2026-07-16T19:55:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -128,6 +128,49 @@ enabled and disabled elements.
 - **F4** (P1, element_id collision) + **F5** (P1, migration scope_path="") — BOTH re-key
   stored `element_id`s ⇒ **need a data migration ⇒ need USER scoping before coding.**
 - xhigh-skipped events full-scan growth — batch with F9.
+
+### F4 + F5 EXECUTION PLAN (design done 2026-07-16 19:55; ready to code once the one USER decision below lands)
+
+**Verified facts (read the source, not guessed):**
+- `compute_element_id` (temporal.rs:156) builds `"{type}:{name}@{scope}:{scope_path}"` after
+  `scope_path.replace('/', "_")` AND `.to_lowercase()` on name/scope/scope_path_slug. BOTH
+  transforms are LOSSY: `/a/b`, `/a_b`, `_a_b` all slug to `_a_b`; `Foo`/`foo` and
+  `/Users/Me`/`/users/me` lowercase-collapse → distinct elements share one id, merging histories.
+- `element_id` is **opaque** — grepped both files; it is NEVER split/parsed back into components
+  (the only `split(':')`/`split('@')` sites operate on an evidence string and a user-query
+  namespace, not element_id). So the id may safely carry raw `/`, `:`, `@` from a path; dropping
+  the slug breaks no parser. **This is the load-bearing fact that makes F4 safe.**
+- The events row stores `element_name`, `scope`, `scope_path` as their OWN columns in ORIGINAL
+  case (persist writes `obs.name`/`obs.scope`/`obs.scope_path` raw; only `element_id` is
+  lowercased). ⇒ the true (name, scope, scope_path) survives for every historical row, so a
+  migration can recompute the correct new element_id per row — **lossless, and it UN-merges
+  previously-collided histories** (each row re-keys from its own columns).
+- F5: `migrate_v1_to_v2` (temporal.rs:464) hardcodes `scope_path = "".to_string()`, so every
+  legacy row's element_id is `type:name@scope:` while the live writer keys the same element with
+  its real `scope_path_from_discovery_source(source)` → the pre/post-migration histories split.
+
+**The fix (code):**
+1. `compute_element_id`: use `scope_path` RAW (drop the `/`→`_` slug and its `.to_lowercase()`).
+   Paths are separator- and case-significant (Linux fs is case-sensitive); slugging/lowercasing
+   them is the clear bug. **← THE ONE USER DECISION: should the element NAME stay
+   case-insensitive** (skill `Foo` == `foo`, likely intended for Claude-Code name matching) **or
+   become case-sensitive?** Keep `name.to_lowercase()` for case-insensitive; drop it for
+   case-sensitive. `scope` is a small enum-ish set — lowercasing it is harmless either way.
+2. F5: `migrate_v1_to_v2` line 464 → `let scope_path = scope_path_from_discovery_source(&source);`
+   (mirror the writer). Bare legacy sources still yield "" — consistent, documented blind spot.
+
+**The migration (run-once, deterministic, preserves history — NO reset):**
+- Gate on a `pss_metadata` key (e.g. `element_id_scheme_version=2`) so it runs exactly once.
+- For each `events` row: `new_id = compute_element_id_v2(element_type, element_name, scope,
+  scope_path)`; rewrite the row's `element_id`. Then rebuild `elements_state` from the re-keyed
+  events (it is materialized FROM events, so drop + replay, or recompute the latest-per-id view).
+- Idempotent + crash-safe via the same staging-swap `atomic_write_cozodb` used everywhere.
+- **USER APPROVAL REQUIRED before running it against the live ~19k-event DB** (it rewrites every
+  element_id key). Back up the DB first (`cp ~/.claude/cache/pss-skill-index.db …`), same as F1.
+
+**Why deferred, not done now:** (a) the name-case decision is genuinely the user's; (b) executing
+a full re-key against real history at ~100% window-burn risks a half-migrated DB — the one state
+worse than not starting. Fresh session + the case decision → this plan executes cleanly.
 
 **F1 step 3 — retire the plugin-data orphan — NEEDS USER PERMISSION, NOT DONE.** It sits
 OUTSIDE the project (`~/.claude/plugins/data/perfect-skill-suggester-emasoft-plugins/`)
