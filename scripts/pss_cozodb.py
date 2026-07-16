@@ -933,12 +933,19 @@ def _snapshot_extra_relations(db_path: Path) -> dict[str, dict[str, Any]]:
 
     Returns `{relation_name: {"create_stmt": str, "data": <export_relations
     payload>}}`. On a genuinely missing live DB (first-ever reindex) returns
-    `{}` — not an error. On a corrupt/unreadable live DB, mirrors
-    `_snapshot_prior_timestamps`'s precedent: warn loudly on stderr and
-    return `{}` rather than crash the reindex — the alternative (raising)
-    would turn a temporal-history read failure into a total suggestion
-    outage, which is strictly worse than losing history the user can
-    rebuild by re-running `pss merge-events`.
+    `{}` — not an error.
+
+    Error-handling split (deliberate, xhigh review 20260716):
+    - Live DB CANNOT BE OPENED (corrupt file): warn loudly and return `{}`,
+      mirroring `_snapshot_prior_timestamps`'s precedent — an unopenable DB's
+      history is already inaccessible to every reader, the pre-swap
+      `backup_index` copy is the recovery net, and raising would turn a dead
+      file into a permanent reindex outage.
+    - Live DB OPENED but introspection/export of a relation FAILS: RAISE.
+      That is a code/schema bug, not a corrupt file, and warning-and-
+      continuing would let the staging swap silently WIPE the very relation
+      this function exists to preserve. Raising aborts the staging build
+      BEFORE `os.replace`, so the live DB stays intact (fail-fast).
     """
     if not db_path.exists():
         return {}  # First-ever reindex — nothing to preserve.
@@ -980,16 +987,27 @@ def _snapshot_extra_relations(db_path: Path) -> dict[str, dict[str, Any]]:
                 data = client.export_relations([relname])
                 preserved[relname] = {"create_stmt": create_stmt, "data": data}
             except Exception as e:
-                sys.stderr.write(
-                    f"PSS warning: could not preserve relation {relname!r} "
-                    f"from {db_path} ({e}); its rows will be LOST by this "
-                    "reindex.\n"
-                )
+                # FAIL-FAST (xhigh review 20260716): the DB opened fine, so a
+                # per-relation read failure here is a code/schema bug, not a
+                # corrupt file. Warning-and-continuing would let the staging
+                # swap WIPE this relation — the exact data loss this function
+                # exists to prevent. Raising aborts the staging build BEFORE
+                # os.replace, so the live DB (and its history) stays intact.
+                raise RuntimeError(
+                    f"could not preserve relation {relname!r} from {db_path} "
+                    f"while building the staging DB: {e}. Aborting the reindex "
+                    "pre-swap so the live temporal history is not destroyed."
+                ) from e
+    except RuntimeError:
+        raise
     except Exception as e:
-        sys.stderr.write(
-            f"PSS warning: prior DB at {db_path} relation introspection "
-            f"failed ({e}); temporal history will be LOST by this reindex.\n"
-        )
+        # Same fail-fast rationale: ::relations failed on a DB that OPENED —
+        # proceeding would swap away every temporal table it contains.
+        raise RuntimeError(
+            f"relation introspection on {db_path} failed while building the "
+            f"staging DB: {e}. Aborting the reindex pre-swap so the live "
+            "temporal history is not destroyed."
+        ) from e
     finally:
         try:
             client.close()
@@ -1346,6 +1364,12 @@ def atomic_write_cozodb(
         # (the Rust temporal-index tables: events / elements_state /
         # scan_runs / ...) so the swap below doesn't erase them. See
         # _snapshot_extra_relations's docstring for the full incident.
+        # KNOWN WINDOW (TRDD-1Z8SGQ7N F3): the Rust merge-events writer takes
+        # no shared lock with this Python writer, so events another process
+        # writes between THIS snapshot and the os.replace below are silently
+        # discarded with the old file. Within one reindex run this is safe
+        # (stage-4 merge-events runs strictly AFTER the swap); the cross-
+        # process race is F3's advisory-lock fix, not solvable here.
         extra_relations = _snapshot_extra_relations(db_path)
 
         # Wipe any stale staging files from a previous interrupted reindex.

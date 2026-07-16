@@ -43,7 +43,12 @@ def resolve_plugin_root() -> Path:
     # for anyone installing PSS from a fork, a private marketplace, or a
     # renamed channel — glob across all of them instead.
     cache_root = Path.home() / ".claude" / "plugins" / "cache"
-    candidates = sorted(cache_root.glob("*/perfect-skill-suggester"))
+    # is_dir(): a stray FILE named perfect-skill-suggester would otherwise
+    # crash the later cache_base.iterdir() with a raw NotADirectoryError
+    # instead of this function's clean sys.exit diagnostics.
+    candidates = sorted(
+        c for c in cache_root.glob("*/perfect-skill-suggester") if c.is_dir()
+    )
     if not candidates:
         sys.exit(f"ERROR: Plugin cache not found under {cache_root}/*/perfect-skill-suggester")
     if len(candidates) > 1:
