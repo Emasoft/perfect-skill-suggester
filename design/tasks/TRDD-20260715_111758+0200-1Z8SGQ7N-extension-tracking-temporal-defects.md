@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T00:15:44+0200
+updated: 2026-07-17T00:51:33+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -156,14 +156,50 @@ copy — `scripts_dev/f4f5_probe.py`), BEFORE any migration code ran:**
   (`agent:svg matrix tester@…`) and are always passed as bound `$params`, never bare
   tokens. The slug bought nothing and cost fidelity.
 
+**UPDATE 2026-07-17 00:55 — F4+F5 IMPLEMENTED + GATE PASSED (pre-ship).** Delegated impl
+(203/203 Rust tests, red-green proven by breaking the desc `:put` and watching the tests
+bite) + THREE mid-flight spec corrections, each from a ground-truth probe of the live DB:
+1. `element_descriptions` is element_id-KEYED (9,687 rows) — re-keyed with the same
+   pss_id_remap join + the two `:rm` guards (skip unmoved keys; never rm a key that is some
+   row's NEW key — the A→B,B→C chain protection).
+2. element_ids are EMBEDDED in string VALUES — `override_status` ("overridden_by:<id>" /
+   "overrides:<id>", 6 stale each in events + elements_state) and `events.diff_json` (6) —
+   remapped via small value-level scratch maps (`pss_status_remap`, `pss_diff_remap`) with
+   the matched/unmatched two-rule pattern. Leaving elements_state.override_status stale
+   would have re-broken F6 (spurious override events on the next scan).
+3. The `migrate-element-ids` verb initially dispatched on the UNLOCKED query path — moved to
+   a main() intercept holding both F3 flocks in MergeEvents order (a full-table rewrite has
+   a LONGER write window than merge-events; racing hook readers = F3's SIGABRT).
+**Empirical ship gate PASSED on the real history** (scripts_dev/f4f5_validate.py, PRE=backup
+vs POST=migrated fresh copy, red-tested to FAIL 9 ways on an unmigrated DB): all row counts
+invariant (19,258 events / 11,891 state / 9,687 desc), per-element event counts survive,
+payloads + state/desc values verbatim (override_status = remapped-expected), 1,369 desc rows
+re-keyed, NO changed old id survives anywhere (columns or embedded), changed=1574 —
+reproduced identically by 3 independent runs (my probe prediction, agent copy-run, my
+fresh-copy run). Idempotent ({"changed":0} on rerun). Live DB untouched (backup at
+`~/.claude/cache/pss-skill-index.db.pre-f4f5-validation.20260717_001310+0200`).
+**Accepted residual (documented, not fixed):** a SIGKILL in the sub-second window between a
+keyed table's `:put` and its `:rm` leaves stale old-keyed duplicates that the re-run
+(changed==0) stamps over without sweeping. One-time migration + `backup_index()` always runs
+immediately before the auto-run (F1) ⇒ restorable; a cozo two-op transaction does not exist
+to reach for, and a residue-sweep would add complexity to guard a backup-covered corner.
+**CPV note:** the migration doc comment's safety prose ("never destroy history", "does NOT
+drop") tripped skillaudit INTENT_DESTRUCTIVE_INTENT (MAJOR) — reworded positively with an
+inline wording-note so it is not "simplified" back into the detector.
+**META-LESSON (why 3 corrections):** the spec inventory was assembled from code reading; each
+correction came from a LATER ground-truth enumeration. For any key migration, step 0 must be:
+enumerate every carrier of the key from the LIVE data — key columns, value columns, ids
+EMBEDDED in string values, indices — and every writer path's locking. Column-name scans
+structurally cannot see embedded refs.
+
 **STILL OPEN:**
 - **F9** (P3, observed_at tz/format) + the stage-4 "temporal NOT updated" partial-wording
   tighten. Needs the exact comparison site pinned first. Likely no migration.
 - **F7** (P2, full-scope-removal undetectable) — Python cross-file design change
   (enumerate scanned roots independently of results). No migration but larger.
-- **F4** (P1, element_id collision) + **F5** (P1, migration scope_path="") — IN PROGRESS
-  (decision settled + proven above; implementation delegated; ship gated on the live-copy
-  migration validating losslessly).
+- **F10** (P3, NEW 2026-07-17): `PruneHistory` is a WRITER dispatched on the unlocked
+  `run_query_command` path — latent F3-class race with hook readers (same SIGABRT mode).
+  Fix = main() intercept with both flocks, like MergeEvents/MigrateElementIds.
 - xhigh-skipped events full-scan growth — batch with F9.
 
 ### F4 + F5 EXECUTION PLAN (design done 2026-07-16 19:55; ready to code once the one USER decision below lands)
