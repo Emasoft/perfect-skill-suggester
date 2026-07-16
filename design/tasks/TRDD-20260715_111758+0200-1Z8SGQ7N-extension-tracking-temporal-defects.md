@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-16T19:55:00+0200
+updated: 2026-07-17T00:15:44+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -120,13 +120,50 @@ loop) without changing the override decision → fixed total 2, buggy total 3 (s
 Rust tests. This closes the F2 caveat — the override tracking is now correct for both
 enabled and disabled elements.
 
+**UPDATE 2026-07-17 00:15 — F4's "one USER decision" is DISSOLVED: it was a VERIFIABLE
+FACT, not a preference. Name case-sensitivity = CASE-SENSITIVE.** Decided on evidence:
+- **Internal consistency (the load-bearing fact):** `merge_events_from_reader` groups
+  observations by `(element_type, obs.name.clone())` — RAW, original case (temporal.rs
+  ~L3096-3099). The pipeline ALREADY treats `Foo` and `foo` as distinct elements at the
+  grouping layer; only `compute_element_id` folded them together. Lowercasing the id was
+  the LONE outlier, manufacturing collisions between observations the pipeline itself
+  considers distinct. Case-preserving RESTORES consistency.
+- **Losslessness:** lowercasing is lossy (irrecoverably merges two elements' append-only
+  histories); case-preserving is lossless (worst case a spurious, VISIBLE split). For an
+  audit log, lossless wins on principle — not preference.
+- **The name `name` arrives RAW:** discovery JSONL → `value.get("name")…to_string()`
+  (~L3031), and events store `element_name` raw (~L2873). The id was the only fold point.
+
+**EMPIRICAL PROOF on the live 19,258-event / 11,891-element DB (probe, read-only, on a
+copy — `scripts_dev/f4f5_probe.py`), BEFORE any migration code ran:**
+- **Old-scheme model fidelity: 0 mismatches** — recomputing the old id from each row's own
+  columns reproduced the stored `element_id` for all 11,891. The model is exactly right.
+- **Un-merge collisions (old_id → >1 new_id): 0.** The re-key is a clean BIJECTION on real
+  data; the fail-fast cannot trip. **Injective too** (11,891 distinct new / 11,891 old) ⇒
+  the new scheme introduces NO new merges.
+- **1,574 / 11,891 ids change (13%):** 1,360 scope_path slug reversal
+  (`plugin:buildwithclaude_agents-…` → `…buildwithclaude/agents-…`), 310 name case
+  (`agent:explore` → `agent:Explore`), 46 scope_path case.
+- **CORRECTION to a prior assumption:** 310 real elements DO carry uppercase names
+  ("Explore", "YouTube Researcher", "SVG Matrix Tester") — "CC names are all lowercase-kebab
+  so case-sensitivity is a no-op" was WRONG. With 0 collisions it splits nothing, so
+  case-preserving is pure fidelity gain at zero risk — a stronger basis than the assumption.
+- **No F5 damage in this DB:** the 16 rows with empty `scope_path` on a path-bearing scope
+  all have `source='local'` (bare) ⇒ `scope_path_from_discovery_source('local')` = `""`,
+  exactly what the live writer emits. Legitimate, not migration damage.
+- **The slug's stated rationale is FALSE:** the doc comment claims `/`→`_` keeps the id "a
+  single Datalog string token", but ids already contain `:`, `@`, and SPACES today
+  (`agent:svg matrix tester@…`) and are always passed as bound `$params`, never bare
+  tokens. The slug bought nothing and cost fidelity.
+
 **STILL OPEN:**
 - **F9** (P3, observed_at tz/format) + the stage-4 "temporal NOT updated" partial-wording
   tighten. Needs the exact comparison site pinned first. Likely no migration.
 - **F7** (P2, full-scope-removal undetectable) — Python cross-file design change
   (enumerate scanned roots independently of results). No migration but larger.
-- **F4** (P1, element_id collision) + **F5** (P1, migration scope_path="") — BOTH re-key
-  stored `element_id`s ⇒ **need a data migration ⇒ need USER scoping before coding.**
+- **F4** (P1, element_id collision) + **F5** (P1, migration scope_path="") — IN PROGRESS
+  (decision settled + proven above; implementation delegated; ship gated on the live-copy
+  migration validating losslessly).
 - xhigh-skipped events full-scan growth — batch with F9.
 
 ### F4 + F5 EXECUTION PLAN (design done 2026-07-16 19:55; ready to code once the one USER decision below lands)
