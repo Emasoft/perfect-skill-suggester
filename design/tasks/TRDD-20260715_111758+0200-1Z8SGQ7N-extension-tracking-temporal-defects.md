@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T01:42:00+0200
+updated: 2026-07-17T02:06:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -251,11 +251,62 @@ enumeration FIRST (the F4/F5 meta-lesson), on the live DB + a real discovery run
   rescan emitted 51 events; root cause is 64 same-scope install entries collapsing to one
   element_id. Recorded, NOT fixed here (F7 stays one atomic change).
 
+**UPDATE 2026-07-17 02:05 — F7 IMPLEMENTED + GATE PASS (submodule `486e141`, parent
+`283c752`; local commits, ride the next release).**
+- Producer emits manifest v2 `exhaustive_scopes`; consumer `read_active_in_scope_paths` →
+  `read_removal_candidates` adds the domain rule on the SAME bulk projection (DI-4's N+1
+  stays fixed). v1 manifest ⇒ empty claim ⇒ byte-identical old behavior.
+- **A 4th ground-truth correction — and this one was MY spec's, in the data-loss
+  direction.** Spec §4/test 11 gated the `project` claim on `args.all_projects`, but
+  `scan_all_projects = args.all_projects and not (args.project_only or args.user_only)`
+  (pss_discover.py L2106) makes that flag **INERT** under `--project-only`: only the CWD
+  project is enumerated, so the claim would have marked **every other project's elements
+  Removed**. The implementer caught it, verified it empirically, and resolved it by the
+  spec's own tie-breaker (under-claim ⇒ `[]` unconditionally, no dead branch). Verified
+  by me at L2106. Lesson: I enumerated the FLAGS but not the flag→behavior mapping —
+  the carrier-enumeration lesson applies to CONTROL flow, not just data.
+- **GATE PASS (mine, authoritative): 9/9** on a COPY of the live 19k index —
+  `removed=799` reproducing the prediction EXACTLY, 25/25 buckets 100 % wiped, user 0,
+  idempotent (2nd identical run: 0 removals), live DB md5 asserted unchanged, producer
+  claim == the full scope space. Red-tested first: the same gate FAILS on the shipped
+  pre-F7 binary (798 zombies survive). Suites verified by me: rust 208/208, py 284/284,
+  ruff clean.
+- **±1 drift explained:** the implementer measured 800/2, I measure 799/1 — the janitor
+  daemon updates plugins in the background, so the disk moves between runs. NEWLY-removed
+  is **798 in both**, and every structural invariant reproduced exactly. The gate predicts
+  from the SAME inputs it validates, so it is drift-proof by construction (no magic number).
+- **Report's residual G2 is WRONG — corrected here, do not act on it.** It claims
+  `Path.exists()/is_dir()` "swallow OSError → False", which would let an UNREADABLE
+  marketplace root masquerade as an absent one and wipe ~7k elements. Tested empirically:
+  an unreadable dir returns `exists()`/`is_dir()` **True** (stat only needs +x on the
+  parent), and the subsequent `iterdir()`/`os.walk` raises PermissionError(13) which IS
+  caught and recorded ⇒ claim drops. The catastrophic shape is COVERED.
+- **INCIDENT (disclosed by the implementer, verified closed by me):** it ran merge-events
+  against the LIVE DB (1368 events incl. 800 removals) after `PSS_INDEX_PATH` was
+  **silently ignored** — `get_db_path` (main.rs ~L14507) applies an existence gate on the
+  sibling DB and falls back to the real index when it does not resolve. It restored from
+  its own pre-write snapshot; I independently confirmed the live DB is byte-identical
+  (md5 `5938ad92…`) to my 01:25 pre-kraken copy, both retained backups intact, no staging
+  leftovers. → filed as **F12**.
+
 **STILL OPEN:**
 - **F9** (P3, observed_at tz/format) + the stage-4 "temporal NOT updated" partial-wording
   tighten. Needs the exact comparison site pinned first. Likely no migration.
 - **F11** (P2, NEW 2026-07-17) — same-scan element_id collision ⇒ ~51 churn events per
   scan + non-deterministic recorded version. Batch with F9.
+- **F12** (P2, NEW 2026-07-17) — `PSS_INDEX_PATH` set-but-unresolvable is silently
+  ignored and falls back to the user's REAL index (main.rs `get_db_path`, existence gate
+  with no else). A fail-fast violation that already caused one accidental live write; any
+  tool aiming at a scratch DB silently writes the real one. Fix: error out when the env
+  var is set but does not resolve. Cheap; batch with F9/F11.
+- **F13** (P3, NEW 2026-07-17) — F7's scan-error accumulator covers only the scope-root
+  enumeration in `get_all_element_locations`. The type-specific discoverers
+  (`discover_hooks`/`_plugins`/`_marketplaces`/`_mcp_servers`/`_monitors`/`_output_styles`/
+  `_themes`) have their own `except OSError: continue` paths that do NOT feed
+  `_scan_errors`, so a transient per-file read failure can drop elements while the claim
+  still stands ⇒ spurious Removed/Installed churn. Bounded and self-healing (append-only
+  events; next clean scan re-installs), so accepted for F7. Route those handlers into
+  `_record_scan_error`.
 - ~~F10~~ DONE 2026-07-17 01:15 (submodule `bbdfa8f`, local commit — rides the next
   release): prune-history now intercepted in main() holding both F3 flocks; old arm is an
   internal-error guard; 203/203 tests; dry-run verified against the live DB.
