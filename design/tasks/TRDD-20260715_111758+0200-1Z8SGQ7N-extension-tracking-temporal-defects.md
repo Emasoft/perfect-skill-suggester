@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T02:40:08+0200
+updated: 2026-07-17T02:52:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -292,8 +292,40 @@ enumeration FIRST (the F4/F5 meta-lesson), on the live DB + a real discovery run
 **STILL OPEN:**
 - **F9** (P3, observed_at tz/format) + the stage-4 "temporal NOT updated" partial-wording
   tighten. Needs the exact comparison site pinned first. Likely no migration.
-- **F11** (P2, NEW 2026-07-17) — same-scan element_id collision ⇒ ~51 churn events per
-  scan + non-deterministic recorded version. Batch with F9.
+- **F11** (P2, NEW 2026-07-17; **DIAGNOSIS CORRECTED 2026-07-17 02:50 — the originally
+  filed FIX WAS WRONG IN THE DATA-LOSS DIRECTION**) — same-scan element_id collision in
+  `discover_plugins` ⇒ ~51 churn events per scan + non-deterministic recorded version.
+  **The filed prescription was "dedupe to ONE entry per (plugin_id, scope) with a
+  deterministic winner". DO NOT DO THAT — it would destroy real data.** Ground truth from
+  the live `installed_plugins.json` (156 entries / 88 plugin keys), enumerated before
+  writing any code:
+  - Entries carry a **`projectPath`** field (present on 64/65 of
+    `ai-maestro-plugin@ai-maestro-plugins`; absent only on the single `user`-scope entry).
+    A `local` install is **per-project**. The 64 local entries are **64 DIFFERENT
+    PROJECTS**, each with its own install — **all 64 projectPaths are distinct**, zero
+    duplicates. They are not junk to collapse; they are the data.
+  - **(scope, projectPath) collides ZERO times across the entire file** — it is empirically
+    a total key. So there is nothing to dedupe and **no winner/tiebreak rule to design**.
+  - `discover_plugins` sets `source` to the **bare scope string** (`"local"`), so
+    `scope_path_from_discovery_source` finds no `local:` prefix and returns `""`. Every
+    local entry therefore computes the identical id `plugin:<name>@local:` and they
+    overwrite each other in one scan (last-in-array wins). **65 of 156 entries (42%) are
+    silently lost today** — which project has which plugin at which version is simply not
+    recorded. The churn is the SYMPTOM; the lost 42% is the defect.
+  - The function's own docstring ("Each (plugin_id, scope) tuple becomes a separate
+    element") **is itself wrong** — it ignores `projectPath`, and the loop iterates
+    *entries* anyway. Doc and code are both wrong, in different ways.
+  **Corrected fix:** emit `source = f"{scope}:{projectPath}"` when `projectPath` is present,
+  else the bare scope. The infrastructure already expects this — `local:`/`project:` are
+  already in `scope_path_from_discovery_source`'s prefix list, and post-F4 `element_id`
+  carries the scope_path RAW (no lossy slug/lowercase), so distinct projectPaths yield
+  distinct ids. No migration is possible (old rows recorded `scope_path=""`, so the merged
+  history cannot be un-merged — the projectPath was never captured); the old merged id was
+  a fiction conflating N elements, so retiring it is the honest record. Expect a bounded
+  ONE-TIME transition: the ~91 old merged ids sweep as Removed (F7 covers `local`/`user`/
+  `project` on a full scan) and 156 true elements appear as Installed, then steady state —
+  versus ~51 junk events **every scan, forever** today. `user`-scope elements have no
+  projectPath, so their ids and history are UNCHANGED.
 - ~~**F12**~~ **DONE 2026-07-17 02:45** (submodule `45b2834`, parent `b55ddce`, local
   commits — ride the next release alongside F10). Verified by an independent behavioral
   gate under a faked `$HOME` (`dirs::home_dir()` honors it, so the incident is
