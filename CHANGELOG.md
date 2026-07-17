@@ -2,6 +2,28 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.10.7] - 2026-07-17
+
+### Bug Fixes
+
+- **db-path:** Bump rust submodule — F12 override is authoritative (TRDD-1Z8SGQ7N)
+- **discover:** Plugin element identity carries projectPath (F11, TRDD-1Z8SGQ7N)
+- **discover:** Route element-dropping I/O failures into the coverage claim (F13)
+
+### Documentation
+
+- **trdd:** TRDD-1Z8SGQ7N — F12 is worse than filed (the db-path contract lies)
+- **trdd:** TRDD-1Z8SGQ7N — F12 done + gate evidence; file F14
+- **trdd:** TRDD-1Z8SGQ7N — F11's filed fix was wrong; correct it before coding
+- **trdd:** TRDD-1Z8SGQ7N — F11 done, verified three ways
+- **trdd:** TRDD-1Z8SGQ7N — F13 + F14 done; file F15/F16/F17
+- **trdd:** TRDD-1Z8SGQ7N — STATE: next action is ship v3.10.7 after window reset
+- **trdd:** TRDD-1Z8SGQ7N — correct F10 shipping status before v3.10.7
+
+### Refactor
+
+- **db-path:** Bump rust submodule — F14 canonical resolver env-testable
+
 ## [3.10.6] - 2026-07-17
 
 ### Bug Fixes
