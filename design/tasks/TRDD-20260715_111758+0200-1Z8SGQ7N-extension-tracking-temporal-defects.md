@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T03:38:00+0200
+updated: 2026-07-17T09:04:35+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -13,9 +13,13 @@ relevant-rules: []
 ## ⏵ STATE — READ THIS FIRST ON RESUME (authoritative) — 2026-07-17 03:40
 
 **NEXT ACTION (the one concrete step):** ship **v3.10.7** via
-`uv run python scripts/publish.py --bump patch` — it carries five already-committed,
-already-verified local fixes: F10 (`bbdfa8f`), F11 (`e441687`), F12 (`45b2834`/`b55ddce`),
-F13 (`34c1287`), F14 (`bcbc6d5`/`1ce32a4`). Deliberately DEFERRED past the 5h token-window
+`uv run python scripts/publish.py --bump patch` — it carries FOUR already-committed,
+already-verified local fixes: F11 (`e441687`), F12 (`45b2834`/`b55ddce`), F13 (`34c1287`),
+F14 (`bcbc6d5`/`1ce32a4`). **CORRECTION 2026-07-17 09:05: F10 (`bbdfa8f`) is NOT in this
+release — it ALREADY SHIPPED in v3.10.6.** Verified against the tag: `bbdfa8f` is an
+ancestor of the v3.10.6 submodule gitlink (`79358ba`). An earlier STATE edit wrongly listed
+F10 as pending (a stale assumption carried through a compaction); the v3.10.6 release commit
+post-dates F10 in the submodule chain. Deliberately DEFERRED past the 5h token-window
 reset (~08:00 2026-07-17) — a burn warning projected exhaustion at 05:02 and debugging a
 publish snag near the wall was the one avoidable risk. Pre-warm the uvx CPV cache first if
 cold (memory: `publish-cpv-validation-180s-timeout`), and AFTER the wrapper exits verify
