@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T02:25:07+0200
+updated: 2026-07-17T02:40:08+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -294,8 +294,24 @@ enumeration FIRST (the F4/F5 meta-lesson), on the live DB + a real discovery run
   tighten. Needs the exact comparison site pinned first. Likely no migration.
 - **F11** (P2, NEW 2026-07-17) — same-scan element_id collision ⇒ ~51 churn events per
   scan + non-deterministic recorded version. Batch with F9.
-- **F12** (P2, NEW 2026-07-17; **IN PROGRESS** 2026-07-17, spec'd + delegated) —
-  `PSS_INDEX_PATH` set-but-unresolvable is silently ignored and falls back to the user's
+- ~~**F12**~~ **DONE 2026-07-17 02:45** (submodule `45b2834`, parent `b55ddce`, local
+  commits — ride the next release alongside F10). Verified by an independent behavioral
+  gate under a faked `$HOME` (`dirs::home_dir()` honors it, so the incident is
+  reproducible with zero risk to the live index): the shipped v3.10.6 binary
+  **exits 0 having WRITTEN the fallback index**; the fixed build **exits 1 with
+  "no CozoDB index found" and leaves it untouched**. RED arm proves the gate can fail.
+  214/214 Rust (re-run by me, not taken on trust), 284/284 Python, clippy 62→62.
+  Real live DB md5 `5938ad92…` unchanged throughout. Original analysis retained below.
+  **Accepted residuals:** (a) `--index ""` now yields `None` where
+  `resolve_db_path_canonical` still reports the home default — degenerate, documented
+  inline, and it makes the two RUNTIME resolvers agree (`get_index_path("")` already
+  errors), so nothing silently reads the real index; (b) tests use a hand-rolled 12-line
+  `TmpDir` because `tempfile` is NOT a dev-dependency (my spec claimed it was — wrong;
+  the implementer verified and worked within the edit-only-main.rs constraint). Its
+  `Drop` can only remove the exact `$TMPDIR/pss-f12-*` path it created — reviewed;
+  (c) test 1 is not hermetic (it can only fail where a real index exists) — **test 3 is
+  the machine-independent regression guard**; both kept.
+  **Original analysis —** `PSS_INDEX_PATH` set-but-unresolvable is silently ignored and falls back to the user's
   REAL index (main.rs `get_db_path`, existence gate with no else). A fail-fast violation
   that already caused one accidental live write; any tool aiming at a scratch DB silently
   writes the real one.
@@ -328,6 +344,15 @@ enumeration FIRST (the F4/F5 meta-lesson), on the live DB + a real discovery run
   still stands ⇒ spurious Removed/Installed churn. Bounded and self-healing (append-only
   events; next clean scan re-installs), so accepted for F7. Route those handlers into
   `_record_scan_error`.
+- **F14** (P3, NEW 2026-07-17, surfaced by F12's implementer) — `resolve_db_path_canonical`
+  still reads `std::env::var("PSS_INDEX_PATH")` directly, so it stays env-untestable and its
+  test (`resolve_db_path_canonical_default_is_home_cache_db`, main.rs ~L22533) **SKIPS**
+  whenever that var is set. **That is the exact coverage hole that let F12 live**: the
+  resolver nobody could test was the resolver nobody noticed was wrong. F12 closed the hole
+  for `get_db_path` only (by parameterizing the env value into `resolve_db_path_gated`);
+  the canonical twin still has it. Give it the same `(cli, env)` parameterization. Not done
+  under F12 because the spec scoped it out ("only if it falls out for free" — it does not:
+  separate signature, 3 call sites). Cheap; batch with F9/F11/F13.
 - ~~F10~~ DONE 2026-07-17 01:15 (submodule `bbdfa8f`, local commit — rides the next
   release): prune-history now intercepted in main() holding both F3 flocks; old arm is an
   internal-error guard; 203/203 tests; dry-run verified against the live DB.
