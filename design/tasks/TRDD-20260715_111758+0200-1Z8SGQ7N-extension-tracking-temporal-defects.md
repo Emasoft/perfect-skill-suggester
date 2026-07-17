@@ -576,9 +576,82 @@ half of this finding was already FIXED in `ea09f30`.)
 drops the `PathChanged` event when an in-scope move coincides with a content/size change, so
 a move+edit records only the content change and loses the relocation (temporal.rs ~L773).
 
-**F9 — P3 — `observed_at` tz/format.** Written with `chrono::Utc::now().to_rfc3339()`
-(`+00:00`, fractional seconds) but compared elsewhere against a differently-formatted
-timestamp; pin down the exact comparison site before fixing (temporal.rs ~L2953).
+**F9 — P3 — `observed_at` tz/format. DIAGNOSIS CORRECTED + PROVEN 2026-07-17; the filed
+assessment "Likely no migration" is DISPROVEN and the root cause is BIGGER than filed.**
+
+Original text: written with `chrono::Utc::now().to_rfc3339()` (`+00:00`, fractional
+seconds) but compared elsewhere against a differently-formatted timestamp; pin down the
+exact comparison site before fixing (temporal.rs ~L2953).
+
+**COMPARISON SITE PINNED (the thing the finding asked for).** The chain is
+`cli::resolve_date` (temporal.rs:1569) → `crate::parse_date` (main.rs:17959) → **Z-form**
+(`to_rfc3339_opts(Secs, true)`, e.g. `2026-05-13T06:20:12Z`). Its output feeds **11+**
+query sites: `observed_at <= $cutoff` (as-of, L1690), `observed_at >= $start, <= $end`
+(installed-/changed-between, L2028), `>= $cutoff` (L2539, L2840, L6808), `<= $cutoff`
+(L2676, L4188, L6117), `observed_at < $cutoff` (L3196), L4419. Storage is **offset-form**:
+`observed_at` of every event = `scan_run.finished_at` (module doc L22) =
+`Utc::now().to_rfc3339()` (temporal.rs:3983; also 3642 `started_at`, 436 migration `now`).
+
+**ROOT CAUSE (verified, and it is the real finding).** PSS stores timestamps in **TWO
+incompatible formats**, while COR-7 deliberately unified **both** query families onto **ONE**
+parser that can only match one of them:
+- legacy `skills` table — **Z-form** (`first_indexed_at`/`last_updated_at`, written
+  main.rs:15068 `to_rfc3339_opts(Secs, true)`), compared main.rs:18600/18637/18672. ✅ matches
+  `parse_date` today.
+- temporal `events`/`scan_runs`/`elements_state` — **offset-form + fractional**. ❌ does NOT
+  match `parse_date`. Every temporal comparison is wrong at the same-second boundary.
+
+`parse_date`'s doc comment (main.rs:17947) **actively lies**: it claims its output matches
+"the format stored in CozoDB (via Rust's `to_rfc3339_opts(Secs, true)`)", and L17968 claims
+the values "string-compare correctly against stored event timestamps". Both false for the
+temporal tables. A future maintainer will trust that comment — fix it regardless of the rest.
+
+**EMPIRICAL EVIDENCE (live DB copy, read-only, 2026-07-17).** Census of `events`:
+**19,258 / 19,258 rows are offset-form; ZERO are Z-form.** Samples:
+`2026-05-13T06:20:12.465658+00:00`, `2026-07-16T15:35:06.736890+00:00`. `scan_runs.finished_at`
+likewise. **Bug reproduced in the CozoDB engine itself** (not theorized): the real stored event
+`2026-05-13T06:20:12.465658+00:00` does **NOT** match `observed_at >= "2026-05-13T06:20:12Z"`
+— though 12.465658 is genuinely AFTER 12.000000. A window query starting on that event's own
+second **silently misses it**.
+
+**WHY (the mechanism — ASCII at index 19 decides same-second ordering):**
+`'+'` = 0x2B  <  `'.'` = 0x2E  <  digits  <  `'Z'` = 0x5A.
+So within one second: `…12+00:00` < `…12.465+00:00` < `…12Z`. **Offset-form sorts CORRECTLY**
+("no fraction" before "any fraction" — semantically right). **Z-form sorts AFTER every
+fraction of its own second — Z-form is the broken one whenever fractional values exist.**
+Consequence: `>= $start` **excludes** real in-window events (silent data loss, the bad
+direction); `<= $cutoff` over-includes by <1s (benign).
+
+**FIX DIRECTION (validated on all 5 boundary cases; do NOT invert it).** Making the writers
+emit Z-form + migrating 19,258 append-only history rows is the WRONG trade: it rewrites
+precious history (the F1 clobber lesson) and DESTROYS legitimate sub-second precision, all
+for a sub-second bug. The temporal tables legitimately want fractional precision, and
+offset-form is *provably* the lexicographically-correct format when fractions exist. So:
+**keep offset-form as the temporal canonical and normalize the CUTOFF in `resolve_date`**
+(temporal-only wrapper; `parse_date` stays Z-form for the legacy family it correctly serves).
+Not a COR-7 violation — resolve_date still delegates ALL parsing/validation to `parse_date`
+and only adapts the OUTPUT FORMAT to the format its own tables store. Zero migration, zero
+precision loss, one place, fixes all 11 sites at once.
+
+**⚠ THE TRAP that makes this NOT a one-liner (found while validating; do not skip).** A naive
+`z.replace('Z', "+00:00")` REGRESSES the date-only case. `parse_date` maps a date-only input
+to end-of-day `T23:59:59Z`. Today an event at `23:59:59.5+00:00` is *accidentally* INCLUDED in
+`as-of <date>` (because `.` < `Z`); after a naive swap to `…59+00:00` it would be EXCLUDED —
+silently dropping the final 0.999 s of the day. The end-of-day cutoff must therefore carry
+**maximal** sub-second coverage (`T23:59:59.999999999+00:00`) — and that adjustment MUST live
+in the temporal `resolve_date` (which still has the raw `input` and can detect date-only),
+**NOT** in `parse_date`: raising end-of-day there would break the legacy family the opposite
+way (a legacy row stored `…59Z` sorts AFTER `…59.999…+00:00`, so it would drop out of its own
+day). Two families, two correct answers, one shared parser — that asymmetry is the whole bug.
+
+**Not affected / verified safe:** `prune-history` (the destructive one) computes its own cutoff
+via `cutoff.to_rfc3339()` (temporal.rs:3141) = offset-form, consistent with storage → its
+boundary is already correct. `_find_tool_names_in_source`, export `generated`, and the legacy
+family are all unaffected.
+
+**Status:** specified + proven, NOT yet implemented. Needs TDD (the 5 boundary cases above +
+the date-only end-of-day regression pin). No migration. Batch with the stage-4 "temporal NOT
+updated" partial-wording tighten.
 
 **F11 — P2 — same-scan element_id collision in `discover_plugins` ⇒ permanent event
 churn + NON-DETERMINISTIC state.** FOUND 2026-07-17 by the F7 ship gate's idempotency
