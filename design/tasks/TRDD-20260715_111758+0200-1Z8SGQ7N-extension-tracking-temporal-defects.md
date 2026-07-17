@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T09:25:21+0200
+updated: 2026-07-17T11:02:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -23,16 +23,29 @@ real live DB md5 unchanged. **Expected on the user's next real `/pss-reindex-ski
 F11 one-time re-key — ~91 merged plugin ids sweep Removed, 156 true per-project elements
 Install, then steady state. Designed and documented, NOT a regression.
 
-**NEXT ACTION:** nothing time-gated remains. The still-open items below are all P3 and
-un-urgent; batch them whenever budget allows. **F15 is the cheapest and highest-value**
-(a single null `description:` frontmatter in any third-party skill crashes the whole
-discovery run; verified; fix is `(frontmatter.get("description") or "")`).
+**⚠ NEXT ACTION — F18 (P1, NEW 2026-07-17) is the priority and it is LIVE IN v3.10.7.**
+A **date-only LOWER bound skips its whole day**, so `changed-between 2026-07-16 2026-07-16`
+("what changed on Jul 16?") answers **"(no results)"** against **10,123 real events** —
+proven end-to-end with the shipped binary. Every window query in BOTH families is affected
+whenever the user types a bare date (relative `1d` and explicit RFC3339 are fine, which is
+why the smoke tests never caught it). The shipped `docs/DEVELOPMENT.md:538` promises
+"midnight UTC" — the OPPOSITE of what the code does. **Fix F18 + F9 together** (F18's
+direction-aware `parse_date_bound` subsumes F9); ~14 call sites; needs TDD; no migration.
+Full spec + evidence in F18's entry below. **Ship F18+F9 in v3.10.8.**
 
-**STILL OPEN (all P3, un-urgent; NOT yet released — will ride v3.10.8):** F16 (unhardened
-traversals — the `os.walk` without `onerror` + the bare `.iterdir()` chains), F17 (non-UTF-8
-files invisible; fixing it with `errors="replace"` dissolves F13's deliberate deviation),
-F9 (needs its comparison site pinned first). F15 fixed 2026-07-17 (`7b0f0fe`, unreleased).
-All specified in the findings list below.
+**STILL OPEN (NOT yet released — all ride v3.10.8):**
+- **F18 — P1** — date-only lower bound skips its day ⇒ window queries silently answer
+  nothing. LIVE in v3.10.7. Subsumes F9. **Do this first.**
+- **F9 — P3** — temporal cutoff Z-form vs offset-form storage (sub-second boundary);
+  comparison site now PINNED and the bug reproduced in the engine. Fixed for free by F18's
+  fix (each family formats the parsed instant for its own storage).
+- **F16 — P3** — unhardened traversals (`os.walk` at ~L842 without `onerror`; 13 bare
+  `.iterdir()` chains). NOTE: `_iterdir_safe` ALREADY EXISTS — wire it, don't create it;
+  and the `os.walk` at ~L727 is ENRICHMENT and must NOT be hardened (over-recording).
+- **F17 — P3** — non-UTF-8 element files invisible; `errors="replace"` on ELEMENT reads only
+  (NOT `_safe_read_text`'s default — container JSON reads must stay strict). Dissolves F13's
+  deliberate deviation ⇒ invert (don't delete) its test.
+- F15 fixed 2026-07-17 (`7b0f0fe`, unreleased). All specified in the findings list below.
 
 ---
 
@@ -649,9 +662,81 @@ via `cutoff.to_rfc3339()` (temporal.rs:3141) = offset-form, consistent with stor
 boundary is already correct. `_find_tool_names_in_source`, export `generated`, and the legacy
 family are all unaffected.
 
-**Status:** specified + proven, NOT yet implemented. Needs TDD (the 5 boundary cases above +
-the date-only end-of-day regression pin). No migration. Batch with the stage-4 "temporal NOT
-updated" partial-wording tighten.
+**Status:** specified + proven, NOT yet implemented. **SUBSUMED by F18's fix** (direction-aware
+cutoffs answer the format question per-direction). No migration. Batch with the stage-4
+"temporal NOT updated" partial-wording tighten.
+
+**F18 — P1 — SILENT WRONG ANSWER: a date-only LOWER bound skips its whole day, so every
+window query returns (almost always) NOTHING. FOUND + PROVEN 2026-07-17 while pinning F9.
+SHIPPED AND LIVE in v3.10.7.**
+
+`parse_date` resolves **any** date-only input to **end-of-day** `T23:59:59Z` (main.rs:18010-18014).
+That is correct for an UPPER bound (`as-of <date>` = "everything that day" — the comment at
+L18007-18009 says exactly that, and it was written when `resolve_date` served as-of only).
+**COR-7 then unified EVERY subcommand onto this one parser — including the LOWER bounds** —
+without accounting for direction. A lower bound of "2026-07-16" therefore means
+`>= 2026-07-16T23:59:59Z`: the entire named day is skipped.
+
+**PROVEN END-TO-END with the SHIPPED v3.10.7 binary** (`./bin/pss-darwin-arm64`, live-DB copy,
+read-only):
+
+| query | answer | ground truth |
+|---|---|---|
+| `changed-between 2026-07-16 2026-07-17` | **(no results)** | 10,123 events |
+| `installed-between 2026-07-16 2026-07-17` | **0 rows** | 10,123 events |
+| `changed-between 2026-07-16 2026-07-16` ("what changed on Jul 16?") | **(no results)** | 10,123 events |
+| `changed-between 2026-07-16T00:00:00Z 2026-07-17T23:59:59Z` | full table ✅ | 10,123 events |
+
+A date-only window collapses to `[S 23:59:59 .. E 23:59:59]`; for the single-day form
+(`changed-between D D`) that is a **1-second window at the very end of the day**, so the most
+natural query a user can type — *"what changed today?"* — **always answers "nothing"**.
+
+**THREE independent contracts are violated (this is not a judgment call):**
+1. **Published docs contradict the code.** `docs/DEVELOPMENT.md:538` states date-only =
+   "`2026-04-16`, **midnight UTC**" — i.e. START-of-day. The code does 23:59:59 end-of-day.
+   The shipped documentation promises the opposite of the shipped behavior.
+2. **The CLI's own help contradicts it.** `changed-between --help`: "within the **closed**
+   `[start, end]` window", `<START>`: "RFC3339 start (**inclusive**)". A start of "Jul 16"
+   that excludes ~86,399 s of Jul 16 is not inclusive of Jul 16.
+3. **Empirically** the answers are wrong (table above).
+
+**BLAST RADIUS — every date-only lower bound, in BOTH families** (all share `parse_date`):
+temporal `changed-between`, `installed-between`, `removed-between`, `removed-since`; legacy
+`list-added-since`, `list-added-between`, `list-updated-since`. Relative (`1d`) and explicit
+RFC3339 inputs are UNAFFECTED (they name an instant, not a day) — which is why this survived:
+the dev-facing smoke tests use `1h`/`1d`, never a bare date.
+
+**FIX (structural; SUBSUMES F9; still ONE parser, so COR-7 holds; NO migration).** The bug is
+that a *date* denotes an INTERVAL while a cutoff needs an INSTANT, and which end you want
+depends on the bound's DIRECTION — a fact `parse_date` cannot know from its argument alone.
+So pass it in, and stop returning a pre-formatted string (the format belongs to the storage
+layer, not the parser — a date-only literal cannot be correct for two different storage
+formats at once, which is precisely how F9 arose):
+
+```rust
+enum Bound { Start, End }
+fn parse_date_bound(arg: &str, bound: Bound) -> Result<DateTime<Utc>, SuggesterError>
+//   date-only + Start -> T00:00:00.000000000   (first instant of the day)
+//   date-only + End   -> T23:59:59.999999999   (last  instant of the day)
+//   explicit RFC3339 / relative / keyword -> that exact instant (bound irrelevant)
+```
+Each family then formats for ITS OWN storage — which is what fixes F9 for free:
+- legacy `skills` (Z-form, whole-second): `.to_rfc3339_opts(Secs, true)` → `…T00:00:00Z` / `…T23:59:59Z`.
+- temporal (offset-form, fractional): `.to_rfc3339()` → `…T00:00:00+00:00` / `…T23:59:59.999999999+00:00`.
+
+Verified correct on every case: `>= …00:00:00+00:00` includes an event at `.5` (`'+'`<`'.'`);
+`<= …59.999999999+00:00` includes `…59.465658+00:00` (`'4'`<`'9'`); legacy `<= …T23:59:59Z`
+still matches a stored `…T23:59:59Z` exactly.
+
+**⚠ Existing test `main.rs:22316` pins the CURRENT (buggy) behavior** —
+`assert!(r.starts_with("2026-04-16T23:59:59"))`. It must become direction-aware (Start →
+`00:00:00`, End → `23:59:59`), NOT deleted. Its existence is why this needs a conscious
+decision rather than a silent flip. Also update `docs/DEVELOPMENT.md:538` and the
+`parse_date` doc block (main.rs:17942/17947), the latter of which ALSO lies about the stored
+format (see F9).
+
+**Status:** proven + specified, NOT implemented. ~14 call sites (11 temporal + 3 legacy) must
+each choose Start or End. Needs TDD. Ship with F9 in v3.10.8.
 
 **F11 — P2 — same-scan element_id collision in `discover_plugins` ⇒ permanent event
 churn + NON-DETERMINISTIC state.** FOUND 2026-07-17 by the F7 ship gate's idempotency
