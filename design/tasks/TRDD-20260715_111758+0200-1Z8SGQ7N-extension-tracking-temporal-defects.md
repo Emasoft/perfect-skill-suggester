@@ -1,9 +1,9 @@
 ---
 trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
-column: backburner
+column: complete
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T13:12:00+0200
+updated: 2026-07-17T13:20:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -23,19 +23,22 @@ real live DB md5 unchanged. **Expected on the user's next real `/pss-reindex-ski
 F11 one-time re-key — ~91 merged plugin ids sweep Removed, 156 true per-project elements
 Install, then steady state. Designed and documented, NOT a regression.
 
-**✅ ALL FINDINGS CLOSED as of 2026-07-17 13:12. F1–F18 done. NEXT ACTION: ship v3.10.8.**
-The unreleased set on the branch (since the `v3.10.7` tag): F15 (`7b0f0fe`), F16+F17
-(`b4de8d5`) — both Python in `pss_discover.py` — and F18+F9 (Rust submodule main.rs/temporal.rs
-+ docs/DEVELOPMENT.md, committed by the orchestrator alongside this STATE edit). **F18 is the
-P1 headline** (date-only window queries answered "nothing" against real events; proven dead
-with a fresh binary — 1001 rows vs the shipped 0). Ship recipe: commit the submodule first
-(gitlink), then the parent, then `uv run python scripts/publish.py --bump patch` → v3.10.8;
-verify the shipped binary BEHAVIORALLY (run `changed-between <D> <D>` against a live-DB COPY,
-expect rows) and the shipped commit set against the new tag (the verify-shipped-status memory).
+**✅ v3.10.8 SHIPPED + VERIFIED 2026-07-17 13:20. ALL findings F1–F18 CLOSED. TRDD COMPLETE.**
+`publish.py --bump patch` RC=0 (lint/tests/validation passed; 4 version files → 3.10.8; 5
+binaries fresh; submodule ref `8829a9e` pushed + verified on remote; tags `v3.10.8` +
+`perfect-skill-suggester--v3.10.8` pushed; GH release live). Carried F15 (`7b0f0fe`), F16+F17
+(`b4de8d5`, Python), F18-P1+F9 (`a814229` parent / `4ae2c49`+`8829a9e` submodule, Rust).
+**Verified 3 ways, NOT by the wrapper exit:** (1) shipped `pss 3.10.8` binary — the F18 gate
+`changed-between 2026-07-16 2026-07-16` returns **1001 rows** (was 0; P1 dead in the actual
+artifact); (2) commit set against the tag — every fix SHA is an ancestor of the `v3.10.8`
+submodule gitlink `8829a9e` / the parent tag; (3) version files all 3.10.8. CPV pre-warmed
+before publish (CRITICAL=0 MAJOR=0 MINOR=0; the 14 NIT + 28 WARNING are all pre-existing
+known-FP classes, none from these fixes) so the 180s validation timeout could not fire.
 
-**NOTHING OPEN.** Every finding F1–F18 is fixed + committed. No time-gated work. The only
-non-finding open items are the two USER-GATED ones tracked elsewhere (the 36 MB plugin-data
-orphan deletion; task #52 P-8) — do NOT touch without the user.
+**NOTHING OPEN.** Every finding F1–F18 is fixed, gated, committed, and SHIPPED. This TRDD is
+terminal — move to `column: complete` / archive on the next pass; no further edits except the
+`updated:` bump. The only remaining non-finding items are the two USER-GATED ones tracked
+elsewhere (the 36 MB plugin-data orphan deletion; task #52 P-8) — do NOT touch without the user.
 
 ---
 
