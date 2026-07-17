@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T09:04:35+0200
+updated: 2026-07-17T09:19:17+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -12,29 +12,26 @@ relevant-rules: []
 
 ## ⏵ STATE — READ THIS FIRST ON RESUME (authoritative) — 2026-07-17 03:40
 
-**NEXT ACTION (the one concrete step):** ship **v3.10.7** via
-`uv run python scripts/publish.py --bump patch` — it carries FOUR already-committed,
-already-verified local fixes: F11 (`e441687`), F12 (`45b2834`/`b55ddce`), F13 (`34c1287`),
-F14 (`bcbc6d5`/`1ce32a4`). **CORRECTION 2026-07-17 09:05: F10 (`bbdfa8f`) is NOT in this
-release — it ALREADY SHIPPED in v3.10.6.** Verified against the tag: `bbdfa8f` is an
-ancestor of the v3.10.6 submodule gitlink (`79358ba`). An earlier STATE edit wrongly listed
-F10 as pending (a stale assumption carried through a compaction); the v3.10.6 release commit
-post-dates F10 in the submodule chain. Deliberately DEFERRED past the 5h token-window
-reset (~08:00 2026-07-17) — a burn warning projected exhaustion at 05:02 and debugging a
-publish snag near the wall was the one avoidable risk. Pre-warm the uvx CPV cache first if
-cold (memory: `publish-cpv-validation-180s-timeout`), and AFTER the wrapper exits verify
-the SHIPPED binary behaviorally, not the exit code (memory:
-`publish-submodule-build-skip-stale-binaries`): `bin/pss-darwin-arm64` must pass the F12
-gate shape — with a faked `$HOME` and an unresolvable `PSS_INDEX_PATH`, `merge-events`
-exits 1 without writing the fallback index (`/tmp/f12-gate/` has the layout) — and `pss
-db-stats` must still work normally. Expect the F11 one-time re-key on the user's next real
-reindex (~91 merged plugin ids sweep Removed, 156 true per-project elements Install) —
-that is designed and documented, not a regression.
+**✅ v3.10.7 SHIPPED 2026-07-17 09:07** — carried F11+F12+F13+F14 (NOT F10; F10 already
+shipped in v3.10.6, verified against the tag). `publish.py --bump patch` RC=0: lint/tests/
+validation passed, all 5 binaries built + verified fresh, submodule ref `877f7de` pushed,
+tag `v3.10.7` (`a4c9c6d`) + GH release live on remote, 4 version files in sync at 3.10.7.
+Shipped binary verified BEHAVIORALLY (not by wrapper exit, per the stale-binaries memory):
+`pss 3.10.7` passes the F12 gate — faked `$HOME` + unresolvable `PSS_INDEX_PATH` ⇒
+`merge-events` exits 1 and leaves the fallback index untouched; `db-stats` works normally;
+real live DB md5 unchanged. **Expected on the user's next real `/pss-reindex-skills`:** the
+F11 one-time re-key — ~91 merged plugin ids sweep Removed, 156 true per-project elements
+Install, then steady state. Designed and documented, NOT a regression.
 
-**STILL OPEN after v3.10.7:** F9 (needs its comparison site pinned first), F15 (null
-`description:` crashes discovery — cheapest, verified, fix is `(... or "")`), F16
-(unhardened traversals), F17 (non-UTF-8 files invisible; fixing it dissolves F13's
-deviation). All specified in the findings list below.
+**NEXT ACTION:** nothing time-gated remains. The still-open items below are all P3 and
+un-urgent; batch them whenever budget allows. **F15 is the cheapest and highest-value**
+(a single null `description:` frontmatter in any third-party skill crashes the whole
+discovery run; verified; fix is `(frontmatter.get("description") or "")`).
+
+**STILL OPEN after v3.10.7 (all P3, un-urgent):** F9 (needs its comparison site pinned
+first), F15 (null `description:` crashes discovery — cheapest, verified), F16 (unhardened
+traversals), F17 (non-UTF-8 files invisible; fixing it dissolves F13's deviation). All
+specified in the findings list below.
 
 ---
 
