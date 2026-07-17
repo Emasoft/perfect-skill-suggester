@@ -372,6 +372,40 @@ ELEMENT_SUBDIRS = {
     "rules": "rule",
 }
 
+# F7 (TRDD-1Z8SGQ7N): every I/O error hit while enumerating a scope root, as
+# human-readable strings. An unreadable directory yields ZERO entries, which is
+# byte-for-byte indistinguishable from "this directory is empty" — and "empty"
+# is what makes the writer sweep a scope's whole history. So the failure must be
+# recorded rather than swallowed: a non-empty set drops the exhaustiveness claim
+# for the entire run (see main()'s `--jsonl` branch).
+_scan_errors: set[str] = set()
+
+
+def _record_scan_error(err: OSError) -> None:
+    """Record an I/O error hit while enumerating a scope root.
+
+    Also printed to stderr: a silent degrade would let a transient permission
+    problem quietly downgrade every future scan's coverage with no way to
+    diagnose why removals stopped being detected.
+    """
+    msg = f"{getattr(err, 'filename', None) or '<unknown path>'}: {err}"
+    _scan_errors.add(msg)
+    print(f"Warning: scan error (run not exhaustive): {msg}", file=sys.stderr)
+
+
+def _iterdir_safe(path: Path) -> list[Path]:
+    """List a directory's entries, recording (never swallowing) an I/O failure.
+
+    Materialized with list() inside the try because Path.iterdir() is lazy —
+    the OSError surfaces on first iteration, not at call time, so a bare
+    `try: return path.iterdir()` would let the error escape uncaught.
+    """
+    try:
+        return list(path.iterdir())
+    except OSError as e:
+        _record_scan_error(e)
+        return []
+
 
 def get_all_element_locations(
     scan_all_projects: bool = False,
@@ -390,6 +424,12 @@ def get_all_element_locations(
         exclude_inactive_plugins: If True, skip plugins disabled in settings.json
                                   enabledPlugins map.
     """
+    # F7 (TRDD-1Z8SGQ7N): this function is the run's single enumeration entry
+    # point, so it owns the error accumulator's lifetime. Reset here, not at
+    # import, so a caller that scans twice in one process never inherits a stale
+    # verdict from the previous scan.
+    _scan_errors.clear()
+
     # Determine which subdirectories to scan
     if element_types:
         # Map type names back to subdirectory names
@@ -476,10 +516,10 @@ def get_all_element_locations(
     # 3. Plugin cache: ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/
     plugin_cache = get_claude_dir() / "plugins" / "cache"
     if plugin_cache.exists():
-        for marketplace in plugin_cache.iterdir():
+        for marketplace in _iterdir_safe(plugin_cache):
             if not marketplace.is_dir():
                 continue
-            for plugin in marketplace.iterdir():
+            for plugin in _iterdir_safe(marketplace):
                 if not plugin.is_dir():
                     continue
                 # Skip plugins disabled in settings.json
@@ -487,7 +527,7 @@ def get_all_element_locations(
                     plugin_id = f"{plugin.name}@{marketplace.name}"
                     if plugin_id in inactive_ids:
                         continue
-                for version in plugin.iterdir():
+                for version in _iterdir_safe(plugin):
                     if not version.is_dir():
                         continue
                     plugin_source = f"plugin:{marketplace.name}/{plugin.name}"
@@ -500,7 +540,7 @@ def get_all_element_locations(
     # 4. Local plugins: ~/.claude/plugins/<plugin>/
     user_plugins = get_claude_dir() / "plugins"
     if user_plugins.exists():
-        for plugin_dir in user_plugins.iterdir():
+        for plugin_dir in _iterdir_safe(user_plugins):
             if not plugin_dir.is_dir():
                 continue
             if plugin_dir.name in ("cache", "_disabled", "repos", "marketplaces"):
@@ -512,7 +552,7 @@ def get_all_element_locations(
     # 5. Current project plugins: .claude/plugins/*/
     project_plugins = cwd / ".claude" / "plugins"
     if project_plugins.exists():
-        for plugin_dir in project_plugins.iterdir():
+        for plugin_dir in _iterdir_safe(project_plugins):
             if plugin_dir.is_dir():
                 _add_element_dirs(
                     plugin_dir, f"plugin:{plugin_dir.name}", include_rules=False
@@ -537,7 +577,7 @@ def get_all_element_locations(
     }
     marketplace_root = get_claude_dir() / "plugins" / "marketplaces"
     if marketplace_root.exists():
-        for marketplace_dir in marketplace_root.iterdir():
+        for marketplace_dir in _iterdir_safe(marketplace_root):
             if not marketplace_dir.is_dir():
                 continue
             if marketplace_dir.name.startswith("."):
@@ -545,7 +585,15 @@ def get_all_element_locations(
             # Walk the marketplace directory tree to find element subdirectories
             # at any depth (structure varies: some have skills/ at depth 1,
             # others nest inside plugin-name/skills/ or plugin/version/skills/)
-            for dirpath, dirnames, _ in os.walk(marketplace_dir, followlinks=False):
+            #
+            # F7 (TRDD-1Z8SGQ7N): os.walk's default onerror is None, which
+            # DISCARDS the error and just yields nothing for that subtree —
+            # marketplace is the largest scope (726 of the 799 measured zombies),
+            # so an unreadable dir here silently mimics "the marketplace is
+            # empty" and would authorize wiping its whole history. Record it.
+            for dirpath, dirnames, _ in os.walk(
+                marketplace_dir, followlinks=False, onerror=_record_scan_error
+            ):
                 # Prune directories we should never descend into
                 dirnames[:] = [
                     d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")
@@ -2136,13 +2184,9 @@ def main() -> int:
         # every scope_path this run's SURVIVING elements belong to, so a
         # PARTIAL removal (one element gone from a scope that still has
         # others) is detected even if that element itself produced no
-        # observation. NOTE (review 20260715): this manifest is built only
-        # from `elements` that ARE still present, so a scope reduced to
-        # ZERO elements this run (e.g. a plugin fully uninstalled) never
-        # appears here at all and its removal still goes undetected — that
-        # gap needs enumerating scan roots independently of results, which
-        # is a larger, cross-file design change (deferred; see
-        # reports/pss-extension-tracking-review/).
+        # observation. This set is result-derived, so it can only ever
+        # describe scopes that still have elements — F7's `exhaustive_scopes`
+        # below is what covers a scope reduced to ZERO.
         #
         # The manifest line is identified by `"_pss_manifest": true` and
         # MUST come first so the writer can read it before processing
@@ -2162,10 +2206,56 @@ def main() -> int:
                 sp = scope_path_from_discovery_source(elem.get("source") or "")
             if sp:
                 scope_paths_walked.add(sp)
+
+        # F7 (TRDD-1Z8SGQ7N): a scope that yields ZERO elements this scan is
+        # invisible to result-derived coverage (visited_scope_paths above), so
+        # its stale rows never get swept — 799 zombie elements measured on the
+        # live index, of which the old policy caught 1. The discoverer is the
+        # only component that knows whether a run was complete, so it says so
+        # here — but ONLY for a provably complete run: every filter or I/O error
+        # drops a scope, because under-claiming merely delays a sweep to the
+        # next full reindex while over-claiming DELETES real history.
+        exhaustive_scopes: list[str] = []
+        if not args.name and not element_types and not _scan_errors:
+            if args.project_only:
+                # `--project-only` forces scan_all_projects False (see its
+                # assignment above), so this run only ever enumerates the CWD
+                # project — every OTHER project's elements are present-but-
+                # unobserved. Claiming "project" would remove all of them.
+                # NOTE: deviates from spec §4/test 11, which gated on
+                # args.all_projects; that flag is inert here. See the F7 report.
+                exhaustive_scopes = []
+            elif args.user_only:
+                # User scope is always enumerated in full — no flag narrows it.
+                exhaustive_scopes = ["user"]
+            else:
+                exhaustive_scopes = ["user"]
+                if scan_all_projects:
+                    # `project` and `local` elements outside the cwd are only
+                    # reachable with --all-projects; without it every OTHER
+                    # project's elements would look unobserved and be wrongly
+                    # removed.
+                    exhaustive_scopes += ["project", "local"]
+                if not args.exclude_inactive_plugins:
+                    # With the flag on, disabled plugins are deliberately
+                    # skipped, so their elements are unobserved-but-present.
+                    # Claiming these scopes would report "removed" for something
+                    # merely DISABLED — the exact confusion F2 fixed. Their
+                    # marketplace-scope elements cannot even be expressed as an
+                    # exclusion list (a disabled plugin's elements share the
+                    # enclosing marketplace's scope_path), so the whole claim
+                    # drops.
+                    exhaustive_scopes += ["plugin", "marketplace"]
+        if not elements:
+            # A scan that found nothing is a broken scan, not an empty machine.
+            # Claiming exhaustive here would wipe the entire index in one pass.
+            exhaustive_scopes = []
+
         manifest = {
             "_pss_manifest": True,
-            "_pss_manifest_version": 1,
+            "_pss_manifest_version": 2,
             "visited_scope_paths": sorted(scope_paths_walked),
+            "exhaustive_scopes": exhaustive_scopes,
             "discovered_at": datetime.now(timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%S+00:00"
             ),
