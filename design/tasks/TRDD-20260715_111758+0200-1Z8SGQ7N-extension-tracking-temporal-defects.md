@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T03:01:00+0200
+updated: 2026-07-17T03:38:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -378,7 +378,21 @@ enumeration FIRST (the F4/F5 meta-lesson), on the live DB + a real discovery run
   at pss_cozodb.py:150-153, and mirrored by all three resolvers — a shared
   `db_from_override` helper would silently break it and `tests/unit/test_pss_db_path_parity.py`.
   Spec: `scripts_dev/F12-override-authoritative-spec.md` (gitignored).
-- **F13** (P3, NEW 2026-07-17) — F7's scan-error accumulator covers only the scope-root
+- ~~**F13**~~ **DONE 2026-07-17 03:35** (parent `34c1287`, local — rides the next release).
+  All 25 `except OSError` sites classified under one rule (record iff the failure can make
+  an on-disk element absent from the stream), per-site audit table in
+  `reports/pss-f13-scan-error-routing/20260717_031127+0200-f13-impl.md`. 12 grep sites +
+  3 sibling JSONDecodeError arms wired (the realistic unreadable-file failure lands there —
+  `_safe_read_text` swallows the OSError and `json.loads("")` raises); 2 probe-gated
+  (marketplace-MCP/monitor manifest loops parse EVERY third-party manifest, and a real
+  BOM'd `plugin.json` on this machine would have kept the claim off forever under blanket
+  recording); **2 deliberately NOT wired** (per-element non-UTF-8 reads: a never-emitted
+  element is never Installed so never swept — no churn to prevent — while wiring would
+  permanently disable removal detection on any machine hosting one such file; two exist
+  here; pinned by test). Red test demonstrated (unreadable `installed_plugins.json` dropped
+  all plugin elements with an empty `_scan_errors` and a FULL claim); 295/295 suite re-run
+  independently; post-fix real-machine full run: 0 scan errors, all 5 scopes claimed.
+  Original entry: F7's scan-error accumulator covers only the scope-root
   enumeration in `get_all_element_locations`. The type-specific discoverers
   (`discover_hooks`/`_plugins`/`_marketplaces`/`_mcp_servers`/`_monitors`/`_output_styles`/
   `_themes`) have their own `except OSError: continue` paths that do NOT feed
@@ -386,7 +400,37 @@ enumeration FIRST (the F4/F5 meta-lesson), on the live DB + a real discovery run
   still stands ⇒ spurious Removed/Installed churn. Bounded and self-healing (append-only
   events; next clean scan re-installs), so accepted for F7. Route those handlers into
   `_record_scan_error`.
-- **F14** (P3, NEW 2026-07-17, surfaced by F12's implementer) — `resolve_db_path_canonical`
+- **F15** (P2/P3, NEW 2026-07-17, VERIFIED by F13's implementer against a fixture) — a
+  SKILL.md / agent / command `.md` whose frontmatter has `description:` with NO value makes
+  `frontmatter.get("description", "")[:200]` raise `TypeError: 'NoneType' object is not
+  subscriptable`, UNCAUGHT — the entire discovery run dies (`discover_elements`, pre-F13
+  L1823/L1888). One third-party skill with an empty description bricks PSS reindexing
+  outright. Fail-safe in the narrow sense (no manifest ⇒ nothing swept ⇒ no data
+  corruption), but a total indexing outage. Fix: `(frontmatter.get("description") or "")`.
+- **F16** (P3, NEW 2026-07-17, VERIFIED by F13's implementer) — remaining unhardened
+  traversals in the type discoverers: (a) `os.walk` in `_discover_marketplace_mcps`
+  (~L842) has no `onerror=` — an unreadable subdirectory silently truncates the config
+  enumeration without recording (the F13 shape, but not one of the 25 except sites);
+  (b) bare `.iterdir()` chains in `discover_hooks` (plugin-cache traversal),
+  `discover_monitors`, `discover_output_styles`, `discover_themes` — an OSError there
+  propagates and ABORTS the whole run (nothing emitted, exit non-zero; fail-fast, so no
+  wrong sweep, but a scan outage). Fix: `onerror=_record_scan_error` + `_iterdir_safe`.
+- **F17** (P3, NEW 2026-07-17, VERIFIED) — non-UTF-8 element files are permanently
+  INVISIBLE to discovery (never emitted; two live cp1252 `.md` files on this machine).
+  Suggested fix: read element content with `errors="replace"` (or catch
+  `UnicodeDecodeError` in `_safe_read_text`), converting the drop into a degrade — after
+  which F13's deliberate 1839/1905 deviation becomes moot and can be removed.
+- ~~**F14**~~ **DONE 2026-07-17 03:25** (submodule `bcbc6d5`, parent `1ce32a4`, local —
+  rides the next release). Pure `resolve_db_path_canonical_gated(cli, env)` + 3-line
+  wrapper; ZERO behavior change with all three deliberate properties pinned by tests (no
+  existence gate; `.db` asymmetry; the empty-`--index` fall-through divergence, test-pinned
+  with the TRDD reference so changing it requires a conscious decision). No canonical test
+  skips on env anymore. 219/219 re-run independently; clippy diagnostics byte-identical;
+  9/9 fresh-vs-prebuilt `db-path` outputs byte-identical (the prebuilt binary embodies
+  pre-change behavior, closing the stale-binary parity gap). Implementer observation:
+  `get_index_path` (main.rs:9998) also reads the env var directly but contains no
+  conditional logic that could hide an F12-shaped bug — observation only, no finding.
+  Original entry: `resolve_db_path_canonical`
   still reads `std::env::var("PSS_INDEX_PATH")` directly, so it stays env-untestable and its
   test (`resolve_db_path_canonical_default_is_home_cache_db`, main.rs ~L22533) **SKIPS**
   whenever that var is set. **That is the exact coverage hole that let F12 live**: the
