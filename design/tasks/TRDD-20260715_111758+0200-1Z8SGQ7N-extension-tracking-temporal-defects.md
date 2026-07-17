@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T02:06:00+0200
+updated: 2026-07-17T02:25:07+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -294,11 +294,32 @@ enumeration FIRST (the F4/F5 meta-lesson), on the live DB + a real discovery run
   tighten. Needs the exact comparison site pinned first. Likely no migration.
 - **F11** (P2, NEW 2026-07-17) — same-scan element_id collision ⇒ ~51 churn events per
   scan + non-deterministic recorded version. Batch with F9.
-- **F12** (P2, NEW 2026-07-17) — `PSS_INDEX_PATH` set-but-unresolvable is silently
-  ignored and falls back to the user's REAL index (main.rs `get_db_path`, existence gate
-  with no else). A fail-fast violation that already caused one accidental live write; any
-  tool aiming at a scratch DB silently writes the real one. Fix: error out when the env
-  var is set but does not resolve. Cheap; batch with F9/F11.
+- **F12** (P2, NEW 2026-07-17; **IN PROGRESS** 2026-07-17, spec'd + delegated) —
+  `PSS_INDEX_PATH` set-but-unresolvable is silently ignored and falls back to the user's
+  REAL index (main.rs `get_db_path`, existence gate with no else). A fail-fast violation
+  that already caused one accidental live write; any tool aiming at a scratch DB silently
+  writes the real one.
+  **WORSE THAN FIRST FILED — verified by reading all three resolvers 2026-07-17:**
+  1. It is **two** fall-throughs, not one: `--index <json>` (L14501) has the identical
+     no-`else` gate, so a failed `--index` silently defers to `PSS_INDEX_PATH` —
+     a **priority inversion** against the documented `--index` > env order.
+  2. PSS has **three** resolvers claiming one resolution order, and only the runtime one
+     falls back: `resolve_db_path_canonical` (L14547, backs `pss db-path`) and
+     `pss_cozodb.get_db_path` (scripts/pss_cozodb.py:159) both honor an override
+     **unconditionally**. So **`pss db-path` reports a path the binary does not use** —
+     and that subcommand's own doc-comment says it exists so external consumers "stop
+     reverse-engineering PSS's path-resolution". The P-2 contract lies exactly the way
+     that misled the F7 implementer. This is the real severity.
+  **Fix (refined):** an override is AUTHORITATIVE — resolve only from it, return `None`
+  when it does not resolve, never fall through. **No caller changes:** `None` is already
+  correct at all 8 sites (3 writers eprintln+exit; `open_db_for_query` → `IndexNotFound`;
+  3 readers fall back to the JSON index, which honors the SAME override via
+  `get_index_path`, so they never silently read the real one).
+  **Invariant to preserve:** the `.db` asymmetry (`--index x.db` → `x.db` itself;
+  `PSS_INDEX_PATH=x.db` → the *sibling* `pss-skill-index.db`) is intentional, documented
+  at pss_cozodb.py:150-153, and mirrored by all three resolvers — a shared
+  `db_from_override` helper would silently break it and `tests/unit/test_pss_db_path_parity.py`.
+  Spec: `scripts_dev/F12-override-authoritative-spec.md` (gitignored).
 - **F13** (P3, NEW 2026-07-17) — F7's scan-error accumulator covers only the scope-root
   enumeration in `get_all_element_locations`. The type-specific discoverers
   (`discover_hooks`/`_plugins`/`_marketplaces`/`_mcp_servers`/`_monitors`/`_output_styles`/
