@@ -165,16 +165,26 @@ def test_unreadable_theme_body_still_emits_element_without_scan_error(
     )
 
 
-def test_non_utf8_element_file_drops_without_scan_error(
+def test_non_utf8_element_file_is_emitted_without_scan_error(
     fake_claude_dir: Path, tmp_path: Path
 ) -> None:
-    """Pin of a DELIBERATE deviation from the rule's letter (see the report's
-    classification table, sites L1839/L1905): a non-UTF-8 element .md is
-    dropped from the stream, yet must NOT record. Its unreadability is a
-    PERMANENT content property — recording it would keep the coverage claim
-    off forever on any machine hosting one such third-party file (two exist
-    on the machine this was developed on), while the never-emitted element
-    causes no Removed churn. The healthy sibling must survive the loop."""
+    """F17 DISSOLVED F13's deliberate deviation — this test is its inverse.
+
+    F13 shipped a knowing deviation from the rule's letter: a non-UTF-8 element
+    .md was DROPPED from the stream yet did not record, because its
+    unreadability is a PERMANENT content property (two such third-party files
+    exist in the wild) and recording it would have kept the coverage claim off
+    forever, recreating F7's outage. The drop was tolerated only because a
+    never-emitted element is never Installed, so it causes no Removed churn.
+
+    F17 removed the need for that trade: the element read now passes
+    errors="replace", so the file is EMITTED with a mojibake description
+    instead of vanishing. The deviation is gone — the site now obeys the rule's
+    letter (no drop => no record) rather than being excused from it.
+
+    The "no scan error" half remains load-bearing and is still pinned here: an
+    emitted element must never shrink the claim. The healthy sibling must
+    survive the loop either way."""
     cmd_dir = tmp_path / "commands"
     cmd_dir.mkdir()
     (cmd_dir / "broken.md").write_bytes(
@@ -188,7 +198,10 @@ def test_non_utf8_element_file_drops_without_scan_error(
 
     names = [e["name"] for e in elements]
     assert "healthy" in names, "one bad file must not abort the directory"
-    assert "broken" not in names, "non-UTF-8 element is dropped (current design)"
+    assert "broken" in names, (
+        "non-UTF-8 element must degrade, not drop — F17 replaced the strict "
+        "decode with errors='replace' (was: dropped by design under F13)"
+    )
     assert not pss_discover._scan_errors, (
         "a permanently non-UTF-8 element file must not permanently disable "
         "removal detection (F13 over-recording guard)"

@@ -427,6 +427,38 @@ def _iterdir_safe(path: Path) -> list[Path]:
         return []
 
 
+def _record_walk_error(err: OSError) -> None:
+    """os.walk `onerror` for walks that enumerate ELEMENT-bearing files.
+
+    Records every failure EXCEPT ENOENT, because of the rule's IFF: record iff
+    the failure can make an ON-DISK element absent from the stream. A directory
+    that no longer exists holds no on-disk element, so nothing can be absent —
+    ENOENT does not meet the condition and must not shrink the claim.
+
+    This is not a hypothetical. os.walk scandirs a parent, then descends into
+    each child it listed; a child deleted inside that window raises
+    FileNotFoundError here. A marketplace being re-cloned by a concurrent
+    plugin update (rmdir+mkdir) is a routine event, and recording it would drop
+    the coverage claim for the WHOLE run — disabling removal detection on a
+    measured ~8-40% of real runs on a developer machine. That is F7's outage
+    returning through the back door, which is precisely what the rule's IFF and
+    F13's over-recording guard exist to prevent.
+
+    It also keeps this walk consistent with the F7 walk over the same tree,
+    which re-checks `is_dir()` before walking each marketplace: is_dir() returns
+    False (it never raises) for a vanished dir, so F7 already skips exactly this
+    ENOENT silently. Suppressing it here matches shipped behaviour rather than
+    unilaterally tightening it.
+
+    Every other error still records: EACCES/EIO on a directory that IS on disk
+    means real elements are invisible, which is the element-dropping failure
+    F16(a) exists to catch.
+    """
+    if isinstance(err, FileNotFoundError):
+        return
+    _record_scan_error(err)
+
+
 def get_all_element_locations(
     scan_all_projects: bool = False,
     element_types: list[str] | None = None,
@@ -668,7 +700,13 @@ def get_all_element_locations(
             # 6b. Project plugins
             proj_plugins = project_path / ".claude" / "plugins"
             if proj_plugins.exists():
-                for plugin_dir in proj_plugins.iterdir():
+                # F16b: _iterdir_safe, not a bare iterdir — an unreadable
+                # project-plugins dir must not abort the whole scan (every
+                # other scope's elements would be lost too). Recording it
+                # downgrades a total outage to a non-exhaustive-but-complete
+                # scan, which still emits everything else and still forbids
+                # the sweep that a silent empty listing would authorize.
+                for plugin_dir in _iterdir_safe(proj_plugins):
                     if plugin_dir.is_dir():
                         source = f"project:{project_name}/plugin:{plugin_dir.name}"
                         _add_element_dirs(plugin_dir, source, include_rules=False)
@@ -839,7 +877,22 @@ def _discover_marketplace_mcps(
     skip_dirs = {"node_modules", ".git", "dist", "build", "__pycache__"}
     config_filenames = {".mcp.json", "mcp.json", "plugin.json"}
 
-    for root, dirs, files in os.walk(marketplaces_dir, followlinks=False):
+    # F16a (TRDD-1Z8SGQ7N): this walk enumerates the config files that BECOME
+    # MCP elements, so it must record. os.walk's default onerror is None, which
+    # DISCARDS the error and yields nothing for that subtree — byte-for-byte
+    # indistinguishable from "this marketplace ships no MCP servers", so the
+    # claim would stand and the real MCPs sweep Removed. Contrast
+    # _find_tool_names_in_source's walk, which is ENRICHMENT (the MCP element is
+    # emitted either way) and therefore must NOT be given an onerror.
+    #
+    # _record_walk_error, NOT _record_scan_error: unlike the F7 walk this one
+    # walks the PARENT, so os.walk performs the descent itself and no `is_dir()`
+    # re-check can guard it. Passing _record_scan_error directly would record
+    # the ENOENT of a marketplace deleted mid-walk and drop the claim on ~8-40%
+    # of real runs. See _record_walk_error for the full reasoning.
+    for root, dirs, files in os.walk(
+        marketplaces_dir, followlinks=False, onerror=_record_walk_error
+    ):
         dirs[:] = [d for d in dirs if d not in skip_dirs]
         for fname in files:
             if fname not in config_filenames:
@@ -1426,13 +1479,18 @@ def discover_hooks(scan_all_projects: bool = False) -> list[dict[str, Any]]:
     # 4. Plugin-shipped hooks (cache + marketplaces)
     plugin_cache = get_claude_dir() / "plugins" / "cache"
     if plugin_cache.exists():
-        for marketplace in plugin_cache.iterdir():
+        # F16b: all THREE levels go through _iterdir_safe. An unreadable plugin
+        # dir drops that plugin's hooks just as surely as an unreadable
+        # marketplace dir does, so hardening only the outermost level would
+        # leave the inner drops silent — and a bare iterdir at any level aborts
+        # the entire discovery run on one bad directory.
+        for marketplace in _iterdir_safe(plugin_cache):
             if not marketplace.is_dir():
                 continue
-            for plugin in marketplace.iterdir():
+            for plugin in _iterdir_safe(marketplace):
                 if not plugin.is_dir():
                     continue
-                for version in plugin.iterdir():
+                for version in _iterdir_safe(plugin):
                     if not version.is_dir():
                         continue
                     src = f"plugin:{marketplace.name}/{plugin.name}"
@@ -1619,13 +1677,16 @@ def discover_monitors() -> list[dict[str, Any]]:
     plugin_cache = get_claude_dir() / "plugins" / "cache"
     if not plugin_cache.exists():
         return elements
-    for marketplace in plugin_cache.iterdir():
+    # F16b: every level via _iterdir_safe — a bare iterdir here aborts the whole
+    # scan on one unreadable dir, and a silently-empty listing at ANY level
+    # drops that subtree's monitors while the coverage claim still stands.
+    for marketplace in _iterdir_safe(plugin_cache):
         if not marketplace.is_dir():
             continue
-        for plugin in marketplace.iterdir():
+        for plugin in _iterdir_safe(marketplace):
             if not plugin.is_dir():
                 continue
-            for version in plugin.iterdir():
+            for version in _iterdir_safe(plugin):
                 if not version.is_dir():
                     continue
                 manifest = version / ".claude-plugin" / "plugin.json"
@@ -1753,13 +1814,16 @@ def discover_output_styles() -> list[dict[str, Any]]:
     ))
     plugin_cache = get_claude_dir() / "plugins" / "cache"
     if plugin_cache.exists():
-        for marketplace in plugin_cache.iterdir():
+        # F16b: all three levels via _iterdir_safe — see discover_hooks. A bare
+        # iterdir aborts the run; a silent empty listing drops this plugin's
+        # output-styles while the claim stands.
+        for marketplace in _iterdir_safe(plugin_cache):
             if not marketplace.is_dir():
                 continue
-            for plugin in marketplace.iterdir():
+            for plugin in _iterdir_safe(marketplace):
                 if not plugin.is_dir():
                     continue
-                for version in plugin.iterdir():
+                for version in _iterdir_safe(plugin):
                     if not version.is_dir():
                         continue
                     src = f"plugin:{marketplace.name}/{plugin.name}"
@@ -1785,13 +1849,16 @@ def discover_themes() -> list[dict[str, Any]]:
     ))
     plugin_cache = get_claude_dir() / "plugins" / "cache"
     if plugin_cache.exists():
-        for marketplace in plugin_cache.iterdir():
+        # F16b: all three levels via _iterdir_safe — see discover_hooks. A bare
+        # iterdir aborts the run; a silent empty listing drops this plugin's
+        # themes while the claim stands.
+        for marketplace in _iterdir_safe(plugin_cache):
             if not marketplace.is_dir():
                 continue
-            for plugin in marketplace.iterdir():
+            for plugin in _iterdir_safe(marketplace):
                 if not plugin.is_dir():
                     continue
-                for version in plugin.iterdir():
+                for version in _iterdir_safe(plugin):
                     if not version.is_dir():
                         continue
                     src = f"plugin:{marketplace.name}/{plugin.name}"
@@ -1917,7 +1984,19 @@ def discover_elements(
                 if dedup_key in seen_names:
                     continue
                 try:
-                    content = _safe_read_text(skill_md) or ""
+                    # F17 (TRDD-1Z8SGQ7N): errors="replace", NOT the strict
+                    # default. A UnicodeDecodeError is a ValueError, not an
+                    # OSError, so it escapes _safe_read_text and used to skip
+                    # this element entirely — and an encoding is a PERMANENT
+                    # property of the file, not a transient failure, so such a
+                    # SKILL.md was invisible to discovery forever (two cp1252
+                    # files exist in the wild). Degrading to a mojibake
+                    # description beats vanishing. Element reads only:
+                    # _safe_read_text's default stays strict because it also
+                    # reads JSON containers, where U+FFFD would turn a clean
+                    # UnicodeDecodeError into a confusing JSONDecodeError and
+                    # defeat the container-drop detection F13 relies on.
+                    content = _safe_read_text(skill_md, errors="replace") or ""
                     frontmatter = parse_frontmatter(content, source_label=str(skill_md))
                     body = _extract_body_preview(content)
                     use_ctx = extract_use_context(content)
@@ -1948,19 +2027,18 @@ def discover_elements(
                         )[:500]
                     elements.append(entry)
                     seen_names.add(dedup_key)
-                except (OSError, UnicodeDecodeError) as e:
-                    # F13 — deliberately NOT wired into _record_scan_error.
-                    # An unreadable SKILL.md never reaches this arm as a drop
-                    # (_safe_read_text swallows the OSError and the element
-                    # is emitted with empty metadata); what lands here is
-                    # UnicodeDecodeError from a non-UTF-8 SKILL.md — a
-                    # PERMANENT content property. Recording it would keep the
-                    # coverage claim off FOREVER on any machine hosting one
-                    # such third-party file (two exist in the wild today),
-                    # recreating F7's outage — while the never-emitted
-                    # element produces no Removed churn (it is never
-                    # Installed either). Over-recording is the direction to
-                    # guard against, so this drop stays unrecorded.
+                except OSError as e:
+                    # NOT wired into _record_scan_error (F13 rule): a failure
+                    # here cannot drop an element. _safe_read_text already
+                    # swallows every OSError it can raise and returns None, so
+                    # this arm is a defensive net for the rest of the block —
+                    # it logs and skips rather than aborting the whole scan.
+                    #
+                    # F17 removed UnicodeDecodeError from this arm: the read
+                    # above now passes errors="replace", so the decode cannot
+                    # fail and a non-UTF-8 SKILL.md is EMITTED with a mojibake
+                    # description instead of dropping. Listing an exception
+                    # the code three lines up made impossible would be a lie.
                     print(f"Warning: Cannot read {skill_md}: {e}", file=sys.stderr)
         else:
             # Agents, commands, rules: <dir>/<name>.md (direct .md files)
@@ -1990,7 +2068,13 @@ def discover_elements(
                     continue
 
                 try:
-                    content = _safe_read_text(md_file) or ""
+                    # F17 (TRDD-1Z8SGQ7N): errors="replace" — same reasoning as
+                    # the SKILL.md branch above. A non-UTF-8 agent/command/rule
+                    # .md must degrade to a mojibake description, not be
+                    # permanently invisible to discovery. Only ELEMENT reads
+                    # relax the decode; _safe_read_text's strict default is
+                    # load-bearing for the JSON container reads.
+                    content = _safe_read_text(md_file, errors="replace") or ""
                     frontmatter = parse_frontmatter(content, source_label=str(md_file))
 
                     # Extract description per type
@@ -2036,13 +2120,9 @@ def discover_elements(
                         }
                     )
                     seen_names.add(dedup_key)
-                except (OSError, UnicodeDecodeError) as e:
-                    # F13 — deliberately NOT wired, same reasoning as the
-                    # SKILL.md arm above: only a PERMANENTLY non-UTF-8 .md
-                    # lands here, and recording a permanent condition would
-                    # permanently disable removal detection machine-wide for
-                    # zero churn saved (a never-emitted element is never
-                    # Installed, so it is never swept as Removed).
+                except OSError as e:
+                    # NOT wired into _record_scan_error, and UnicodeDecodeError
+                    # dropped by F17 — same reasoning as the SKILL.md arm above.
                     print(f"Warning: Cannot read {md_file}: {e}", file=sys.stderr)
 
     return elements

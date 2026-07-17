@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T11:02:00+0200
+updated: 2026-07-17T12:55:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -450,7 +450,36 @@ enumeration FIRST (the F4/F5 meta-lesson), on the live DB + a real discovery run
   `frontmatter.get("description", "")[:200]` raise `TypeError`, UNCAUGHT — the entire
   discovery run dies. One third-party skill with an empty description bricks PSS reindexing
   outright.
-- **F16** (P3, NEW 2026-07-17, VERIFIED by F13's implementer) — remaining unhardened
+- ~~**F16 + F17**~~ **DONE 2026-07-17 12:40** (parent — local, uncommitted at write time,
+  gated + committed by orchestrator; rides v3.10.8). Kraken TDD; my independent gate:
+  `ruff check` clean (the project's real gate — note `pss_discover.py` ALSO fails
+  `ruff format --check` at HEAD, pre-existing, so I did NOT reformat it and mix cosmetic
+  churn into a fix commit; only the new test file was formatted), 314/314 unit suite re-run
+  by me, and RED-verified (16 of the new tests fail against the stashed-out fix, pass with
+  it). **⚠ MY F16(a) SPEC WAS WRONG — 4th filed prescription on this TRDD wrong toward
+  data loss, and the implementer caught it with evidence.** I said "add
+  `onerror=_record_scan_error` (match the L614 F7 call's shape)". That is a UNILATERAL
+  over-tightening: L614 walks each CHILD after an `is_dir()` re-check (returns False, never
+  raises, for a vanished dir ⇒ `os.walk` is never called ⇒ ENOENT suppressed), whereas the
+  F16(a) site walks the PARENT, so `os.walk` does the descent and no guard is possible. A
+  marketplace being re-cloned mid-walk (rmdir+mkdir — routine) then raises ENOENT into
+  `onerror`, and recording it drops the coverage claim for the WHOLE run — measured 8-40% of
+  real runs on this machine (A/B: HEAD 0/12; literal spec 2/5). The rule's IFF settles it: a
+  directory that no longer exists holds NO on-disk element, so nothing can be absent ⇒ ENOENT
+  must NOT record; EACCES (dir on disk, elements real but invisible) MUST. Implementer added
+  `_record_walk_error` (records all but `FileNotFoundError`), wired ONLY at the F16(a) walk;
+  F7's L614 walk 0-diff. Both halves pinned by
+  `test_walk_error_handler_suppresses_enoent_but_records_unreadable`. All 4 spec traps
+  respected (F13-guarded sites untouched; the enrichment walk in `_find_tool_names_in_source`
+  left without `onerror` and PINNED by an anti-over-recording test; `_iterdir_safe` wired not
+  recreated; F17 = 2 element reads get `errors="replace"`, `_safe_read_text` default stays
+  strict, dead `UnicodeDecodeError` arms removed). F17 dissolved F13's deliberate deviation:
+  `test_non_utf8_element_file_drops_without_scan_error` INVERTED (not deleted). Report:
+  `reports/pss-f16-f17-fix/20260717_124023+0200-f16-f17.md`. **LESSON:** "match the shape of
+  an existing hardened call" is not a safe instruction when the two calls differ
+  structurally (child-walk-after-guard vs parent-walk); the guard, not the `onerror=`, was
+  the load-bearing part.
+  Original entry: remaining unhardened
   traversals in the type discoverers: (a) `os.walk` in `_discover_marketplace_mcps`
   (~L842) has no `onerror=` — an unreadable subdirectory silently truncates the config
   enumeration without recording (the F13 shape, but not one of the 25 except sites);
