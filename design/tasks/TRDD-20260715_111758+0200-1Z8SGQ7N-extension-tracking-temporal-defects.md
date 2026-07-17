@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T12:55:00+0200
+updated: 2026-07-17T13:12:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -23,29 +23,19 @@ real live DB md5 unchanged. **Expected on the user's next real `/pss-reindex-ski
 F11 one-time re-key — ~91 merged plugin ids sweep Removed, 156 true per-project elements
 Install, then steady state. Designed and documented, NOT a regression.
 
-**⚠ NEXT ACTION — F18 (P1, NEW 2026-07-17) is the priority and it is LIVE IN v3.10.7.**
-A **date-only LOWER bound skips its whole day**, so `changed-between 2026-07-16 2026-07-16`
-("what changed on Jul 16?") answers **"(no results)"** against **10,123 real events** —
-proven end-to-end with the shipped binary. Every window query in BOTH families is affected
-whenever the user types a bare date (relative `1d` and explicit RFC3339 are fine, which is
-why the smoke tests never caught it). The shipped `docs/DEVELOPMENT.md:538` promises
-"midnight UTC" — the OPPOSITE of what the code does. **Fix F18 + F9 together** (F18's
-direction-aware `parse_date_bound` subsumes F9); ~14 call sites; needs TDD; no migration.
-Full spec + evidence in F18's entry below. **Ship F18+F9 in v3.10.8.**
+**✅ ALL FINDINGS CLOSED as of 2026-07-17 13:12. F1–F18 done. NEXT ACTION: ship v3.10.8.**
+The unreleased set on the branch (since the `v3.10.7` tag): F15 (`7b0f0fe`), F16+F17
+(`b4de8d5`) — both Python in `pss_discover.py` — and F18+F9 (Rust submodule main.rs/temporal.rs
++ docs/DEVELOPMENT.md, committed by the orchestrator alongside this STATE edit). **F18 is the
+P1 headline** (date-only window queries answered "nothing" against real events; proven dead
+with a fresh binary — 1001 rows vs the shipped 0). Ship recipe: commit the submodule first
+(gitlink), then the parent, then `uv run python scripts/publish.py --bump patch` → v3.10.8;
+verify the shipped binary BEHAVIORALLY (run `changed-between <D> <D>` against a live-DB COPY,
+expect rows) and the shipped commit set against the new tag (the verify-shipped-status memory).
 
-**STILL OPEN (NOT yet released — all ride v3.10.8):**
-- **F18 — P1** — date-only lower bound skips its day ⇒ window queries silently answer
-  nothing. LIVE in v3.10.7. Subsumes F9. **Do this first.**
-- **F9 — P3** — temporal cutoff Z-form vs offset-form storage (sub-second boundary);
-  comparison site now PINNED and the bug reproduced in the engine. Fixed for free by F18's
-  fix (each family formats the parsed instant for its own storage).
-- **F16 — P3** — unhardened traversals (`os.walk` at ~L842 without `onerror`; 13 bare
-  `.iterdir()` chains). NOTE: `_iterdir_safe` ALREADY EXISTS — wire it, don't create it;
-  and the `os.walk` at ~L727 is ENRICHMENT and must NOT be hardened (over-recording).
-- **F17 — P3** — non-UTF-8 element files invisible; `errors="replace"` on ELEMENT reads only
-  (NOT `_safe_read_text`'s default — container JSON reads must stay strict). Dissolves F13's
-  deliberate deviation ⇒ invert (don't delete) its test.
-- F15 fixed 2026-07-17 (`7b0f0fe`, unreleased). All specified in the findings list below.
+**NOTHING OPEN.** Every finding F1–F18 is fixed + committed. No time-gated work. The only
+non-finding open items are the two USER-GATED ones tracked elsewhere (the 36 MB plugin-data
+orphan deletion; task #52 P-8) — do NOT touch without the user.
 
 ---
 
@@ -694,6 +684,26 @@ family are all unaffected.
 **Status:** specified + proven, NOT yet implemented. **SUBSUMED by F18's fix** (direction-aware
 cutoffs answer the format question per-direction). No migration. Batch with the stage-4
 "temporal NOT updated" partial-wording tighten.
+
+~~**F18 + F9**~~ **DONE 2026-07-17 13:06** (submodule main.rs/temporal.rs + docs/DEVELOPMENT.md;
+local, gated + committed by orchestrator; rides v3.10.8). Kraken TDD; **my independent gate:**
+`parse_date` fully replaced by `parse_date_bound(&str, Bound) -> DateTime<Utc>` (grep-confirmed
+zero stray `parse_date(` callers — no dead code), 19 sites carry the verified Bound (7 Start /
+12 End), each family formats its own storage (legacy Z-form, temporal offset-form via
+`.to_rfc3339()`). 223/223 Rust suite re-run BY ME (219 baseline + 4 net new); clippy exit 0 (the
+59 warnings are all pre-existing, none cite the changed lines); **P1 proven DEAD with a
+freshly-built binary that I located and ran myself** (`rust/target/release/pss` — note the
+Cargo WORKSPACE puts `target/` at the submodule root, NOT under `skill-suggester/`; my first
+gate silently no-op'd on the wrong path, a verify-your-own-rig catch): `changed-between
+2026-07-16 2026-07-16` → **1001 rows** (shipped v3.10.7 on the same DB copy → **0**), and the
+date-only-start result equals the explicit-start-of-day result row-for-row (1001 == 1001). No
+migration (19,258 offset-form history rows untouched). The buggy-behavior-pinning test was made
+direction-aware, not deleted; the 3 doc lies in `parse_date`'s block + `docs/DEVELOPMENT.md:537`
+corrected. Spec was correct end-to-end this time (no data-loss trap) — the implementer
+independently re-verified the 19-site map against the comparison OPERATORS, not the names.
+Report: `reports/pss-f18-f9-fix/20260717_130656+0200-f18-f9.md`.
+
+Original entry:
 
 **F18 — P1 — SILENT WRONG ANSWER: a date-only LOWER bound skips its whole day, so every
 window query returns (almost always) NOTHING. FOUND + PROVEN 2026-07-17 while pinning F9.

@@ -535,7 +535,12 @@ pss list-updated-since 1h
 ```
 
 Datetime formats: RFC 3339 (`2026-04-16T22:12:27Z`), date-only
-(`2026-04-16`, midnight UTC), or relative (`1d`, `2w`, `24h`, `30m`, `120s`).
+(`2026-04-16`), or relative (`1d`, `2w`, `24h`, `30m`, `120s`). A date-only
+value names a whole DAY, and which instant the cutoff resolves to depends on
+the bound's DIRECTION (TRDD-1Z8SGQ7N / F18): a LOWER bound (`>= …`, e.g. the
+`since`/`start` of `list-added-since` / `changed-between`) resolves to the
+day's first instant `00:00:00`, while an UPPER bound (`<= …`, e.g. the `end`
+of `changed-between`) resolves to its last instant `23:59:59.999999999`.
 
 ### Search
 
