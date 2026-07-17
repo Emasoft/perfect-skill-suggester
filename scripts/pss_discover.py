@@ -357,9 +357,19 @@ def get_all_projects_from_claude_config() -> list[tuple[str, Path]]:
         return projects
 
     except json.JSONDecodeError as e:
+        # element-dropping failure (F13): ~/.claude.json IS the project
+        # registry — losing it drops every other project's elements from the
+        # stream while a standing project/local claim would sweep them all as
+        # Removed. An UNREADABLE file lands in THIS arm, not the OSError one:
+        # _safe_read_text swallows the OSError and returns None, and
+        # json.loads(None or "") raises JSONDecodeError.
+        _record_scan_error(f"project registry {config_path}: {e}")
         print(f"Error parsing {config_path}: {e}", file=sys.stderr)
         return projects
     except OSError as e:
+        # element-dropping failure (F13): same registry-drop shape — record so
+        # the coverage claim drops for this run.
+        _record_scan_error(f"project registry {config_path}: {e}")
         print(f"Error reading {config_path}: {e}", file=sys.stderr)
         return projects
 
@@ -381,14 +391,24 @@ ELEMENT_SUBDIRS = {
 _scan_errors: set[str] = set()
 
 
-def _record_scan_error(err: OSError) -> None:
+def _record_scan_error(err: OSError | str) -> None:
     """Record an I/O error hit while enumerating a scope root.
 
     Also printed to stderr: a silent degrade would let a transient permission
     problem quietly downgrade every future scan's coverage with no way to
     diagnose why removals stopped being detected.
+
+    F13 (TRDD-1Z8SGQ7N): also accepts a pre-formatted string, because the
+    type-specific discoverers must record element-dropping failures whose
+    exception is NOT an OSError — an unreadable container file surfaces as
+    json.JSONDecodeError (via _safe_read_text -> None -> json.loads("")), and
+    a non-UTF-8 element file as UnicodeDecodeError. The caller formats the
+    "<which file/dir>: <exc>" context itself in those cases.
     """
-    msg = f"{getattr(err, 'filename', None) or '<unknown path>'}: {err}"
+    if isinstance(err, str):
+        msg = err
+    else:
+        msg = f"{getattr(err, 'filename', None) or '<unknown path>'}: {err}"
     _scan_errors.add(msg)
     print(f"Warning: scan error (run not exhaustive): {msg}", file=sys.stderr)
 
@@ -825,6 +845,9 @@ def _discover_marketplace_mcps(
             if fname not in config_filenames:
                 continue
             fpath = Path(root) / fname
+            # F13: pre-initialized so the except arm can probe the raw text
+            # even when the failure happened before/during the read.
+            raw_config: str | None = None
             try:
                 # Skip MCPs from inactive plugins
                 if inactive_plugin_ids:
@@ -843,7 +866,8 @@ def _discover_marketplace_mcps(
                         if mp in disabled_marketplaces:
                             continue
 
-                data = json.loads(_safe_read_text(fpath, max_bytes=MANIFEST_READ_CAP) or "")
+                raw_config = _safe_read_text(fpath, max_bytes=MANIFEST_READ_CAP)
+                data = json.loads(raw_config or "")
                 mcp_servers = data.get("mcpServers", data.get("mcp_servers", {}))
                 if not isinstance(mcp_servers, dict) or not mcp_servers:
                     continue
@@ -891,7 +915,26 @@ def _discover_marketplace_mcps(
                     }
                     servers.append(server_data)
 
-            except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+                # element-dropping failure (F13): this config file IS the
+                # container of the mcpServers it defines — a parse/read
+                # failure drops every one of them from the stream, so the
+                # coverage claim must shrink. GUARD against over-recording:
+                # this walk parses EVERY third-party plugin.json under
+                # marketplaces/, and most define no mcpServers at all. When
+                # the raw text is available and provably contains no
+                # mcpServers key (JSON keys are literal substrings), nothing
+                # was dropped — recording would let one permanently-corrupt
+                # third-party manifest (a real BOM'd plugin.json exists in
+                # the wild) permanently disable removal detection. When the
+                # text is unavailable (unreadable / over the size cap), the
+                # doubt is dropping-shaped, so record.
+                if raw_config is not None and (
+                    "mcpServers" not in raw_config
+                    and "mcp_servers" not in raw_config
+                ):
+                    continue
+                _record_scan_error(f"marketplace MCP config {fpath}: {exc}")
                 continue
 
     return servers
@@ -1013,8 +1056,17 @@ def discover_mcp_servers(
                 }
                 servers.append(server_data)
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            # element-dropping failure (F13): this config IS the container of
+            # the mcpServers it defines (user ~/.claude.json or a project
+            # .mcp.json) — every server in it drops from the stream, so the
+            # coverage claim must shrink. An UNREADABLE file lands here, not
+            # in the OSError arm: _safe_read_text returns None and
+            # json.loads("") raises JSONDecodeError.
+            _record_scan_error(f"MCP config {config_path}: {e}")
             print(f"Warning: Error parsing {config_path}: {e}", file=sys.stderr)
         except OSError as e:
+            # element-dropping failure (F13): same container-drop shape.
+            _record_scan_error(f"MCP config {config_path}: {e}")
             print(f"Warning: Cannot read {config_path}: {e}", file=sys.stderr)
 
     # 1. User-level: ~/.claude.json
@@ -1204,8 +1256,16 @@ def discover_lsp_servers() -> list[dict[str, Any]]:
             )
 
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        # element-dropping failure (F13): settings.json IS the container of
+        # the enabledPlugins entries every LSP element comes from ("built-in"
+        # source -> user scope downstream) — losing it drops them all, so the
+        # coverage claim must shrink. An UNREADABLE file lands here via
+        # _safe_read_text -> None -> json.loads("").
+        _record_scan_error(f"LSP settings {settings_path}: {e}")
         print(f"Warning: Error parsing {settings_path}: {e}", file=sys.stderr)
     except OSError as e:
+        # element-dropping failure (F13): same container-drop shape.
+        _record_scan_error(f"LSP settings {settings_path}: {e}")
         print(f"Warning: Cannot read {settings_path}: {e}", file=sys.stderr)
 
     return servers
@@ -1287,7 +1347,12 @@ def discover_hooks(scan_all_projects: bool = False) -> list[dict[str, Any]]:
             return
         try:
             data = json.loads(_safe_read_text(settings_path, max_bytes=MANIFEST_READ_CAP) or "")
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as exc:
+            # element-dropping failure (F13): this settings file IS the hook
+            # container for its scope — every hook it defines drops from the
+            # stream, so the coverage claim must shrink. An UNREADABLE file
+            # lands in the JSONDecodeError arm via _safe_read_text -> None.
+            _record_scan_error(f"hook settings {settings_path}: {exc}")
             return
         hooks_obj = data.get("hooks")
         if not isinstance(hooks_obj, dict):
@@ -1311,7 +1376,11 @@ def discover_hooks(scan_all_projects: bool = False) -> list[dict[str, Any]]:
             return
         try:
             data = json.loads(_safe_read_text(hooks_json, max_bytes=MANIFEST_READ_CAP) or "")
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as exc:
+            # element-dropping failure (F13): hooks.json exists solely to
+            # declare hooks — a parse/read failure drops every hook the
+            # plugin ships, so the coverage claim must shrink.
+            _record_scan_error(f"plugin hooks {hooks_json}: {exc}")
             return
         hooks_obj = data.get("hooks")
         if not isinstance(hooks_obj, dict):
@@ -1393,7 +1462,14 @@ def discover_plugins(
         return elements
     try:
         data = json.loads(_safe_read_text(plugins_file, max_bytes=MANIFEST_READ_CAP) or "")
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        # element-dropping failure (F13): this file IS the plugin container —
+        # every install entry vanishes from the stream in one scan, and with
+        # a standing claim they would ALL sweep as Removed. Record so the
+        # coverage claim drops. An UNREADABLE file lands in the
+        # JSONDecodeError arm: _safe_read_text swallows the OSError and
+        # returns None, and json.loads("") raises JSONDecodeError.
+        _record_scan_error(f"installed_plugins.json {plugins_file}: {exc}")
         return elements
     # HP-2 (audit 20260514): CC v2.1.69+ uses installed_plugins.json v2.
     # Silently reading a v1-format file produces wrong elements (different
@@ -1491,7 +1567,12 @@ def discover_marketplaces() -> list[dict[str, Any]]:
         return elements
     try:
         data = json.loads(_safe_read_text(mp_file, max_bytes=MANIFEST_READ_CAP) or "")
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        # element-dropping failure (F13): this file IS the marketplace
+        # container — every marketplace element vanishes in one scan, so the
+        # coverage claim must drop. Unreadable files land in the
+        # JSONDecodeError arm via _safe_read_text -> None -> json.loads("").
+        _record_scan_error(f"known_marketplaces.json {mp_file}: {exc}")
         return elements
     if not isinstance(data, dict):
         return elements
@@ -1550,9 +1631,26 @@ def discover_monitors() -> list[dict[str, Any]]:
                 manifest = version / ".claude-plugin" / "plugin.json"
                 if not manifest.exists():
                     continue
+                raw_manifest: str | None = None
                 try:
-                    data = json.loads(_safe_read_text(manifest, max_bytes=MANIFEST_READ_CAP) or "")
-                except (json.JSONDecodeError, OSError):
+                    raw_manifest = _safe_read_text(manifest, max_bytes=MANIFEST_READ_CAP)
+                    data = json.loads(raw_manifest or "")
+                except (json.JSONDecodeError, OSError) as exc:
+                    # element-dropping failure (F13): the plugin manifest IS
+                    # the monitor container for this plugin version — a
+                    # parse/read failure drops every monitor it declares.
+                    # GUARD against over-recording: this loop parses EVERY
+                    # cached third-party plugin.json and almost none declare
+                    # monitors. When the raw text is available and provably
+                    # contains no "monitors" key (JSON keys are literal
+                    # substrings), nothing was dropped — recording would let
+                    # one permanently-corrupt third-party manifest disable
+                    # removal detection forever. Text unavailable
+                    # (unreadable / over the size cap) = dropping-shaped
+                    # doubt, so record.
+                    if raw_manifest is not None and "monitors" not in raw_manifest:
+                        continue
+                    _record_scan_error(f"plugin manifest {manifest}: {exc}")
                     continue
                 monitors_obj = data.get("monitors")
                 if not isinstance(monitors_obj, dict):
@@ -1596,7 +1694,11 @@ def _discover_styled_files_in_dir(
         return out
     try:
         entries = sorted(target.iterdir())
-    except OSError:
+    except OSError as exc:
+        # element-dropping failure (F13): an unreadable styles/themes dir is
+        # byte-for-byte indistinguishable from an empty one — every element
+        # in it drops from the stream, so the coverage claim must shrink.
+        _record_scan_error(f"listing {target}: {exc}")
         return out
     for f in entries:
         if not f.is_file():
@@ -1796,6 +1898,10 @@ def discover_elements(
             try:
                 skill_entries = sorted(elem_dir.iterdir())
             except OSError as e:
+                # element-dropping failure (F13): an unreadable skills dir is
+                # indistinguishable from an empty one — every skill in it
+                # drops from the stream, so the coverage claim must shrink.
+                _record_scan_error(f"listing {elem_dir}: {e}")
                 print(f"  Warning: Cannot read {elem_dir}: {e}", file=sys.stderr)
                 continue
             for skill_path in skill_entries:
@@ -1837,12 +1943,28 @@ def discover_elements(
                     elements.append(entry)
                     seen_names.add(dedup_key)
                 except (OSError, UnicodeDecodeError) as e:
+                    # F13 — deliberately NOT wired into _record_scan_error.
+                    # An unreadable SKILL.md never reaches this arm as a drop
+                    # (_safe_read_text swallows the OSError and the element
+                    # is emitted with empty metadata); what lands here is
+                    # UnicodeDecodeError from a non-UTF-8 SKILL.md — a
+                    # PERMANENT content property. Recording it would keep the
+                    # coverage claim off FOREVER on any machine hosting one
+                    # such third-party file (two exist in the wild today),
+                    # recreating F7's outage — while the never-emitted
+                    # element produces no Removed churn (it is never
+                    # Installed either). Over-recording is the direction to
+                    # guard against, so this drop stays unrecorded.
                     print(f"Warning: Cannot read {skill_md}: {e}", file=sys.stderr)
         else:
             # Agents, commands, rules: <dir>/<name>.md (direct .md files)
             try:
                 md_entries = sorted(elem_dir.iterdir())
             except OSError as e:
+                # element-dropping failure (F13): an unreadable element dir
+                # is indistinguishable from an empty one — every agent/
+                # command/rule in it drops, so the coverage claim must shrink.
+                _record_scan_error(f"listing {elem_dir}: {e}")
                 print(f"  Warning: Cannot read {elem_dir}: {e}", file=sys.stderr)
                 continue
             for md_file in md_entries:
@@ -1903,6 +2025,12 @@ def discover_elements(
                     )
                     seen_names.add(dedup_key)
                 except (OSError, UnicodeDecodeError) as e:
+                    # F13 — deliberately NOT wired, same reasoning as the
+                    # SKILL.md arm above: only a PERMANENTLY non-UTF-8 .md
+                    # lands here, and recording a permanent condition would
+                    # permanently disable removal detection machine-wide for
+                    # zero churn saved (a never-emitted element is never
+                    # Installed, so it is never swept as Removed).
                     print(f"Warning: Cannot read {md_file}: {e}", file=sys.stderr)
 
     return elements
