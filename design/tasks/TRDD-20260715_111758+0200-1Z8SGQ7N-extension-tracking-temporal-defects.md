@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T09:19:17+0200
+updated: 2026-07-17T09:25:21+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -28,10 +28,11 @@ un-urgent; batch them whenever budget allows. **F15 is the cheapest and highest-
 (a single null `description:` frontmatter in any third-party skill crashes the whole
 discovery run; verified; fix is `(frontmatter.get("description") or "")`).
 
-**STILL OPEN after v3.10.7 (all P3, un-urgent):** F9 (needs its comparison site pinned
-first), F15 (null `description:` crashes discovery — cheapest, verified), F16 (unhardened
-traversals), F17 (non-UTF-8 files invisible; fixing it dissolves F13's deviation). All
-specified in the findings list below.
+**STILL OPEN (all P3, un-urgent; NOT yet released — will ride v3.10.8):** F16 (unhardened
+traversals — the `os.walk` without `onerror` + the bare `.iterdir()` chains), F17 (non-UTF-8
+files invisible; fixing it with `errors="replace"` dissolves F13's deliberate deviation),
+F9 (needs its comparison site pinned first). F15 fixed 2026-07-17 (`7b0f0fe`, unreleased).
+All specified in the findings list below.
 
 ---
 
@@ -423,13 +424,19 @@ enumeration FIRST (the F4/F5 meta-lesson), on the live DB + a real discovery run
   still stands ⇒ spurious Removed/Installed churn. Bounded and self-healing (append-only
   events; next clean scan re-installs), so accepted for F7. Route those handlers into
   `_record_scan_error`.
-- **F15** (P2/P3, NEW 2026-07-17, VERIFIED by F13's implementer against a fixture) — a
-  SKILL.md / agent / command `.md` whose frontmatter has `description:` with NO value makes
-  `frontmatter.get("description", "")[:200]` raise `TypeError: 'NoneType' object is not
-  subscriptable`, UNCAUGHT — the entire discovery run dies (`discover_elements`, pre-F13
-  L1823/L1888). One third-party skill with an empty description bricks PSS reindexing
-  outright. Fail-safe in the narrow sense (no manifest ⇒ nothing swept ⇒ no data
-  corruption), but a total indexing outage. Fix: `(frontmatter.get("description") or "")`.
+- ~~**F15**~~ **DONE 2026-07-17 09:25** (parent `7b0f0fe`, local — rides the next release).
+  Both crash sites guarded with `(frontmatter.get("description") or "")[:200]`: the skill
+  branch (`discover_elements` skill subdir/SKILL.md, now L1929) and the generic `.md` branch
+  (agents/commands, now L2010). The rule branch was already safe (`if element_type == "rule"
+  and not frontmatter.get("description")` routes null-description rules to paragraph
+  extraction). Red-tested — both new tests crash on the unfixed code (`TypeError` at
+  L1929/L2010) and pass after; 297/297 unit suite; ruff clean. Confirmed root cause: a YAML
+  `description:` with no value parses to `None`, the key IS present, so the `""` get-default
+  never fires and `None[:200]` raises. Original entry: a SKILL.md / agent / command `.md`
+  whose frontmatter has `description:` with NO value makes
+  `frontmatter.get("description", "")[:200]` raise `TypeError`, UNCAUGHT — the entire
+  discovery run dies. One third-party skill with an empty description bricks PSS reindexing
+  outright.
 - **F16** (P3, NEW 2026-07-17, VERIFIED by F13's implementer) — remaining unhardened
   traversals in the type discoverers: (a) `os.walk` in `_discover_marketplace_mcps`
   (~L842) has no `onerror=` — an unreadable subdirectory silently truncates the config
