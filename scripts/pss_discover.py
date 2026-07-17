@@ -1380,8 +1380,12 @@ def discover_plugins(
 
     Per CC v2.1.69 the file is version 2 — root has {"version": 2, "plugins":
     {"<name>@<marketplace>": [{scope, installPath, version, ...}, ...]}}.
-    Each (plugin_id, scope) tuple becomes a separate element (a plugin can
-    be installed in user AND project scope independently).
+    Each install ENTRY becomes a separate element; an entry's identity is
+    (plugin_id, scope, projectPath). A local/project install is PER-PROJECT
+    (CC records one entry per project, each with its own projectPath), so the
+    projectPath is load-bearing: without it in `source`, every local entry of
+    a plugin collapses onto the same element_id downstream and the entries
+    overwrite each other within a single scan (F11, TRDD-1Z8SGQ7N).
     """
     elements: list[dict[str, Any]] = []
     plugins_file = get_claude_dir() / "plugins" / "installed_plugins.json"
@@ -1426,6 +1430,20 @@ def discover_plugins(
             if not isinstance(entry, dict):
                 continue
             scope = str(entry.get("scope", "user"))
+            # F11 (TRDD-1Z8SGQ7N): carry projectPath into `source`. A
+            # local/project install is PER-PROJECT; a bare "local" source
+            # gives scope_path "" downstream, so every local entry of a
+            # plugin computes the SAME element_id and they overwrite each
+            # other within one scan (~51 churn events/scan, 65 of 156 live
+            # install records lost). "local:" / "project:" are already in
+            # the consumer's scope-prefix list, so "<scope>:<projectPath>"
+            # yields distinct ids per project. `path` stays install_path —
+            # the shared cache dir is NOT an identity input.
+            raw_pp = entry.get("projectPath")
+            # Guard the type: str(None) would yield the literal "None" and
+            # forge an id; a non-str value must not leak into identity.
+            project_path = raw_pp if isinstance(raw_pp, str) and raw_pp else ""
+            source = f"{scope}:{project_path}" if project_path else scope
             install_path = str(entry.get("installPath", ""))
             version = str(entry.get("version", ""))
             installed_at = str(entry.get("installedAt", ""))
@@ -1449,7 +1467,7 @@ def discover_plugins(
             elements.append({
                 "name": safe_id,
                 "type": "plugin",
-                "source": scope,
+                "source": source,
                 "path": install_path or f"{plugins_file}#plugins.{safe_id}",
                 "description": description[:200],
                 "preview": json.dumps(entry, indent=2)[:500],

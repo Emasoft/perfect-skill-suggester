@@ -232,6 +232,124 @@ def test_installed_plugins_v2_accepted(discover, tmp_path, monkeypatch):
     assert elements[0]["name"] == "test-plugin@test-market"
 
 
+# ----------------------------------------------------------------------------
+# F11 (TRDD-1Z8SGQ7N) — plugin element identity must carry projectPath
+# ----------------------------------------------------------------------------
+
+
+def _write_plugins_v2(tmp_path, monkeypatch, discover, plugins: dict):
+    """Write a fake v2 installed_plugins.json and point discover at it."""
+    fake_claude_dir = tmp_path / ".claude"
+    plugins_dir = fake_claude_dir / "plugins"
+    plugins_dir.mkdir(parents=True)
+    plugins_file = plugins_dir / "installed_plugins.json"
+    plugins_file.write_text(
+        json.dumps({"version": 2, "plugins": plugins}), encoding="utf-8"
+    )
+    monkeypatch.setattr(discover, "get_claude_dir", lambda: fake_claude_dir)
+
+
+def test_plugin_local_source_carries_project_path(discover, tmp_path, monkeypatch):
+    """A local entry with a projectPath must yield source 'local:<projectPath>'."""
+    _write_plugins_v2(tmp_path, monkeypatch, discover, {
+        "test-plugin@test-market": [
+            {
+                "scope": "local",
+                "installPath": "/tmp/cache/p",
+                "projectPath": "/path/to/proj",
+                "version": "1.0.0",
+            }
+        ]
+    })
+    elements = discover.discover_plugins()
+    assert len(elements) == 1
+    assert elements[0]["source"] == "local:/path/to/proj"
+
+
+def test_plugin_user_source_stays_bare(discover, tmp_path, monkeypatch):
+    """A user entry with no projectPath keeps bare source 'user' (no trailing colon)."""
+    _write_plugins_v2(tmp_path, monkeypatch, discover, {
+        "test-plugin@test-market": [
+            {
+                "scope": "user",
+                "installPath": "/tmp/cache/p",
+                "version": "1.0.0",
+            }
+        ]
+    })
+    elements = discover.discover_plugins()
+    assert len(elements) == 1
+    assert elements[0]["source"] == "user"
+
+
+def test_plugin_two_local_projects_distinct_sources(discover, tmp_path, monkeypatch):
+    """Two local installs of the SAME plugin at DIFFERENT projects must produce two DISTINCT sources (regression: bare 'local' collapsed them onto one element_id)."""
+    # Mirrors the live shape: same plugin name, same shared cache installPath,
+    # different projectPath — 64 such per-project entries exist for
+    # ai-maestro-plugin@ai-maestro-plugins in the real file.
+    _write_plugins_v2(tmp_path, monkeypatch, discover, {
+        "test-plugin@test-market": [
+            {
+                "scope": "local",
+                "installPath": "/tmp/cache/p",
+                "projectPath": "/projects/alpha",
+                "version": "1.0.0",
+            },
+            {
+                "scope": "local",
+                "installPath": "/tmp/cache/p",
+                "projectPath": "/projects/beta",
+                "version": "2.0.0",
+            },
+        ]
+    })
+    elements = discover.discover_plugins()
+    assert len(elements) == 2
+    sources = {e["source"] for e in elements}
+    assert sources == {"local:/projects/alpha", "local:/projects/beta"}
+
+
+def test_plugin_degenerate_project_path_falls_back_to_bare_scope(
+    discover, tmp_path, monkeypatch
+):
+    """Missing/None/empty/non-str projectPath yields the bare scope — never the literal 'None', never a trailing colon."""
+    _write_plugins_v2(tmp_path, monkeypatch, discover, {
+        "test-plugin@test-market": [
+            {"scope": "local", "installPath": "/tmp/p", "version": "1.0"},
+            {"scope": "local", "installPath": "/tmp/p", "version": "1.0",
+             "projectPath": None},
+            {"scope": "local", "installPath": "/tmp/p", "version": "1.0",
+             "projectPath": ""},
+            {"scope": "local", "installPath": "/tmp/p", "version": "1.0",
+             "projectPath": 123},
+        ]
+    })
+    elements = discover.discover_plugins()
+    assert len(elements) == 4
+    for element in elements:
+        assert element["source"] == "local"
+        assert "None" not in element["source"]
+        assert not element["source"].endswith(":")
+
+
+def test_plugin_one_element_per_entry(discover, tmp_path, monkeypatch):
+    """discover_plugins emits exactly one element per install entry — pins that the projectPath fix never merges or drops entries."""
+    _write_plugins_v2(tmp_path, monkeypatch, discover, {
+        "plugin-a@market": [
+            {"scope": "user", "installPath": "/tmp/a", "version": "1.0"},
+            {"scope": "local", "installPath": "/tmp/a",
+             "projectPath": "/projects/one", "version": "1.0"},
+            {"scope": "local", "installPath": "/tmp/a",
+             "projectPath": "/projects/two", "version": "1.1"},
+        ],
+        "plugin-b@market": [
+            {"scope": "user", "installPath": "/tmp/b", "version": "3.0"},
+        ],
+    })
+    elements = discover.discover_plugins()
+    assert len(elements) == 4
+
+
 def test_installed_plugins_v1_with_explicit_version_one_rejected(
     discover, tmp_path, monkeypatch, capsys
 ):
