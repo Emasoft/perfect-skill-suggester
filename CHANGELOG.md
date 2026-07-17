@@ -2,6 +2,21 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.10.8] - 2026-07-17
+
+### Bug Fixes
+
+- **discover:** A null description: frontmatter must not crash the scan (F15)
+- **discover:** Harden element-enumerating traversals + make non-UTF-8 elements visible (F16+F17, TRDD-1Z8SGQ7N)
+- **temporal:** F18 (P1) + F9 — direction-aware date bounds (TRDD-1Z8SGQ7N)
+
+### Documentation
+
+- **trdd:** TRDD-1Z8SGQ7N — v3.10.7 shipped + verified; STATE closed
+- **trdd:** TRDD-1Z8SGQ7N — F15 done (both crash sites guarded, red-tested)
+- **trdd:** TRDD-1Z8SGQ7N — F9 diagnosis corrected + proven in the live engine
+- **trdd:** TRDD-1Z8SGQ7N — F18 (P1, LIVE in v3.10.7): date-only lower bound skips its whole day
+
 ## [3.10.7] - 2026-07-17
 
 ### Bug Fixes
