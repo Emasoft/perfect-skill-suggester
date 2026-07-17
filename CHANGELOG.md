@@ -2,6 +2,19 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.10.6] - 2026-07-17
+
+### Bug Fixes
+
+- F10 prune-history flock intercept + bump rust submodule to bbdfa8f (TRDD-1Z8SGQ7N)
+- **discover:** F7 — emit an honest domain coverage claim (manifest v2)
+
+### Documentation
+
+- **trdd:** TRDD-1Z8SGQ7N — F4+F5 shipped v3.10.5, live DB migrated + validator PASS
+- **trdd:** TRDD-1Z8SGQ7N — F7 ground-truthed + design pivot, F11 discovered
+- **trdd:** TRDD-1Z8SGQ7N — F7 implemented + gate PASS; F12/F13 filed; G2 corrected
+
 ## [3.10.5] - 2026-07-16
 
 ### Bug Fixes
