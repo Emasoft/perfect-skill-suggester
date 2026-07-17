@@ -1926,7 +1926,13 @@ def discover_elements(
                         "path": str(skill_md),
                         "source": source,
                         "type": "skill",
-                        "description": frontmatter.get("description", "")[:200],
+                        # F15 (TRDD-1Z8SGQ7N): `or ""`, not a get-default. A YAML
+                        # `description:` with no value parses to None and the key
+                        # IS present, so get("description", "") returns None and
+                        # None[:200] raises — one such third-party skill would
+                        # abort the entire scan. The default only covers an
+                        # ABSENT key; `or ""` also covers a present-but-null one.
+                        "description": (frontmatter.get("description") or "")[:200],
                         "preview": body,
                         "use_context": use_ctx,
                     }
@@ -2007,7 +2013,13 @@ def discover_elements(
                                 description = line[:200]
                                 break
                     else:
-                        description = frontmatter.get("description", "")[:200]
+                        # F15 (TRDD-1Z8SGQ7N): `or ""` — a present-but-null
+                        # `description:` parses to None, and get(..., "") returns
+                        # that None (the default only fires for an ABSENT key),
+                        # so None[:200] would crash the whole scan. The rule
+                        # branch above already routes null-description rules to
+                        # paragraph extraction; this covers every other type.
+                        description = (frontmatter.get("description") or "")[:200]
 
                     body = _extract_body_preview(content)
                     use_ctx = extract_use_context(content)
