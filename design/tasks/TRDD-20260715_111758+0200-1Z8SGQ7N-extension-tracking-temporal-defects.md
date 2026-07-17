@@ -3,7 +3,7 @@ trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
 column: backburner
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T02:52:00+0200
+updated: 2026-07-17T03:01:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -292,8 +292,18 @@ enumeration FIRST (the F4/F5 meta-lesson), on the live DB + a real discovery run
 **STILL OPEN:**
 - **F9** (P3, observed_at tz/format) + the stage-4 "temporal NOT updated" partial-wording
   tighten. Needs the exact comparison site pinned first. Likely no migration.
-- **F11** (P2, NEW 2026-07-17; **DIAGNOSIS CORRECTED 2026-07-17 02:50 — the originally
-  filed FIX WAS WRONG IN THE DATA-LOSS DIRECTION**) — same-scan element_id collision in
+- ~~**F11**~~ **DONE 2026-07-17 03:00** (parent `e441687`, local commit — rides the next
+  release with F10/F12). Verified three ways: red test on the unfixed code (both sources
+  collapse to bare `"local"` — the finding's signature), 289/289 unit suite re-run by me,
+  and END-TO-END against the real `installed_plugins.json` (read-only): **156 plugin
+  elements now emit 156 distinct identities** (was 91 effective), shapes 76 bare-`user` +
+  80 `local:<projectPath>`, `ai-maestro-plugin` 1 → 65 elements — exactly the enumerated
+  prediction. Live DB md5 unchanged. The one-time Removed/Installed transition lands on
+  the user's next real reindex, as designed. Implementer residuals (accepted, cosmetic):
+  `description` string omits the project; pre-existing `version` shadowing in the loop.
+  Diagnosis history retained below.
+  **(P2, NEW 2026-07-17; DIAGNOSIS CORRECTED 2026-07-17 02:50 — the originally
+  filed FIX WAS WRONG IN THE DATA-LOSS DIRECTION)** — same-scan element_id collision in
   `discover_plugins` ⇒ ~51 churn events per scan + non-deterministic recorded version.
   **The filed prescription was "dedupe to ONE entry per (plugin_id, scope) with a
   deterministic winner". DO NOT DO THAT — it would destroy real data.** Ground truth from
