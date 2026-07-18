@@ -1,9 +1,9 @@
 ---
 trdd-id: LIFE12FU
 title: v3.9 design — per-project enablement history (P-8) + MCP surface (P-9), issue #12
-column: design
+column: complete
 created: 2026-06-25T19:18:33+0200
-updated: 2026-07-02T17:59:47+0200
+updated: 2026-07-18T09:51:55+0200
 current-owner: pss-main-session
 task-type: feature
 release-via: publish
@@ -17,7 +17,34 @@ migration-direction: forward
 
 # TRDD-LIFE12FU — v3.9 design: per-project enablement history (P-8) + MCP surface (P-9)
 
-## ⏵ STATE — READ THIS FIRST ON RESUME (authoritative) — 2026-06-25
+## ⏵ STATE — READ THIS FIRST ON RESUME (authoritative) — 2026-07-18 (RESOLVED / COMPLETE)
+
+**RESOLUTION 2026-07-18 — this TRDD is COMPLETE. Everything below this block is
+SUPERSEDED history; do NOT act on the older "held for ship" / "P-8 pending" notes.**
+
+- **P-9 (MCP surface): SHIPPED in v3.9.0** — verified, not "held". Commits `64acde1`
+  (server) + `26c3937` (UTF-8 fix) are ancestors of HEAD, plus hardening `a079fa2` /
+  `d581213` (xhigh review). `scripts/pss_mcp_server.py` + `docs/PSS-MCP-SERVER.md` in
+  tree; `v3.9.0` is a real tag. The stale 2026-07-02 note ("v3.9.0 still held") is wrong —
+  the version has since marched to v3.10.8.
+- **P-8 (per-project per-time enablement): RESOLVED as P-8c — NOT NEEDED. No migration,
+  no schema change, no code.** Verified against the SOLE real consumer, AI Maestro
+  `lib/pss-lifeline.ts` (P-1 constraint, L34-37): *"there is NO single 'active in folder X
+  at T' verb … per-folder plugin/user ENABLEMENT at a past timestamp is not modeled. We
+  therefore query best-effort … and tag every component with its scope so the UI can be
+  honest about over-reporting."* The consumer already **designs around** the exact P-8 gap —
+  it unions `as-of --scope project --scope-path <dir>` + `as-of --scope user` (L391-395) and
+  deliberately declines per-folder enablement (would "massively over-report", L336). Building
+  P-8a (per-project MCP-enablement history) would add a migration + config-schema +
+  public-API surface for a signal the only consumer refuses to depend on; P-8b (an honest
+  `enablement_is_global` flag) is unneeded because the consumer already handles the absence.
+  Backing fact from PSS itself: Claude Code stores **plugin** enablement GLOBALLY (0/184
+  project entries carry `enabledPlugins`), so per-project plugin history has no data source
+  at all.
+- **Deliverable of issue #12 = P-9 (shipped).** Remaining outward step: close GitHub
+  issue #12 with this evidence (flagged to the user — outward-facing on the shared identity).
+
+---
 
 **What this is:** the DESIGN doc for GitHub issue #12 (the two parts split out of
 #10/v3.8.1). The user chose "Start #12, **design-first**" — so this TRDD is the
