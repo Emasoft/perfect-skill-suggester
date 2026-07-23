@@ -2,7 +2,7 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
-## [3.10.9] - 2026-07-23
+## [3.10.10] - 2026-07-23
 
 ### Bug Fixes
 
