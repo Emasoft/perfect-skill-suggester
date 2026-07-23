@@ -1,0 +1,278 @@
+# Suggestion Accuracy Gate
+#
+# PSS advertises "88%+ accuracy" (hooks/hooks.json) but nothing failed when
+# suggestion quality regressed. This workflow turns accuracy into a build gate.
+#
+# Floors live in .github/accuracy-thresholds.json (committed, reviewable in a
+# diff). The gate reads the floor from that file — it never hardcodes a number,
+# so lowering a floor is always a visible, deliberate change in a pull request.
+#
+# Two gates, deliberately separated by what is REPRODUCIBLE:
+#   * e2e-accuracy       — wired. Runs on every push/PR. Self-contained corpus.
+#   * full-corpus-accuracy — NOT wired. Fails loudly on demand and weekly until
+#                            the real gold corpus is committed and made
+#                            machine-independent (see blocked_by in the config).
+
+name: Suggestion Accuracy Gate
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'bin/**'
+      - 'rust'          # submodule pointer (single-file change, not rust/)
+      - 'rust/**'
+      - 'scripts/**'
+      - 'hooks/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/accuracy-gate.yml'
+      - '.github/accuracy-thresholds.json'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+  schedule:
+    # Weekly, off the :00/:30 stampede. Surfaces the unwired full-corpus gate
+    # so "not wired yet" cannot quietly become "forgotten forever".
+    - cron: '17 6 * * 1'
+
+# Least privilege: this workflow only reads the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: accuracy-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-accuracy:
+    name: E2E suggestion accuracy (wired)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The benchmark runs the pre-built binary committed under bin/.
+          # It does not compile Rust, so the rust/ submodule is not needed.
+          submodules: false
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Verify the Linux binary is present and executable
+        run: |
+          set -euo pipefail
+          test -x bin/pss-linux-x86_64 \
+            || { echo "::error::bin/pss-linux-x86_64 missing or not executable — commit it with mode 100755"; exit 1; }
+          ./bin/pss-linux-x86_64 --version
+
+      - name: Run the E2E suggestion benchmark
+        id: bench
+        env:
+          E2E_LOG: ${{ runner.temp }}/pss-e2e.log
+        run: |
+          set -uo pipefail
+          # Capture to a file FIRST, then print it. Never `| tee | head` — an
+          # early-closing consumer SIGPIPEs tee and silently truncates the log.
+          uv run python scripts/pss_test_e2e.py --verbose > "$E2E_LOG" 2>&1
+          e2e_exit=$?
+          echo "e2e_exit=$e2e_exit" >> "$GITHUB_OUTPUT"
+          cat "$E2E_LOG"
+          echo "E2E runner exit code: $e2e_exit"
+
+      - name: Enforce the accuracy floor
+        env:
+          E2E_LOG: ${{ runner.temp }}/pss-e2e.log
+          E2E_EXIT: ${{ steps.bench.outputs.e2e_exit }}
+          THRESHOLDS: .github/accuracy-thresholds.json
+          GATE_NAME: e2e_hook_match_rate
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          log_path = os.environ["E2E_LOG"]
+          cfg_path = os.environ["THRESHOLDS"]
+          gate_name = os.environ["GATE_NAME"]
+          e2e_exit = os.environ.get("E2E_EXIT", "")
+
+          failures = []
+
+          with open(cfg_path, encoding="utf-8") as fh:
+              cfg = json.load(fh)
+          gate = cfg["gates"][gate_name]
+
+          # Fail-fast on a tampered/disabled gate: a "wired" gate with no floor
+          # is a silent bypass, not a configuration choice.
+          if gate.get("status") != "wired":
+              sys.exit(
+                  f"FAIL: gate '{gate_name}' has status "
+                  f"{gate.get('status')!r}; this job only runs wired gates."
+              )
+          floor = gate.get("floor")
+          if not isinstance(floor, (int, float)):
+              sys.exit(
+                  f"FAIL: gate '{gate_name}' is wired but its floor is "
+                  f"{floor!r}. Set a numeric floor in {cfg_path}."
+              )
+
+          with open(log_path, encoding="utf-8", errors="replace") as fh:
+              log = fh.read()
+
+          # Matches both the pass form ("3/3 prompts matched correct skills")
+          # and the fail form ("1/3 prompts matched").
+          m = re.search(
+              r"Phase 6: Hook simulation - (\d+)/(\d+) prompts matched", log
+          )
+          if not m:
+              sys.exit(
+                  "FAIL: could not find the Phase 6 accuracy line in the E2E "
+                  "output. The benchmark did not reach the hook-simulation "
+                  "phase, or its output format changed — update the regex in "
+                  ".github/workflows/accuracy-gate.yml. Full log above."
+              )
+
+          matched, total = int(m.group(1)), int(m.group(2))
+          if total <= 0:
+              sys.exit("FAIL: benchmark reported an empty corpus (total=0).")
+          rate = matched / total
+
+          if rate < floor:
+              failures.append(
+                  f"accuracy {rate:.4f} ({matched}/{total}) is BELOW the "
+                  f"floor {floor:.4f} recorded in {cfg_path}"
+              )
+          if e2e_exit != "0":
+              failures.append(
+                  f"the E2E runner exited {e2e_exit or '<unknown>'} — an "
+                  "earlier phase (index build, merge, scoring) failed, so the "
+                  "accuracy number is not trustworthy on its own"
+              )
+
+          summary = [
+              "## Suggestion accuracy gate",
+              "",
+              f"- gate: `{gate_name}`",
+              f"- measured: **{rate:.2%}** ({matched}/{total} prompts)",
+              f"- floor: **{floor:.2%}**",
+              f"- E2E runner exit code: `{e2e_exit}`",
+              "",
+          ]
+          if failures:
+              summary.append("**RESULT: FAIL**")
+              summary += [f"- {f}" for f in failures]
+              summary += [
+                  "",
+                  "Do not lower the floor to go green. A drop here means PSS "
+                  "stopped suggesting the right skill for a prompt it used to "
+                  "get right.",
+              ]
+          else:
+              summary.append("**RESULT: PASS**")
+
+          step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if step_summary:
+              with open(step_summary, "a", encoding="utf-8") as fh:
+                  fh.write("\n".join(summary) + "\n")
+
+          for line in summary:
+              print(line)
+
+          if failures:
+              for f in failures:
+                  print(f"::error::accuracy gate: {f}")
+              sys.exit(1)
+          PY
+
+      - name: Upload the E2E log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pss-e2e-log
+          path: ${{ runner.temp }}/pss-e2e.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  full-corpus-accuracy:
+    name: Full-corpus accuracy (NOT WIRED — placeholder)
+    # Runs on demand and weekly, NOT on every push/PR. The gate is genuinely
+    # red until someone wires it, but a permanently-red required check on every
+    # PR trains reviewers to ignore red — which is worse than the gap itself.
+    # WHEN THE CONFIG'S definition_of_done IS MET: delete this `if:` line so
+    # the job runs alongside e2e-accuracy on every push and pull request.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - name: Report what is missing, then fail
+        env:
+          THRESHOLDS: .github/accuracy-thresholds.json
+          GATE_NAME: agent_profile_accuracy
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          cfg_path = os.environ["THRESHOLDS"]
+          gate_name = os.environ["GATE_NAME"]
+
+          with open(cfg_path, encoding="utf-8") as fh:
+              cfg = json.load(fh)
+          gate = cfg["gates"][gate_name]
+
+          if gate.get("status") == "wired":
+              sys.exit(
+                  f"FAIL: gate '{gate_name}' is marked wired in {cfg_path}, but "
+                  "this job is still the placeholder. Replace this step with the "
+                  "real benchmark invocation and the floor check."
+              )
+
+          lines = [
+              "## Full-corpus accuracy gate — NOT WIRED",
+              "",
+              "This job is a placeholder. It fails on purpose so the gap stays "
+              "visible. It does NOT measure anything, and no number here or in "
+              f"`{cfg_path}` may be treated as a measured accuracy.",
+              "",
+              "### Blocked by",
+          ]
+          lines += [f"{i}. {b}" for i, b in enumerate(gate.get("blocked_by", []), 1)]
+          lines += ["", "### Definition of done"]
+          lines += [f"{i}. {d}" for i, d in enumerate(gate.get("definition_of_done", []), 1)]
+
+          step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if step_summary:
+              with open(step_summary, "a", encoding="utf-8") as fh:
+                  fh.write("\n".join(lines) + "\n")
+          for line in lines:
+              print(line)
+
+          print(
+              "::error::full-corpus accuracy gate is not wired — the gold "
+              "corpus is gitignored and machine-dependent; see "
+              f"{cfg_path} -> gates.{gate_name}.blocked_by"
+          )
+          sys.exit(1)
+          PY

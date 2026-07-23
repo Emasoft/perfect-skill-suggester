@@ -223,7 +223,7 @@ claude plugin uninstall perfect-skill-suggester@emasoft-plugins
 ### Hook path not found after version update
 
 **Symptom:** After updating, you see:
-```
+```text
 UserPromptSubmit operation blocked by hook:
 can't open file '.../perfect-skill-suggester/1.2.1/scripts/pss_hook.py': No such file or directory
 ```
@@ -321,13 +321,24 @@ cargo build --release
 # Copy binary to bin/ with appropriate name
 ```
 
-## Quick Start
+## Usage
+
+PSS is passive. Once installed, it hooks `UserPromptSubmit` and scores every prompt you
+type against the skill index — there is nothing to invoke and no keyword to remember. The
+only setup step is building the index once (step 1 below); after that you just work
+normally and PSS injects a short list of relevant skills ahead of your prompt.
+
+The slash commands are for maintenance and profiling, not for day-to-day use — see
+[Commands](#commands) for all of them and [CLI Reference](#cli-reference) for the `pss`
+binary's query verbs. To tune how one particular skill is scored — extra keywords, negative
+keywords that suppress false matches, tier, or a score boost — edit that skill's `.pss`
+file; see [Per-Skill Configuration](#per-skill-configuration-pss-files).
 
 ### 1. Generate Skill Index
 
 Run the reindex command to build the skill index:
 
-```
+```text
 /pss-reindex-skills
 ```
 
@@ -335,7 +346,7 @@ This runs the 3-stage Rust pipeline (discover → enrich → merge) to index all
 
 ### 2. Check Status
 
-```
+```text
 /pss-status
 ```
 
@@ -345,7 +356,7 @@ View index statistics, cache validity, and scoring configuration.
 
 Just type your requests naturally. PSS will suggest relevant skills based on weighted keyword matching:
 
-```
+```text
 "help me set up github actions"
 → Suggests: devops-expert (HIGH confidence)
 ```
@@ -354,7 +365,7 @@ Just type your requests naturally. PSS will suggest relevant skills based on wei
 
 ### Pipeline
 
-```
+```text
 User prompt
   |
   v
@@ -386,7 +397,7 @@ The dual-store design was well-motivated in principle — `git diff skill-index.
 - `skill-index.json` is **no longer automatically maintained**. It may be left behind from a prior install, but no Python or Rust code path writes to it on merge or reindex.
 - Power users who still want a JSON snapshot for `git diff` or ad-hoc inspection run it on demand:
 
-  ```
+  ```bash
   pss export --json --path /tmp/pss-export.json
   ```
 
@@ -443,7 +454,7 @@ When the prompt mentions a specific language, platform, or domain, skills locked
 
 Consider what happens with a soft 20% penalty:
 
-```
+```text
 Prompt: "use OpenAI for medical data analysis with bun"
 
 Skill A: domain=geography, service=openai
@@ -468,7 +479,7 @@ The same logic applies to languages and platforms. A Rust-only skill should neve
 
 Generate the skill index for all elements (skills, agents, commands, rules, MCP, LSP) using the deterministic Rust pipeline.
 
-```
+```text
 /pss-reindex-skills [--exclude-inactive-plugins]
 ```
 
@@ -482,7 +493,7 @@ Always performs a full clean-slate regeneration. Uses a 3-stage Rust pipeline: d
 
 Analyze an agent definition and generate a `.agent.toml` configuration with AI-recommended skills, commands, rules, MCP servers, and LSP servers. Includes automatic self-review (quality checks before reporting) and a dependencies section in the generated `.agent.toml`.
 
-```
+```text
 /pss-setup-agent /path/to/agent.md
 /pss-setup-agent /path/to/agent.md --requirements /path/to/prd.md /path/to/tech-spec.md
 /pss-setup-agent /path/to/agent.md --output /custom/output.agent.toml
@@ -515,7 +526,7 @@ Uses the Rust binary for fast candidate scoring + an AI agent for intelligent po
 
 Index a single skill/agent/command element incrementally without full reindex.
 
-```
+```text
 /pss-add-to-index /path/to/element
 /pss-add-to-index --plugin /path/to/plugin
 ```
@@ -524,7 +535,7 @@ Index a single skill/agent/command element incrementally without full reindex.
 
 Add standalone elements to existing Claude Code plugins. Supports all element types with duplicate detection and optional CPV validation.
 
-```
+```text
 /pss-add-element --type skill --source /path/to/skill-dir --plugin /path/to/plugin
 /pss-add-element --type agent --source /path/to/agent.md --plugin /path/to/plugin
 /pss-add-element --type hook --source /path/to/hooks.json --plugin /path/to/plugin --validate
@@ -546,7 +557,7 @@ Add standalone elements to existing Claude Code plugins. Supports all element ty
 
 Retrieve element metadata (description, type, plugin source) by name. Falls back to the CozoDB `rules` table for rule file lookups.
 
-```
+```text
 /pss-get-description senior-ios
 /pss-get-description pss-authoring
 ```
@@ -555,7 +566,7 @@ Retrieve element metadata (description, type, plugin source) by name. Falls back
 
 Generate a complete, installable Claude Code plugin from an `.agent.toml` profile. Copies all referenced elements (skills, agents, commands) into a self-contained plugin directory.
 
-```
+```text
 /pss-make-plugin-from-profile agent.agent.toml --output ~/plugins/my-plugin
 /pss-make-plugin-from-profile agent.agent.toml --output ./plugin --name custom-name
 ```
@@ -564,7 +575,7 @@ Generate a complete, installable Claude Code plugin from an `.agent.toml` profil
 
 Modify an existing `.agent.toml` profile with natural language instructions. Resolves element names against the skill index, applies changes, verifies, and validates.
 
-```
+```text
 /pss-change-agent-profile /path/to/agent.agent.toml remove all skills using tldr tool
 /pss-change-agent-profile /path/to/agent.agent.toml add a subagent for github projects
 /pss-change-agent-profile /path/to/agent.agent.toml --requirements docs/prd.md align with project requirements
@@ -578,7 +589,7 @@ Modify an existing `.agent.toml` profile with natural language instructions. Res
 
 View current status and test matching.
 
-```
+```text
 /pss-status [--verbose] [--test "PROMPT"]
 ```
 

@@ -112,6 +112,49 @@ Copy this checklist and track your progress:
   - Validation Failure
   - Missing Environment Variable
 
+### Profiler-agent procedures
+
+Step-by-step procedures for the `pss-agent-profiler` agent, which keeps only the
+workflow skeleton in its own definition.
+
+- [Profiler Runtime](references/profiler-runtime.md)
+  - Inputs Contract
+  - Debug Output Protocol
+  - Step 0: Index Rule Files
+  - Step 1: Read and Analyze the Agent
+  - Step 2: Read Requirements Documents
+  - Step 3a: Pass 1 — Agent-Only Descriptor
+  - Step 3b: Pass 2 — Requirements-Only Descriptor
+  - Step 9: Clean Up and Report
+  - Invocation Examples
+  - Change Mode
+  - Error Handling (Fail-Fast)
+- [Profiler Post-Filtering](references/profiler-postfilter.md)
+  - Entry IDs and CLI Tools
+  - Token-Efficient Candidate Evaluation (LLM Externalizer)
+  - 4a. Mutual Exclusivity Detection
+  - 4b. Obsolescence and Deprecation Check
+  - 4c. Stack Compatibility and Constraint Filtering
+  - 4c-bis. Non-Coding Agent Filter
+  - 4d. Requirements-Driven Promotion
+  - 4e. Redundancy Pruning
+  - 4f. Force-Include/Exclude Directives
+  - 4g. Specialization-Aware Cherry-Pick
+  - Step 5: Classify into Final Tiers
+  - Step 6: Identify Complementary Agents
+  - Step 6a: Review and Confirm Tier Assignments
+  - Step 6b: Recommended Commands
+  - Step 6c: Recommended Rules
+  - Step 6d: Recommended MCP Servers
+  - Step 6e: LSP Servers (Language-Based)
+  - Step 6f: Recommended Hooks
+- [Profiler TOML and Validation](references/profiler-toml-and-validation.md)
+  - Step 7: Write .agent.toml (full annotated template, TOML syntax rules)
+  - Step 8: Structural Validation (MANDATORY)
+  - Step 8a: Element Name Verification (MANDATORY, anti-hallucination)
+  - Step 8b-i: Token-Efficient Self-Review
+  - Step 8b-ii: Interactive Review Entry
+
 ## Examples
 
 ```

@@ -24,12 +24,14 @@ Modes:
     publish.py --gate             # pre-push hook mode (.git/hooks/pre-push)
     publish.py                    # auto-bump from conventional commits
     publish.py --bump patch       # manual bump override
+    publish.py --push-only        # gate + push EXISTING HEAD/tags (no bump/commit/tag)
     publish.py --dry-run          # preview — all checks still run, nothing pushed
     publish.py --install-hook     # install pre-push hook into .git/hooks/
 """
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -81,6 +83,33 @@ REPORTS_MAX_AGE_HOURS = 24
 # -- CPV remote execution via uvx (no local script sync needed) --
 CPV_REPO = "Emasoft/claude-plugins-validation"
 CPV_UVX_FROM = f"git+https://github.com/{CPV_REPO}"
+
+# -- Timeouts (all env-overridable; a timeout must never masquerade as a defect) --
+# CPV runs through `uvx --from git+https://...`, so on a COLD uv cache it has to
+# clone, resolve, and build the validator before a single check executes. The old
+# 180s cap turned that cold start into a bogus "validation failed with exit code
+# 124" and blocked otherwise-green releases, so the floor is now 15 minutes.
+CPV_TIMEOUT = int(os.environ.get("PSS_CPV_TIMEOUT", "900"))
+# `git push` fires the pre-push hook, which may itself run the whole gate
+# (lint + validate + tests, 3-5 min). Leaving the push on run()'s 300s default
+# meant a slow-but-perfectly-healthy hook surfaced as "failed to push some refs"
+# — a phantom failure that looks like broken code and burns a version number.
+# Budget generously: this bound exists to catch a genuine hang, nothing else.
+GIT_PUSH_TIMEOUT = int(os.environ.get("PSS_PUSH_TIMEOUT", "1800"))
+# The suite normally finishes well inside a minute, but on a loaded machine
+# (parallel agents, a cold venv, a concurrent cargo build) it does not. At the
+# old 120s cap that surfaced as "Tests failed." with an EMPTY error body — a
+# timeout wearing a test failure's clothes, which sends the reader hunting for
+# a bug that does not exist. Budget for the slow case; report timeouts as
+# timeouts (see run_tests).
+PYTEST_TIMEOUT = int(os.environ.get("PSS_TEST_TIMEOUT", "900"))
+# A gate-pass stamp older than this is ignored. Long enough to cover a full
+# release (gate + cross-compiled binary builds + commit + tag), short enough
+# that a stamp can never authorize a push from a later working session.
+GATE_STAMP_TTL = int(os.environ.get("PSS_GATE_STAMP_TTL", "3600"))
+# Stamp lives inside the git dir: never committable, never shared, never
+# present in a fresh clone — so it cannot become a checked-in bypass token.
+GATE_STAMP_NAME = "pss-gate-pass.json"
 
 # -- ANSI color helpers --
 GREEN = "\033[32m"
@@ -172,13 +201,24 @@ def run_validation() -> int:
             "plugin",
             ".",
         ],
-        timeout=180,
+        timeout=CPV_TIMEOUT,
     )
 
     if result.stdout.strip():
         print(result.stdout.strip())
     if result.stderr.strip():
         print(result.stderr.strip(), file=sys.stderr)
+
+    # 124 is run()'s synthetic timeout code, NOT a CPV severity code. Say so —
+    # otherwise it reads as "the plugin is broken" when the real cause is a
+    # cold uvx cache on a slow link.
+    if result.returncode == 124:
+        error(
+            f"CPV validation timed out after {CPV_TIMEOUT}s (nothing was validated). "
+            f"Raise the budget with PSS_CPV_TIMEOUT=<seconds>, or pre-warm the uvx "
+            f"cache by running `uvx --from {CPV_UVX_FROM} --with pyyaml "
+            f"cpv-remote-validate plugin .` once by hand."
+        )
 
     return result.returncode
 
@@ -194,8 +234,17 @@ def run_tests() -> bool:
     info("Running tests...")
     result = run(
         ["uv", "run", "--extra", "dev", "pytest", "tests/", "-q"],
-        timeout=120,
+        timeout=PYTEST_TIMEOUT,
     )
+    if result.returncode == 124:
+        # run()'s synthetic timeout code. Name it, or an overloaded machine
+        # reads as a broken test suite and someone starts debugging fiction.
+        error(
+            f"Tests TIMED OUT after {PYTEST_TIMEOUT}s — no test actually failed. "
+            f"Raise the budget with PSS_TEST_TIMEOUT=<seconds>, or retry once the "
+            f"machine is less loaded."
+        )
+        return False
     if result.returncode != 0:
         error(result.stdout.strip() if result.stdout else "")
         error(result.stderr.strip() if result.stderr else "")
@@ -313,7 +362,9 @@ def _ensure_submodule_pushed() -> None:
         return  # Already on remote, nothing to do
     # Submodule commit not on remote — push it
     info(f"  Submodule ref {parent_ref[:12]} not on remote, pushing rust/...")
-    push_result = run(["git", "-C", str(rust_submodule), "push"])
+    push_result = run(
+        ["git", "-C", str(rust_submodule), "push"], timeout=GIT_PUSH_TIMEOUT
+    )
     if push_result.returncode != 0:
         # MUST block the parent push — otherwise 'not our ref' on clone
         fatal(
@@ -321,6 +372,122 @@ def _ensure_submodule_pushed() -> None:
             "  Run 'git -C rust push' manually before retrying."
         )
     success(f"  Submodule rust/ pushed ({parent_ref[:12]}).")
+
+
+# ---------------------------------------------------------------------------
+# Gate-pass stamp
+#
+# The pre-push hook used to run the FULL gate unconditionally, even when the
+# push it was guarding had been launched by publish.py seconds after publish.py
+# ran that exact same gate. Two identical 3-5 minute runs per release, and the
+# second one racing the push's own timeout produced spurious "failed to push
+# some refs" errors that look like broken code (this cost a wasted 3.10.9 ->
+# 3.10.10 bump).
+#
+# The stamp removes the DUPLICATE run only. It is not a bypass:
+#   * it is written ONLY after a gate actually passed;
+#   * the hook honours it ONLY when it is fresh AND names the exact commit
+#     being pushed;
+#   * a raw `git push` produces no stamp, so it still pays the full gate — and
+#     the hook's ancestry check rejects it before the gate even matters;
+#   * every failure mode (missing / stale / corrupt / mismatched stamp, absent
+#     ref lines, unresolvable SHA) resolves to "run the gate".
+# ---------------------------------------------------------------------------
+
+
+def _git_dir() -> Path | None:
+    """Absolute path to this checkout's git dir, or None if not a repo.
+
+    Uses --absolute-git-dir rather than ROOT/".git" because in a linked
+    worktree that path is a FILE, not the git dir — and the stamp must be
+    per-worktree anyway (each worktree has its own HEAD).
+    """
+    result = run(["git", "rev-parse", "--absolute-git-dir"])
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return Path(result.stdout.strip())
+
+
+def _gate_stamp_path() -> Path | None:
+    """Path of the gate-pass stamp for this checkout, or None if not a repo."""
+    git_dir = _git_dir()
+    return None if git_dir is None else git_dir / GATE_STAMP_NAME
+
+
+def _resolve_commit(rev: str) -> str:
+    """Resolve a rev to its commit SHA, peeling tags. Empty string on failure.
+
+    Peeling matters: `git push --tags` hands the hook the TAG object's SHA for
+    an annotated tag, which never equals HEAD. Comparing peeled commits keeps
+    the stamp correct whether the release tags are lightweight or annotated.
+    """
+    result = run(["git", "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"])
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def write_gate_stamp(sha: str | None = None) -> None:
+    """Record that the full gate passed for `sha` (default: current HEAD).
+
+    Never fatal: if the stamp cannot be written the hook simply re-runs the
+    gate, which is the pre-stamp behaviour. Failing safe means failing slow,
+    never failing open.
+    """
+    path = _gate_stamp_path()
+    if path is None:
+        return  # not a git checkout — nothing to stamp, nothing to skip
+    sha = sha or _resolve_commit("HEAD")
+    if not sha:
+        return
+    try:
+        path.write_text(
+            json.dumps({"version": 1, "sha": sha, "ts": time.time()}),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        warn(f"Could not write gate-pass stamp ({exc}); the hook will re-run the gate.")
+
+
+def check_gate_stamp() -> int:
+    """Hook helper: 0 = this push is already gated, 1 = run the full gate.
+
+    Reads git's pre-push ref lines from stdin (`<lref> <lsha> <rref> <rsha>`).
+    Returns 0 only when a fresh stamp covers EVERY ref carrying content.
+    """
+    if sys.stdin.isatty():
+        # No ref lines to read (and iterating a tty would hang). Cannot prove
+        # coverage => demand the gate.
+        return 1
+
+    path = _gate_stamp_path()
+    if path is None or not path.exists():
+        return 1
+    try:
+        stamp = json.loads(path.read_text(encoding="utf-8"))
+        stamped_sha = str(stamp["sha"])
+        age = time.time() - float(stamp["ts"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return 1  # unreadable or malformed — treat as absent
+    # A negative age means the clock moved backwards (or the stamp was forged
+    # with a future timestamp to extend its life). Distrust it either way.
+    if not stamped_sha or age < 0 or age > GATE_STAMP_TTL:
+        return 1
+
+    covered = 0
+    for line in sys.stdin:
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        local_sha = parts[1]
+        if local_sha == "0" * 40:
+            continue  # ref deletion — pushes no content, so nothing to gate
+        if _resolve_commit(local_sha) != stamped_sha:
+            return 1  # a ref the stamp does not vouch for
+        covered += 1
+
+    if covered == 0:
+        return 1  # no usable ref info => cannot prove coverage => gate it
+    info(f"Gate-pass stamp matches {stamped_sha[:12]} (age {int(age)}s).")
+    return 0
 
 
 def gate_pipeline() -> int:
@@ -370,6 +537,9 @@ def gate_pipeline() -> int:
         print(f"{RED}{'=' * 50}{RESET}")
         return 1
     else:
+        # Stamp only this branch: the early "no plugin files changed" return
+        # above proves nothing about the tree, so it must not vouch for a push.
+        write_gate_stamp()
         print(f"{GREEN}{'=' * 50}{RESET}")
         print(f"{GREEN}  PASSED: Push allowed.{RESET}")
         print(f"{GREEN}{'=' * 50}{RESET}")
@@ -381,9 +551,32 @@ def gate_pipeline() -> int:
 # ===========================================================================
 
 
+def warn_if_hook_stale() -> None:
+    """Warn when .git/hooks/pre-push differs from the tracked git-hooks/pre-push.
+
+    install_hook() COPIES the hook, so the installed copy silently rots every
+    time the tracked one changes. That matters here: a stale copy predating the
+    gate-pass stamp ignores it and re-runs the whole gate anyway, so the release
+    quietly pays double while looking fixed. Warn, never fail — an outdated hook
+    is over-strict, not unsafe.
+    """
+    if not HOOK_TARGET.exists() or not HOOK_SOURCE.exists():
+        return
+    try:
+        if HOOK_TARGET.read_bytes() == HOOK_SOURCE.read_bytes():
+            return
+    except OSError:
+        return
+    warn(
+        "Installed .git/hooks/pre-push differs from git-hooks/pre-push. "
+        "Refresh it with: uv run python scripts/publish.py --install-hook"
+    )
+
+
 def preflight_checks(dry_run: bool = False) -> None:
     """Verify git working tree is clean and required tools are available."""
     info("Pre-flight checks...")
+    warn_if_hook_stale()
 
     # Git working tree must be clean (tolerated only in dry-run)
     result = run(["git", "status", "--porcelain"])
@@ -1082,6 +1275,31 @@ def git_tag(new: str) -> None:
         success(f"  Tagged: {tag}")
 
 
+def _push_failure_msg(what: str, result: subprocess.CompletedProcess[str]) -> str:
+    """Actionable message for a failed push.
+
+    By the time a push fails the bump, changelog, commit and tag already
+    landed locally, so the ONLY thing left to retry is the push. Without
+    saying so, the operator's apparent options are "bump again" (burns a
+    version number for code that was already correct — exactly what happened
+    on 3.10.9 -> 3.10.10) or "--no-verify" (bypasses the gate). Name the
+    third, correct option explicitly.
+    """
+    detail = (result.stderr or "").strip() or (result.stdout or "").strip()
+    if result.returncode == 124:
+        detail = (
+            f"{detail}\n"
+            f"  This was a TIMEOUT, not a rejection by the remote. The pre-push "
+            f"gate was most likely still running. Raise the budget with "
+            f"PSS_PUSH_TIMEOUT=<seconds> (currently {GIT_PUSH_TIMEOUT}s)."
+        )
+    return (
+        f"{what} failed: {detail}\n"
+        "  Commits and tags already exist locally — do NOT bump the version again.\n"
+        "  Retry the push alone with:  uv run python scripts/publish.py --push-only"
+    )
+
+
 def git_push() -> None:
     """Push commits and tags to remote. Never skips pre-push hook.
 
@@ -1096,9 +1314,11 @@ def git_push() -> None:
     rust_submodule = ROOT / "rust"
     if (rust_submodule / ".git").exists():
         info("  Pushing rust/ submodule...")
-        result = run(["git", "-C", str(rust_submodule), "push"])
+        result = run(
+            ["git", "-C", str(rust_submodule), "push"], timeout=GIT_PUSH_TIMEOUT
+        )
         if result.returncode != 0:
-            fatal(f"submodule push failed: {result.stderr.strip()}")
+            fatal(_push_failure_msg("submodule push", result))
         success("  Submodule rust/ pushed.")
 
         # Verify the exact commit the parent references (not submodule HEAD,
@@ -1129,13 +1349,16 @@ def git_push() -> None:
                     )
                 success(f"  Submodule ref {sha[:12]} verified on remote.")
 
-    result = run(["git", "push"])
+    # Both pushes get their OWN generous budget rather than run()'s 300s
+    # default: each one fires the pre-push hook, and a hook that is merely slow
+    # must never be reported as a rejected push.
+    result = run(["git", "push"], timeout=GIT_PUSH_TIMEOUT)
     if result.returncode != 0:
-        fatal(f"git push failed: {result.stderr.strip()}")
+        fatal(_push_failure_msg("git push", result))
 
-    result = run(["git", "push", "--tags"])
+    result = run(["git", "push", "--tags"], timeout=GIT_PUSH_TIMEOUT)
     if result.returncode != 0:
-        fatal(f"git push --tags failed: {result.stderr.strip()}")
+        fatal(_push_failure_msg("git push --tags", result))
 
     success("  Pushed commits and tags.")
     info(
@@ -1258,6 +1481,14 @@ def release_pipeline(args: argparse.Namespace) -> None:
     if not args.dry_run:
         git_commit(old_version, new_version)
         git_tag(new_version)
+        # Steps 2-4 above already ran the identical gate (lint + tests + CPV).
+        # Everything added since is generated by this pipeline and validated by
+        # it: the 4-file version bump, the git-cliff CHANGELOG, and the built
+        # binaries — each of those steps is fatal-on-failure in its own right.
+        # So vouch for the release commit and let the pre-push hook skip its
+        # duplicate run instead of paying 3-5 minutes twice. Any push this
+        # pipeline did not drive carries no stamp and still pays the full gate.
+        write_gate_stamp()
         git_push()
     else:
         info(f"[DRY-RUN] Would commit, tag v{new_version}, and push.")
@@ -1268,6 +1499,54 @@ def release_pipeline(args: argparse.Namespace) -> None:
     # Summary
     print_summary(old_version, new_version, args)
     success(f"Release v{new_version} complete!")
+
+
+def push_only_pipeline(args: argparse.Namespace) -> int:
+    """Gate, then push the EXISTING HEAD and tags. No bump, no commit, no tag.
+
+    The recovery path for a push that failed for a reason unrelated to the code
+    — a slow hook that hit a timeout, a network blip, a race with the remote.
+    Before this mode existed the pipeline had no way to retry just the push, so
+    the only route to a released artifact was another version bump: a wasted
+    version number for code that was already correct and already tagged.
+
+    The gate still runs in full. This mode skips the RELEASE steps, never the
+    verification ones.
+    """
+    print()
+    print(f"{BOLD}{CYAN}PSS Push-Only{RESET}")
+    print(f"{CYAN}{'=' * 50}{RESET}")
+    print()
+
+    # A dirty tree means work exists that this push would NOT carry. Pushing
+    # anyway ships a half-state that looks complete — fail fast instead.
+    result = run(["git", "status", "--porcelain"])
+    if result.returncode != 0:
+        fatal(f"git status failed: {result.stderr.strip()}")
+    if result.stdout.strip() and not args.dry_run:
+        fatal(
+            "Git working tree is dirty. --push-only pushes the commits that already "
+            "exist; commit or stash your changes first."
+        )
+
+    warn_if_hook_stale()
+
+    head = _resolve_commit("HEAD")
+    if not head:
+        fatal("Could not resolve HEAD — nothing to push.")
+    info(f"Pushing existing HEAD {head[:12]} (no bump, no commit, no tag).")
+
+    gate_exit = gate_pipeline()
+    if gate_exit != 0:
+        return gate_exit
+
+    if args.dry_run:
+        info(f"[DRY-RUN] Would push HEAD ({head[:12]}) and tags. Nothing pushed.")
+        return 0
+
+    git_push()
+    success(f"Push-only complete: {head[:12]} and tags are on the remote.")
+    return 0
 
 
 def print_summary(old: str, new: str, args: argparse.Namespace) -> None:
@@ -1436,6 +1715,20 @@ def main() -> None:
         help="Pre-push gate mode: lint + validate + test. Blocks on issues.",
     )
     parser.add_argument(
+        "--push-only",
+        action="store_true",
+        help="Run the gate, then push the EXISTING HEAD and tags. No bump, no "
+        "commit, no tag. Use this to retry a push that failed for a reason "
+        "other than the code (slow hook, network blip) instead of burning "
+        "another version number.",
+    )
+    parser.add_argument(
+        "--check-gate-stamp",
+        action="store_true",
+        help="Internal (pre-push hook): exit 0 only if a fresh gate-pass stamp "
+        "covers every ref on stdin, else 1. Never runs or replaces the gate.",
+    )
+    parser.add_argument(
         "--install-hook",
         action="store_true",
         help="Install pre-push hook into .git/hooks/.",
@@ -1494,8 +1787,14 @@ def main() -> None:
         sys.exit(clean_mode(args))
     elif args.rotate_reports:
         sys.exit(rotate_reports_mode(args))
+    elif args.check_gate_stamp:
+        # Checked before --gate so the hook's cheap probe can never be
+        # mistaken for the gate itself.
+        sys.exit(check_gate_stamp())
     elif args.gate:
         sys.exit(gate_pipeline())
+    elif args.push_only:
+        sys.exit(push_only_pipeline(args))
     elif args.install_hook:
         install_hook()
     else:

@@ -1,0 +1,66 @@
+{
+  "_README": [
+    "Suggestion-accuracy floors enforced by .github/workflows/accuracy-gate.yml.",
+    "A gate FAILS the build when its MEASURED value drops below its `floor`.",
+    "",
+    "RULES FOR EDITING THIS FILE:",
+    "1. Never lower a floor to make CI green. A drop is a regression in PSS's",
+    "   core value proposition (suggestion quality) — find the cause first.",
+    "2. Raise a floor only together with a re-recorded `baseline` block that",
+    "   names the commit, platform and date the new value was measured on.",
+    "3. Never invent a baseline. `baseline: null` means 'not reproducibly",
+    "   measurable yet' and MUST stay null until the gate is actually wired.",
+    "4. `floor: null` on a gate whose status is 'wired' is treated as tampering",
+    "   and hard-fails the workflow — it is not a way to disable a gate."
+  ],
+  "schema_version": 1,
+  "gates": {
+    "e2e_hook_match_rate": {
+      "status": "wired",
+      "description": "Hook-simulation hit rate: fraction of benchmark prompts whose PSS hook output contains the expected skill. This is the only suggestion-accuracy signal that is currently REPRODUCIBLE on a clean CI runner, because scripts/pss_test_e2e.py builds its own throwaway index from its own fixtures and never reads the developer's installed elements.",
+      "runner": "uv run python scripts/pss_test_e2e.py",
+      "metric": "Phase 6 (Hook simulation) — matched_prompts / total_prompts",
+      "parsed_from": "stdout line: 'Phase 6: Hook simulation - <matched>/<total> prompts matched'",
+      "floor": 1.0,
+      "baseline": {
+        "value": 1.0,
+        "matched": 3,
+        "total": 3,
+        "measured_at": "2026-07-23T14:30:36+0200",
+        "measured_commit": "a2421d227b9c56859426ebc8ab2576fc4a66be2b",
+        "pss_version": "3.10.10",
+        "measured_on": "darwin-arm64, bin/pss-darwin-arm64, 3 consecutive identical runs (deterministic)",
+        "ci_platform_confirmed": false,
+        "ci_platform_note": "CI executes linux-x86_64 (bin/pss-linux-x86_64). Docker was unavailable on the authoring machine and no real CI run was triggered, so the linux value is UNCONFIRMED until this workflow first runs. If that first run reports below 3/3 on linux while darwin reports 3/3, the finding is a REAL cross-platform binary discrepancy — fix the binary, do NOT lower this floor."
+      },
+      "corpus": {
+        "kind": "synthetic, self-contained, committed",
+        "size": 3,
+        "location": "scripts/pss_test_e2e.py :: HOOK_TEST_CASES",
+        "note": "Regression smoke corpus — NOT the source of the '88%+ accuracy' figure advertised in hooks/hooks.json. Small but non-trivial: case 3 ('build react component with hooks') encodes a real past bug in the framework->language inference gate, so a re-regression there is caught."
+      },
+      "also_enforced": "The whole 6-phase run must exit 0. A green Phase 6 with a broken Phase 3 (index build) is not a pass."
+    },
+    "agent_profile_accuracy": {
+      "status": "UNWIRED",
+      "description": "The real suggestion-accuracy benchmark — per-element-type hit rate of PSS's agent-profiling suggestions against a 100/200-agent gold corpus. This, not the smoke corpus above, is the lineage of the '88%+ accuracy' claim in hooks/hooks.json. It cannot run on a CI runner today.",
+      "runner": "uv run scripts/pss_agent_benchmark.py --prompts <PROMPTS> --gold <GOLD>",
+      "metric": "hits / gold_expected, computed per element type (skills, agents, commands, rules, mcp)",
+      "floor": null,
+      "baseline": null,
+      "_null_on_purpose": "No number is recorded here. A floor that cannot be re-measured on demand is decoration, not a gate. Do NOT copy a figure out of a local run, an old report, or hooks/hooks.json into these fields.",
+      "blocked_by": [
+        "CORPUS NOT COMMITTED — the default fixtures are docs_dev/agent-benchmark-prompts-100.jsonl and docs_dev/agent-benchmark-gold-100.json. `.gitignore` line 34 (`*_dev/`) excludes the whole docs_dev/ tree, so neither file exists in any clone or CI checkout.",
+        "CORPUS IS MACHINE-DEPENDENT — the gold answers name elements installed on one developer's machine (e.g. 'axiom-ios-games', 'swiftui-architecture-auditor', 'iap-implementation'), which come from third-party plugins. They are unresolvable anywhere else, so the score would be meaningless even if the files were committed.",
+        "NO FROZEN INDEX — pss_agent_benchmark.py invokes the binary with `--agent-profile` and no index path, so the binary scores against the live CozoDB under $CLAUDE_PLUGIN_DATA / ~/.claude/cache/. A clean runner has no such database; the benchmark would score every agent against an empty candidate set."
+      ],
+      "definition_of_done": [
+        "Commit a frozen, machine-independent element index fixture (or teach pss_agent_benchmark.py to accept an explicit --index path pointing at one).",
+        "Commit a prompts + gold pair whose gold names only elements present in that frozen fixture.",
+        "Teach pss_agent_benchmark.py to emit a machine-readable summary (e.g. --json with an overall accuracy field) so the gate does not have to scrape prose.",
+        "Run it, record the MEASURED value here as `baseline`, set `floor` to that value (or slightly below if run-to-run variance is demonstrated), and flip `status` to 'wired'.",
+        "Remove the `if:` guard on the full-corpus job in .github/workflows/accuracy-gate.yml so it runs on every push and pull request."
+      ]
+    }
+  }
+}

@@ -12,9 +12,17 @@
 # Two enforcement layers:
 #   1. Ancestry check: walks the process tree and fails if publish.py
 #      is NOT an ancestor. This blocks direct `git push` calls.
-#   2. Gate re-run: runs publish.py --gate (lint + tests + validate)
-#      unconditionally. Even if the ancestry check passes, the gate
-#      runs again — redundant is fine, a bypass is not.
+#   2. Gate: runs publish.py --gate (lint + validate + tests) — UNLESS
+#      publish.py left a fresh gate-pass stamp naming the exact commit
+#      being pushed, which means that identical gate already ran seconds
+#      ago in the publish.py process driving this very push.
+#
+# Layer 2's stamp removes a DUPLICATE run, not the gate. Any push without a
+# valid stamp — including every raw `git push` — still pays the full gate,
+# and `--check-gate-stamp` fails closed on a missing, stale, corrupt, or
+# mismatched stamp and on absent ref lines. The duplicate was not free: two
+# 3-5 minute gates per release, with the second one racing the push's own
+# timeout and surfacing as a phantom "failed to push some refs".
 #
 # No env var check exists. No "trusted caller" marker. No exceptions.
 # The only way to bypass is `git push --no-verify`, a git built-in
@@ -24,6 +32,25 @@ set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
+
+# Capture git's pre-push ref lines ONCE, up front. Both Layer 2 branches need
+# them and stdin can only be drained once. A tty means we were invoked by hand
+# rather than by git: there are no ref lines and `cat` would block forever.
+if [ -t 0 ]; then
+    PUSH_REFS=""
+else
+    PUSH_REFS="$(cat)"
+fi
+
+# Replay them with `printf '%s'` — NOT '%s\n'. An empty PUSH_REFS must arrive
+# as zero bytes, because publish.py treats "stdin had no ref lines" as
+# "coverage unproven, run everything", while a lone blank line would look like
+# a parsed-but-irrelevant ref and skip validation. Fail-safe direction only.
+if command -v uv &> /dev/null; then
+    PSS_PY=(uv run python scripts/publish.py)
+else
+    PSS_PY=(python3 scripts/publish.py)
+fi
 
 # ---- Layer 1: ancestry check ----
 if ! command -v ps &> /dev/null; then
@@ -52,22 +79,32 @@ done
 
 if [ "$found_publish" -eq 0 ]; then
     echo ""
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║  ERROR: Direct git push is forbidden.                        ║"
-    echo "║                                                              ║"
-    echo "║  All pushes MUST go through the release pipeline:            ║"
-    echo "║     uv run python scripts/publish.py                         ║"
-    echo "║                                                              ║"
-    echo "║  The pipeline enforces lint + tests + validation with        ║"
-    echo "║  0 issues before any commit is pushed to GitHub.             ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo "=================================================================="
+    echo "  ERROR: Direct 'git push' is forbidden in this repo."
+    echo ""
+    echo "  All pushes MUST go through the release pipeline, which enforces"
+    echo "  lint + tests + validation with 0 issues before anything reaches"
+    echo "  GitHub. Run ONE of these instead:"
+    echo ""
+    echo "    # Cut a new release (bump + changelog + build + tag + push):"
+    echo "    uv run python scripts/publish.py --bump patch"
+    echo ""
+    echo "    # Push commits/tags that ALREADY exist (no new version):"
+    echo "    uv run python scripts/publish.py --push-only"
+    echo ""
+    echo "  Use --push-only to retry after a push failed for a reason other"
+    echo "  than the code (slow hook, network blip, race with the remote)."
+    echo "  It re-runs the gate and pushes the current HEAD + tags without"
+    echo "  bumping the version again — never bump twice for one change."
+    echo "=================================================================="
     echo ""
     exit 1
 fi
 
-# ---- Layer 2: re-run the full gate unconditionally ----
-if command -v uv &> /dev/null; then
-    uv run python scripts/publish.py --gate
+# ---- Layer 2: the gate ----
+# Skipped ONLY when a fresh stamp vouches for every commit being pushed.
+if printf '%s' "$PUSH_REFS" | "${PSS_PY[@]}" --check-gate-stamp; then
+    echo "[OK]   Gate already passed for this commit — skipping the duplicate run."
 else
-    python3 scripts/publish.py --gate
+    printf '%s' "$PUSH_REFS" | "${PSS_PY[@]}" --gate
 fi

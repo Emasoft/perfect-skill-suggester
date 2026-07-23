@@ -200,11 +200,17 @@ Accept the current profile. The profiler:
 1. Performs one final validation
 2. Proceeds to Step 9 (cleanup and report)
 
-**`depend <type> <name>`**
+**`depend <type> <name> [@<version>] [from <marketplace>]`**
 Add a dependency to `[dependencies]`. The profiler:
-1. Validates the type is one of: `plugin`, `skill`, `mcp`, `tool`
-2. Adds `<name>` to the corresponding array in `[dependencies]` (plugins, skills, mcp_servers, tools)
-3. Re-validates
+1. Validates the type is one of: `plugin`, `skill`, `mcp`, `tool`, `script`, `hook`, `rule`, `agent`, `command`, `lsp`, `output_style`, `framework`
+2. Adds `<name>` to the corresponding array in `[dependencies]` (plugins, skills, mcp_servers, tools, scripts, hooks, rules, agents, commands, lsp_servers, output_styles, frameworks)
+3. `@<version>` (**plugin only**): an npm semver range — `~2.1.0`, `^2.0`, `>=1.4`, `=2.1.0`. Emits an inline-table entry `{ name = "<name>", version = "<v>" }` instead of a bare string. Resolved against `{plugin-name}--v{version}` git tags. Only `type=plugin` is propagated into plugin.json's top-level `dependencies` array.
+4. `from <marketplace>` (**plugin only**): cross-marketplace dependency. Adds `marketplace = "<m>"` to the inline table. Requires `allowCrossMarketplaceDependenciesOn` in the root marketplace.json.
+5. Re-validates
+
+Examples: `depend plugin audit-logger`, `depend plugin secrets-vault @~2.1.0`,
+`depend plugin shared from acme-shared`, `depend tool gh`,
+`depend mcp chrome-devtools`.
 
 ---
 

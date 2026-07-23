@@ -20,6 +20,13 @@
     "ml"
   ],
   "cpv": {
-    "pipeline_profile": "submodule-build"
+    "pipeline_profile": "submodule-build",
+    "pipeline": {
+      "intentional_divergence": [
+        "git-hooks/pre-push",
+        "cliff.toml",
+        ".markdownlint.json"
+      ]
+    }
   }
 }
