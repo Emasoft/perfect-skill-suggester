@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.209**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.218**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -15,7 +15,7 @@ As of **v2.9.35**, PSS declares the following hook events in `hooks/hooks.json`:
 | Event | Matcher | Handler | Purpose |
 |-------|---------|---------|---------|
 | `UserPromptSubmit` | (none) | `scripts/pss_hook.py` | Primary — scores skill suggestions on every user prompt |
-| `SessionStart` | `startup\|resume` | `scripts/pss_hook.py --warm-index &` | Silent lazy warmup — spawns a background reindex if the skill-index cache is missing, so the first prompt never blocks on index build |
+| `SessionStart` | `startup\|resume\|fork` | `scripts/pss_hook.py --warm-index &` | Silent lazy warmup — spawns a background reindex if the skill-index cache is missing, so the first prompt never blocks on index build. `fork` added in PSS v3.10.9 because CC **v2.1.214** relabels forked sessions `fork` (was `resume`); without it a forked session would silently skip warmup |
 | `PostCompact` | (none) | `scripts/pss_hook.py --post-compact` | Stub — reserves the event binding for future re-suggest-after-compaction logic |
 
 All three hooks use `timeout` values in **seconds** (per hooks.md spec).
@@ -75,6 +75,43 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.218 (2026-07-22) — one PSS adaptation shipped in v3.10.9
+
+- **`context: fork` skills now run in the BACKGROUND by default** (opt out per skill with `background: false`). PSS's `pss-cli-reference` is `context: fork` — the fork was chosen to keep its 64-subcommand reference OUT of the caller's context, but the skill is a **synchronous routing lookup**: the calling agent (`pss-agent-profiler`, or any agent routing an NL request to the `pss` CLI) must receive the resolved command *inline* before it can run it. Backgrounding detaches that answer and breaks the "look up which command → run it" flow. **Fixed in PSS v3.10.9:** added `background: false` to `skills/pss-cli-reference/SKILL.md`, restoring synchronous-fork behavior.
+- **Agent names containing `:` are now rejected** (`:` reserved for plugin namespacing). PSS's only agent is `pss-agent-profiler` — no colon. Immune (grep-verified).
+- **Agent frontmatter hooks now require the agent file's own folder to have accepted workspace trust.** `agents/pss-agent-profiler.md` declares no frontmatter `hooks:` (grep-verified). Immune.
+- **`yes`/`no`/`on`/`off`/`1`/`0` now accepted for skill/plugin frontmatter booleans** alongside `true`/`false`. PSS uses `true`/`false` throughout — no change, no regression.
+- `/code-review` background-subagent change, benign server-managed-settings toggles, headless fork-lineage-after-compaction fix — CC-internal. No PSS impact.
+
+### v2.1.217 (2026-07-21) — subagent-fanout caps; PSS assessed immune
+
+- **Concurrent-subagent cap (default 20, `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`)** and **nested-subagent spawns disabled by default (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`)**. PSS's `pss-agent-profiler` runs *as* a subagent but spawns **no nested subagents** — it offloads bounded work to the `llm-externalizer` MCP tools (`chat`, `code_task`), never to `Agent`/`Task` (grep-verified: zero `Agent(`/`Task(`/`subagent_type` in the profiler or `skills/pss-agent-toml`). The depth-1 default cannot break the profiling pipeline. Immune.
+- `--max-budget-usd` now halts background subagents — no PSS impact.
+
+### v2.1.216 (2026-07-20) — two CC fixes that *benefit* PSS
+
+- **Fixed plugin skills with a `name:` frontmatter field losing their plugin prefix in slash-command autocomplete.** Every PSS skill declares `name:`, so this CC bug dropped the `perfect-skill-suggester:` prefix in autocomplete. Now fixed CC-side; PSS benefits, no change.
+- **Fixed skills/commands changed mid-session not appearing in the slash menu until restart** — pure PSS dev-workflow upside.
+- Worktree-isolated-subagent git-redirection fix, bundled dataviz palette update — no PSS impact.
+
+### v2.1.215 (2026-07-19)
+
+- **Claude no longer auto-runs `/verify` and `/code-review`.** A behavioral change for the user's main agent, not for PSS's hook/scorer/index/MCP surface. No PSS impact.
+
+### v2.1.214 (2026-07-18) — one PSS adaptation shipped in v3.10.9
+
+- **SessionStart hooks now report source `fork` when a session begins as a fork (was `resume`).** PSS's `SessionStart` warm-index hook matched `startup|resume`; before this change a forked session reported `resume` and *did* warm the index, so the fix silently regressed PSS — forks now report `fork`, the matcher no longer fired, and a forked session whose on-disk index is missing/stale would block on the first prompt's index build. **Fixed in PSS v3.10.9:** matcher widened to `startup|resume|fork`. Safe because `--warm-index` is idempotent (it no-ops when the cache is warm), so firing on every fork costs nothing when the parent already warmed it.
+- **ISO `modified` memory-frontmatter timestamp**, **EndConversation tool**, **`subagentStatusLine` reasoning-effort field**, single-segment `dir/**` hook `if:` scoping, scheduled-task prompt-trust fix — none touch PSS (it manages no CC memory files, ships no `if:`-conditioned hooks, no custom statusline, no scheduled tasks). No PSS impact.
+
+### v2.1.210–2.1.212 (2026-07-15 → 2026-07-17; no 2.1.213 release) — subagent/permission caps; PSS immune
+
+- **Per-session subagent-spawn cap (2.1.212, default 200, `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`)** and **WebSearch cap (default 200)** — runaway-loop backstops far above anything PSS drives (the profiler spawns no subagents; PSS issues no web searches). Immune.
+- **Task tool's `mode` parameter deprecated / ignored (2.1.212).** PSS passes no `mode` to Task/Agent; the only `MODE=` token in the tree is the profiler's own app-level `MODE=change` argument (`/pss-change-agent-profile`), unrelated to the Task-tool parameter (grep-verified). Immune.
+- **MCP calls >2 min auto-background (2.1.212)** — PSS's opt-in MCP verbs return in <10 ms; never triggered.
+- **Unmatched `$1`/`$2` placeholders in skills/commands now preserved verbatim, was silently stripped (2.1.210).** No PSS command uses `$1`/`$2` (grep-verified) — behavior-neutral.
+- **Startup warning for `Write(path)`/`NotebookEdit(path)`/`Glob(path)` permission rules (2.1.210).** PSS ships **no** permission rules and **no** plugin `settings.json` (grep-verified) — nothing to migrate.
+- **Nested `.claude/rules/*.md` loading fix (2.1.211)** — relevant only to the rules the PSS plugin GENERATOR symlinks into a generated plugin's `.claude/rules/`; a CC-side loading fix, no generator change. Agent-tool prompt-injection hardening (benefits the profiler) and remaining items are CC-internal. No PSS change.
 
 ### v2.1.209 (2026-07-14)
 

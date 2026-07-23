@@ -3,6 +3,7 @@ name: pss-cli-reference
 description: "Use when the user wants to query the PSS index, search/list/inspect elements, run lifecycle or history queries, build a plugin from a profile, or anywhere a `pss …` CLI command is needed. Loaded by pss-agent-profiler."
 user-invocable: false
 context: fork
+background: false
 ---
 
 # PSS CLI Reference Skill
