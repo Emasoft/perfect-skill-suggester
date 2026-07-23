@@ -2,6 +2,17 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.10.9] - 2026-07-23
+
+### Bug Fixes
+
+- **cc-compat:** Adapt to Claude Code v2.1.214 + v2.1.218 skill/hook changes
+
+### Documentation
+
+- **trdd:** TRDD-1Z8SGQ7N COMPLETE — v3.10.8 shipped + verified, all F1-F18 closed
+- **trdd:** Resolve LIFE12FU — P-9 shipped (v3.9.0), P-8 = P-8c not-needed ([#12](https://github.com/Emasoft/perfect-skill-suggester/issues/12))
+
 ## [3.10.8] - 2026-07-17
 
 ### Bug Fixes
