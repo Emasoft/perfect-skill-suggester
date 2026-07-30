@@ -124,6 +124,9 @@ Copy this and track your progress:
   - The three archetypes, side by side
   - ALL-IN-ONE: the orchestrator
   - ONE-FOR-ALL: router, menu skill, micro-agent
+    - The router
+    - The menu skill
+    - The micro-agent
   - PLUGIN-OMNI: menu and inlined verification
   - `pss-agent-deps.json`
   - Plugin-shipped restrictions
