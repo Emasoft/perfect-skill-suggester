@@ -1,7 +1,7 @@
 ---
 name: pss-make-agent
 description: "Generate an ALL-IN-ONE, ONE-FOR-ALL or PLUGIN-OMNI agent"
-argument-hint: "<all-in-one|one-for-all|plugin-omni> --name N [--skills a,b | --plugin P] [flags…]"
+argument-hint: "\"<specialization>\" --type=<normal|allin1|1xall|omni> [--no-mcp] [--model M] [--effort E]"
 effort: medium
 allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep"]
 ---
@@ -27,24 +27,62 @@ agent should choose among.
 
 ## Usage
 
+Describe the specialization and PSS picks the skills:
+
 ```bash
-pss make-agent --kind all-in-one  --name my-agent --skills tdd,python-testing --output ./out
-pss make-agent --kind one-for-all --name my-router --skills a,b,c --output ./out
-pss make-agent --kind plugin-omni --name my-omni --plugin some-plugin --output ./out
+pss make-agent "audit Rust for memory safety and unsafe blocks" --type=normal --no-mcp
+pss make-agent ./agent-spec.md --type=allin1 --model=opus --effort=high
+pss make-agent "review React components" --type=1xall --top 6 --output ./out
+pss make-agent "orchestrate everything" --type=omni --plugin some-plugin --output ./out
 ```
+
+The description may be prose **or a path to a `.md` file** (the plugin
+generator's format — a `name:` in its frontmatter becomes the agent's name).
+`plugin-omni` ignores it for selection and takes every skill of `--plugin`.
 
 | flag | meaning |
 |---|---|
-| `--kind` | `all-in-one` \| `one-for-all` \| `plugin-omni` (aliases: `aio`, `ofa`, `omni`) |
-| `--name` | agent name; also the filename stem |
-| `--skills a,b,c` | reference these skills by name |
-| `--plugin P` | reference every skill in plugin `P` (the usual `plugin-omni` input) |
-| `--description` | one-line agent description |
-| `--model` | optional `model:` pin |
+| *(positional)* | the specialization — free text or a path to a `.md` file |
+| `--type` / `--kind` | `normal` \| `all-in-one` \| `one-for-all` \| `plugin-omni` (aliases `allin1`, `1xall`, `omni`, `aio`, `ofa`) |
+| `--name` | agent name; derived from the description if omitted |
+| `--skills a,b,c` | pick these explicitly, overriding description-based selection |
+| `--plugin P` | every skill in plugin `P` (the usual `plugin-omni` input) |
+| `--top N` | ceiling on description-selected skills (default 8) |
+| `--no-mcp` | give the agent no MCP servers |
+| `--no-skill` | give the agent no skills |
+| `--no-agent` | do not point it at complementary agents |
+| `--model` / `--effort` | `model:` and `effort:` pins |
+| `--summary` | explicit one-line `description:` (alias `--description`) |
 | `--output DIR` | output root (default `.`) |
 | `--dry-run` | print what would be written, touch nothing |
 | `--explore` | route read-only `one-for-all` steps through the built-in `Explore` |
 | `--format json` | machine-readable result |
+
+### `normal` — the fourth type
+
+A plain subagent: skills preloaded, no menu, no router, no micro-agent. Use it
+when the work does not need an orchestration shape and you just want the right
+skills on a well-described agent.
+
+### What `--no-mcp` actually does
+
+Every emitted agent carries an explicit `tools:` list, and that **allowlist** is
+what keeps MCP tool schemas out of its context — measured, a custom agent with
+four tools costs ~68.5k against the built-in Explore's ~67k *with* ~90 MCP tools
+loaded. `--no-mcp` additionally suppresses the `mcpServers:` declaration, so the
+agent is guaranteed no MCP surface at all. (A plugin-shipped agent may not
+declare `mcpServers` regardless — `pss_validate_agent_md.py --plugin` enforces
+that.)
+
+### Review what it picked
+
+Selection reuses PSS's own scorer — the same one the suggestion hook runs, so
+there is one implementation of "which skills match this text". It inherits that
+scorer's precision: on a benchmarked sample, 39–47% of hook suggestions were
+rated irrelevant, and word collisions do get through (a "Rust **memory** safety"
+description will surface a long-term-`memory` skill). Duplicates are removed and
+low-confidence matches dropped, but **read the emitted `skills:` list and prune
+it**, or pass `--skills` when you already know what you want.
 
 ## What it writes
 
