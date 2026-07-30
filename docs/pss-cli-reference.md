@@ -1255,7 +1255,39 @@ See **[PSS MCP Server](./PSS-MCP-SERVER.md)**.
 
 ## Indexing & Maintenance
 
-7 commands that build, mutate, or clean the index.
+8 commands that build, mutate, or clean the index.
+
+### `pss suggest-mode`
+
+Get or set which element type the `UserPromptSubmit` hook suggests. One
+setting with three states — `agents` (default), `skills`, `none` — so the
+two content modes are mutually exclusive by construction and there is no
+undefined "both on" / "both off" combination.
+
+Reads and writes a single line in `<data-dir>/pss-suggest-mode` (a sibling
+of the CozoDB). It never opens the DB, so it works on a fresh install that
+has never been indexed. Writes are atomic (tmp file + rename), so a hook
+firing concurrently reads either the whole old value or the whole new one.
+
+An absent file resolves to `agents`. Unreadable or unrecognized content
+warns on stderr and resolves to `agents` too — the prompt hook must not die
+over a cosmetic setting. `--set` is fail-fast: a write error exits non-zero
+rather than falsely reporting a switch.
+
+Flags: `--set <MODE>` (`agents`|`skills`|`none`; accepts the singular forms
+and `off`). Omit to print the current value. Always prints JSON.
+
+**Synopsis:** `pss suggest-mode [--set MODE]`
+
+```bash
+pss suggest-mode                 # {"mode":"agents","path":"…/pss-suggest-mode"}
+pss suggest-mode --set skills
+pss suggest-mode --set none      # silence suggestions
+```
+
+Normally driven by the slash commands `/pss-suggest-agents-on`,
+`/pss-suggest-agents-off`, `/pss-suggest-skills-on`,
+`/pss-suggest-skills-off` rather than invoked directly.
 
 ### `pss index-rules`
 

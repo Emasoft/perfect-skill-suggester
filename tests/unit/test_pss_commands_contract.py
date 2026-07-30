@@ -140,13 +140,26 @@ def _binary_subcommands() -> frozenset[str]:
     return frozenset(verbs)
 
 
+#: Commands that legitimately accept NO arguments, and therefore must not
+#: declare an `argument-hint`. The suggestion-mode toggles are pure switches:
+#: the verb itself carries the whole intent.
+NO_ARGUMENT_COMMANDS = frozenset(
+    {
+        "pss-suggest-agents-off",
+        "pss-suggest-agents-on",
+        "pss-suggest-skills-off",
+        "pss-suggest-skills-on",
+    }
+)
+
+
 def _cmd(name: str) -> Path:
     path = COMMANDS / f"{name}.md"
     assert path.is_file(), f"missing command file {path}"
     return path
 
 
-def test_command_set_is_the_expected_ten() -> None:
+def test_command_set_is_the_expected_fifteen() -> None:
     """Every shipped slash command is covered by this module's contract tests."""
     assert {p.stem for p in COMMAND_FILES} == {
         "pss-add-element",
@@ -154,11 +167,18 @@ def test_command_set_is_the_expected_ten() -> None:
         "pss-added-since",
         "pss-change-agent-profile",
         "pss-get-description",
+        "pss-make-agent",
         "pss-make-plugin-from-profile",
         "pss-reindex-skills",
         "pss-search",
         "pss-setup-agent",
         "pss-status",
+        # Suggestion-mode toggles (v3.11): one mutually-exclusive setting
+        # driven by four verbs — see rust/skill-suggester/src/suggest_mode.rs.
+        "pss-suggest-agents-off",
+        "pss-suggest-agents-on",
+        "pss-suggest-skills-off",
+        "pss-suggest-skills-on",
     }
 
 
@@ -171,6 +191,14 @@ def test_command_frontmatter_is_valid(path: Path) -> None:
     assert isinstance(description, str) and description.strip(), "description must be non-empty"
     assert fm.get("effort") in VALID_EFFORT, f"{path.name}: effort={fm.get('effort')!r}"
     hint = fm.get("argument-hint")
+    if path.stem in NO_ARGUMENT_COMMANDS:
+        # A command that takes no arguments must not invent a hint — an
+        # argument-hint on an argument-less command tells the user to type
+        # something the command ignores. Asserting its ABSENCE (rather than
+        # merely skipping) keeps NO_ARGUMENT_COMMANDS honest: give one of these
+        # an argument later and this test forces the set to be updated.
+        assert hint is None, f"{path.name}: takes no arguments, so it must not declare argument-hint"
+        return
     assert isinstance(hint, str) and hint.strip(), f"{path.name}: argument-hint missing"
     assert hint.count("[") == hint.count("]"), f"{path.name}: unbalanced [] in argument-hint"
     assert hint.count("<") == hint.count(">"), f"{path.name}: unbalanced <> in argument-hint"
@@ -226,16 +254,22 @@ def test_every_referenced_binary_exists() -> None:
 def test_every_referenced_binary_subcommand_exists() -> None:
     """Rust subcommands invoked by the commands are real verbs of the shipped binary."""
     verbs = _binary_subcommands()
+    # The bare `pss <verb>` alternative matters: a fenced ```bash block is the
+    # most natural way to document a CLI, and without it such an invocation is
+    # never extracted — so this test would PASS BY NOT LOOKING at the newest
+    # command. The lookbehind keeps `bin/pss-darwin-arm64 …` and `pss.py …`
+    # from being read as the bare form.
     referenced = {
         verb
         for doc in ALL_COMMAND_DOCS
         for verb in re.findall(
-            r'(?:\$\{?BINARY\}?|\$\{?BIN\}?|"\$BIN"|"\$\{BINARY\}"|`pss)"?\s+([a-z][a-z0-9-]*)',
+            r'(?:\$\{?BINARY\}?|\$\{?BIN\}?|"\$BIN"|"\$\{BINARY\}"|`pss'
+            r'|(?<![\w./-])pss)"?\s+([a-z][a-z0-9-]*)',
             doc.read_text(encoding="utf-8"),
         )
     }
     # `pss --pass1-batch` style global flags never match the verb regex.
-    assert {"search", "health", "get"} <= referenced, "verb extraction regressed"
+    assert {"search", "health", "get", "make-agent"} <= referenced, "verb extraction regressed"
     unknown = sorted(v for v in referenced if v not in verbs)
     assert not unknown, f"commands invoke unknown pss subcommands: {unknown}"
 

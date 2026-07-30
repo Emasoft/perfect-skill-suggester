@@ -33,7 +33,18 @@ Thumbs.db
 # examples_dev, downloads_dev, libs_dev, builds_dev, etc.
 *_dev/
 
-# Claude Code local state
+# Claude Code local state.
+#
+# Deliberately the bare directory form. Note the consequence: git does not
+# descend into an excluded DIRECTORY, so NO `!.claude/...` negation can ever
+# re-include anything under here — `.claude/project/memory/` included. Any such
+# negation line is inert; don't add one expecting it to work (verified
+# empirically 2026-07-29: with `.claude/`, `!.claude/project/**` tracks nothing).
+#
+# Tracking PROJECT-scope memory would require `.claude/*` instead, but CPV's
+# validation gate requires this exact `.claude/` entry and fails the release
+# with a MINOR otherwise. The two tools genuinely conflict; CPV wins because it
+# gates the release. Revisit only as a deliberate, user-approved decision.
 .claude/
 CLAUDE.md
 
@@ -87,3 +98,6 @@ rck-*-merge-pending.md
 /.trashcan/*
 !/.trashcan/.gitkeep
 !/.trashcan/README.txt
+# (Removed: three `!.claude/project/memory/...` negations. They were inert —
+# the bare `.claude/` above prunes the directory, so git never descends far
+# enough to apply them. See the explanation at that entry.)

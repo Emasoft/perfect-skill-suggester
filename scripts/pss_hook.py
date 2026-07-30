@@ -110,7 +110,7 @@ def _db_shared_lock() -> Iterator[None]:
         from pss_paths import get_db_lock_path
 
         lock_path = get_db_lock_path()
-    except Exception:
+    except Exception:  # noqa: BLE001 — a hook must never crash the user's session
         # Path resolution failed (very early in cache install, etc.) — skip
         # locking and let the binary call proceed.
         yield
@@ -172,6 +172,9 @@ def _is_debug_mode() -> bool:
         try:
             result = subprocess.run(
                 ["ps", "-o", "args=", "-p", str(pid)],
+                # Explicit: a non-zero exit just means the pid is gone, which
+                # the returncode check below handles. Raising would be wrong.
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=2,
@@ -187,6 +190,9 @@ def _is_debug_mode() -> bool:
             # Walk up to this process's parent
             result = subprocess.run(
                 ["ps", "-o", "ppid=", "-p", str(pid)],
+                # Same as above: the walk up the process tree ends naturally
+                # when a pid disappears; that is not an error condition.
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=2,
@@ -305,6 +311,9 @@ def extract_previous_user_message(transcript_path: str) -> str:
         binary_path = find_binary()
         result = subprocess.run(
             [str(binary_path), "--extract-prev-msg", transcript_path],
+            # A failed extraction falls back to the Python scanner below, so a
+            # non-zero exit is a routing signal, not an exception.
+            check=False,
             capture_output=True,
             text=True,
             timeout=2,  # 2s timeout (mmap scan is <30ms, but account for startup)
@@ -546,10 +555,7 @@ def should_skip_prompt(prompt: str) -> bool:
     if "<local-command-stdout>" in prompt_stripped:
         return True
     # Claude Code release notes pasted by /release-notes command
-    if prompt_stripped.startswith("Version ") and "\n• " in prompt_stripped[:500]:
-        return True
-
-    return False
+    return prompt_stripped.startswith("Version ") and "\n• " in prompt_stripped[:500]
 
 
 def detect_platform() -> str:
@@ -615,6 +621,9 @@ def _is_pid_alive(pid: int) -> bool:
         try:
             result = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                # tasklist exits non-zero when the pid is absent — which is
+                # precisely the answer this probe wants, not a failure.
+                check=False,
                 capture_output=True, text=True, timeout=5,
             )
             return str(pid) in result.stdout
@@ -788,7 +797,7 @@ def main() -> None:
         if len(stdin_data) == _STDIN_CAP:
             try:
                 extra = sys.stdin.read(1)
-            except Exception:
+            except Exception:  # noqa: BLE001 — probing for overflow must never abort the hook
                 extra = ""
             if extra:
                 print(
@@ -931,6 +940,9 @@ def main() -> None:
             with _db_shared_lock():
                 return subprocess.run(
                     argv,
+                    # The caller inspects returncode/stderr itself and degrades
+                    # to an empty suggestion block; raising would break the prompt.
+                    check=False,
                     input=augmented_stdin,
                     capture_output=True,
                     text=True,
@@ -990,7 +1002,7 @@ def main() -> None:
         _exit_warning(
             f"binary timed out after {SUBPROCESS_TIMEOUT}s. The skill index may be too large or the binary may be stuck. Check: uv run python {Path(__file__).parent / 'pss_test_e2e.py'}"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — degrade to a warning; never break the prompt
         _exit_warning(str(e))
 
 
@@ -1045,7 +1057,7 @@ def _warm_index() -> None:
             os.close(fd)
         except FileExistsError:
             proc.kill()
-    except Exception:
+    except Exception:  # noqa: BLE001 — see below; silence is the contract here
         return  # Never fail — SessionStart must be silent
 
 

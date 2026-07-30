@@ -52,6 +52,7 @@ if str(SCRIPTS) not in sys.path:
 
 # The six skills CPV reported as untested.
 TARGET_SKILLS = [
+    "pss-agent-archetypes",
     "pss-agent-toml",
     "pss-authoring",
     "pss-benchmark-agent",

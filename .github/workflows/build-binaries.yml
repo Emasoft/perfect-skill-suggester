@@ -24,8 +24,11 @@ concurrency:
   group: build-binaries-${{ github.ref }}
   cancel-in-progress: false
 
+# Least privilege at the top level: the build jobs only ever READ the repo.
+# The single job that writes (commit-binaries) re-grants `contents: write`
+# for itself, so a compromised build step has no write token to steal.
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -48,10 +51,15 @@ jobs:
             os: macos-15
             binary: pss-darwin-x86_64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
+          # This job never pushes. Without this, checkout leaves the ambient
+          # GITHUB_TOKEN in .git/config where any later build step (or a
+          # compromised crate build script) could read and reuse it.
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -69,7 +77,7 @@ jobs:
           chmod +x "${{ env.BIN_DIR }}/${{ matrix.binary }}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.binary }}
           path: ${{ env.BIN_DIR }}/${{ matrix.binary }}
@@ -77,6 +85,8 @@ jobs:
   # Cross-compiled builds (Linux, Windows)
   build-cross:
     runs-on: ubuntu-latest
+    # `cargo install cross` + Docker image pulls dominate this job's runtime.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -88,9 +98,12 @@ jobs:
           - target: x86_64-pc-windows-gnu
             binary: pss-windows-x86_64.exe
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
+          # Same reasoning as build-macos: read-only job, no token left on disk.
+          # This job additionally runs third-party code under `cross` in Docker.
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -120,7 +133,7 @@ jobs:
           chmod +x "${{ env.BIN_DIR }}/${{ matrix.binary }}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.binary }}
           path: ${{ env.BIN_DIR }}/${{ matrix.binary }}
@@ -129,11 +142,18 @@ jobs:
   commit-binaries:
     needs: [build-macos, build-cross]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The ONLY job that writes to the repo. Keeping the write scope here (rather
+    # than at the top level) is what lets the build jobs run read-only.
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      # No `persist-credentials: false` here — this job pushes, so it needs the
+      # token checkout leaves in .git/config.
+      - uses: actions/checkout@v7
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 

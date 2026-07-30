@@ -439,9 +439,12 @@ User types prompt
     ↓
 UserPromptSubmit hook fires
     ↓
-pss_hook.py receives prompt via stdin
+bin/pss-hook-dispatch.sh (POSIX sh) execs the native binary directly
+  — it deliberately bypasses Python on this path (~130 ms of startup);
+    pss_hook.py serves only SessionStart / PostCompact
     ↓
 skill-suggester binary matches against index
+  (and reads the suggestion mode — see below)
     ↓
 Returns top candidates with scores
     ↓
@@ -458,7 +461,7 @@ Agent presents relevant suggestions to user
 
 ### Hook Mode vs Agent-Profile Mode
 
-- **Hook mode** (`--format hook`, UserPromptSubmit): Suggests **skills and agents only**. Rules, MCP servers, and LSP servers are configuration elements and not useful as prompt-time suggestions.
+- **Hook mode** (`--format hook`, UserPromptSubmit): Suggests **exactly one element type**, chosen by the active suggestion mode (below) — agents by default, skills by opt-in, or nothing. Rules, MCP servers, and LSP servers are configuration elements and not useful as prompt-time suggestions. (Before v3.11.0 this was hard-wired to skills only, despite an earlier version of this line claiming otherwise.)
 - **Agent-profile mode** (`--agent-profile`): Returns **all 6 types** (skills, agents, commands, rules, MCP, LSP) grouped by type. Used by `/pss-setup-agent` to generate complete `.agent.toml` files.
 
 ### Runtime Modes
@@ -468,6 +471,58 @@ The Rust binary operates in two modes:
 1. **Hook mode** (`--format hook`): Real-time skill suggestion during user prompt submission. Returns top matches with confidence levels. Used by `pss_hook.py` in the `UserPromptSubmit` hook.
 
 2. **Agent-profile mode** (`--agent-profile`): Batch scoring of ALL indexed elements against an agent's requirements. Returns scored candidates across all 6 element types for the `pss-agent-profiler` agent to post-filter. Used by `/pss-setup-agent`.
+
+### Suggestion mode — agents (default) vs skills (v3.11.0+)
+
+PSS suggests **agents** by default; skill suggestions are opt-in. The rationale
+is a property of the corpus, not a preference: skills have grown numerous and
+narrowly specialized, so algorithmic selection among them is unreliable, whereas
+an agent declares the skills it needs in its own frontmatter (the harness
+preloads them into the agent's context). Claude also acts on a suggested agent
+more often than on a suggested skill.
+
+One setting with **three** states — `agents` | `skills` | `none` — so the two
+content modes are mutually exclusive by construction and `-off` means silent
+rather than an undefined fourth transition:
+
+| Command | Effect |
+|---|---|
+| `/pss-suggest-agents-on` | agents (default); turns skills off |
+| `/pss-suggest-skills-on` | skills; turns agents off |
+| `/pss-suggest-agents-off`, `/pss-suggest-skills-off` | `none` — the hook emits nothing |
+
+- **State**: one line in `<data-dir>/pss-suggest-mode`, a sibling of the CozoDB,
+  written atomically (temp file + `rename`) by `pss suggest-mode --set <mode>`.
+  Not in the DB — a reindex rebuilds that wholesale via staging + `os.replace`
+  and would discard the setting — and not an env var, which a slash command
+  cannot durably set.
+- **The gate is in Rust** (`rust/skill-suggester/src/suggest_mode.rs`, applied at
+  the hook type-filter in `main.rs`). It has to be: the dispatch shim execs the
+  binary directly, so a Python-side toggle would never be consulted.
+- **Defaults**: an absent state file resolves to `agents` — a defined default
+  every fresh install hits, not a fallback. Corrupt/unreadable content warns on
+  stderr and still resolves to `agents`, because killing the prompt hook over a
+  cosmetic setting is worse than degrading. `--set` is fail-fast: a write error
+  exits non-zero instead of falsely reporting a switch.
+- The emitted block names what it offers: `<pss-agents>` or `<pss-skills>`.
+
+### Agent indexing (v3.11.0+)
+
+Agents are indexed as richly as skills. `rust/skill-suggester/src/agent_meta.rs`
+parses the full documented subagent frontmatter — `tools`, `disallowedTools`,
+`model`, `permissionMode`, `maxTurns`, `skills`, `mcpServers`, `memory`,
+`background`, `effort`, `isolation`, `color` — plus key phrases mined from the
+body, during `--pass1-batch`.
+
+The agent's declared `skills:`, `tools:` and `mcpServers:` are folded into its
+searchable keywords. That is the mechanism that makes agent suggestion work: it
+lets a prompt about a *skill's* subject reach the *agent* that preloads it — an
+agent preloading `playwright` becomes reachable from "browser test" even when its
+own prose never mentions it. The structured block is emitted as `agent_metadata`
+on the enriched entry (null for every non-agent type).
+
+Extraction lives in Rust rather than in the Python discoverer because enrichment
+already runs in the binary, and one parser avoids Python/Rust drift.
 
 ---
 
