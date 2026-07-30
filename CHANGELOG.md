@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.12.0] - 2026-07-30
+
+### Features
+
+- **make-agent:** Describe the agent instead of listing its skills
+
 ## [3.11.0] - 2026-07-30
 
 ### Documentation
