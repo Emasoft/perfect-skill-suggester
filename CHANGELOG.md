@@ -2,6 +2,17 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.11.0] - 2026-07-30
+
+### Documentation
+
+- **skills:** Embed the reference's COMPLETE TOC in SKILL.md
+
+### Features
+
+- **quality:** Publish-gate fix, agent slimming, CPV cleanup, CI accuracy gate, +206 tests
+- Agent archetypes + suggestion-mode switch
+
 ## [3.10.10] - 2026-07-23
 
 ### Bug Fixes
