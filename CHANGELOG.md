@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.12.1] - 2026-07-30
+
+### Bug Fixes
+
+- **e2e:** Pin suggest-mode to skills in the scoring phase
+
 ## [3.12.0] - 2026-07-30
 
 ### Features
