@@ -647,6 +647,27 @@ def phase5_binary_scoring(env: dict[str, Any], verbose: bool) -> TestResult:
         # Call binary with isolated env (HOME + CLAUDE_PLUGIN_DATA scrubbed)
         test_env = _isolated_env(env)
 
+        # Pin the suggestion mode to `skills`. This phase feeds the index three
+        # SKILLS and asserts one comes back, but since v3.11.0 the default mode
+        # is `agents` — under which the hook correctly filters skills out and
+        # emits nothing, and the phase fails with an empty envelope that looks
+        # like a scoring bug rather than a mode mismatch. A test must not depend
+        # on an ambient default it is not asserting.
+        mode_result = subprocess.run(
+            [str(binary_path), "suggest-mode", "--set", "skills"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=test_env,
+        )
+        if mode_result.returncode != 0:
+            return TestResult(
+                "Phase 5: Binary scoring",
+                False,
+                f"Could not pin suggest-mode to skills (exit {mode_result.returncode}). "
+                f"Stderr: {mode_result.stderr[:300]}",
+            )
+
         result = subprocess.run(
             [str(binary_path)],
             input=test_input,
