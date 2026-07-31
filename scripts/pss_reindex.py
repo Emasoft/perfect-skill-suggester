@@ -128,6 +128,27 @@ def backup_index(cache_dir: Path, db_path: Path) -> Path:
     return backup_dir
 
 
+# Per-run scratch paths. PID-suffixed like the discover JSONL, which already
+# got this right. They used to be fixed, fully predictable names in a
+# world-writable $TMPDIR opened with a plain open(..., "wb"): (a) any local
+# user could pre-plant a symlink there and have this process truncate the
+# target (CWE-59), and (b) a manual /pss-reindex-skills racing the hook's
+# auto-spawned reindex had both processes writing the same two files,
+# interleaving their output so the reported warnings/stats belonged to neither
+# run. Defined as functions because they are read back by main() after
+# run_pipeline returns — two literals in two places is how they drift.
+
+
+def _warnings_file() -> Path:
+    """Path discover writes its warning stream to, for THIS process."""
+    return Path(tempfile.gettempdir()) / f"pss-discover-warnings-{os.getpid()}.txt"
+
+
+def _stats_file() -> Path:
+    """Path the enrich stage writes its pass-1 stats to, for THIS process."""
+    return Path(tempfile.gettempdir()) / f"pss-pass1-stats-{os.getpid()}.txt"
+
+
 def run_pipeline(
     scripts_dir: Path,
     binary: Path,
@@ -155,8 +176,8 @@ def run_pipeline(
                                   to skip plugins disabled in settings.json.
     Returns the pipeline exit code (the first non-zero stage code, or 0).
     """
-    warnings_file = Path(tempfile.gettempdir()) / "pss-discover-warnings.txt"
-    stats_file = Path(tempfile.gettempdir()) / "pss-pass1-stats.txt"
+    warnings_file = _warnings_file()
+    stats_file = _stats_file()
     discover_jsonl = Path(tempfile.gettempdir()) / f"pss-reindex-{os.getpid()}.jsonl"
 
     discover_args = [
@@ -172,6 +193,11 @@ def run_pipeline(
         sys.executable,
         str(scripts_dir / "pss_merge_queue.py"),
         "--batch-stdin",
+        # This stream is the COMPLETE corpus, so the merge must start from an
+        # empty index — that is what prunes uninstalled elements. Incremental
+        # callers (e.g. /pss-add-to-index) omit the flag and are instead seeded
+        # from the live DB, so their partial stream cannot wipe it.
+        "--full-rebuild",
         "--index",
         str(staging_index),
     ]
@@ -223,7 +249,24 @@ def run_pipeline(
                     proc.kill()
                 print("ERROR: Pipeline timed out after 5 minutes", file=sys.stderr)
                 return 1
-            rc2 = p2.wait()
+            # Bounded, like p3 above. p2 (enrich) can outlive its consumer:
+            # Rust sets SIGPIPE to SIG_IGN, so when p3 exits early a write
+            # returns EPIPE instead of killing the process, and a stuck p2
+            # blocked this wait() forever. This runs detached
+            # (start_new_session=True from pss_hook), so "forever" meant the
+            # .reindex.pid lockfile stayed owned by a live-but-hung pid and
+            # _is_pid_alive() kept every future auto-reindex from ever starting.
+            try:
+                rc2 = p2.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                p2.kill()
+                p2.wait()
+                print(
+                    "ERROR: enrich stage did not exit after the merge stage "
+                    "completed — killed after 60s",
+                    file=sys.stderr,
+                )
+                return 1
             rc3 = p3.returncode
             for stage, rc in (("enrich", rc2), ("merge", rc3)):
                 if rc != 0:
@@ -456,8 +499,7 @@ def main() -> None:
     if element_count == 0:
         print("ERROR: Pipeline produced 0 elements. Old index preserved.")
         staging_index.unlink(missing_ok=True)
-        warnings_file = Path(tempfile.gettempdir()) / "pss-discover-warnings.txt"
-        print(f"Check {warnings_file} for details.")
+        print(f"Check {_warnings_file()} for details.")
         _cleanup_lockfile(cache_dir)
         sys.exit(1)
 
@@ -496,9 +538,8 @@ def main() -> None:
     _cleanup_lockfile(cache_dir)
 
     # Report
-    stats_file = Path(tempfile.gettempdir()) / "pss-pass1-stats.txt"
     try:
-        pass1_stats = stats_file.read_text().strip()
+        pass1_stats = _stats_file().read_text().strip()
     except OSError:
         pass1_stats = "unknown"
     db_size = human_size(cache_dir / "pss-skill-index.db")

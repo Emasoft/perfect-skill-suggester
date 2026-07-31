@@ -46,7 +46,7 @@ from pss_paths import get_index_path, get_lock_path
 # scripts that only need JSON merge (and run in environments without pycozo)
 # still work.
 try:
-    from pss_cozodb import atomic_write_cozodb
+    from pss_cozodb import atomic_write_cozodb, read_skills_map
     from pss_cozodb import get_db_path as cozo_get_db_path
     _COZO_AVAILABLE = True
 except ImportError:
@@ -57,6 +57,10 @@ except ImportError:
         raise RuntimeError("pycozo is not available; install 'pycozo[embedded]'")
 
     def cozo_get_db_path() -> Path:  # type: ignore[misc]
+        """Stub used when pycozo is not installed."""
+        raise RuntimeError("pycozo is not available; install 'pycozo[embedded]'")
+
+    def read_skills_map(*_a: Any, **_kw: Any) -> tuple[dict[str, Any], str]:  # type: ignore[misc]
         """Stub used when pycozo is not installed."""
         raise RuntimeError("pycozo is not available; install 'pycozo[embedded]'")
 
@@ -315,6 +319,70 @@ def atomic_write_json(
         raise
 
 
+def _load_base_index(
+    index_path: Path, *, full_rebuild: bool = False, quiet: bool = False
+) -> dict[str, Any]:
+    """Return the index map a merge must build ON TOP of.
+
+    THE LIVE COZODB IS THE SEED — never skill-index.json. `_sync_cozodb` hands
+    the result to `atomic_write_cozodb`, which REPLACES the whole DB with it,
+    so whatever is missing from this map is DELETED from the index.
+
+    Before this, both merge paths seeded from `skill-index.json`. Phase C
+    (v3.0.0) stopped writing that file automatically, which made every
+    incremental merge destructive: on a fresh install the file is absent, so
+    `create_skeleton_index()` returned an EMPTY map and adding one element via
+    `/pss-add-to-index` collapsed the entire DB to that single row; on an
+    upgraded install the file is a months-old snapshot, so the DB was rolled
+    back to it and everything indexed since was silently dropped (measured on
+    one live install: an 8 479-entry April JSON against an 11 891-element DB).
+
+    `index_path` is still honoured as an explicit SEED for the pre-DB /
+    no-pycozo case, and as the documented `--index` escape hatch — but only
+    when the DB cannot supply the base.
+
+    `full_rebuild=True` (pss_reindex.py's whole-corpus stream) deliberately
+    starts from EMPTY: that stream carries every element that still exists, so
+    an element absent from it has been uninstalled and MUST NOT be carried
+    over — an empty base is what prunes it. Seeding a full rebuild from the
+    live DB would make removals undetectable and grow the index forever.
+    """
+    if full_rebuild:
+        return create_skeleton_index()
+
+    if _COZO_AVAILABLE:
+        try:
+            skills, version = read_skills_map()
+            return {
+                "version": version,
+                "generated": datetime.now(timezone.utc).isoformat(),
+                "skills": skills,
+                "skill_count": len(skills),
+            }
+        except FileNotFoundError:
+            # No DB yet — a first-ever index build. Falling through to the
+            # JSON seed / skeleton is correct here: there is nothing to lose.
+            pass
+        except Exception as exc:  # pragma: no cover — corrupt/unreadable DB
+            # FAIL FAST. Rebuilding the DB from a stale JSON (or from nothing)
+            # because the live read failed is exactly the destructive
+            # behaviour this function exists to prevent.
+            raise RuntimeError(
+                f"Cannot read the live CozoDB to seed the merge ({exc}). "
+                "Refusing to rebuild the index from a stale snapshot — run "
+                "`/pss-reindex-skills` for a full rebuild instead."
+            ) from exc
+
+    if index_path.exists():
+        if not quiet:
+            print(
+                f"[SEED] CozoDB unavailable — seeding from {index_path}",
+                file=sys.stderr,
+            )
+        return read_json_file(index_path)
+    return create_skeleton_index()
+
+
 def _sync_cozodb(
     data: dict[str, Any],
     *,
@@ -399,11 +467,9 @@ def run_merge(
         if fcntl is not None:
             fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
 
-        # Read or create the index
-        if index_path.exists():
-            index = read_json_file(index_path)
-        else:
-            index = create_skeleton_index()
+        # Seed from the LIVE CozoDB, not from skill-index.json — see
+        # _load_base_index for why the JSON seed was destructive.
+        index = _load_base_index(index_path, quiet=quiet)
 
         # Merge based on pass number
         match pass_num:
@@ -482,6 +548,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Read JSONL from stdin, merge each line as pass-1 data",
     )
     parser.add_argument(
+        "--full-rebuild",
+        action="store_true",
+        default=False,
+        help=(
+            "The stdin stream is the COMPLETE element corpus (pss_reindex.py). "
+            "Start from an empty index so uninstalled elements are pruned. "
+            "Without this flag the merge is INCREMENTAL and is seeded from the "
+            "live CozoDB, so a partial stream cannot delete existing rows."
+        ),
+    )
+    parser.add_argument(
         "--quiet",
         "-q",
         action="store_true",
@@ -505,10 +582,13 @@ def main() -> None:
         try:
             if fcntl is not None:
                 fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
-            if batch_index_path.exists():
-                index = read_json_file(batch_index_path)
-            else:
-                index = create_skeleton_index()
+            # Incremental by default (seed from the LIVE DB); --full-rebuild
+            # starts empty. See _load_base_index for both halves of the why.
+            index = _load_base_index(
+                batch_index_path,
+                full_rebuild=args.full_rebuild,
+                quiet=args.quiet,
+            )
             count = 0
             for line in sys.stdin:
                 line = line.strip()

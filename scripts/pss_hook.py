@@ -715,6 +715,14 @@ def _maybe_auto_reindex(index_path: Path) -> None:
             proc.kill()
             _exit_warning("skill index not found — auto-reindex already in progress")
             return
+        except OSError:
+            # Any OTHER lockfile failure (disk full, unwritable cache dir):
+            # proc is already spawned and detached, and the outer handler below
+            # only reports the error. Without this kill it would keep running
+            # untracked with no pidfile, so the next prompt would spawn a second
+            # one on top of it — unbounded pile-up on a full disk.
+            proc.kill()
+            raise
         _exit_warning(
             "skill index not found — auto-reindex started, suggestions available shortly"
         )
@@ -816,13 +824,22 @@ def main() -> None:
             cwd = input_json.get("cwd", "")
             transcript_path = input_json.get("transcript_path", "")
 
-            # Validate paths are under home dir to prevent path traversal
-            home_path = Path.home()
-            if cwd:
-                try:
-                    Path(cwd).resolve().relative_to(home_path)
-                except ValueError:
-                    cwd = ""
+            # Only `transcript_path` is validated, and it is compared against a
+            # RESOLVED home.
+            #
+            # Two bugs fixed here. (1) `Path.home()` is NOT resolved while the
+            # candidate was — so on any machine where $HOME is itself a symlink
+            # (containers, NixOS, corporate images) EVERY comparison raised
+            # ValueError and both fields were blanked on every single prompt.
+            # (2) `cwd` was subjected to the same test even though this process
+            # never opens it — it is handed to the Rust binary as data. Blanking
+            # it silently disabled project-context scoring for the entirely
+            # normal case of a project living outside $HOME (/srv, /workspace,
+            # a devcontainer mount). A traversal guard that protects nothing
+            # while breaking a common deployment is worse than no guard.
+            #
+            # transcript_path IS opened for reading, so it keeps the check.
+            home_path = Path.home().resolve()
             if transcript_path:
                 try:
                     Path(transcript_path).resolve().relative_to(home_path)
@@ -1031,6 +1048,7 @@ def _warm_index() -> None:
             return  # Nothing to do — DB is ready
 
         lock_path = index_path.with_suffix(".reindex.pid")
+        crash_log = index_path.with_suffix(".reindex.crashes")
         if lock_path.exists():
             try:
                 pid = int(lock_path.read_text().strip())
@@ -1038,7 +1056,16 @@ def _warm_index() -> None:
                     return  # Reindex already in progress
             except (ValueError, OSError):
                 pass
+            # A stale lock means the previous reindex died. Record it and honour
+            # the SAME circuit breaker _maybe_auto_reindex uses (HP-5): this
+            # path fires on every startup/resume/fork, and the DB stays empty
+            # when reindex crashes on launch (broken pycozo venv, missing
+            # binary), so without the breaker a permanently-failing reindex was
+            # respawned forever, once per session event, in total silence.
+            _record_reindex_crash(crash_log)
             lock_path.unlink(missing_ok=True)
+        if len(_recent_reindex_crashes(crash_log, window_seconds=3600)) >= 3:
+            return  # Give up until the hour rolls over; SessionStart is silent.
 
         script_dir = Path(__file__).parent.resolve()
         reindex_script = script_dir / "pss_reindex.py"
@@ -1055,7 +1082,12 @@ def _warm_index() -> None:
             fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.write(fd, str(proc.pid).encode())
             os.close(fd)
-        except FileExistsError:
+        except OSError:
+            # Catch every OSError, not just FileExistsError. proc is already
+            # running and detached (start_new_session=True); on a disk-full or
+            # permission failure the old code let the outer handler swallow the
+            # error and return, leaving an untracked reindex running with NO
+            # pidfile — so the next session start spawned another one on top.
             proc.kill()
     except Exception:  # noqa: BLE001 — see below; silence is the contract here
         return  # Never fail — SessionStart must be silent

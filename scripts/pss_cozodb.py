@@ -1467,6 +1467,15 @@ def atomic_write_cozodb(
             domain_pairs: list[tuple[str, str]] = []
             ft_pairs: list[tuple[str, str]] = []
             id_triples: list[tuple[str, str, str]] = []
+            # `entries` may be keyed by composite `source::name` OR by entry ID
+            # (see the docstring), so the SAME (name, source) can appear twice
+            # under two different keys. `:put` collapses those into one row, but
+            # the aux relations below are unconditional appends and `count` was
+            # a raw per-entry tally — so a duplicate inflated the "Mirrored N
+            # rows" report past the real row count and left the LOSING entry's
+            # keywords/intents/tools in the lookup tables, matching a skill on
+            # terms its surviving row no longer has.
+            seen_rows: set[tuple[str, str]] = set()
 
             for _comp_key, raw_entry in entries.items():
                 if not isinstance(raw_entry, dict):
@@ -1475,6 +1484,10 @@ def atomic_write_cozodb(
                 if not norm["name"]:
                     # Skip malformed rows — mirrors Rust behaviour
                     continue
+                row_key = (norm["name"], norm["source"])
+                if row_key in seen_rows:
+                    continue
+                seen_rows.add(row_key)
 
                 entry_id = _fnv1a_entry_id(norm["name"], norm["source"])
 
@@ -1579,21 +1592,30 @@ def atomic_write_cozodb(
         lock_fd.close()
 
 
-def export_json_snapshot(
-    json_path: Path,
+def read_skills_map(
     db_path: Path | None = None,
     *,
     include_name_keyed: bool = True,
-) -> int:
-    """Write a JSON snapshot of the CozoDB to `json_path` atomically.
+) -> tuple[dict[str, Any], str]:
+    """Read the live `skills` table back into the skill-index.json shape.
 
-    Used by `pss export --json` (Rust CLI) and can be called from Python when
-    a human-readable mirror of the DB is needed for `git diff` debugging.
+    Returns ``(skills, version)`` where ``skills`` is keyed exactly the way
+    ``pss_merge_queue.merge_pass1`` keys it (composite ``source::name``), so a
+    caller can merge new entries into it and hand the result straight back to
+    :func:`atomic_write_cozodb`.
 
-    The emitted JSON matches the skill-index.json format written by
-    pss_merge_queue so downstream tools can continue reading either.
+    WHY THIS EXISTS (the bug it fixes): ``atomic_write_cozodb`` REPLACES the
+    whole DB with whatever map it is given. Incremental callers used to seed
+    that map from ``skill-index.json``, which since v3.0.0 (Phase C) is never
+    written automatically — so it was either absent (fresh install → the DB
+    collapsed to the one element being added) or a months-old snapshot (→ the
+    DB was rolled back to it, silently deleting everything indexed since).
+    The live DB is the only current state, so the live DB is what an
+    incremental merge must start from.
 
-    Returns the number of skill rows exported.
+    Raises FileNotFoundError when the DB does not exist yet — callers that
+    legitimately start from nothing must handle that explicitly rather than
+    silently rebuilding from an empty map.
     """
     if db_path is None:
         db_path = get_db_path()
@@ -1669,35 +1691,56 @@ def export_json_snapshot(
         )
         version_rows = version_row.get("rows") or []
         version = version_rows[0][0] if version_rows and version_rows[0] else "3.0"
-
-        out = {
-            "version": version,
-            "generated": datetime.now(timezone.utc).isoformat(),
-            "generator": "pss-export-json",
-            "skill_count": len(skills),
-            "skills": skills,
-        }
-
-        json_path = Path(json_path)
-        json_path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_str = tempfile.mkstemp(
-            dir=str(json_path.parent), prefix=".pss_export_", suffix=".json"
-        )
-        tmp_path = Path(tmp_str)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(out, fh, indent=2, ensure_ascii=False)
-                fh.write("\n")
-            os.replace(tmp_path, json_path)
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
-        return len(skills)
+        return skills, version
     finally:
         try:
             client.close()
         except Exception:
             pass
+
+
+def export_json_snapshot(
+    json_path: Path,
+    db_path: Path | None = None,
+    *,
+    include_name_keyed: bool = True,
+) -> int:
+    """Write a JSON snapshot of the CozoDB to `json_path` atomically.
+
+    Used by `pss export --json` (Rust CLI) and can be called from Python when
+    a human-readable mirror of the DB is needed for `git diff` debugging.
+
+    The emitted JSON matches the skill-index.json format written by
+    pss_merge_queue so downstream tools can continue reading either.
+
+    Returns the number of skill rows exported.
+    """
+    skills, version = read_skills_map(
+        db_path, include_name_keyed=include_name_keyed
+    )
+    out = {
+        "version": version,
+        "generated": datetime.now(timezone.utc).isoformat(),
+        "generator": "pss-export-json",
+        "skill_count": len(skills),
+        "skills": skills,
+    }
+
+    json_path = Path(json_path)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_str = tempfile.mkstemp(
+        dir=str(json_path.parent), prefix=".pss_export_", suffix=".json"
+    )
+    tmp_path = Path(tmp_str)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(out, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        os.replace(tmp_path, json_path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return len(skills)
 
 
 # ----------------------------------------------------------------------------
