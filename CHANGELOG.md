@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.12.2] - 2026-07-31
+
+### Bug Fixes
+
+- Code-review audit — stale-index seeding, injection filter, orphan reindexes
+
 ## [3.12.1] - 2026-07-30
 
 ### Bug Fixes
