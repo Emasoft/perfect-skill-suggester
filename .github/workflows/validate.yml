@@ -22,9 +22,20 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+# The repository default is `default_workflow_permissions: write`, so without
+# this block the job runs with a read/write token across every scope. It only
+# needs to read the checkout — and the validate step fetches and executes
+# third-party code at runtime (`uvx --from git+https://...`), so a wider token
+# than the job needs is a live supply-chain exposure, not a theoretical one.
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    # Without this the job inherits the 360-minute default; a hung uvx resolve
+    # would burn six hours of Actions minutes before anything noticed.
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
