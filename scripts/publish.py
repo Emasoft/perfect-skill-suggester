@@ -850,11 +850,27 @@ def generate_release_notes(new: str) -> str:
 
 
 def create_github_release(new: str, dry_run: bool) -> None:
-    """Publish a GitHub release with changelog-generated notes. MANDATORY."""
+    """Publish a GitHub release with changelog-generated notes. MANDATORY.
+
+    IDEMPOTENT: `gh release create` fails on a tag that already carries a
+    release, and this function routes any failure through fatal(). That made it
+    unsafe to call twice — which is exactly what the --push-only recovery path
+    must do when the first run died AFTER tagging but BEFORE the release was
+    published. Probing first turns the second call into a no-op instead of a
+    hard abort, so "a GitHub release always exists for a pushed tag" holds on
+    the recovery path too, not just the happy path.
+    """
     info("Publishing GitHub release...")
 
     if dry_run:
         info(f"  [DRY-RUN] Would run: gh release create v{new} ...")
+        return
+
+    # Probe before create. `gh release view` exits non-zero when absent, so a
+    # zero exit means the release is already published and re-creating it would
+    # abort the run for a condition that is actually success.
+    if run(["gh", "release", "view", f"v{new}"], timeout=60).returncode == 0:
+        success(f"  GitHub release v{new} already exists — nothing to do.")
         return
 
     notes = generate_release_notes(new)
@@ -1163,6 +1179,47 @@ def git_commit(_old: str, new: str) -> None:
         files_to_stage = [str(CARGO_TOML)]
         if cargo_lock.exists():
             files_to_stage.append(str(cargo_lock))
+
+        # Stage EVERY tracked modification in the submodule, not just the two
+        # version files. build_binaries() compiles from the submodule WORKING
+        # TREE, so an uncommitted main.rs is baked into the shipped binary while
+        # the submodule commit — and therefore the gitlink the parent records —
+        # still points at the OLD source. The release then ships a binary that
+        # cannot be rebuilt from the source it shipped with: the same
+        # source/binary desync class that shipped stale binaries in v3.8.0.
+        # Enumerated BY NAME from git status (never `git add -A`, which would
+        # sweep in untracked scratch files).
+        status = run(["git", "-C", str(rust_submodule), "status", "--porcelain"])
+        if status.returncode != 0:
+            fatal(f"submodule git status failed: {status.stderr.strip()}")
+        untracked: list[str] = []
+        for line in status.stdout.splitlines():
+            if len(line) < 4:
+                continue
+            code, path = line[:2], line[3:].strip()
+            if not path:
+                continue
+            if code == "??":
+                untracked.append(path)
+                continue
+            # Tracked change (modified/added/deleted/renamed). For a rename the
+            # porcelain payload is "old -> new"; stage the destination.
+            if " -> " in path:
+                path = path.split(" -> ", 1)[1]
+            abs_path = str(rust_submodule / path)
+            if abs_path not in files_to_stage:
+                files_to_stage.append(abs_path)
+        if untracked:
+            # Untracked files are deliberately NOT staged (a release must never
+            # silently absorb scratch files), but a NEW .rs that the build
+            # already compiled would desync exactly like the case above — so
+            # surface it loudly rather than failing silently.
+            warn(
+                "  Untracked file(s) in rust/ submodule were NOT staged: "
+                + ", ".join(untracked[:10])
+                + (" ..." if len(untracked) > 10 else "")
+            )
+
         result = run(
             ["git", "-C", str(rust_submodule), "add"] + files_to_stage,
         )
@@ -1200,6 +1257,29 @@ def git_commit(_old: str, new: str) -> None:
     result = run(["git", "add"] + files_to_add)
     if result.returncode != 0:
         fatal(f"git add failed: {result.stderr.strip()}")
+
+    # Stage tracked changes to the PIPELINE itself. Without this the release
+    # commit carries only version files + bin/ + the gitlink, so a fix to
+    # scripts/**  or .github/**  (the publisher, the vendored CPV helpers, the
+    # CI workflows) is silently left behind — the release ships while the fix
+    # that motivated it does not, and the next run re-detects the same dirty
+    # tree. `-u` stages tracked modifications ONLY: never `git add -A`, which
+    # would sweep untracked reports/ scratch into a public commit.
+    result = run(["git", "add", "-u", "--", "scripts", ".github"])
+    if result.returncode != 0:
+        fatal(f"git add -u scripts/.github failed: {result.stderr.strip()}")
+
+    # A NEW (untracked) pipeline file still has to be added deliberately by the
+    # author — surface it instead of letting the release quietly omit it.
+    untracked_pipeline = run(
+        ["git", "ls-files", "--others", "--exclude-standard", "--", "scripts", ".github"]
+    )
+    if untracked_pipeline.returncode == 0 and untracked_pipeline.stdout.strip():
+        warn(
+            "  Untracked pipeline file(s) NOT staged (git add them first if they "
+            "belong in this release): "
+            + ", ".join(untracked_pipeline.stdout.split()[:10])
+        )
 
     commit_msg = f"chore(release): {new}"
     result = run(["git", "commit", "-m", commit_msg])
@@ -1545,7 +1625,17 @@ def push_only_pipeline(args: argparse.Namespace) -> int:
         return 0
 
     git_push()
-    success(f"Push-only complete: {head[:12]} and tags are on the remote.")
+
+    # git_push() pushes HEAD *and* tags, so a run that died after tagging now
+    # has its tag on the remote — but a GitHub release is a separate artifact
+    # that only ever got created by the full release pipeline. Without this the
+    # recovery path ends with a pushed tag and NO release, which is precisely
+    # the half-published state --push-only exists to repair. create_github_release
+    # is idempotent (it probes first), so re-running is safe.
+    current = read_current_version()
+    create_github_release(current, args.dry_run)
+
+    success(f"Push-only complete: {head[:12]}, tags, and the v{current} release are on the remote.")
     return 0
 
 
