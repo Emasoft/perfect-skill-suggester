@@ -354,6 +354,195 @@ def _get_plugin_id_for_path(path: Path, plugin_map: dict[Path, str]) -> str | No
     return None
 
 
+# ---------------------------------------------------------------------------
+# Ownership resolution — the `<plugin>:<name>` suggestion namespace.
+#
+# A bare element name is ambiguous ("ace", "claude", "go-expert") and carries no
+# provenance, so the hook emits `<plugin>:<name>`, escalating to
+# `...@<marketplace>` and `...@<origin>/<marketplace>` only when that is still
+# not unique. Resolution happens HERE, at discovery, rather than by parsing the
+# `source` label in the scorer: `source` names the plugin for only 13.8% of
+# indexed agents (measured 2026-08-01) — the other 83.6% are `marketplace:<mp>`
+# rows that carry no plugin at all, and those are precisely the rows emitting
+# ambiguous bare names.
+#
+# These are ADDITIVE fields. `source` is never relabelled: it is half the index
+# primary key and the merge composite key, and rewriting it would make the
+# append-only temporal history read as a mass uninstall + reinstall.
+# ---------------------------------------------------------------------------
+
+# Both lookups walk whole directory trees, and discovery resolves once per
+# element (9,475 on this machine), so each is computed once per process.
+_plugin_name_memo: dict[Path, str | None] = {}
+_marketplace_origin_memo: dict[str, str] | None = None
+
+# An element sits a few levels under its plugin root (`<plugin>/skills/<name>/`).
+# Bounded so a path outside any plugin costs a handful of stats, not a walk to /.
+_PLUGIN_ROOT_MAX_DEPTH = 12
+
+
+def _plugin_name_for_path(path: Path) -> str | None:
+    """MANIFEST name of the nearest ancestor plugin, or None if standalone.
+
+    Walks up to the closest `.claude-plugin/plugin.json` and returns its
+    declared `name`. Reading the manifest — rather than taking the containing
+    directory's name — is what Claude Code itself does when the two disagree,
+    and it makes every layout resolve the same way: the version-pinned cache
+    (`plugins/cache/<mp>/<plugin>/<ver>/`), a marketplace checkout, and a
+    user- or project-local plugin dir all land on the same answer.
+
+    Returns None for genuinely standalone elements (user/project skills), which
+    is what keeps them rendering bare instead of acquiring a false owner.
+    """
+    ancestors: list[Path] = []
+    current = path
+    for _ in range(_PLUGIN_ROOT_MAX_DEPTH):
+        if current in _plugin_name_memo:
+            found = _plugin_name_memo[current]
+            break
+        ancestors.append(current)
+        manifest = current / ".claude-plugin" / "plugin.json"
+        if manifest.is_file():
+            try:
+                data = json.loads(
+                    _safe_read_text(manifest, max_bytes=MANIFEST_READ_CAP) or ""
+                )
+            except (json.JSONDecodeError, OSError):
+                data = {}
+            # SEC-4: the name comes from a third-party manifest and ends up in a
+            # composite id and in the model's context, so it is sanitized at this
+            # boundary exactly as _build_marketplace_plugin_map does.
+            found = _safe_name((data or {}).get("name", "")) if isinstance(data, dict) else None
+            break
+        parent = current.parent
+        if parent == current:
+            found = None
+            break
+        current = parent
+    else:
+        found = None
+
+    # Memoize the whole chain walked, not just the hit: sibling elements of the
+    # same plugin then resolve without re-stat-ing any ancestor.
+    for seen in ancestors:
+        _plugin_name_memo[seen] = found
+    return found
+
+
+def _marketplace_origins() -> dict[str, str]:
+    """Map marketplace name -> ORIGIN, the tier-3 disambiguator.
+
+    Consulted only when `<plugin>:<name>@<marketplace>` is STILL ambiguous —
+    i.e. two different marketplaces share a name. Three `source.source` kinds
+    occur in the wild (measured 2026-08-01: github 261, git 10, directory 2):
+
+      github     the repo OWNER — `feiskyer/claude-code-settings` -> `feiskyer`
+      git        host + org parsed out of the clone URL
+      directory  the local FOLDER, because a repo owner is meaningless for a
+                 marketplace added from disk. This is the case that separates a
+                 marketplace being DEVELOPED locally from the same marketplace
+                 installed from GitHub — routine while authoring plugins, and
+                 the reason `path` is read here even though the marketplace
+                 element record itself only looks at `repo`/`url`.
+
+    `$HOME` collapses to `~`. The origin is injected verbatim into the model's
+    context, so an absolute path would put the account name in every prompt.
+    """
+    global _marketplace_origin_memo
+    if _marketplace_origin_memo is not None:
+        return _marketplace_origin_memo
+
+    origins: dict[str, str] = {}
+    mp_file = get_claude_dir() / "plugins" / "known_marketplaces.json"
+    try:
+        data = json.loads(_safe_read_text(mp_file, max_bytes=MANIFEST_READ_CAP) or "")
+    except (json.JSONDecodeError, OSError):
+        data = {}
+    if isinstance(data, dict):
+        home = str(Path.home())
+        for mp_name, entry in data.items():
+            safe_mp = _safe_name(mp_name)
+            if safe_mp is None or not isinstance(entry, dict):
+                continue
+            src_obj = entry.get("source")
+            if not isinstance(src_obj, dict):
+                continue
+            kind = str(src_obj.get("source", ""))
+            origin = ""
+            if kind == "github":
+                # "owner/repo" -> "owner"; a bare value is already the owner.
+                origin = str(src_obj.get("repo", "")).split("/", 1)[0]
+            elif kind == "git":
+                url = str(src_obj.get("url", ""))
+                # Keep host+org, drop scheme/credentials/repo/.git — enough to
+                # tell two same-named marketplaces apart without a URL in-prompt.
+                stripped = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", url)
+                # Strip only LEADING userinfo. A bare `.split("@")[-1]` would cut
+                # at the last `@` anywhere in the URL and mangle a path containing
+                # one.
+                stripped = re.sub(r"^[^@/]*@", "", stripped)
+                # SCP-style remotes (`git@github.com:org/repo.git`) separate host
+                # from org with `:`, not `/` — without this they collapse into a
+                # single segment and the origin comes out as the whole
+                # `github.com:org/repo.git`.
+                stripped = stripped.replace(":", "/", 1)
+                stripped = re.sub(r"\.git/?$", "", stripped)
+                parts = [p for p in stripped.split("/") if p]
+                origin = "/".join(parts[:2]) if len(parts) >= 2 else (parts[0] if parts else "")
+            elif kind == "directory":
+                raw = str(src_obj.get("path") or entry.get("installLocation") or "")
+                if raw.startswith(home):
+                    raw = "~" + raw[len(home):]
+                origin = raw
+            origin = origin.strip().strip("/")
+            if origin:
+                # Bounded: sanitize_for_context truncates the whole emitted line
+                # at 120 chars, so an unbounded origin would eat the name it is
+                # meant to qualify.
+                origins[safe_mp] = origin[:60]
+    _marketplace_origin_memo = origins
+    return origins
+
+
+def _resolve_ownership(source: str, path: str) -> tuple[str | None, str | None]:
+    """Return (plugin, origin) for one discovered element.
+
+    `plugin` is None for standalone elements — user/project skills that belong
+    to no plugin — and those are the ones that correctly stay bare.
+    """
+    try:
+        parent = Path(path).parent
+    except (TypeError, ValueError):
+        return None, None
+
+    plugin = _plugin_name_for_path(parent)
+
+    marketplace = ""
+    source_plugin = ""
+    if source.startswith("plugin:"):
+        rest = source[len("plugin:"):]
+        # `plugin:<marketplace>/<plugin>` (version-pinned cache) vs
+        # `plugin:<plugin>` (user- or project-local plugin, no marketplace).
+        if "/" in rest:
+            marketplace, source_plugin = rest.split("/", 1)
+        else:
+            source_plugin = rest
+    elif source.startswith("marketplace:"):
+        marketplace = source[len("marketplace:"):]
+
+    if plugin is None and source_plugin:
+        # Fallback: the manifest is unreachable but `source` still names the
+        # plugin. This is not hypothetical — the cache is version-pinned
+        # (`cache/<mp>/<plugin>/<version>/`), so every row indexed against a
+        # version that has since been superseded points at a deleted directory
+        # with no manifest left to read. Those rows would otherwise render bare
+        # and lose exactly the provenance this field exists to carry.
+        plugin = _safe_name(source_plugin)
+
+    origin = _marketplace_origins().get(marketplace) if marketplace else None
+    return plugin, origin
+
+
 def get_all_projects_from_claude_config() -> list[tuple[str, Path]]:
     """Read all project paths from ~/.claude.json.
 
@@ -2011,6 +2200,67 @@ def extract_use_context(content: str, max_len: int = 500) -> str:
     return result[:max_len]
 
 
+# Path segments that mean "this tree is not a place real elements live".
+# Every one of these was observed producing a bogus indexed element:
+#   - __tests__      marketplaces/mag-claude-plugins/tools/claudeup-core/src/
+#                    __tests__/fixtures/invalid-plugin/invalid-agents/agents/
+#                    missing-name-agent.md  — a unit-test FIXTURE, indexed and
+#                    suggested as an agent named `missing-name-agent`
+#   - fixtures       same path; test data, never installed
+#   - docs           marketplaces/axiom-marketplace/docs/agents/test-runner.md
+#                    — documentation about an agent, not the agent (the real
+#                    one is separately indexed under plugin: scope)
+#   - node_modules / .git   vendored or VCS internals; never element sources
+# __mocks__ and test-fixtures are included as the direct siblings of the two
+# test conventions above, by the same reasoning.
+_NON_ELEMENT_PATH_SEGMENTS = frozenset(
+    {
+        "__tests__",
+        "__mocks__",
+        "fixtures",
+        "test-fixtures",
+        "node_modules",
+        ".git",
+        "docs",
+    }
+)
+
+
+def _is_non_element_path(path: Path) -> bool:
+    """True when `path` lives somewhere elements cannot really come from.
+
+    Deliberately conservative — it matches only whole path SEGMENTS from the
+    curated set above, never substrings. A false exclusion silently loses a
+    real, invocable element, which is far worse than indexing one extra file,
+    so anything not clearly a test/docs/vendor tree is kept.
+
+    Segment comparison is case-insensitive: `Docs/` and `docs/` are the same
+    directory on macOS/Windows filesystems anyway, so a case-sensitive check
+    would let the identical bad path through depending only on how the
+    upstream author capitalised it.
+
+    Only the segments BELOW the corpus root are inspected, and the root is the
+    LAST `.claude` segment in the path — every scope PSS scans is rooted there
+    (`~/.claude/...` for user/plugin/marketplace, `<project>/.claude/...` for
+    project scope). Ancestors above it are the user's own directory names, not
+    the element corpus: a project checked out at `~/Code/docs/myapp` would
+    otherwise have every one of its real `.claude/agents/*.md` dropped purely
+    because an ancestor happened to be named `docs`. Falling back to the cwd,
+    then to the whole path, covers the rare location scanned from outside any
+    `.claude` tree.
+    """
+    parts = path.parts
+    lowered = [p.lower() for p in parts]
+    if ".claude" in lowered:
+        rel_parts = parts[len(lowered) - 1 - lowered[::-1].index(".claude") + 1 :]
+    else:
+        try:
+            rel_parts = path.relative_to(get_cwd()).parts
+        except ValueError:
+            rel_parts = parts
+    return any(part.lower() in _NON_ELEMENT_PATH_SEGMENTS for part in rel_parts)
+
+
 def discover_elements(
     locations: list[tuple[str, str, Path]],
     specific_name: str | None = None,
@@ -2031,6 +2281,11 @@ def discover_elements(
 
     for source, element_type, elem_dir in locations:
         if not elem_dir.exists():
+            continue
+        # Non-element exclusion: a test/fixture/docs/vendor tree is not a place
+        # elements are installed from, at ANY scope. Checked on the containing
+        # directory so it covers both arms below in one place.
+        if _is_non_element_path(elem_dir):
             continue
 
         if element_type == "skill":
@@ -2141,6 +2396,17 @@ def discover_elements(
                     continue
                 if md_file.name.lower() in ("readme.md", "skill.md"):
                     continue
+                # A CLAUDE.md dropped into an agents/ dir is per-directory
+                # INSTRUCTIONS for Claude, not an agent definition. Observed:
+                # marketplaces/geepers-marketplace/agents/CLAUDE.md was indexed
+                # and suggested as an agent literally named `claude`.
+                # Scoped to agents/ on purpose — elsewhere a file may legitimately
+                # be named CLAUDE.md and mean something else.
+                if (
+                    md_file.name.lower() == "claude.md"
+                    and md_file.parent.name.lower() == "agents"
+                ):
+                    continue
 
                 elem_name = md_file.stem.lower()
                 if specific_name and elem_name != specific_name.lower():
@@ -2213,6 +2479,22 @@ def discover_elements(
                     # NOT wired into _record_scan_error, and UnicodeDecodeError
                     # dropped by F17 — same reasoning as the SKILL.md arm above.
                     print(f"Warning: Cannot read {md_file}: {e}", file=sys.stderr)
+
+    # Ownership (`plugin` / `origin`) for the `<plugin>:<name>` suggestion
+    # namespace. Applied here as one pass over the finished list rather than at
+    # each per-type construction site: every element type needs it identically,
+    # and a single point cannot drift the way a dozen duplicated assignments do.
+    for element in elements:
+        plugin, origin = _resolve_ownership(
+            str(element.get("source", "")), str(element.get("path", ""))
+        )
+        # Absent rather than null when unknown: a standalone element has no
+        # owner, and the Rust side serde-defaults these, so an index written by
+        # an older PSS simply renders bare — the pre-namespace behaviour.
+        if plugin:
+            element["plugin"] = plugin
+        if origin:
+            element["origin"] = origin
 
     return elements
 
@@ -2614,6 +2896,16 @@ def main() -> int:
             # if the manifest line was lost / skipped.
             if elem.get("scope_path"):
                 record["scope_path"] = elem["scope_path"]
+            # Ownership for the `<plugin>:<name>` suggestion namespace.
+            # THIS PROJECTION IS THE PIPE: `record` is rebuilt field-by-field,
+            # so a key set on `elem` by _resolve_ownership but not copied here
+            # never leaves discover — the DB column then exists and is empty
+            # for every row. Omitted (not "") when unknown, so a standalone
+            # element serde-defaults to bare downstream.
+            if elem.get("plugin"):
+                record["plugin"] = elem["plugin"]
+            if elem.get("origin"):
+                record["origin"] = elem["origin"]
             print(json.dumps(record, ensure_ascii=False))
         return 0
 

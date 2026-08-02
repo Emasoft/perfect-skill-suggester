@@ -96,6 +96,12 @@ PASS1_FIELDS: list[str] = [
     "server_command",
     "server_args",
     "language_ids",
+    # Ownership for the `<plugin>:<name>` suggestion namespace. This list is a
+    # WHITELIST — a field the enricher emits but that is not named here never
+    # reaches the entry the CozoDB writer sees, so the column lands empty for
+    # every row. Absent stays absent (a standalone element has no owner).
+    "plugin",
+    "origin",
 ]
 
 # Fields merged during pass 2 (AI co-usage relationships)

@@ -839,6 +839,11 @@ _SKILL_SCHEMA_COLS: list[str] = [
     "frameworks_json", "languages_json", "platforms_json", "domains_json",
     "path_gates_json",
     "first_indexed_at", "last_updated_at",
+    # Ownership for the `<plugin>:<name>` suggestion namespace. Deliberately NOT
+    # added to _FULL_ENTRY_COLUMNS: that tuple is joined into SELECT projections,
+    # and naming a column a pre-namespace DB does not have makes Cozo reject the
+    # whole query — the read would fail outright instead of degrading.
+    "plugin", "origin",
 ]
 
 # The 9 auxiliary normalised relations that feed kw_lookup.
@@ -895,7 +900,9 @@ def _create_db_schema(db: Client) -> None:
             domains_json: String,
             path_gates_json: String,
             first_indexed_at: String,
-            last_updated_at: String
+            last_updated_at: String,
+            plugin: String,
+            origin: String
         }}
         """
     )
@@ -1163,6 +1170,12 @@ def _extract_skill_fields(entry: dict[str, Any]) -> dict[str, Any]:
         "name": s("name"),
         "source": s("source"),
         "path": s("path"),
+        # Ownership for the `<plugin>:<name>` suggestion namespace. Emitted by
+        # pss_discover.py, which OMITS the keys for standalone elements — `s()`
+        # yields "" there, and the Rust loader maps "" back to None, so a
+        # plugin-less element stays bare rather than acquiring a false owner.
+        "plugin": s("plugin"),
+        "origin": s("origin"),
         "skill_type": skill_type,
         "description": description,
         "tier": s("tier"),
@@ -1239,6 +1252,8 @@ def _put_skill_row(
         "path_gates_json": json.dumps(norm["path_gates"]),
         "first_indexed_at": first_indexed_at,
         "last_updated_at": last_updated_at,
+        "plugin": norm["plugin"],
+        "origin": norm["origin"],
     }
     script = (
         "?[name, id, path, skill_type, source, description, tier, boost, category, "
@@ -1247,7 +1262,7 @@ def _put_skill_row(
         "use_cases_json, co_usage_json, alternatives_json, domain_gates_json, "
         "file_types_json, keywords_json, intents_json, tools_json, services_json, "
         "frameworks_json, languages_json, platforms_json, domains_json, "
-        "path_gates_json, first_indexed_at, last_updated_at] <- "
+        "path_gates_json, first_indexed_at, last_updated_at, plugin, origin] <- "
         "[[$name, $id, $path, $skill_type, $source, $description, $tier, $boost, "
         "$category, $server_type, $server_command, $server_args_json, "
         "$language_ids_json, $negative_kw_json, $patterns_json, $directories_json, "
@@ -1255,7 +1270,7 @@ def _put_skill_row(
         "$domain_gates_json, $file_types_json, $keywords_json, $intents_json, "
         "$tools_json, $services_json, $frameworks_json, $languages_json, "
         "$platforms_json, $domains_json, $path_gates_json, $first_indexed_at, "
-        "$last_updated_at]] "
+        "$last_updated_at, $plugin, $origin]] "
         ":put skills { name, source => id, path, skill_type, description, tier, "
         "boost, category, server_type, server_command, server_args_json, "
         "language_ids_json, negative_kw_json, patterns_json, directories_json, "
@@ -1263,7 +1278,7 @@ def _put_skill_row(
         "domain_gates_json, file_types_json, keywords_json, intents_json, "
         "tools_json, services_json, frameworks_json, languages_json, "
         "platforms_json, domains_json, path_gates_json, first_indexed_at, "
-        "last_updated_at }"
+        "last_updated_at, plugin, origin }"
     )
     db.run(script, params)
 

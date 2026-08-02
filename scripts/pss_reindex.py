@@ -38,6 +38,21 @@ def resolve_plugin_root() -> Path:
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_root:
         return Path(env_root)
+    # Second: the checkout this very script lives in, when it is a complete
+    # plugin (has bin/ and .claude-plugin/plugin.json). WHY THIS MUST COME
+    # BEFORE THE CACHE GLOB: without it, running the dev tree's own
+    # `pss reindex` silently reindexed through the *installed* release copy —
+    # this script would hand `scripts_dir` and `binary` to the marketplace
+    # cache, so every edit under scripts/ in the checkout was executed
+    # nowhere. That cost a full debugging session chasing "the schema change
+    # never reaches the DB" when the schema change was simply never run.
+    # Production is unaffected: Claude Code always exports CLAUDE_PLUGIN_ROOT,
+    # which still wins above.
+    self_root = Path(__file__).resolve().parent.parent
+    if (self_root / ".claude-plugin" / "plugin.json").is_file() and (
+        self_root / "bin"
+    ).is_dir():
+        return self_root
     # Fallback: find the plugin under ANY installed marketplace cache dir.
     # A single hardcoded marketplace name (formerly "emasoft-plugins") broke
     # for anyone installing PSS from a fork, a private marketplace, or a
