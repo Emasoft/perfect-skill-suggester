@@ -61,6 +61,11 @@ Thumbs.db
 # files must land TOGETHER — changing one without the other re-opens the finding.
 .claude/*
 !.claude/project/
+# ...but NOT the janitor's generated detector proposals. These are regenerated on
+# every scan and deleted once the finding clears, so tracking one means a deleted-
+# then-recreated file in every contributor's status forever. They are artifacts,
+# not knowledge — the knowledge lands in a real memory page.
+.claude/project/memory/*-proposed.md
 CLAUDE.md
 
 # ai-maestro-janitor runtime state (logs + timestamps; regenerated on every fire)
@@ -113,17 +118,12 @@ rck-*-merge-pending.md
 /.trashcan/*
 !/.trashcan/.gitkeep
 !/.trashcan/README.txt
-# (Removed: three `!.claude/project/memory/...` negations. They were inert —
-# the bare `.claude/` above prunes the directory, so git never descends far
-# enough to apply them. See the explanation at that entry.)
-#
-# Do NOT re-add them: `git check-ignore -v .claude/project/memory/` still
-# answers `.gitignore:48:.claude/` with the negations present, so they change
-# nothing while contradicting the comment directly above. Tracking PROJECT
-# memory requires replacing the `.claude/` entry itself with `.claude/*` plus
-# per-entry negations — and that is the change CPV's validation gate rejects
-# (see the note at that entry). It is a deliberate, user-approved decision,
-# not a .gitignore tweak.
-!.claude/project/
-!.claude/project/memory/
-!.claude/project/memory/**
+# (This block used to hold three `!.claude/project/memory/...` negations plus a
+# comment asserting they had been REMOVED as inert. Both halves were wrong at
+# once: the lines were still present, and once the entry above became `.claude/*`
+# they stopped being inert and started WINNING — gitignore is last-match-wins, so
+# being further down the file they silently overrode the `*-proposed.md` exclusion
+# up there. Removed 2026-08-08. The single `!.claude/project/` negation at that
+# entry is sufficient and is the only place this is decided; do not re-add
+# per-entry negations here, and do not trust a comment that claims a line is gone
+# without looking for it.)
