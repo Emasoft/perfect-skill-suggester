@@ -2,6 +2,22 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.13.0] - 2026-08-08
+
+### Bug Fixes
+
+- **publish:** Stage what the release actually contains; make recovery complete
+- Scoring/index defects, CI token scope, and track PROJECT memory
+- **build:** 300s cargo timeout aborted releases mid-bump; untrack generated proposals
+
+### Features
+
+- **index:** Carry plugin/origin end-to-end so suggestions can be namespaced
+
+### Miscellaneous Tasks
+
+- **validate:** Scope the token to contents:read and bound the job
+
 ## [3.12.2] - 2026-07-31
 
 ### Bug Fixes
