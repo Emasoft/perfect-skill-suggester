@@ -1,3 +1,13 @@
+---
+trdd-id: 152e697f-17ff-4e86-aed1-008af90e287a
+title: PSS Temporal History Index (event-sourced)
+column: completed
+created: 2026-05-07T00:00:00+0200
+updated: 2026-08-07T12:06:35+0200
+current-owner: perfect-skill-suggester
+task-type: feature
+---
+
 # TRDD-152e697f — PSS Temporal History Index (event-sourced)
 
 **TRDD ID:** `152e697f-17ff-4e86-aed1-008af90e287a`
@@ -505,3 +515,7 @@ Decision: address the **two real items** in Phase 1's prep step (smaller
 than the temporal work) and let the FPs persist until CPV's
 context-aware guards land. After all 4 temporal phases ship, re-run CPV
 in the Gate F audit and reconcile.
+
+## Approval log
+
+- 2026-08-07T12:06:35+0200 — COMPLETED. Shipped in v3.4.0. Verified against the shipped binary: all 15 temporal subcommands are present (as-of, timeline, lifespan, merge-events, installed-between, changed-between, removed-since, scope-moves, override-history, multi-scope, never-current, prune-history, retention, scan-log, db-stats). The body's "Awaiting design approval" line predates the implementation. Card closed and archived.

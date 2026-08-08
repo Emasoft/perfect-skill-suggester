@@ -20,6 +20,7 @@
     "ml"
   ],
   "cpv": {
+    "canon": "none",
     "pipeline_profile": "submodule-build",
     "pipeline": {
       "intentional_divergence": [

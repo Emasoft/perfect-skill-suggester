@@ -1,9 +1,9 @@
 ---
 trdd-id: VO7HB6ZK
 title: a workflow's token or permission scope is wider than the job needs in .github/workflows
-column: proposal
+column: completed
 created: 2026-07-23T14:41:51+0200
-updated: 2026-07-23T14:41:51+0200
+updated: 2026-08-07T12:08:38+0200
 current-owner: janitor
 task-type: security
 severity: medium
@@ -54,4 +54,23 @@ The dispatched agent is fail-safe: it fixes what is safe and FLAGS what needs a 
 rotates credentials, never force-pushes, never pushes to `main`). It returns one line plus a report
 path, and closes the ticket with an explicit status.
 
+## Approval log
+
+- 2026-08-07T12:08:38+0200 — APPROVED by main Claude. Tier 0: applying the standard
+  least-privilege hardening baseline as-is is an exempt operation.
+- 2026-08-07T12:08:38+0200 — COMPLETED. The cited location was already correct:
+  `build-binaries.yml` sets `persist-credentials: false` on both of its read-only
+  checkouts, and its third checkout deliberately persists the token because that job
+  pushes (documented inline at the step). Sweeping all four workflows found the real
+  instance the ticket had not cited: `.github/workflows/validate.yml` checked out with
+  no `persist-credentials` while running `uvx --from git+https://...`, i.e. executing
+  third-party code with the token left in `.git/config`. Fixed there.
+  `accuracy-gate.yml` was already clean (2 checkouts, 2 settings) and
+  `notify-marketplace.yml` has no checkout. Card closed and archived.
+
 ## Notes and lessons learned
+
+- A ticket's cited file is a starting point, not the boundary of the finding. Here the
+  cited file was already fixed while an uncited sibling carried the real defect — so
+  confirming the citation would have closed the ticket with the exposure still live.
+  Sweep the whole class (every workflow, every checkout), then judge.

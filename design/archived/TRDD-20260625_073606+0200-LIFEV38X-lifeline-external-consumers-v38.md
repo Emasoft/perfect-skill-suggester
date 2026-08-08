@@ -1,9 +1,9 @@
 ---
 trdd-id: LIFEV38X
 title: v3.8 — Lifeline engine for external time-travel consumers (issue #10)
-column: complete
+column: published
 created: 2026-06-25T07:36:06+0200
-updated: 2026-06-25T08:10:59+0200
+updated: 2026-08-07T12:06:06+0200
 current-owner: pss-main-session
 task-type: feature
 release-via: publish
@@ -108,3 +108,7 @@ Both are genuinely going-forward / larger-surface than a feature add:
   architecture, EVERY parent-repo `git diff -- <submodule>/...` is blind to file
   changes — diff inside the submodule. And always verify the actual artifact
   (run the shipped binary), never the wrapper exit code or the "done" notification.
+
+## Approval log
+
+- 2026-08-07T12:06:06+0200 — PUBLISHED. Shipped as v3.8.0-v3.8.3; git tags and GitHub releases verified present. Card closed and archived.

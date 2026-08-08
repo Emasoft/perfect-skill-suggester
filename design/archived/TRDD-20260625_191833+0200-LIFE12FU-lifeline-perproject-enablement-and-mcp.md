@@ -1,9 +1,9 @@
 ---
 trdd-id: LIFE12FU
 title: v3.9 design — per-project enablement history (P-8) + MCP surface (P-9), issue #12
-column: complete
+column: published
 created: 2026-06-25T19:18:33+0200
-updated: 2026-07-18T09:51:55+0200
+updated: 2026-08-07T12:06:06+0200
 current-owner: pss-main-session
 task-type: feature
 release-via: publish
@@ -237,3 +237,7 @@ shipped and P-8c is confirmed.
   upstream actually exposes X per-project — here the literal ask was infeasible and
   the real signal (MCP enablement) is a different element type. This is exactly why
   the user's "design-first" choice was correct.
+
+## Approval log
+
+- 2026-08-07T12:06:06+0200 — PUBLISHED. Shipped as v3.9.0; git tag and GitHub release verified present. Card closed and archived.

@@ -1,3 +1,13 @@
+---
+trdd-id: 014bcc92-001a-46de-9dc7-41503d61a706
+title: find_matches returns zero matches for the react hooks prompt
+column: completed
+created: 2026-05-08T00:00:00+0200
+updated: 2026-08-07T12:06:35+0200
+current-owner: perfect-skill-suggester
+task-type: bugfix
+---
+
 # TRDD-014bcc92 — find_matches returns zero matches for "build react ... with hooks"
 
 **TRDD ID:** `014bcc92-001a-46de-9dc7-41503d61a706`
@@ -93,3 +103,7 @@ literal word "frontend" yet the skill still scores zero.
 - Refactoring the entire scoring algorithm
 - Renaming or restructuring DOMAIN_TAXONOMY
 - Changing the test fixture's overall shape
+
+## Approval log
+
+- 2026-08-07T12:06:35+0200 — COMPLETED. Symptom no longer reproduces: tests::test_find_matches_with_synonyms and tests::test_confidence_levels both pass with their `assert!(!matches.is_empty())` assertions intact, and the e2e accuracy gate is 6/6. Fixed by the domain-gate word-boundary and synonym-table work. Card closed and archived.

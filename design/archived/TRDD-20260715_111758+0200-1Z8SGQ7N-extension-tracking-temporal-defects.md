@@ -1,9 +1,9 @@
 ---
 trdd-id: 1Z8SGQ7N
 title: Extension-tracking temporal-index design defects — deferred cross-cutting fixes
-column: complete
+column: completed
 created: 2026-07-15T11:17:58+0200
-updated: 2026-07-17T13:20:00+0200
+updated: 2026-08-07T12:06:06+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 parent-trdd: 152e697f
@@ -807,3 +807,7 @@ One coordinated follow-up (or a small set of child TRDDs, F1 first as its own). 
 either changes stored id/timestamp/state semantics or spans Python+Rust — hence deferred
 from the review's `--fix` pass. Terminal when every F# is fixed-or-consciously-accepted with
 a migration for the id/timestamp-schema changes (F4, F5).
+
+## Approval log
+
+- 2026-08-07T12:06:06+0200 — COMPLETED. No release-via, so `complete` is its terminal column. Card closed and archived.

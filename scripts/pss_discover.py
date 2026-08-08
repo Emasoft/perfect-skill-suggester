@@ -1237,6 +1237,32 @@ def _discover_marketplace_mcps(
     return servers
 
 
+def frontmatter_truthy(value: Any) -> bool:
+    """Is an already-YAML-parsed frontmatter scalar true?
+
+    PyYAML resolves `true/yes/on` (and their cased variants) to a real `bool`,
+    so most values arrive decided. Two cases still reach here as non-bools and
+    both are legal per Claude Code 2.1.218, which widened frontmatter booleans
+    to `yes`/`no`/`on`/`off`/`1`/`0`:
+
+    * `1` / `0` — YAML 1.1 resolves these to *ints*, not bools.
+    * a QUOTED value (`"true"`, `'on'`) — resolves to a *str*, because quoting
+      suppresses the implicit bool resolver.
+
+    Anything unrecognized is false: this gates whether an element is offered to
+    the model, and the safe direction is to keep offering it. A false positive
+    here would silently hide a usable skill, which is far harder to notice than
+    the reverse. Mirrors `agent_meta::parse_frontmatter_bool` on the Rust side.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):  # bool is a subclass of int — checked above first
+        return value == 1
+    if isinstance(value, str):
+        return value.strip().strip("\"'").lower() in {"true", "yes", "on", "1"}
+    return False
+
+
 def parse_frontmatter(content: str, source_label: str = "<unknown>") -> dict[str, Any]:
     """Parse YAML frontmatter from markdown content using PyYAML.
 
@@ -2352,6 +2378,17 @@ def discover_elements(
                         "description": (frontmatter.get("description") or "")[:200],
                         "preview": body,
                         "use_context": use_ctx,
+                        # A skill with `disable-model-invocation: true` can only
+                        # be run by the USER via its slash command — the model
+                        # cannot invoke it. Suggesting one tells Claude to reach
+                        # for something it is not allowed to call, so the hook
+                        # drops these BEFORE scoring. Indexed rather than read
+                        # from disk at query time because the pre-scoring filter
+                        # would otherwise have to stat every candidate on every
+                        # prompt. Measured 27 such skills across 2674 installed.
+                        "disable_model_invocation": frontmatter_truthy(
+                            frontmatter.get("disable-model-invocation")
+                        ),
                     }
                     # AgentSkills open standard metadata (agentskills.io)
                     # Extract fields that improve indexing quality
@@ -2472,6 +2509,26 @@ def discover_elements(
                             "description": description,
                             "preview": body,
                             "use_context": use_ctx,
+                            # The user-only gate, same as the SKILL.md arm above.
+                            # Set for EVERY element type, not just skills, so the
+                            # key exists uniformly — the CozoDB writer tests it
+                            # with `is True`, and a type that never declares it
+                            # should read False rather than absent.
+                            #
+                            # THIS IS THE SECOND SITE THAT MUST SET IT. Nearly all
+                            # skills carrying the flag are PLUGIN skills, and they
+                            # come through HERE, not the SKILL.md arm — fixing only
+                            # that one left the column false for all 15687 rows
+                            # while every other stage tested green.
+                            #
+                            # The ownership pass below avoids exactly this kind of
+                            # per-site duplication, but cannot absorb this field:
+                            # it derives plugin/origin from PATHS, whereas this
+                            # needs parsed frontmatter, which exists only inside
+                            # these per-type arms.
+                            "disable_model_invocation": frontmatter_truthy(
+                                frontmatter.get("disable-model-invocation")
+                            ),
                         }
                     )
                     seen_names.add(dedup_key)
@@ -2906,6 +2963,20 @@ def main() -> int:
                 record["plugin"] = elem["plugin"]
             if elem.get("origin"):
                 record["origin"] = elem["origin"]
+            # The user-only gate. Subject to the same PIPE rule stated directly
+            # above — and it caught this field out: both discovery arms set it
+            # correctly, every downstream stage forwarded it correctly, and it
+            # still reached the DB false for all 15687 rows purely because this
+            # projection did not name it.
+            #
+            # Set UNCONDITIONALLY, unlike plugin/origin: for those, absent and ""
+            # mean the same thing, so omitting is free. Here False is a real
+            # answer ("the model MAY invoke this"), and the CozoDB writer tests
+            # `is True` — emitting the key always keeps that test honest instead
+            # of relying on a downstream default.
+            record["disable_model_invocation"] = (
+                elem.get("disable_model_invocation") is True
+            )
             print(json.dumps(record, ensure_ascii=False))
         return 0
 

@@ -1,3 +1,13 @@
+---
+trdd-id: 46ac514e-3627-44a6-b916-f37a1504b969
+title: Unify PSS index on CozoDB (drop skill-index.json as canonical)
+column: completed
+created: 2026-04-16T00:00:00+0200
+updated: 2026-08-07T12:06:35+0200
+current-owner: perfect-skill-suggester
+task-type: refactor
+---
+
 # TRDD-46ac514e-3627-44a6-b916-f37a1504b969 — Unify PSS index on CozoDB (drop skill-index.json as canonical)
 
 **TRDD ID:** `46ac514e-3627-44a6-b916-f37a1504b969`
@@ -275,3 +285,7 @@ No follow-up work is owed by this TRDD. Keeping the file as historical
 reference — the "why" section documents the real-world bug that motivated
 the migration and the architectural reasoning behind the single-store
 model.
+
+## Approval log
+
+- 2026-08-07T12:06:35+0200 — COMPLETED. Shipped in v3.0.0; the card already carries its own "## Completion record (2026-04-16)" section. Card closed and archived.

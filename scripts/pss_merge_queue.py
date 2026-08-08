@@ -102,6 +102,11 @@ PASS1_FIELDS: list[str] = [
     # every row. Absent stays absent (a standalone element has no owner).
     "plugin",
     "origin",
+    # User-only skills (`disable-model-invocation: true`). Same whitelist rule as
+    # above: omit it here and the enricher's value is silently dropped, the column
+    # reads false for every row, and the hook goes on suggesting skills the model
+    # cannot invoke — with nothing anywhere reporting a problem.
+    "disable_model_invocation",
 ]
 
 # Fields merged during pass 2 (AI co-usage relationships)

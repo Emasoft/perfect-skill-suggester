@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.218**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.221**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -76,12 +76,34 @@ for the full design record.
 
 ## Version-by-version compatibility matrix
 
-### v2.1.218 (2026-07-22) — one PSS adaptation shipped in v3.10.9
+### v2.1.221 (2026-08-04)
+
+- **`claude plugin validate` now warns when a marketplace or plugin name would be rejected by Claude Desktop's managed marketplace sync.** PSS ships as `perfect-skill-suggester` — lowercase kebab-case, no reserved characters. informational; the next release's validation gate will surface CC's own verdict.
+- **Plugins may now use `"."` as a `skills` path**, and the root-level `SKILL.md` error now suggests the plugin root. PSS declares its skills under `skills/`, one directory per skill; the new form is an alternative spelling, not a migration. N/A.
+- **Plugins installed from `/plugin` now activate immediately when safe** instead of always requiring `/reload-plugins`. Shortens the "installed but not yet suggesting" window for a fresh PSS install — `/pss-reindex-skills` is still required to populate the index. informational, benefits PSS, no change.
+- **Plugin- and org-delivered skills named after terminal-only built-ins (`/help`, `/feedback`) are invocable again in non-interactive sessions.** No PSS skill collides with a built-in name. Immune.
+- **`/status` now reports the session kind** (`interactive`, or a background job that is `attached`/`unattended`). No PSS surface. No PSS impact.
+- Sandbox credential-file `mode: "mask"` (Linux/WSL), the zsh `[[ ]]` Bash permission-check fix, the `prompt-audit` subcommand on the bundled `claude-api` skill, VSCode Focus view — no plugin-ecosystem surface. N/A.
+
+### v2.1.220 (2026-07-25)
+
+- Bug-fix / reliability-only release with no plugin-ecosystem surface. No PSS impact.
+
+### v2.1.219 (2026-07-24) — Opus 5 becomes the default; nested subagents raised to depth 3
+
+- **Claude Opus 5 (`claude-opus-5`) is the new default Opus model** (1M context). PSS pins no model id anywhere that could reject a new one: neither `schemas/pss-agent-toml-schema.json` nor `scripts/pss_validate_agent_toml.py` carries a model enum or allowlist (grep-verified — zero hits for `opus`/`sonnet`/`haiku`/`fable` in either), and `agent_meta.rs` stores `model` as an opaque `Option<String>`. Immune — a new model id flows through untouched.
+- **New `DirectoryAdded` hook event**, fired after `/add-dir` or an SDK `register_repo_root` registers a working directory mid-session. PSS's hook discovery iterates `hooks_obj.items()` with no allowlist or enum (`scripts/pss_discover.py:1599-1756`), so an unrecognized event name is indexed verbatim rather than rejected or silently dropped. Immune — and deliberately so: a closed event enum would need editing on every CC release. PSS registers no `DirectoryAdded` hook of its own; not adopted yet.
+- **Nested subagent spawns raised to depth 3 by default** (was depth 1 / disabled — see v2.1.217 below). Nothing in PSS spawns nested subagents today, so no behaviour changes. Recorded because it lifts the constraint that made a router-plus-micro-agent design impossible, which is directly relevant to `pss make-agent --kind one-for-all`.
+- **`workflowSizeGuideline` settings key**, the `mcp_server_errors` headless init field, and `DirectoryAdded`'s SDK counterpart. PSS reads `settings.json` only for plugin enable-state, never workflow or MCP-error config. N/A.
+- Vertex/Bedrock model routing, Fable row labels, `/model` picker wording, Windows `CLAUDE_CODE_GIT_BASH_PATH` handling — no plugin surface. No PSS impact.
+
+### v2.1.218 (2026-07-22) — two PSS adaptations: v3.10.9 and v3.12.3
 
 - **`context: fork` skills now run in the BACKGROUND by default** (opt out per skill with `background: false`). PSS's `pss-cli-reference` is `context: fork` — the fork was chosen to keep its 64-subcommand reference OUT of the caller's context, but the skill is a **synchronous routing lookup**: the calling agent (`pss-agent-profiler`, or any agent routing an NL request to the `pss` CLI) must receive the resolved command *inline* before it can run it. Backgrounding detaches that answer and breaks the "look up which command → run it" flow. **Fixed in PSS v3.10.9:** added `background: false` to `skills/pss-cli-reference/SKILL.md`, restoring synchronous-fork behavior.
-- **Agent names containing `:` are now rejected** (`:` reserved for plugin namespacing). PSS's only agent is `pss-agent-profiler` — no colon. Immune (grep-verified).
+- **Agent names containing `:` are now rejected** (`:` reserved for plugin namespacing). Three surfaces, all verified clear: PSS's own `agents/pss-agent-profiler.md` has no colon; PSS *generates* agent files (`pss make-agent`) whose `derive_name` emits kebab-case only, and `pss_make_plugin.py` copies agent files byte-for-byte without rewriting frontmatter. PSS does construct `plugin:name` strings — but only for suggestion/display output (`namespaced_name`, `main.rs`), never written into a `name:` field. Immune (grep-verified). Re-checked when the namespacing work landed, since that commit is what made this rule worth re-reading.
 - **Agent frontmatter hooks now require the agent file's own folder to have accepted workspace trust.** `agents/pss-agent-profiler.md` declares no frontmatter `hooks:` (grep-verified). Immune.
-- **`yes`/`no`/`on`/`off`/`1`/`0` now accepted for skill/plugin frontmatter booleans** alongside `true`/`false`. PSS uses `true`/`false` throughout — no change, no regression.
+- **`yes`/`no`/`on`/`off`/`1`/`0` now accepted for skill/plugin frontmatter booleans** alongside `true`/`false`. **This was originally assessed here as "PSS uses `true`/`false` throughout — no change, no regression". That assessment was wrong, and the shape of the error is worth keeping: it asked what PSS *writes* (still true) when the load-bearing question is what PSS *reads*.** PSS parses third-party agent and skill frontmatter, so every spelling an author may now legally write has to parse. Two hand-rolled parsers did not even agree with each other: `agent_meta.rs` accepted only `true/yes/false/no`, so `background: on` silently became `None`; `agent_archetypes.rs::frontmatter_bool` accepted `true/yes/on/false/no/off` but not `1`/`0`. **Fixed in PSS v3.12.3:** a single `agent_meta::parse_frontmatter_bool` takes all eight spellings case-insensitively, and both call sites delegate to it. The Python discoverer needed no change — `yaml.safe_load`'s YAML-1.1 resolver already coerces `yes/no/on/off`, a superset of CC's set.
+- The same pass fixed an unrelated latent defect in that gate's scanner: it used `?` on `split_once(':')`, so the first colon-less line — a blank line, a comment — aborted the whole scan and returned `None`, which `gate_preloadable` reads as "not user-only". A skill with a blank line above `disable-model-invocation: true` was therefore preloaded and then silently dropped by the harness, which is precisely the failure the gate exists to prevent. Regression-tested in `agent_archetypes.rs::gate_reads_user_only_below_a_blank_line`.
 - `/code-review` background-subagent change, benign server-managed-settings toggles, headless fork-lineage-after-compaction fix — CC-internal. No PSS impact.
 
 ### v2.1.217 (2026-07-21) — subagent-fanout caps; PSS assessed immune
