@@ -39,6 +39,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The validate step below runs `uvx --from git+https://...`, which
+          # fetches and executes third-party code in this job. checkout leaves
+          # the token in .git/config by default, so anything that code runs
+          # could read it. This job only ever reads the tree — it never pushes.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5

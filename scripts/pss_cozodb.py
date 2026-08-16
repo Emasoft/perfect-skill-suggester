@@ -839,6 +839,14 @@ _SKILL_SCHEMA_COLS: list[str] = [
     "frameworks_json", "languages_json", "platforms_json", "domains_json",
     "path_gates_json",
     "first_indexed_at", "last_updated_at",
+    # Ownership for the `<plugin>:<name>` suggestion namespace. Deliberately NOT
+    # added to _FULL_ENTRY_COLUMNS: that tuple is joined into SELECT projections,
+    # and naming a column a pre-namespace DB does not have makes Cozo reject the
+    # whole query — the read would fail outright instead of degrading.
+    "plugin", "origin",
+    # Same reasoning as plugin/origin: a pre-3.13 DB has no such column, so this
+    # must never appear in a SELECT projection either.
+    "disable_model_invocation",
 ]
 
 # The 9 auxiliary normalised relations that feed kw_lookup.
@@ -895,7 +903,10 @@ def _create_db_schema(db: Client) -> None:
             domains_json: String,
             path_gates_json: String,
             first_indexed_at: String,
-            last_updated_at: String
+            last_updated_at: String,
+            plugin: String,
+            origin: String,
+            disable_model_invocation: Bool
         }}
         """
     )
@@ -1163,6 +1174,17 @@ def _extract_skill_fields(entry: dict[str, Any]) -> dict[str, Any]:
         "name": s("name"),
         "source": s("source"),
         "path": s("path"),
+        # Ownership for the `<plugin>:<name>` suggestion namespace. Emitted by
+        # pss_discover.py, which OMITS the keys for standalone elements — `s()`
+        # yields "" there, and the Rust loader maps "" back to None, so a
+        # plugin-less element stays bare rather than acquiring a false owner.
+        "plugin": s("plugin"),
+        "origin": s("origin"),
+        # User-only skills the model cannot invoke. `is True`, not `bool(...)`:
+        # the enricher emits a real JSON bool, and bool("false") is True — so the
+        # sloppy spelling would mark every skill non-invocable the moment a
+        # producer emitted the value as a string.
+        "disable_model_invocation": entry.get("disable_model_invocation") is True,
         "skill_type": skill_type,
         "description": description,
         "tier": s("tier"),
@@ -1239,6 +1261,9 @@ def _put_skill_row(
         "path_gates_json": json.dumps(norm["path_gates"]),
         "first_indexed_at": first_indexed_at,
         "last_updated_at": last_updated_at,
+        "plugin": norm["plugin"],
+        "origin": norm["origin"],
+        "disable_model_invocation": norm["disable_model_invocation"],
     }
     script = (
         "?[name, id, path, skill_type, source, description, tier, boost, category, "
@@ -1247,7 +1272,8 @@ def _put_skill_row(
         "use_cases_json, co_usage_json, alternatives_json, domain_gates_json, "
         "file_types_json, keywords_json, intents_json, tools_json, services_json, "
         "frameworks_json, languages_json, platforms_json, domains_json, "
-        "path_gates_json, first_indexed_at, last_updated_at] <- "
+        "path_gates_json, first_indexed_at, last_updated_at, plugin, origin, "
+        "disable_model_invocation] <- "
         "[[$name, $id, $path, $skill_type, $source, $description, $tier, $boost, "
         "$category, $server_type, $server_command, $server_args_json, "
         "$language_ids_json, $negative_kw_json, $patterns_json, $directories_json, "
@@ -1255,7 +1281,7 @@ def _put_skill_row(
         "$domain_gates_json, $file_types_json, $keywords_json, $intents_json, "
         "$tools_json, $services_json, $frameworks_json, $languages_json, "
         "$platforms_json, $domains_json, $path_gates_json, $first_indexed_at, "
-        "$last_updated_at]] "
+        "$last_updated_at, $plugin, $origin, $disable_model_invocation]] "
         ":put skills { name, source => id, path, skill_type, description, tier, "
         "boost, category, server_type, server_command, server_args_json, "
         "language_ids_json, negative_kw_json, patterns_json, directories_json, "
@@ -1263,7 +1289,7 @@ def _put_skill_row(
         "domain_gates_json, file_types_json, keywords_json, intents_json, "
         "tools_json, services_json, frameworks_json, languages_json, "
         "platforms_json, domains_json, path_gates_json, first_indexed_at, "
-        "last_updated_at }"
+        "last_updated_at, plugin, origin, disable_model_invocation }"
     )
     db.run(script, params)
 

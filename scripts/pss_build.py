@@ -29,6 +29,23 @@ TARGETS = {
 # Darwin targets must use cargo directly (cross has no macOS Docker images)
 DARWIN_TARGETS = {"darwin-arm64", "darwin-x86_64"}
 
+# Wall-clock budget for a single cargo/zigbuild invocation.
+#
+# This was 300s at three call sites and it was NOT enough: a COLD full release
+# build of skill-suggester for a second architecture exceeds it, and the failure
+# is maximally misleading — subprocess raises TimeoutExpired, the caller reports
+# "Fix the build environment (Docker running? cross installed? toolchain up to
+# date?)", and the environment is in fact perfectly fine. Observed 2026-08-08:
+# native darwin-arm64 built clean, then `cargo build --target x86_64-apple-darwin
+# --release` was killed at 299.99s mid-release, after the version bump had already
+# been written.
+#
+# 1800s matches what the cross/Docker path (build_with_cross) already used for the
+# same reason, so all four build paths now share one budget instead of disagreeing.
+# A warm incremental rebuild still finishes in well under a minute; this ceiling
+# only has to be larger than a cold build, not tight.
+BUILD_TIMEOUT_SECS = 1800
+
 
 def resolve_cargo() -> str:
     """Resolve cargo path, preferring rustup over Homebrew.
@@ -262,7 +279,7 @@ def build_native(release: bool = True) -> bool:
     print(f"  Directory: {rust_dir}")
     print(f"  Command: {' '.join(cmd)}")
 
-    result = subprocess.run(cmd, cwd=rust_dir, timeout=300)
+    result = subprocess.run(cmd, cwd=rust_dir, timeout=BUILD_TIMEOUT_SECS)
 
     if result.returncode != 0:
         print("Error: Native build failed.", file=sys.stderr)
@@ -353,7 +370,7 @@ def build_darwin_cross(target_key: str, release: bool = True) -> bool:
     print(f"  Directory: {rust_dir}")
     print(f"  Command: {' '.join(cmd)}")
 
-    result = subprocess.run(cmd, cwd=rust_dir, timeout=300)
+    result = subprocess.run(cmd, cwd=rust_dir, timeout=BUILD_TIMEOUT_SECS)
 
     if result.returncode != 0:
         print(f"Error: Darwin cross-build failed for {target_key}.", file=sys.stderr)
@@ -423,7 +440,7 @@ def build_zigbuild(target_key: str, release: bool = True) -> bool:
     cmd = [c for c in cmd if c]  # remove empty strings
 
     print(f"Building for {target_key} ({rust_target}) via zigbuild...")
-    result = subprocess.run(cmd, cwd=rust_dir, timeout=300)
+    result = subprocess.run(cmd, cwd=rust_dir, timeout=BUILD_TIMEOUT_SECS)
 
     if result.returncode != 0:
         print(f"Error: zigbuild failed for {target_key}.", file=sys.stderr)
@@ -497,7 +514,7 @@ def build_cross(target_key: str, release: bool = True) -> bool:
     # 30-minute timeout to accommodate Docker image pulls + nlprule model
     # downloads inside the cross container on first build. Subsequent builds
     # finish in ~3-5 minutes.
-    result = subprocess.run(cmd, cwd=rust_dir, timeout=1800, env=env)
+    result = subprocess.run(cmd, cwd=rust_dir, timeout=BUILD_TIMEOUT_SECS, env=env)
 
     if result.returncode != 0:
         # Fallback to zigbuild if cross fails (common on Apple Silicon for arm64 targets)

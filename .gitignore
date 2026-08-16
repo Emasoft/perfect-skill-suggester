@@ -33,19 +33,39 @@ Thumbs.db
 # examples_dev, downloads_dev, libs_dev, builds_dev, etc.
 *_dev/
 
-# Claude Code local state.
+# Claude Code local state — everything EXCEPT the shared PROJECT memory corpus.
 #
-# Deliberately the bare directory form. Note the consequence: git does not
-# descend into an excluded DIRECTORY, so NO `!.claude/...` negation can ever
-# re-include anything under here — `.claude/project/memory/` included. Any such
-# negation line is inert; don't add one expecting it to work (verified
-# empirically 2026-07-29: with `.claude/`, `!.claude/project/**` tracks nothing).
+# `.claude/*` (glob), not `.claude/` (bare directory). This is load-bearing: git
+# does not descend into an excluded DIRECTORY, so under the bare form every
+# `!.claude/...` negation below would be INERT. Verified empirically 2026-07-29
+# in a throwaway repo — `.claude/` + negations tracks nothing, `.claude/*` +
+# `!.claude/project/` tracks the memory files.
 #
-# Tracking PROJECT-scope memory would require `.claude/*` instead, but CPV's
-# validation gate requires this exact `.claude/` entry and fails the release
-# with a MINOR otherwise. The two tools genuinely conflict; CPV wins because it
-# gates the release. Revisit only as a deliberate, user-approved decision.
-.claude/
+# The negations re-include ONE path and nothing else. Everything private stays
+# ignored by construction: chat_history/ (conversation exports), settings.local.json,
+# cache/, scheduled_tasks*, .janitor/, worktrees/, .DS_Store.
+#
+# Why this is now safe for the CPV release gate (it was not, before 2026-08-07):
+# CPV's `.claude/` check became CONTENT-AWARE in its issue #120 —
+# `validate_plugin._claude_dir_has_tracked_content()`, asserted by
+# `tests/test_issue_120_claude_dir_gitignore.py::test_tracked_claude_content_clears_finding`
+# on a fixture using exactly this glob+negation shape. Separately the
+# required-entries audit (`standardize_plugin._gitignore_line_covers_entry`) accepts
+# any glob that fnmatch-covers `.claude/` — running CPV's own predicate, `.claude/*`
+# returns True — and it emits WARN, not MINOR. PSS gates via `uvx --from git+https://…`,
+# i.e. CPV main, so the fix is in the gating version. Confirmed end-to-end on
+# 2026-08-07: `cpv-remote-validate plugin .` → CRITICAL=0 MAJOR=0 MINOR=0, no
+# `.claude/` finding at all.
+#
+# The finding clears on TRACKED CONTENT, so this spelling and the committed memory
+# files must land TOGETHER — changing one without the other re-opens the finding.
+.claude/*
+!.claude/project/
+# ...but NOT the janitor's generated detector proposals. These are regenerated on
+# every scan and deleted once the finding clears, so tracking one means a deleted-
+# then-recreated file in every contributor's status forever. They are artifacts,
+# not knowledge — the knowledge lands in a real memory page.
+.claude/project/memory/*-proposed.md
 CLAUDE.md
 
 # ai-maestro-janitor runtime state (logs + timestamps; regenerated on every fire)
@@ -98,14 +118,12 @@ rck-*-merge-pending.md
 /.trashcan/*
 !/.trashcan/.gitkeep
 !/.trashcan/README.txt
-# (Removed: three `!.claude/project/memory/...` negations. They were inert —
-# the bare `.claude/` above prunes the directory, so git never descends far
-# enough to apply them. See the explanation at that entry.)
-#
-# Do NOT re-add them: `git check-ignore -v .claude/project/memory/` still
-# answers `.gitignore:48:.claude/` with the negations present, so they change
-# nothing while contradicting the comment directly above. Tracking PROJECT
-# memory requires replacing the `.claude/` entry itself with `.claude/*` plus
-# per-entry negations — and that is the change CPV's validation gate rejects
-# (see the note at that entry). It is a deliberate, user-approved decision,
-# not a .gitignore tweak.
+# (This block used to hold three `!.claude/project/memory/...` negations plus a
+# comment asserting they had been REMOVED as inert. Both halves were wrong at
+# once: the lines were still present, and once the entry above became `.claude/*`
+# they stopped being inert and started WINNING — gitignore is last-match-wins, so
+# being further down the file they silently overrode the `*-proposed.md` exclusion
+# up there. Removed 2026-08-08. The single `!.claude/project/` negation at that
+# entry is sufficient and is the only place this is decided; do not re-add
+# per-entry negations here, and do not trust a comment that claims a line is gone
+# without looking for it.)

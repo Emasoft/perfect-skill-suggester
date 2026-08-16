@@ -96,6 +96,17 @@ PASS1_FIELDS: list[str] = [
     "server_command",
     "server_args",
     "language_ids",
+    # Ownership for the `<plugin>:<name>` suggestion namespace. This list is a
+    # WHITELIST — a field the enricher emits but that is not named here never
+    # reaches the entry the CozoDB writer sees, so the column lands empty for
+    # every row. Absent stays absent (a standalone element has no owner).
+    "plugin",
+    "origin",
+    # User-only skills (`disable-model-invocation: true`). Same whitelist rule as
+    # above: omit it here and the enricher's value is silently dropped, the column
+    # reads false for every row, and the hook goes on suggesting skills the model
+    # cannot invoke — with nothing anywhere reporting a problem.
+    "disable_model_invocation",
 ]
 
 # Fields merged during pass 2 (AI co-usage relationships)
