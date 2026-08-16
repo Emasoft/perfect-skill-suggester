@@ -1,12 +1,13 @@
 ---
 name: publish-submodule-build-skip-stale-binaries
-description: "release shipped but the new CLI verb is missing from the binary / publish.py said 'No Rust source changes, skipping build' even though I changed main.rs / stale bin/ binaries / build skipped after editing rust source"
+description: "release shipped but the new CLI verb is missing from the binary / publish.py said 'No Rust source changes, skipping build' even though I changed main.rs / stale bin/ binaries / build skipped after editing rust source / git log -S returned no commits and I concluded no history exists / grep across the repo found nothing inside rust/ / CPV validation timed out at 900s with exit code 124 and pre-warming did not help / a command run at the repo root reported a confident nothing about a submodule it never entered"
 ocd: 2026-06-25
-lmd: 2026-07-23
+lmd: 2026-08-16
 metadata:
   node_type: memory
   type: project
   tier: component
+publish-globally: false
 ---
 
 ^6UX3F1IC [desc:"publish.py's rebuild detection diffed the PARENT repo, blind to the rust/ submodule gitlink, so v3.8.0 shipped with stale binaries lacking new Rust CLI verbs.", keywords:"submodule_gitlink_diff_blind stale_binaries_shipped rust_source_changed_false_negative parent_repo_diff_empty", type:project, ocd:2026-06-25, lmd:2026-07-16]
@@ -14,7 +15,7 @@ metadata:
 
 `rust_source_changed()` / `nlp_source_changed()` used that parent-repo diff, so after editing `main.rs`/`temporal.rs` they reported **"No Rust source changes since last tag, skipping build"** and `build_binaries` was skipped → `bin/` was never recompiled → **v3.8.0 shipped with STALE binaries** lacking the new lifeline verbs.
 
-**Why:** in a submodule architecture every parent-repo `git diff -- <submodule>/...` is blind to the submodule's internal file changes.
+**Why:** in a submodule architecture every parent-repo `git diff -- <submodule>/...` is blind to the submodule's internal file changes. [^2]
 
 ^U9PLH7LT [desc:"Fix: diff git rev-parse <tag>:rust vs git -C rust rev-parse HEAD inside the submodule (shipped v3.8.1); force a landed-but-uncompiled fix with --force-build; always verify the actual shipped binary, never the wrapper's exit code.", keywords:"submodule_diff_fix force_build_flag verify_shipped_binary wrapper_exit_code_lie", type:project, ocd:2026-06-25, lmd:2026-07-16]
 **How to apply:**
@@ -73,3 +74,4 @@ claude-plugins-validation#187).
   ` M rust`. This bit v3.8.3 (committed the cli_version fix in the submodule, forgot
   the parent ref bump). The v3.8.0/v3.8.1 flow avoided it only because other parent
   files (docs/scripts) were committed together, carrying the ref along.
+[^2]: [id: ATOM-7TBW-T7CP, status: valid, desc: "Any git/scan tool run at the PARENT repo root is blind to submodule contents and reports a confident NOTHING — four separate instances, each read as a real answer.", keywords: "git_log_S_returns_nothing_for_submodule_path cpv_validation_times_out_900s_exit_124 grep_across_repo_finds_nothing_in_rust no_history_exists_for_this_function tool_ran_at_repo_root_and_saw_an_empty_submodule false_clean_from_a_parent_repo_command rust_target_not_in_skip_set 62000_files_work_set", ocd: 2026-08-16, lmd: 2026-08-16] DO NOT accept an empty or clean result from any git/scan command run at the repo root when the subject lives in a submodule (this repo: `rust/`), BECAUSE the parent repo stores only a gitlink, so the tool enters no submodule and answers confidently about a region it never looked at — a FALSE CLEAN, indistinguishable from a real negative. Four instances, one root cause: publish.py's rebuild detection diffed the parent and shipped stale binaries (this atom); shipped-status checks needed the tag's recorded gitlink instead; CPV's `git ls-files` skip-set never saw `rust/target`, so its work set was 62,422 files and validation hit exit 124 at the 900s clamp (the prescribed "pre-warm the uvx cache" recipe is NOT the cause); and `git log -S '<symbol>' -- <path>` from the root returned zero commits for submodule source, which read as "no design history exists". DO re-run the command INSIDE the submodule (`git -C rust log -S …`) or against the gitlink (`git rev-parse <ref>:rust`), and prove the instrument first — run it against something you KNOW is there and confirm it is found — before recording any zero. For the CPV timeout specifically, `publish.py --clean --rust-only` collapses `rust/` from 25,121 files to 93 and validation then passes in seconds.
