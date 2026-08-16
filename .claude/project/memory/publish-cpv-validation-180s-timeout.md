@@ -1,8 +1,8 @@
 ---
 name: publish-cpv-validation-180s-timeout
-description: "publish.py release fails at plugin validation with \"exit code 124\" / \"Timed out after 180s\" — CPV remote validation timed out, not a real failure; how to fix"
+description: "publish.py release fails at plugin validation with \"exit code 124\" / \"Timed out after 180s\" / pre-warming the uvx cache did not help — a CPV gate timeout is a SYMPTOM with several possible causes; read the [cpv-phase] log to find which phase stalled"
 ocd: 2026-07-16
-lmd: 2026-07-23
+lmd: 2026-08-15
 metadata:
   node_type: memory
   type: project
@@ -22,20 +22,29 @@ This happens BEFORE any version bump (order: preflight → lint → tests →
 validation → bump), so the working tree is left **clean** — safe to retry, no
 partial release state.
 
-^QSTDB1CP [desc:"The 180s timeout is a cold-start/network issue, not a real validation failure (lint+tests already passed, a standalone CPV run exits 0); fix by pre-warming the uvx CPV cache with one standalone cpv-remote-validate run before publish.py.", keywords:"not_a_real_failure cold_start_not_validation_failure prewarm_uvx_cache standalone_cpv_run_first", type:project, ocd:2026-07-16, lmd:2026-07-16]
-**Why:** it's a cold-start / network timeout, NOT a real validation failure.
-Lint + tests already passed before it; a standalone CPV run exits 0 (clean
-pass — CRITICAL/MAJOR/MINOR all 0; the NIT/WARNING/CA findings are non-blocking
-demoted items).
+^QSTDB1CP [desc:"A CPV gate timeout is a SYMPTOM with more than one cause; a cold uvx cache is only one, and pre-warming is a hypothesis to test, never the diagnosis. Read the phase log for WHICH phase stalled.", keywords:"cpv_timeout_has_more_than_one_cause which_phase_stalled prewarm_is_a_hypothesis_not_a_diagnosis cold_uvx_cache_only_sometimes", type:project, ocd:2026-07-16, lmd:2026-08-15]
+**Why:** a timeout says only that something did not finish. On 2026-06-20 the
+cause genuinely was a cold uvx cache. On 2026-08-02 it was not: the cache was
+warm, pre-warming ran 80+ minutes producing nothing, and the real cause was a
+deadlock in CPV's `skillaudit_native` over a 62,422-file work set. Treating the
+symptom as if it had one known cause turns a real blocker into "just a network
+hiccup" — see [^1].
 
-**How to apply:** pre-warm the uvx CPV cache with one standalone run first
-(no publish.py 180s clamp on it), confirm exit 0, then re-run publish.py — the
-warm cache finishes well under 180s:
+**How to apply:** read the validator's own `[cpv-phase]` log FIRST and name the
+phase that stalled; every healthy phase completes in ~0.0s, so the stall is
+unmistakable. Then match the remedy to that phase:
+- an oversized work set (submodule-build plugins: `rust/target` is invisible to
+  CPV's `git ls-files` skip-set) → `uv run python scripts/publish.py --clean --rust-only`
+- a genuinely cold cache → one standalone run to warm it:
 ```bash
-uvx --from git+https://github.com/Emasoft/claude-plugins-validation --with pyyaml cpv-remote-validate plugin .   # exit 0 = pass + warms cache
+uvx --from git+https://github.com/Emasoft/claude-plugins-validation --with pyyaml cpv-remote-validate plugin .
 uv run python scripts/publish.py --bump patch
 ```
-Verified 2026-06-20 shipping v3.7.4 (the `anthropic` dep-removal release).
+Either way the tree is left CLEAN and no version is burned — the gate fails
+BEFORE the bump, so a retry is always safe.
+
+**Do NOT** conclude from a timeout that validation would otherwise pass. When it
+finally ran to completion on 2026-08-02 it reported **12 MAJOR**. [^1]
 
 ^S4JRUSRZ [desc:"Upstream tracking: CPV #114 (closed, v2.127.0) added CI UV-cache for canonical templates only; CPV #137 (open) would publish CPV to PyPI as a wheel so uvx resolves prebuilt instead of building from --from git+... source, which PSS's publish.py currently forces.", keywords:"cpv_114_closed_ci_cache cpv_137_open_pypi_wheel from_git_forces_slow_build upstream_fix_tracking", type:project, ocd:2026-07-16, lmd:2026-07-16]
 **Upstream:** the permanent fix is tracked on CPV — #114 (closed, v2.127.0)
@@ -56,3 +65,4 @@ Related: [[feedback_publish_mandatory_gates]], [[publish-submodule-build-skip-st
 (No corrections yet — the core fact above is verified, not superseded. The
 2026-06-20 edit was purely additive: it appended the upstream-tracking context
 [CPV #114 closed / #137 open], it did not rewrite a wrong fact.)
+[^1]: [id:ATOM-JMOK-TYGS, status:valid, supersedes:QSTDB1CP, desc:"A CPV gate timeout is a symptom, not a diagnosis — pre-warming fixed nothing and the real failure was 12 MAJOR.", keywords:"cpv_validation_timeout_is_not_always_cold_cache prewarm_did_not_help_uvx_was_already_warm exit_124_at_the_validation_gate timeout_is_a_symptom_not_a_diagnosis which_phase_stalled skillaudit_native_hangs_on_submodule_build_output", ocd:2026-08-15, lmd:2026-08-15] DO NOT treat a CPV validation timeout at the publish gate as "a cold-start artifact, not a real failure" and reach for the pre-warm-then-retry recipe, BECAUSE a timeout says only that something did not finish: on 2026-08-02 the uvx cache was already warm, pre-warming ran 80+ minutes producing nothing, and the real cause was a deadlock in CPV's skillaudit_native over a 62,422-file work set — when the run finally completed it reported 12 MAJOR. DO read the validator's own [cpv-phase] log FIRST and name the phase that stalled (every healthy phase completes in ~0.0s), then match the remedy to that phase. SUPERSEDED BODY: **Why:** it's a cold-start / network timeout, NOT a real validation failure. Lint + tests already passed before it; a standalone CPV run exits 0 (clean pass — CRITICAL/MAJOR/MINOR all 0; the NIT/WARNING/CA findings are non-blocking demoted items). **How to apply:** pre-warm the uvx CPV cache with one standalone run first (no publish.py 180s clamp on it), confirm exit 0, then re-run publish.py — the warm cache finishes well under 180s: ```bash uvx --from git+https://github.com/Emasoft/claude-plugins-validation --with pyyaml cpv-remote-validate plugin . # exit 0 = pass + warms cache uv run python scripts/publish.py --bump patch ``` Verified 2026-06-20 shipping v3.7.4 (the `anthropic` dep-removal release).
