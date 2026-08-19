@@ -210,14 +210,23 @@ def run_validation() -> int:
         print(result.stderr.strip(), file=sys.stderr)
 
     # 124 is run()'s synthetic timeout code, NOT a CPV severity code. Say so —
-    # otherwise it reads as "the plugin is broken" when the real cause is a
-    # cold uvx cache on a slow link.
+    # otherwise it reads as "the plugin is broken". A timeout is a SYMPTOM with
+    # several causes; the measured common one here (2026-08-17) is CPV scanning
+    # rust/target — rust/ is a SUBMODULE, so CPV's target-dir skip never fires
+    # and the work set balloons to 25k+ files. `--clean --rust-only` collapsed
+    # it to 93 files and the gate passed; pre-warming the uvx cache did NOT
+    # help on a warm cache (2026-08-02, 80+ min of nothing). Diagnose from the
+    # validator's own [cpv-phase] log, don't guess.
     if result.returncode == 124:
         error(
             f"CPV validation timed out after {CPV_TIMEOUT}s (nothing was validated). "
-            f"Raise the budget with PSS_CPV_TIMEOUT=<seconds>, or pre-warm the uvx "
-            f"cache by running `uvx --from {CPV_UVX_FROM} --with pyyaml "
-            f"cpv-remote-validate plugin .` once by hand."
+            f"Read the [cpv-phase] lines above to see WHICH phase stalled. If the "
+            f"file-scan phase stalled, the usual cause is rust/target inside the "
+            f"rust/ submodule inflating the work set — run `uv run python "
+            f"scripts/publish.py --clean --rust-only` and retry. Only if the stall "
+            f"is genuine env-build/network: raise PSS_CPV_TIMEOUT=<seconds> or "
+            f"pre-warm with `uvx --from {CPV_UVX_FROM} --with pyyaml "
+            f"cpv-remote-validate plugin .`."
         )
 
     return result.returncode

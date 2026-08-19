@@ -908,11 +908,15 @@ def main() -> int:
     parser.add_argument(
         "--check-index",
         action="store_true",
-        help="Verify recommended skills exist in ~/.claude/cache/skill-index.json",
+        help="Verify recommended skills exist in the skill index",
     )
     parser.add_argument(
         "--index",
-        help="Custom path to skill-index.json (default: ~/.claude/cache/skill-index.json)",
+        # Audit G3: the default is get_index_path(), which prefers
+        # $CLAUDE_PLUGIN_DATA (CC v2.1.78+) over ~/.claude/cache/ — naming the
+        # legacy path here as "the default" misled whenever that env var is set.
+        help="Custom path to skill-index.json (default: resolved via "
+        "$CLAUDE_PLUGIN_DATA, falling back to ~/.claude/cache/skill-index.json)",
     )
     parser.add_argument(
         "--verbose",

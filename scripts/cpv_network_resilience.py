@@ -3,8 +3,10 @@
 
 Provides retry-wrapped subprocess.run for git/gh CLI operations, plus
 HTTP-error classification for urllib calls. Lives in its own module so
-publish.py + cpv_strip_dev.py + standalone scripts can depend on it
-without dragging in cpv_validation_common's full surface.
+scripts can depend on it without dragging in cpv_validation_common's
+full surface. NOTE: no production script imports it yet (verified
+2026-08-19 — its only consumer is tests/unit/test_cpv_network_resilience.py);
+publish.py / cpv_strip_dev.py may adopt it, but do not assume they have.
 
 Pattern reference: ~/.claude/rules/github-timeouts.md.
 
