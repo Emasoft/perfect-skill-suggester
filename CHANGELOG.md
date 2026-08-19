@@ -2,6 +2,23 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.13.1] - 2026-08-19
+
+### Bug Fixes
+
+- **scripts:** Audit follow-ups — truthful CPV-timeout hint, G3 help text, dead-module docstring
+- **build:** Env-overridable BUILD_TIMEOUT (3h default) — 2700s aborted the release mid-bump again
+
+### Documentation
+
+- **memory:** A CPV gate timeout is a symptom, not one root cause
+- **memory:** Generalize submodule blindness — one root cause, four instances
+- Add TRDD-DHD7PEHV, TRDD-AXZAXMDQ, TRDD-AS90UUQ5, TRDD-DWZ85O5E, TRDD-S1HOYHV0 — durable cards for the 5 actionable self-audit findings
+
+### Features
+
+- **hook:** Automation-prompt suppression + suggestion dedupe (rust 0a31cd4)
+
 ## [3.13.0] - 2026-08-08
 
 ### Bug Fixes
