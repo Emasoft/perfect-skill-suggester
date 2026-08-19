@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.13.2] - 2026-08-19
+
+### Bug Fixes
+
+- **hook:** Dedupe requires session_id (rust 0457ae4) — unbreaks Suggestion Accuracy Gate
+
 ## [3.13.1] - 2026-08-19
 
 ### Bug Fixes
