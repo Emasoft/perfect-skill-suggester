@@ -540,6 +540,23 @@ def should_skip_prompt(prompt: str) -> bool:
         if prompt_stripped.startswith(prefix):
             return True
 
+    # Automation-shaped prompts (fleet request, 2026-08-18) — mirrors the Rust
+    # hot-path check in main.rs::is_skip_prompt. A cron/automation fire has a
+    # bare `[token]` (ASCII lowercase/digits/hyphens) ALONE on its first line
+    # (whole-line on purpose: "[bug] parser crashes" stays suggestible); peer
+    # messages arrive wrapped in a <cross-session-message ...> envelope.
+    # Machine traffic is not a user ask, so suggesting on it is pure noise.
+    first_line = prompt_stripped.split("\n", 1)[0].rstrip()
+    if (
+        len(first_line) > 2
+        and first_line.startswith("[")
+        and first_line.endswith("]")
+        and all(c in "abcdefghijklmnopqrstuvwxyz0123456789-" for c in first_line[1:-1])
+    ):
+        return True
+    if "<cross-session-message" in prompt_stripped:
+        return True
+
     # Skip simple one-word responses
     if prompt_lower in SKIP_SIMPLE_PROMPTS:
         return True
