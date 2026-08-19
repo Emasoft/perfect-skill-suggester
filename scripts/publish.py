@@ -110,6 +110,13 @@ GATE_STAMP_TTL = int(os.environ.get("PSS_GATE_STAMP_TTL", "3600"))
 # Stamp lives inside the git dir: never committable, never shared, never
 # present in a fresh clone — so it cannot become a checked-in bypass token.
 GATE_STAMP_NAME = "pss-gate-pass.json"
+# Cross-compiling all 5 targets after a real Rust source change is a FULL
+# rebuild per target: measured 2026-08-19, the native darwin-arm64 build alone
+# took ~30 min, so the previous hardcoded 2700s aborted the release mid-bump
+# with 4 of 5 binaries built and Windows still compiling (same failure family
+# as the earlier 300s cargo timeout). Budget for the slow case — 3h default —
+# and keep it env-overridable like every other timeout in this block.
+BUILD_TIMEOUT = int(os.environ.get("PSS_BUILD_TIMEOUT", "10800"))
 
 # -- ANSI color helpers --
 GREEN = "\033[32m"
@@ -1029,7 +1036,7 @@ def build_pss_nlp(dry_run: bool, force_build: bool = False) -> None:
     build_started_at = time.time() - 2  # 2s slack for filesystem mtime granularity
     result = run(
         ["uv", "run", "python", str(BUILD_ALL_SCRIPT), "--nlp-only"],
-        timeout=2700,
+        timeout=BUILD_TIMEOUT,
     )
     if result.returncode != 0:
         stderr_tail = result.stderr.strip()[-2000:] if result.stderr else ""
@@ -1106,14 +1113,16 @@ def build_binaries(dry_run: bool, force_build: bool = False) -> None:
     # Using build_started_at makes the check wall-clock-independent.
     build_started_at = time.time() - 2  # 2s slack for filesystem mtime granularity
 
-    # 45-minute timeout. Cross builds can pull Docker images on first run
-    # (ghcr.io/cross-rs/* containers are 500MB+ each) and nlprule_build
-    # downloads the English model inside each target container. Total
-    # wall-clock for a cold build of all 5 targets is typically ~15-20 min;
-    # 45 min is a generous safety net.
+    # BUILD_TIMEOUT (3h default, PSS_BUILD_TIMEOUT to override). The previous
+    # 2700s "generous safety net" was measured too small on 2026-08-19: after a
+    # real Rust source change every target recompiles the full crate, the
+    # native build alone took ~30 min, and the release aborted mid-bump with 4
+    # of 5 binaries built. Cross builds may additionally pull Docker images on
+    # first run (ghcr.io/cross-rs/* are 500MB+ each) and nlprule_build
+    # downloads the English model inside each target container.
     result = run(
         ["uv", "run", "python", str(BUILD_SCRIPT), "--all"],
-        timeout=2700,
+        timeout=BUILD_TIMEOUT,
     )
     if result.returncode != 0:
         stderr_tail = result.stderr.strip()[-2000:] if result.stderr else ""
