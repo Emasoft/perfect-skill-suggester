@@ -10,7 +10,7 @@ scope: project
 project-id: perfect-skill-suggester
 parent-trdd: AXZAXMDQ
 min-approval-requirement: none
-implementation-commits: []
+implementation-commits: [4740640 (rust submodule), 96eb932]
 ---
 
 # pss-nlp stdin write can block outside the deadline — cap request size
