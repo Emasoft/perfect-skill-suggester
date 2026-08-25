@@ -2,6 +2,24 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.14.1] - 2026-08-25
+
+### Bug Fixes
+
+- Board drain — pss-nlp deadline, negation scope fix, dead-code deletion, SHA-pinned actions (TRDD-AXZAXMDQ, TRDD-DHD7PEHV, TRDD-AS90UUQ5, TRDD-S1HOYHV0, TRDD-DWZ85O5E, TRDD-YC51I1C0 P0)
+- Pss-nlp blocking stdin write residual (TRDD-F12XB4AS)
+- Nlp cap hardening gitlink; explicit persist-credentials on commit-binaries checkout (TRDD-F12XB4AS)
+
+### Documentation
+
+- Archive 6 complete TRDDs as themselves (board drain, 3P-ZON-05); record F12XB4AS implementation commits
+- Append F12XB4AS approval-log entry for cap hardening
+- Add janitor proposal TRDD-VR8RB8YX (workflow token scope) — pending USER approval
+
+### Miscellaneous Tasks
+
+- Gitlink — de-shell fast-child deadline test (unblocks release gate)
+
 ## [3.14.0] - 2026-08-25
 
 ### Bug Fixes
