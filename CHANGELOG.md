@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.14.0] - 2026-08-25
+
+### Bug Fixes
+
+- **cc-compat:** BOM-safe body extraction, kind-agnostic marketplace origin; align docs to CC 2.1.240
+
 ## [3.13.2] - 2026-08-19
 
 ### Bug Fixes
