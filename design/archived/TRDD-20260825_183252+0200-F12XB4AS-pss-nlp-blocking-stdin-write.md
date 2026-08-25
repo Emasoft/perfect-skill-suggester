@@ -46,3 +46,8 @@ gains nothing from full coverage.
 
 - 2026-08-25T18:32:52+0200 — Tier 0 (derived bugfix of TRDD-AXZAXMDQ, in
   scope, reversible, local). Authored directly as complete with the fix.
+- 2026-08-25T18:45:00+0200 — HARDENED post-archival (append-only log entry):
+  review fork showed the 8KiB cap could still block on an un-grown 16KiB
+  macOS pipe under worst-case 6x JSON escape inflation; cap lowered to 2KiB
+  and the test now bounds the SERIALIZED worst-case request (<14KiB).
+  Commits: rust a567a9c, parent d9e01de.
