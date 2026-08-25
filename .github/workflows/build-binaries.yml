@@ -148,9 +148,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      # No `persist-credentials: false` here — this job pushes, so it needs the
-      # token checkout leaves in .git/config.
+      # Explicit `persist-credentials: true` — this job pushes, so it needs the
+      # token checkout leaves in .git/config. Explicit, not omitted, so scanners
+      # see a deliberate choice rather than a missing hardening.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: true
 
       - name: Download all artifacts
         uses: actions/download-artifact@v8
