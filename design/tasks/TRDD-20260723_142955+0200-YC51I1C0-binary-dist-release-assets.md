@@ -1,12 +1,12 @@
 ---
 trdd-id: YC51I1C0
 title: Distribute platform binaries as GitHub release assets instead of tracking them in bin/
-column: proposal
+column: planned
 created: 2026-07-23T14:29:55+0200
-updated: 2026-07-23T14:29:55+0200
-current-owner: pss-improve-binary-dist-design
+updated: 2026-08-25T18:23:03+0200
+current-owner: perfect-skill-suggester-6a
 task-type: infra
-approval-tier: 2
+min-approval-requirement: user
 scope: project
 release-via: publish
 labels: [distribution, ci, supply-chain, repo-size]
@@ -505,4 +505,12 @@ the release pipeline (`release-via: publish`).
 
 ## Approval log
 
-<!-- decisions appended here -->
+- 2026-08-25T18:23:03+0200 — APPROVED (proposal → planned) under explicit USER delegation
+  ("complete all pending tasks and TRDDs… You can decide yourself without me", 2026-08-25;
+  standalone project, USER is the approver). Grounds: every §1 cost figure is measured, the
+  design is phased and per-phase revertible, and §11's history purge stays USER-gated OUT of
+  scope. Execution starts with Phase 0 (delete the zero-referenced `bin/pss-wasm32.wasm` —
+  re-verified 2026-08-25: git-tracked, zero code references); Phases 1–3 follow, Phase 3 only
+  after a Phase-1/2 release proves the asset path (per §7's own sequencing).
+  (Field migrated `approval-tier: 2` → `min-approval-requirement:` per the 2026-08-25 rename;
+  set to `user` — standalone project, no manager.)

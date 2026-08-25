@@ -1,9 +1,9 @@
 ---
 trdd-id: S1HOYHV0
 title: Decide the disposition of 3 dead scripts (cpv_network_resilience, pss_setup, smart_exec)
-column: backburner
+column: complete
 created: 2026-08-19T04:32:41+0200
-updated: 2026-08-19T04:32:41+0200
+updated: 2026-08-25T18:23:03+0200
 current-owner: pss-maintainer-session
 task-type: refactor
 scope: project
@@ -29,11 +29,18 @@ imports it; the docstring was corrected (states "no production script imports it
 
 ## Acceptance (one decision per script, recorded here)
 
-- [ ] For each script: WIRE it into a real consumer (e.g. publish.py adopting
+- [x] For each script: WIRE it into a real consumer (e.g. publish.py adopting
       cpv_network_resilience's retry helpers), or DELETE it with its tests (RULE 0: commit
       first; move to a `_dev` folder if in doubt), or KEEP with a docstring explicitly
       declaring it a manual/ad-hoc tool.
-- [ ] No script left in the ambiguous "dead but shipped" state; the no-legacy-code rule
+- [x] No script left in the ambiguous "dead but shipped" state; the no-legacy-code rule
       applies.
 
 ## Approval log
+
+- 2026-08-25T18:23:03+0200 — COMPLETED under USER delegation (2026-08-25). Decision: DELETE
+  all three, with their tests. Settled by an adversarially-reviewed whole-tracked-tree grep
+  (`git grep --recurse-submodules`, root files/templates/schemas/.claude/rust included): the
+  ONLY reference outside the scripts and their own tests is this card. All six files were
+  git-tracked and committed → recoverable → RULE 0 satisfied. `git rm` in the same commit
+  that closes this card.

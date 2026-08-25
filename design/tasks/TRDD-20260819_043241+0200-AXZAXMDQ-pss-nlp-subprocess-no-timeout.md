@@ -1,9 +1,10 @@
 ---
 trdd-id: AXZAXMDQ
 title: pss-nlp subprocess call has no timeout despite the "500ms max" comment
-column: backburner
+column: complete
 created: 2026-08-19T04:32:41+0200
-updated: 2026-08-19T04:32:41+0200
+updated: 2026-08-25T18:23:03+0200
+implementation-commits: [rust df365e7]
 current-owner: pss-maintainer-session
 task-type: bugfix
 scope: project
@@ -25,9 +26,14 @@ block the UserPromptSubmit hook indefinitely — this runs on every user prompt.
 
 ## Acceptance
 
-- [ ] A real deadline (~500ms) on the pss-nlp call: on expiry, kill the child and proceed with
+- [x] A real deadline (~500ms) on the pss-nlp call: on expiry, kill the child and proceed with
       negation detection silently skipped (the existing graceful-fallback semantics).
-- [ ] The comment matches the implementation.
-- [ ] A test proving a stalled child does not stall the caller (e.g. a fake pss-nlp that sleeps).
+- [x] The comment matches the implementation.
+- [x] A test proving a stalled child does not stall the caller (e.g. a fake pss-nlp that sleeps).
 
 ## Approval log
+
+- 2026-08-25T18:23:03+0200 — COMPLETED under USER delegation ("complete all pending tasks and
+  TRDDs", 2026-08-25). `wait_child_with_deadline()` (try_wait poll loop, kill+reap on 500ms
+  expiry) wired into `detect_prompt_negations`; 2 real-subprocess tests (stalled `/bin/sleep 10`
+  killed at deadline; fast child's output returned). Suite 301 passed. rust commit df365e7.

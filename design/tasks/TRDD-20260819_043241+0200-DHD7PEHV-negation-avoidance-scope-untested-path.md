@@ -1,9 +1,10 @@
 ---
 trdd-id: DHD7PEHV
 title: Negation rule 3 (avoidance-verb scope to end of sentence) misfires on "avoid X, use Y" and its only executing path has zero tests
-column: backburner
+column: complete
 created: 2026-08-19T04:32:41+0200
-updated: 2026-08-19T04:32:41+0200
+updated: 2026-08-25T18:23:03+0200
+implementation-commits: [rust 5be2198]
 current-owner: pss-maintainer-session
 task-type: bugfix
 scope: project
@@ -31,10 +32,20 @@ tested against B**:
 
 ## Acceptance
 
-- [ ] Rule 3 scope stops at a clause boundary (comma + contrastive verb like "use/prefer") or
+- [x] Rule 3 scope stops at a clause boundary (comma + contrastive verb like "use/prefer") or
       an equivalent validated heuristic.
-- [ ] Tests cover the Phase-2 path directly: at minimum `"avoid react, use vue"` (vue NOT
+- [x] Tests cover the Phase-2 path directly: at minimum `"avoid react, use vue"` (vue NOT
       negated) and a no-"like" sentence where end-of-sentence scope IS correct.
-- [ ] `pss-nlp` self-test table gains at least one no-"like" avoidance case.
+- [x] `pss-nlp` self-test table gains at least one no-"like" avoidance case.
 
 ## Approval log
+
+- 2026-08-25T18:23:03+0200 — COMPLETED under USER delegation (2026-08-25).
+  `find_avoidance_boundary()`: comma ends avoidance scope only when followed by a verb (VB*)
+  or contrastive imperative; list commas continue. 2 Phase-2 tests + self-test case added;
+  22 unit tests + 9/9 self-test green. rust commit 5be2198.
+  KNOWN LIMITATION surfaced by the falsified first test run (pre-existing, orthogonal): the
+  general Phase-2 path negates only `is_noun` tokens, and LOWERCASE "react"/"angular" POS-tag
+  as verb/adjective — so "avoid react, use vue" (all-lowercase) yields NO negations at all via
+  Phase 2. Capitalized forms work. If this matters in real prompts, it needs its own card (a
+  tech-term noun whitelist at is_noun level, not a scope change).

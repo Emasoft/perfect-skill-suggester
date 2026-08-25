@@ -1,12 +1,12 @@
 ---
 trdd-id: BN5TKE0E
 title: Optional semantic reranker over the lexical top-K — staged, kill-gated, off by default
-column: proposal
+column: refused
 created: 2026-07-23T14:31:57+0200
-updated: 2026-07-23T14:31:57+0200
+updated: 2026-08-25T18:23:03+0200
 current-owner: perfect-skill-suggester
 task-type: feature
-approval-tier: 2
+min-approval-requirement: user
 relevant-rules: []
 scope: project
 ---
@@ -434,7 +434,17 @@ Any one of these ends the work. They are listed in the order they will actually 
 
 ## Approval log
 
-_(empty — awaiting decision)_
+- 2026-08-25T18:23:03+0200 — REFUSED under explicit USER delegation (2026-08-25). Grounds,
+  all from this document's own verified analysis: (a) no measured accuracy deficit exists —
+  D2/D3 do not exist and `agent_profile_accuracy` sits UNWIRED precisely because the gold
+  sets are not CI-reproducible, so the claimed benefit is currently ungateable (§6.6 /
+  kill-criterion 9); (b) §8.1 names the cheap control arm as the single most likely outcome,
+  making the reranker's hot-path, supply-chain and cross-build costs unjustified today;
+  (c) the hook's felt latency IS the product (§5.5) and this adds risk to it. Re-propose
+  only WITH Phase-0 control-arm numbers: if index-time paraphrase-keyword enrichment
+  measurably fails to close the paraphrase gap on a CI-reproducible fixture set, that
+  evidence reopens this design. (Field migrated `approval-tier: 2` →
+  `min-approval-requirement: user` per the 2026-08-25 rename; standalone project.)
 
 ## Notes and lessons learned
 
