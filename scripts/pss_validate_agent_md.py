@@ -87,6 +87,9 @@ def parse_frontmatter(text: str) -> Frontmatter:
     prevent. The subset accepted here (scalars + `- ` block sequences + inline
     `[a, b]` flow lists) is exactly what agent frontmatter uses.
     """
+    # CC 2.1.240 honors BOM'd agent files; str.strip() does not remove U+FEFF,
+    # so an unstripped BOM fails the fence check with a misleading message.
+    text = text.lstrip(chr(0xFEFF))
     lines = text.split("\n")
     if not lines or lines[0].strip() != "---":
         raise ValueError("file does not begin with a '---' frontmatter fence")

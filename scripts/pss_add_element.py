@@ -79,6 +79,10 @@ def parse_frontmatter(path: Path) -> dict:
         text = path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, PermissionError, OSError):
         return {}
+    # CC 2.1.240 honors BOM'd element files; strip repeatedly (a concatenated
+    # file can carry two) or the startswith() below drops the frontmatter
+    # silently, leaving the element with no name/description/tools.
+    text = text.lstrip(chr(0xFEFF))
     if not text.startswith("---"):
         return {}
     end = text.find("---", 3)

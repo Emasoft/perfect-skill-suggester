@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.221**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.240**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -75,6 +75,74 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.240 (2026-08-22)
+
+- Bug-fix / reliability-only release with no plugin-ecosystem surface. No PSS impact.
+
+### v2.1.239 (2026-08-21) — one PSS adaptation: BOM-safe body extraction
+
+- **Claude Code now honors agents, skills and commands whose `.md` file starts with a UTF-8 BOM** (previously they were silently ignored). PSS's two `parse_frontmatter` implementations already stripped the BOM (`scripts/pss_discover.py:1308`, `rust/skill-suggester/src/main.rs:10284`), so the *frontmatter* half was safe — **but each strips into a rebound local**, so the caller keeps holding the BOM'd original. Every sibling that re-tests a bare `content.startswith("---")` therefore failed on the same file: `_extract_body_preview` (`pss_discover.py:2171`), `extract_use_context` (`:2180`), the rule-description fallback (`:2484`), and Rust `extract_md_body` (`main.rs:10421`, reached by `parse_agent_md` `:10569`, `run_index_file` `:13659`, and `agent_meta::parse_agent_meta`). Two parsers OUTSIDE discovery were BOM-blind outright: `pss_add_element.py:76` — an element added through `/pss-add-element` indexed with **no frontmatter at all** (no name, no description, no tools) — and `pss_validate_agent_md.py:81`, which raised `file does not begin with a '---' frontmatter fence`, because Python's `str.strip()` does **not** remove U+FEFF.
+  **Severity is degradation, not loss:** the element still indexed with a correct name and description; only its body/keyword surface was poisoned with raw YAML — which is exactly why it survived undetected.
+  **Fixed** in the change that added this entry — deliberately not pinned to a version
+  number here, because the release is minted by `scripts/publish.py --bump` afterwards and a
+  hand-written version is wrong the moment the bump lands on a different one. The commit that
+  carries this entry is the record; `tests/unit/test_pss_bom_discovery.py` is the guard. The Python side strips **once, at the shared read boundary** `_safe_read_text` (`pss_discover.py:263`) — provenance-traced, not assumed: the only two body-helper call sites (`:2371→:2373/:2374` and `:2477→:2484/:2508/:2509`) both take their `content` from it, and it is the file's single `path.read_text`. That also fixes the `json.loads` manifest callers, where a BOM broke parsing outright (a real BOM'd third-party `plugin.json` in the wild is documented at `:1237`). The two standalone parsers strip at their own entry; Rust strips inside `extract_md_body`. All four use a **repeat** trim (`lstrip(chr(0xFEFF))` / `trim_start_matches('\u{feff}')`), never a single-prefix strip — a Python/Rust divergence on precisely this kind of detail is what CC 2.1.218 already cost this codebase (see that entry below), and a doubled BOM is a real artefact of concatenating tools. The BOM is spelled `chr(0xFEFF)` / `'\u{feff}'` and never as the literal invisible character (CPV flags raw invisible Unicode MAJOR).
+  Guarded by `tests/unit/test_pss_bom_discovery.py`, `tests/unit/test_pss_bom_add_element_validate.py` and the Rust `extract_md_body_tolerates_utf8_bom`. Stated honestly: of the three discovery-side tests only `test_bom_skill_body_preview_excludes_frontmatter` is a real regression guard — it was **falsified** (the fix reverted with `git stash`, the test fails, restored, it passes), while the other two also pass without the fix because they cover the already-BOM-safe frontmatter path. Full unit suite re-run after the read-boundary change: 476 passed.
+- **Plugins synced from claude.ai now appear as `name@synced`**, and `claude plugin enable/disable <name>@synced` addresses them. Immune: PSS splits the `name@marketplace` key generically (`pss_discover.py:186`, `:313`, `:1890`) with no marketplace-name allowlist or enum that could reject `synced`, and reads `installPath` defensively (`:1876`).
+- **Marketplace `metadata.pluginRoot` now resolves bare plugin source names as documented.** No PSS surface: **no `marketplace.json` parser exists in PSS** — grep-verified over `scripts/*.py` and the scorer crate, where the only hits are comments. PSS consumes CC's *already-resolved* `installPath` from `installed_plugins.json` (`:1876`). That single design choice is also why the `archive` (2.1.224) and `command` (2.1.229) plugin sources need no work: PSS never resolves a source, it indexes what CC has already placed on disk.
+- **`claudeMdExcludes` now excludes a symlinked `.claude/rules` file** when the pattern names the rules directory or the symlink. PSS's plugin generator (`/pss-make-plugin-from-profile`) symlinks rules into a project's `.claude/rules/` with a `_plugin_<name>_` prefix, so the fix makes generated plugins strictly more predictable. PSS itself reads no `claudeMdExcludes`. N/A.
+- **WebFetch no longer retains expired page content for the whole session**, `.worktreeinclude` `**/` fix, Bedrock/proxy streaming fixes, `/resume` and session-title fixes, fullscreen and vim-mode fixes, Remote Control, `ListAgents`/`SendMessage` naming, Windows cross-session messaging — no plugin-ecosystem surface. N/A.
+
+### v2.1.238 (2026-08-20) — marketplace `headersHelper`, `claude mcp list` display; PSS immune on both
+
+- **`headersHelper` on a url marketplace or catalog entry** mints HTTP headers for catalog and archive fetches, and runs only on install/update after the command is shown. PSS neither installs nor updates plugins and parses no marketplace catalog — it reads CC's post-install state. Immune. (The related 2.1.207 rule still governs any generator work: a hook command must use `$CLAUDE_PLUGIN_OPTION_<KEY>`, never `${user_config.*}`.)
+- **`claude mcp list` / `claude mcp get` now print disabled servers as `⊘ Disabled`** instead of health-checking them. This would break any consumer that scrapes that output — PSS does not: MCP discovery reads config files only (`.mcp.json`, `mcp.json`, `plugin.json`, `~/.claude.json` — `pss_discover.py:1171`, `:1356`), and PSS shells out to the `claude` CLI nowhere at all. Immune, and worth recording *because* the immunity is structural: PSS's rule of reading state files rather than CLI stdout is what makes CC's display changes free.
+- `keybindingFlavor`, self-hosted-runner flags, subagent-tool-result memory fix, stdio `server/discover` ordering fix, MCP `headersHelper` trust-gating in project `.mcp.json` — no PSS surface. N/A.
+
+### v2.1.237 (2026-08-19) — built-in "Concise" output style
+
+- **A built-in `Concise` output style was added.** PSS indexes output-styles by file glob only (`pss_discover.py::_discover_styled_files_in_dir`, three scopes), so CC's compiled-in built-ins have never appeared in the index — this one included. Recorded, not adopted: indexing built-ins would require PSS to carry a hardcoded list that drifts on every CC release, which is the failure mode PSS's on-disk-only rule exists to avoid.
+- Prompt-caching fix for LLM-gateway / custom-base-URL sessions — benefits any PSS user on a gateway; no PSS change.
+
+### v2.1.236 (2026-08-19)
+
+- **`ANTHROPIC_DEFAULT_MODEL`** sets the model new sessions start on. PSS pins no model anywhere (re-verified in the 2.1.219 entry below); agents inherit the session model. Immune.
+- **`notify_when_idle` on cross-session `SendMessage`**, macOS sandbox wildcard read-deny precedence, `/model` picker sizing, auto-mode classifier parity — no PSS surface. N/A.
+
+### v2.1.235 (2026-08-18)
+
+- **Optional `spellcheck` setting** (aspell/hunspell/ispell) underlining misspelled prompt words. PSS's `UserPromptSubmit` hook receives the prompt text after the editor, not during it. N/A.
+- **Whole-prompt-cache invalidation on LSP connect/disconnect was fixed.** PSS indexes LSP servers as elements but does not run them; the fix removes a per-session cache cost that PSS's every-prompt hook indirectly paid. Benefits PSS, no change.
+- **The Agent tool now errors with the available list when `subagent_type` is omitted in sessions without a general-purpose default.** PSS's commands always name `pss-agent-profiler` explicitly. Immune.
+
+### v2.1.234 (2026-08-17) — `CLAUDE_CODE_PROJECT_DIR_NAME`; PSS immune by construction
+
+- **`CLAUDE_CODE_PROJECT_DIR_NAME`** lets a host choose a short name for the per-project transcript directory. This is the change most likely to break a transcript reader — and PSS is immune for a structural reason worth recording: PSS **never constructs** the per-project transcript path. It consumes only the `transcript_path` CC hands the hook (`pss_hook.py:842`, `:860-864`) and passes it to the Rust `--extract-prev-msg` reader (`main.rs:1871-1873`). The same immunity covers 2.1.224's fix for project paths over 200 characters resolving into another project's session directory. PSS's own `_slugify_project_path` (`pss_discover.py:266`) is an unrelated `basename-sha256[:8]` element-id slug, not a reimplementation of CC's sanitizer.
+- **Windows NT-namespace (`\??\`) path rejection** across remote file reads, session restore, CLAUDE.md includes and uploads (with 2.1.233's UNC-validation fix). PSS resolves no user-supplied Windows device paths; its own traversal hardening is `_safe_name` (`pss_discover.py:97-106`) plus the F16 audit. N/A.
+- **The bundled `claude-api` skill dropped from ~200k to ~25k tokens by loading references on demand.** Not a PSS surface, but it is the same progressive-disclosure discipline PSS's own skills follow; recorded as precedent.
+- `selection:clear` keybinding, GitLab MR footer badge, auto-continue at usage-limit reset, `/permissions` and `/add-dir` mid-turn — no PSS surface. N/A.
+
+### v2.1.233 (2026-08-14) — todo/task tools removed on current models; PSS ships zero references
+
+- **`TaskCreate` / `TaskGet` / `TaskUpdate` / `TaskList` / `TodoWrite` are no longer available on Opus 4.8, Sonnet 5, Fable 5, Mythos 5 and newer** (restore with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`). Any shipped instruction telling an agent to call them is now dead on default models. PSS ships **none**: a grep over `skills/ agents/ commands/ hooks/ scripts/ rust/ docs/ templates/ schemas/ README.md .claude-plugin/` for all five names returns only two historical prose mentions inside this compatibility document itself. `pss-agent-profiler` drives its pipeline with plain tool calls. Immune.
+- **`claude plugin validate` now checks a bare `.claude/skills` directory** and reports SKILL.md files whose frontmatter fails to parse. PSS validates through the CPV remote pipeline rather than `claude plugin validate`; the new check is a strictly better second opinion on the same property PSS's own discovery already reports (V-8). Informational.
+- **`CLAUDE_CODE_WEBFETCH_CACHE_TTL_MS`**, Linux memory cgroups for Bash, GitLab MR URLs in `--worktree`, gateway error forwarding, `[claude-code:unrecognized_model]` stderr diagnostic — no PSS surface. N/A.
+
+### v2.1.232 (2026-08-13) — GitLab marketplaces, subagent forking on by default, settings aliases
+
+- **GitLab marketplace sources**: bare `gitlab.com` repo URLs, including nested subgroups, now clone like `github.com` URLs. PSS's marketplace discovery is **kind-agnostic** — `discover_marketplaces()` (`pss_discover.py:1911`) records `source.source` and `repo`/`url` verbatim for any kind, so a GitLab marketplace indexes exactly like a GitHub one. Immune. The one place that *did* enumerate kinds was the tier-3 origin disambiguator `_marketplace_origins` (`:444`): it branched on `github` / `git` / `directory` and yielded `""` for anything else, so a GitLab marketplace — and equally an `archive` (2.1.224) or `command` (2.1.229) one — lost its origin annotation exactly when two same-named marketplaces needed telling apart. Its docstring census (github 261, git 10, directory 2) was measured 2026-08-01 and predates all three kinds, so it must not be read as evidence that unknown kinds stay rare. **Fixed** by branching on the FIELD PRESENT rather than the kind name: `directory`/`local` → the folder (first, because a local checkout may also carry a repo and its folder is what distinguishes it from the same marketplace installed remotely), else a `repo` → its owner (a GitLab nested subgroup `group/sub/repo` yields `group`, the same granularity `github` gives), else a `url` → host+org through the existing SCP-aware parser. Kind names keep changing; those three shapes have not. Guarded by `tests/unit/test_pss_marketplace_origin_kinds.py`, whose GitLab and `archive` cases fail against the previous allow-list (falsified, not merely observed green) while the `github`/`git`/`directory`/`command` cases pin the unchanged behaviour.
+- **`additionalMarketplaces` / `allowedMarketplaces`** accepted as aliases for `extraKnownMarketplaces` / `strictKnownMarketplaces`; **`"owner/*"` wildcards** in the strict/blocked lists (2.1.223). PSS reads neither key — its only `settings.json` read is `enabledPlugins` (`pss_discover.py:298`, `:1565`, `:1697`). Immune, and the narrowness is deliberate: PSS reports what is installed and enabled, it does not enforce marketplace policy.
+- **Subagent forking is on by default** (`subagent_type: "fork"` inherits the conversation and prompt cache) and non-teammate agent spawns run in the background. `pss-agent-profiler` is spawned by name from PSS's own commands and spawns nothing itself; the depth and background defaults do not change its flow. Immune — recorded because `pss make-agent`'s archetypes are the surface that would benefit from forking if PSS ever adopts it.
+- **GitLab token families added to secret redaction**; nested-git-repo trust; a PowerShell and a Git-Bash-symlink permission bypass fixed. PSS ships no credentials and no permission rules. N/A.
+
+### v2.1.222–2.1.231 (2026-08-04 → 2026-08-13; no 2.1.230 release) — new plugin source kinds; PSS immune by design
+
+- **`archive` plugin source (2.1.224)** — install from a zip over HTTPS with optional SHA-256 pinning — and **marketplace `command` sources (2.1.229)**, where a local command prints the plugin directory and is re-resolved each session (`mode: "link"` uses it in place). Both are *acquisition* mechanisms, and PSS indexes only the *result*: it reads `installed_plugins.json`'s resolved `installPath` (`pss_discover.py:1817`, `:1876`) and walks what is on disk. A plugin that arrived by zip or by command is indistinguishable to PSS from one that arrived by git. Immune — the same reason `metadata.pluginRoot` (2.1.239) is N/A.
+- **The 200-character project-path collision fix (2.1.224)** — long paths resolving into another project's session directory under a shared sanitized prefix. PSS never derives CC's session directory (see 2.1.234). Immune.
+- **`crossSessionInbound` / `dialogExpiry` settings (2.1.224)**, cross-session `SendMessage`, self-hosted runners, sandbox credential masking, `/review` becoming an alias of `/code-review` (2.1.223), `modelOverrides` key handling, and the removal of the 200-subagent-per-session cap (2.1.224, lifting the 2.1.212 limit recorded below) — none touch PSS's hook surface, scorer, index, MCP server or generator. N/A.
+- **Skills synced from claude.ai were hardened (2.1.228)**: they no longer shadow local commands or MCP prompts, their descriptions are sanitized and labeled, and their bodies do not run `!` commands or expand `@` files locally. PSS indexes such skills from disk like any other and applies its own `sanitize_for_context` before anything reaches a prompt. Complementary, no change.
+- 2.1.225/2.1.226/2.1.227/2.1.231 are gateway, OAuth, UI and reliability fixes with no plugin-ecosystem surface. No PSS impact.
 
 ### v2.1.221 (2026-08-04)
 

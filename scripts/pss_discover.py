@@ -242,13 +242,25 @@ def _safe_read_text(
         )
         return None
     try:
-        return path.read_text(encoding=encoding, errors=errors)
+        text = path.read_text(encoding=encoding, errors=errors)
     except OSError as exc:
         print(
             f"[pss-discover] WARN: read failed for {path}: {exc}",
             file=sys.stderr,
         )
         return None
+    # Strip a UTF-8 BOM here, at the single read boundary all 21 callers share.
+    # We decode as plain "utf-8" (not "utf-8-sig"), so a BOM'd file kept a
+    # leading U+FEFF in the returned text. parse_frontmatter() rebinds its own
+    # local via lstrip() and never mutated the caller's copy, so
+    # _extract_body_preview / extract_use_context / the rule-description
+    # fallback still ran `content.startswith("---")` against the BOM'd
+    # original and treated the frontmatter block as body text. Same class of
+    # bug Claude Code itself fixed in 2.1.240. lstrip (not a single strip) in
+    # case a file was concatenated by tooling and carries two BOMs; spelled
+    # chr(0xFEFF), never the literal invisible character (CPV flags raw
+    # invisible Unicode MAJOR).
+    return text.lstrip(chr(0xFEFF))
 
 
 def _slugify_project_path(project_path: Path) -> str:
@@ -469,10 +481,27 @@ def _marketplace_origins() -> dict[str, str]:
                 continue
             kind = str(src_obj.get("source", ""))
             origin = ""
-            if kind == "github":
-                # "owner/repo" -> "owner"; a bare value is already the owner.
+            # Branch on the FIELD PRESENT, not on the kind name. Claude Code keeps
+            # adding source kinds — `archive` (2.1.224), marketplace `command`
+            # (2.1.229), GitLab repo URLs (2.1.232) — and a kind allow-list yields
+            # "" for every one it has not been taught, silently dropping the
+            # disambiguator exactly when two same-named marketplaces need it. The
+            # shapes are stable even though the names are not: a repo-ish source
+            # carries `repo`, a clone-ish or archive-ish one carries `url`, a local
+            # one carries `path`. `directory` stays first because a local checkout
+            # may ALSO carry a repo/url and its FOLDER is the answer that
+            # distinguishes it from the same marketplace installed from a remote.
+            if kind == "directory" or kind == "local":
+                raw = str(src_obj.get("path") or entry.get("installLocation") or "")
+                if raw.startswith(home):
+                    raw = "~" + raw[len(home):]
+                origin = raw
+            elif src_obj.get("repo"):
+                # "owner/repo" -> "owner"; a bare value is already the owner. A
+                # GitLab nested subgroup ("group/sub/repo") yields its top group,
+                # which is the same granularity `github` gives.
                 origin = str(src_obj.get("repo", "")).split("/", 1)[0]
-            elif kind == "git":
+            elif src_obj.get("url"):
                 url = str(src_obj.get("url", ""))
                 # Keep host+org, drop scheme/credentials/repo/.git — enough to
                 # tell two same-named marketplaces apart without a URL in-prompt.
@@ -489,11 +518,6 @@ def _marketplace_origins() -> dict[str, str]:
                 stripped = re.sub(r"\.git/?$", "", stripped)
                 parts = [p for p in stripped.split("/") if p]
                 origin = "/".join(parts[:2]) if len(parts) >= 2 else (parts[0] if parts else "")
-            elif kind == "directory":
-                raw = str(src_obj.get("path") or entry.get("installLocation") or "")
-                if raw.startswith(home):
-                    raw = "~" + raw[len(home):]
-                origin = raw
             origin = origin.strip().strip("/")
             if origin:
                 # Bounded: sanitize_for_context truncates the whole emitted line
