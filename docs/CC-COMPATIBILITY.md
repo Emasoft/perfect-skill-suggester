@@ -104,9 +104,30 @@ for the full design record.
   — PSS ships no `Bash(...)` permission rules in any tracked file; its commands and
   skills gate on `allowed-tools: ["Bash", ...]`, which is the tool-name form, not a
   command-pattern rule. Immune.
-- **Also benign for PSS:** the plugin-cache duplicate-SHA-directory fix, `claude plugin
-  update <bare-name>`, MCP arguments sent as JSON strings for an empty (`{}`) parameter
-  schema, and subagent `maxTurns` results now marked partial. None touch a PSS surface.
+- **Fix: the plugin cache created duplicate SHA-named directories for the same plugin** —
+  PSS is **structurally immune, and measured so**, which is a stronger claim than "CC
+  fixed it". PSS *does* walk the cache tree (`pss_discover.py:829`, and four more sites at
+  `:1787`, `:1984`, `:2127`, `:2162`), and the walk is unconditional —
+  `for version in _iterdir_safe(plugin)` visits **every** version directory, not the
+  newest. Duplicate directories therefore reach discovery. They cannot reach the index,
+  because the element dedup key omits the version: `plugin_source` is
+  `f"plugin:{marketplace.name}/{plugin.name}"` (`:846`) and the key is
+  `f"{source}:skill:{skill_path.name}"` (`:2367`), so every copy of an element collapses
+  to one entry however many directories hold it. Verified live rather than reasoned:
+  `ai-maestro-janitor` currently has **11** version directories in the cache, and
+  `pss search janitor-arm` returns exactly **1** result.
+- **Open question this surfaced (pre-existing, NOT a CC issue):** that same dedup is
+  *first-wins* (`if dedup_key in seen_names: continue`, `:2368`) over an **unordered**
+  iteration — `_iterdir_safe` returns a bare `list(path.iterdir())` (`:685`), not a sorted
+  or version-aware sequence. So when a plugin has several cached versions — which is the
+  norm, not the exception: 10–13 directories per plugin is typical on a long-lived
+  install — *which* version supplies the indexed `SKILL.md` is arbitrary filesystem order.
+  A stale version can shadow the current one, and the failure is silent: the element is
+  present with a correct name and an out-of-date description/keyword surface, so it
+  degrades suggestion quality without ever looking broken. Warrants its own TRDD.
+- **Also benign for PSS:** `claude plugin update <bare-name>`, MCP arguments sent as JSON
+  strings for an empty (`{}`) parameter schema, and subagent `maxTurns` results now marked
+  partial. None touch a PSS surface.
 - **Open question (pre-existing, sharpened here, not a v2.1.246 regression):** `/cd` now
   applies the new directory's project settings, hooks, skills and agents immediately.
   PSS scores against a CozoDB index whose *project*-scope elements were bound to one
