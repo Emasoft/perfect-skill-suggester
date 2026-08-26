@@ -133,10 +133,20 @@ for the full design record.
   `SKILL.md`. Every fragment of that is read-verified, but the path between
   `_add_element_dirs` (`:766`, which appends to `locations`) and the dedup loop (`:2330`)
   was never traced, so the mechanism was assembled, not observed — and the live evidence
-  above points at a different and **already-known** cause: the dangling `0.60.1` path is
-  ordinary index staleness, which the project's own memory corpus documents
-  (`absence-detection-needs-a-coverage-claim`; lesson `H9FK2SMM` measured 799 of 10,484
-  gone elements with 1 detected, 0.13%). Isolating staleness from version-selection needs
+  above admits a simpler cause: the dangling `0.60.1` path is consistent with ordinary
+  index staleness. The project's memory corpus documents that **failure family** —
+  `absence-detection-needs-a-coverage-claim`, whose lesson `H9FK2SMM` records 799 of
+  10,484 rows genuinely gone with 1 detected — but that citation is **bounded twice** and
+  both bounds were read from the note's body, not its one-line summary: it was measured on
+  the *temporal* index's removal sweep (`events` / `elements_state`), whereas the dangling
+  path here is in the `skills` table the suggestion hot path reads; and it was **fixed in
+  v3.10.6** (TRDD-1Z8SGQ7N F7), so it cannot be the live cause of anything observed today.
+  Same failure family, not the same code path, and not currently active. Borrowing its
+  authority would repeat one level down the exact error this bullet retracts.
+  **The version-selection question is therefore OPEN, not disproven** — the dangling path
+  refutes the *evidence* offered for the collapse, not the collapse itself, and the only
+  index available to test against predates the directories in question. Isolating
+  staleness from version-selection needs
   a fresh reindex followed by re-reading the indexed path — deliberately not run here,
   since a reindex mutates user state and was not asked for. **No TRDD is warranted on the
   strength of what was actually shown.**
