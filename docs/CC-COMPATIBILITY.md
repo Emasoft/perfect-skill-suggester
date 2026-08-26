@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.240**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.246**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -14,7 +14,7 @@ As of **v2.9.35**, PSS declares the following hook events in `hooks/hooks.json`:
 
 | Event | Matcher | Handler | Purpose |
 |-------|---------|---------|---------|
-| `UserPromptSubmit` | (none) | `scripts/pss_hook.py` | Primary — scores skill suggestions on every user prompt |
+| `UserPromptSubmit` | (none) | `bin/pss-hook-dispatch.sh` | Primary — scores skill suggestions on every user prompt. A POSIX-`sh` shim that `exec`s the platform-native binary directly; it replaced the `uv run … pss_hook.py` invocation (PERF-1) because the Python wrapper cost ~130 ms of startup per prompt against the shim's ~3 ms. `pss_hook.py` still serves the two cold-path events below |
 | `SessionStart` | `startup\|resume\|fork` | `scripts/pss_hook.py --warm-index &` | Silent lazy warmup — spawns a background reindex if the skill-index cache is missing, so the first prompt never blocks on index build. `fork` added in PSS v3.10.9 because CC **v2.1.214** relabels forked sessions `fork` (was `resume`); without it a forked session would silently skip warmup |
 | `PostCompact` | (none) | `scripts/pss_hook.py --post-compact` | Stub — reserves the event binding for future re-suggest-after-compaction logic |
 
@@ -75,6 +75,80 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.246 (2026-08-25) — five plugin-surface items assessed; PSS immune on all five, and three CC-side fixes *benefit* it
+
+- **Fix: plugin skills whose frontmatter `name` already carries the `<plugin>:` prefix
+  showed doubled in the slash menu (`/plugin:plugin:skill`)** — PSS is immune on both
+  halves. As a *publisher*: all eight `skills/*/SKILL.md` declare bare names
+  (`name: pss-agent-toml`, not `name: perfect-skill-suggester:pss-agent-toml`), so none
+  could double. As an *indexer*: `scripts/pss_discover.py` never constructs a qualified
+  `<plugin>:<skill>` name at all — it stores the frontmatter `name` verbatim alongside a
+  separate `source: plugin:<name>` field (`:2082`, `:2857`), so there is no second
+  prefixing site that could reproduce the bug inside PSS's own index.
+- **Fix: `/reload-plugins` reported 0 skills for plugins that define skills under
+  `skills/*/SKILL.md`** — that is exactly PSS's layout (eight such directories), so this
+  is a CC-side fix PSS *benefits* from: `/reload-plugins` now reports PSS's real skill
+  count instead of 0. No PSS change; nothing was ever wrong on the plugin side.
+- **Fix: hook error messages showed a literal `${CLAUDE_PLUGIN_ROOT}` instead of the
+  resolved plugin path** — PSS's three hook commands are all `${CLAUDE_PLUGIN_ROOT}`-
+  relative, so a PSS hook failure previously surfaced an unresolvable path to the user.
+  Benefit only; the variable itself always resolved correctly at *execution* time, it was
+  only the *error text* that was unsubstituted.
+- **Fix: plugin installation failed when `plugin.json` carried a UTF-8 BOM** — verified
+  BOM-free: `.claude-plugin/plugin.json` begins `7b 0a 20` (`{`, LF, space). Immune.
+  Distinct from the v2.1.239 BOM item, which was about *element* `.md` files and did
+  require a PSS adaptation.
+- **New: startup warning for Bash allow rules with a wildcard BEFORE the subcommand**
+  (e.g. `Bash(git * main)`, which also matches options inserted ahead of the subcommand)
+  — PSS ships no `Bash(...)` permission rules in any tracked file; its commands and
+  skills gate on `allowed-tools: ["Bash", ...]`, which is the tool-name form, not a
+  command-pattern rule. Immune.
+- **Also benign for PSS:** the plugin-cache duplicate-SHA-directory fix, `claude plugin
+  update <bare-name>`, MCP arguments sent as JSON strings for an empty (`{}`) parameter
+  schema, and subagent `maxTurns` results now marked partial. None touch a PSS surface.
+- **Open question (pre-existing, sharpened here, not a v2.1.246 regression):** `/cd` now
+  applies the new directory's project settings, hooks, skills and agents immediately.
+  PSS scores against a CozoDB index whose *project*-scope elements were bound to one
+  project root at build time — `pss_discover.py:89` resolves `CLAUDE_PROJECT_DIR` or
+  `Path.cwd()` once, and `:822` / `:866` / `:1436` / `:1767` / `:2125` all hang off that
+  single `cwd`. The scorer does receive the live `cwd` per prompt (`main.rs:19247`
+  `scan_project_context(&input.cwd)`), so prompt-time *context* follows the move, but the
+  *element set* does not: after a mid-session `/cd` from project A to project B, B's
+  project-scoped skills are absent from the index until the next reindex. This means the
+  "Not declared (intentional)" rationale for `CwdChanged` above — "PSS re-suggests on
+  every `UserPromptSubmit` which already covers directory-change scenarios" — is
+  imprecise: re-suggesting covers *context*, not *inventory*. Recorded here rather than
+  fixed; it predates v2.1.246 and warrants its own TRDD.
+
+### v2.1.245 (2026-08-25)
+
+- Single-fix release: a startup crash on Linux distributions shipping glibc 2.44 (Arch,
+  CachyOS, Fedora Rawhide). No plugin-ecosystem surface. No PSS impact.
+
+### v2.1.243 (2026-08-25) — new settings keys, model-picker curation, an LSP-teardown fix; PSS immune throughout
+
+- **Fix: plugin dependencies declared with a `marketplace` field never resolved when both
+  plugins are loaded together via `--plugin-dir`** — PSS declares **no** dependencies:
+  `.claude-plugin/plugin.json` carries `name`/`version`/`description`/`author`/`homepage`/
+  `repository`/`license`/`keywords`/`cpv` and no dependency block of any kind. Immune.
+- **Fix: `/reload-plugins` kept the LSP tool after the last LSP plugin was disabled, and
+  now warns before an LSP plugin change that would re-read the conversation** — PSS
+  *indexes* LSP servers as one of its 13 element types but does not provide one, and it
+  reads the index rather than the live tool registry. Immune; no re-index trigger needed,
+  because a disabled LSP plugin is already handled by the discovery scope logic
+  (`pss_discover.py:2924`, the `--exclude-inactive-plugins` path).
+- **New settings keys `modelPicker`, `promptCacheTtl`, `subagentPromptCacheTtl`,
+  `modelPricing`** — PSS's settings scan (`pss_discover.py:1765-1768`) reads settings
+  files to enumerate *elements* (hooks, MCP servers, plugin registrations), not to
+  validate the key space, so unknown-to-PSS keys are inert. No schema to widen.
+- **Also benign for PSS:** the `/usage` Loops breakdown, per-subagent model/effort in
+  `/tasks`, `ListAgents` self-naming, startup-time and native-binary-size work, and the
+  zstd-compressed installer. None touch a PSS surface.
+
+### v2.1.241 (2026-08-23)
+
+- Bug-fix / reliability-only release with no plugin-ecosystem surface. No PSS impact.
 
 ### v2.1.240 (2026-08-22)
 
