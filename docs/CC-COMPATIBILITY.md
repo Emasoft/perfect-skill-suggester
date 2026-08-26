@@ -113,18 +113,33 @@ for the full design record.
   because the element dedup key omits the version: `plugin_source` is
   `f"plugin:{marketplace.name}/{plugin.name}"` (`:846`) and the key is
   `f"{source}:skill:{skill_path.name}"` (`:2367`), so every copy of an element collapses
-  to one entry however many directories hold it. Verified live rather than reasoned:
-  `ai-maestro-janitor` currently has **11** version directories in the cache, and
-  `pss search janitor-arm` returns exactly **1** result.
-- **Open question this surfaced (pre-existing, NOT a CC issue):** that same dedup is
-  *first-wins* (`if dedup_key in seen_names: continue`, `:2368`) over an **unordered**
-  iteration — `_iterdir_safe` returns a bare `list(path.iterdir())` (`:685`), not a sorted
-  or version-aware sequence. So when a plugin has several cached versions — which is the
-  norm, not the exception: 10–13 directories per plugin is typical on a long-lived
-  install — *which* version supplies the indexed `SKILL.md` is arbitrary filesystem order.
-  A stale version can shadow the current one, and the failure is silent: the element is
-  present with a correct name and an out-of-date description/keyword surface, so it
-  degrades suggestion quality without ever looking broken. Warrants its own TRDD.
+  to one entry however many directories hold it. That argument rests only on those two
+  reads and stands on its own; it is **not** corroborated by the element count, for the
+  reason in the next bullet.
+- **A measurement first published here was WITHDRAWN — recorded because the retraction is
+  the useful part.** This entry originally claimed the immunity was "verified live":
+  `ai-maestro-janitor` has 11 cached version directories and `pss search janitor-arm`
+  returns exactly 1 result, therefore 11 collapsed to 1. That inference is invalid. The
+  single entry's indexed `Source path` is
+  `…/ai-maestro-janitor/0.60.1/skills/janitor-arm/SKILL.md`, and **`0.60.1` no longer
+  exists on disk** — the cache holds `3.3.16`–`3.3.26` and nothing else. So the entry
+  predates the current cache contents entirely: it is one entry because it was written
+  when a different directory was there, not because eleven were deduplicated. Two facts
+  ("11 dirs exist", "the index has 1 row") were joined by an assumed middle, which is the
+  same proxy shape this document keeps catching.
+- **Correspondingly withdrawn: a "version shadowing" defect asserted in the first draft of
+  this entry.** The reasoning was that the dedup is first-wins (`:2368`) over an unordered
+  `list(path.iterdir())` (`:685`), so an arbitrary cached version would supply the indexed
+  `SKILL.md`. Every fragment of that is read-verified, but the path between
+  `_add_element_dirs` (`:766`, which appends to `locations`) and the dedup loop (`:2330`)
+  was never traced, so the mechanism was assembled, not observed — and the live evidence
+  above points at a different and **already-known** cause: the dangling `0.60.1` path is
+  ordinary index staleness, which the project's own memory corpus documents
+  (`absence-detection-needs-a-coverage-claim`; lesson `H9FK2SMM` measured 799 of 10,484
+  gone elements with 1 detected, 0.13%). Isolating staleness from version-selection needs
+  a fresh reindex followed by re-reading the indexed path — deliberately not run here,
+  since a reindex mutates user state and was not asked for. **No TRDD is warranted on the
+  strength of what was actually shown.**
 - **Also benign for PSS:** `claude plugin update <bare-name>`, MCP arguments sent as JSON
   strings for an empty (`{}`) parameter schema, and subagent `maxTurns` results now marked
   partial. None touch a PSS surface.
