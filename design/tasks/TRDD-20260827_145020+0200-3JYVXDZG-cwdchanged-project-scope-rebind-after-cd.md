@@ -3,7 +3,7 @@ trdd-id: 3JYVXDZG
 title: Rebind project-scoped element inventory on a mid-session /cd
 column: backburner
 created: 2026-08-27T14:50:20+0200
-updated: 2026-08-27T15:19:00+0200
+updated: 2026-08-27T15:33:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 min-approval-requirement: none
@@ -45,17 +45,29 @@ declare it.
   right-hand side, so the same search that found `:8080`/`:8680` would have caught it. The
   other candidate carrier was ruled out by reading the type — `struct ProjectContext` holds
   only `platforms/frameworks/languages/domains/tools/file_types`, no root or path field.
-- No `continue`-guard filter, the idiom a combinator-shaped regex is blindest to: every
-  `continue` in `8076-9718` keys on word length, a seen-set, or a score threshold. None
-  keys on `entry.source`, a root, or a path. (`entry.path` at `:9564`/`:9643` and
-  `marketplace_of(&entry.source)` at `:9571`/`:9647` only populate the OUTPUT struct.)
+- One REAL hard exclusion exists in the loop, and it is not a root filter: `main.rs:8481-8493`,
+  `check_path_gates(&entry.path_gates, &context.file_types, &context.languages)` — for
+  `skill_type == "rule"` only, a failing gate `return None`s the entry. It keys on the RULE's
+  own declared `paths:` globs versus the project's detected file types/languages. Those come
+  from `scan_project_context(&input.cwd)`, i.e. the LIVE cwd — so **rules already re-gate
+  correctly across a `/cd`**; skills and agents have no equivalent, which is precisely the
+  asymmetry this TRDD is about. (`:8688` `entry.path_patterns` is unrelated — matched against
+  the PROMPT text for a scoring bonus.)
+- No `continue`-guard filter on origin: all 17 `continue`s in `8076-9718` were read WITH the
+  `if` above them, not inferred from the matched line. They key on `LOW_SIGNAL_WORDS`
+  (`:8735`/`:8788`/`:8838`), word length (`:8978`/`:9016`/`:9062`/`:9158`/`:9193`/`:9236`),
+  `NAME_INFERABLE_FRAMEWORKS` (`:8918`), or an already-matched set (`:9630`). None on
+  `entry.source`, a root, or the element's origin.
 - No caller-side filter: the only `source`-based cull before scoring is `main.rs:19182`
   (`retain` dropping `marketplace:` sources and non-invocable ids), unrelated to the root.
-- No load-time filter: the index-load query at `main.rs:14844` is an unconditional
-  `*skills{ ... }` scan with no WHERE clause on `source`, `path`, or any root.
+- No load-time filter, on EITHER loader — the hot path can take either:
+  `load_index_from_db` (`:14835`) is an unconditional `*skills{ ... }` scan, and
+  `load_candidates_from_db` (`:14954`) narrows via
+  `candidates[name] := *kw_lookup{keyword_lower: w, skill_name: name}` — by KEYWORD, with no
+  `source`/`path`/root predicate in the Datalog.
 
-  So a project-scoped entry belonging to A is never excluded when the live cwd is B — not at
-  load, not on the way in, and not in the scoring loop.
+  So a project-scoped entry belonging to A is never excluded BY ITS ORIGIN when the live cwd
+  is B — not at load, not on the way in, and not in the scoring loop.
 
   METHOD NOTE (twice corrected before it hardened): the first pass searched
   `NR>=8076 && NR<=8900`, a window whose upper bound was arbitrary and 818 lines short of the
@@ -64,8 +76,12 @@ declare it.
   The second pass then over-claimed in the other direction: "no filter anywhere" was a
   UNIVERSAL NEGATIVE gathered from one file with a two-shape regex (`retain(` and a narrow
   `.filter(...)`), structurally blind to `continue` guards, `match` arms, and anything at
-  index-load. Each of those was then checked directly — the four bullets above are what
-  that cost, and what the assertion actually needs.
+  index-load. Each of those was then checked directly. The THIRD pass then caught the worst
+  of the three: `:8483 &entry.path_gates` was sitting in my own search output, unaccounted
+  for, while the card asserted "none keys on a path" — and 11 of the 17 `continue`s had
+  printed bare, their guards never read, with "they key on word length" extrapolated from the
+  6 that happened to show a predicate inline. Matched lines are not control flow. Read the
+  guard, not the line that matched.
 
 ## The obvious fix does NOT work — record before anyone tries it
 
