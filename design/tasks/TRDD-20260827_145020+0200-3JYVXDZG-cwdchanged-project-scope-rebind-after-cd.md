@@ -3,7 +3,7 @@ trdd-id: 3JYVXDZG
 title: Rebind project-scoped element inventory on a mid-session /cd
 column: backburner
 created: 2026-08-27T14:50:20+0200
-updated: 2026-08-27T14:50:20+0200
+updated: 2026-08-27T15:06:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 min-approval-requirement: none
@@ -32,14 +32,24 @@ declare it.
 
 - `scripts/pss_discover.py:89-94` — `get_cwd()` returns `$CLAUDE_PROJECT_DIR` or
   `Path.cwd()`, resolved once when the index is built. Nothing re-resolves it later.
-- `hooks/hooks.json` declares exactly three events: `UserPromptSubmit`, `SessionStart`,
-  `PostCompact`. No `CwdChanged`.
+- `hooks/hooks.json` declares exactly three events — read from the parsed `hooks` object's
+  own keys, not matched against a remembered list of event names: `UserPromptSubmit`,
+  `SessionStart`, `PostCompact`. No `CwdChanged`.
 - `rust/skill-suggester/src/main.rs:19247` — the live `input.cwd` is passed only to
   `scan_project_context`, i.e. prompt-time context inference.
-- `main.rs:8076` `find_matches` takes `cwd`, and its body uses it at exactly ONE site,
-  `main.rs:8680`: `if cwd.contains(dir) { score += weights.directory }`. That is a positive
-  scoring BONUS. There is no scope-vs-root filter anywhere in the candidate loop, so a
-  project-scoped entry belonging to A is never excluded when the live cwd is B.
+- `find_matches` spans `main.rs:8076-9718` (end established from the first column-0 `}`
+  after the signature, not assumed). Across that FULL range `cwd` appears exactly twice:
+  `:8080` (the parameter) and `:8680` — `if cwd.contains(dir) { score += weights.directory }`,
+  a positive scoring BONUS. No scope-vs-root comparison anywhere in the candidate loop.
+- No caller-side filter either: the only `source`-based cull before scoring is `main.rs:19182`
+  (`retain` dropping `marketplace:` sources and non-invocable ids), which is unrelated to the
+  project root. So a project-scoped entry belonging to A is never excluded when the live cwd
+  is B — not in `find_matches`, and not on the way in.
+
+  METHOD NOTE (this claim was corrected before it hardened): the first pass searched
+  `NR>=8076 && NR<=8900`, a window whose upper bound was arbitrary and 818 lines short of the
+  function's real end. It happened to reach the right conclusion, but a filter living in
+  8900-9718 would have read identically to no filter at all. Anchor the range, then search.
 
 ## The obvious fix does NOT work — record before anyone tries it
 
