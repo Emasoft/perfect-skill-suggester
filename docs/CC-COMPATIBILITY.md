@@ -85,11 +85,14 @@ for the full design record.
   `feedbackDrafts` setting is likewise unread.
 - **Fixed: a hook printing megabytes of error output could wedge the session on "Prompt is
   too long".** BENEFITS PSS as a backstop. All three declared hook entry points were
-  checked, and the emit surface was enumerated by its CALL rather than by a token scan —
-  `_exit_warning` (`:624`) is the file's only emitter, and all 13 of its call sites were
-  listed: eleven pass fixed strings (one being the `[:300]` slice below), and three pass an
-  exception's own `str(e)` (`:749`, `:932`, `:1040`) — an exception message, never captured
-  process output. The three entry points: **UserPromptSubmit** truncates the only captured
+  checked, and the emit surface was enumerated rather than sampled. `scripts/pss_hook.py`
+  has exactly FOUR sites that write to stdout/stderr, and all four are bounded:
+  `:620` `_exit_empty()` prints a fixed constant; `:628` is `_exit_warning`'s own
+  `print(json.dumps(...))`; `:828` writes a fixed WARN to stderr whose only interpolation is
+  the integer `_STDIN_CAP`; `:1017` prints the suggestion block itself, capped upstream by
+  the binary's `--top 5`. `_exit_warning` has 13 call sites: ten pass fixed strings, and
+  three carry an exception message (`:749`, `:932`, `:1040`) — an exception's `str(e)`,
+  never captured process output. The three entry points: **UserPromptSubmit** truncates the only captured
   subprocess output it echoes — `scripts/pss_hook.py:1030` prints `result.stderr[:300]`,
   there is no `traceback.format_exc()` in the file (0 occurrences), and the catch-all at
   `:1039-1040` passes only `str(e)`; **`--post-compact`** (`:1113-1119`) is a declared no-op
