@@ -86,13 +86,17 @@ for the full design record.
 - **Fixed: a hook printing megabytes of error output could wedge the session on "Prompt is
   too long".** BENEFITS PSS as a backstop. All three declared hook entry points were
   checked, and the emit surface was enumerated rather than sampled. `scripts/pss_hook.py`
-  has exactly FOUR sites that write to stdout/stderr, and all four are bounded:
+  has exactly FOUR sites that write to stdout/stderr — established by a whole-file search for
+  every way Python can reach them (`print`, `stdout`, `stderr`, `logg`, `os.write`), with all
+  other hits being `result.stdout` *reads*, `DEVNULL` arguments, or `os.write` to a lock
+  file — and all four are bounded:
   `:620` `_exit_empty()` prints a fixed constant; `:628` is `_exit_warning`'s own
   `print(json.dumps(...))`; `:828` writes a fixed WARN to stderr whose only interpolation is
   the integer `_STDIN_CAP`; `:1017` prints the suggestion block itself, capped upstream by
-  the binary's `--top 5`. `_exit_warning` has 13 call sites: ten pass fixed strings, and
-  three carry an exception message (`:749`, `:932`, `:1040`) — an exception's `str(e)`,
-  never captured process output. The three entry points: **UserPromptSubmit** truncates the only captured
+  the binary's `--top 5`. `_exit_warning` has 13 call sites, every argument read rather
+  than inferred: nine carry fixed text or a bounded path/constant, three carry an exception
+  message (`:749`, `:932`, `:1040`), and one carries captured subprocess stderr — `:1029`,
+  truncated at `[:300]`. Nothing passes captured output untruncated. The three entry points: **UserPromptSubmit** truncates the only captured
   subprocess output it echoes — `scripts/pss_hook.py:1030` prints `result.stderr[:300]`,
   there is no `traceback.format_exc()` in the file (0 occurrences), and the catch-all at
   `:1039-1040` passes only `str(e)`; **`--post-compact`** (`:1113-1119`) is a declared no-op
@@ -105,8 +109,9 @@ for the full design record.
   RESIDUAL, stated rather than asserted away: `bin/pss-hook-dispatch.sh` execs the Rust
   binary directly, so a Rust-side panic's stderr is not covered by any Python truncation.
   Unmeasured here, and the CC-side fix is exactly what now bounds it. The shim itself is
-  NOT a risk and was read whole: its only output is a fixed empty-context JSON `printf`
-  (`:83`) before it `exec`s the binary (`:94`).
+  NOT a risk: its emit sites were enumerated (`echo`/`printf`/`>&2`/`exec`) and it has one —
+  a fixed empty-context JSON `printf` (`:83`) before it `exec`s the binary (`:94`). The two
+  `echo`s are `uname` fallbacks to the literal `unknown`.
 - **Fixed: a version-less marketplace plugin's live cache dir deleted and recreated on a
   second-scope install.** Not PSS's case — `.claude-plugin/plugin.json:3` declares
   `"version": "3.14.1"`. PSS also never *locates* the marketplace cache dir: it only
@@ -123,8 +128,10 @@ for the full design record.
   `:477-478`) — it skips the entry, it does not fall through to the raw name; and
   `discover_marketplaces()` is NOT the only door. `_safe_name` guards six real call sites — marketplace
   names at `:339` (a directory segment) and `:476`/`:1946` (`known_marketplaces.json` keys);
-  plugin names at `:350` (a `plugin.json` `name`), `:427` (a third-party manifest's `name`)
-  and `:564` (the `source` field's plugin segment) (a count of call
+  plugin names at `:350`, `:427` and `:564` — attributed from each site's BINDING, not from
+  the comment above it: `:350`'s and `:427`'s `data` are both parsed from a
+  `.claude-plugin/plugin.json` (`:342`, `:419-421`), and `:564`'s `source_plugin` is the
+  second half of `rest.split("/", 1)` (`:551`) (a count of call
   sites, not of grep hits, which also match the definition, three comments and a docstring)
   — including the one that matters most here, `:339`
   `safe_mp_name = _safe_name(marketplace_dir.name)`, i.e. a marketplace name taken from a
