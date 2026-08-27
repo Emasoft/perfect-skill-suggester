@@ -85,7 +85,11 @@ for the full design record.
   `feedbackDrafts` setting is likewise unread.
 - **Fixed: a hook printing megabytes of error output could wedge the session on "Prompt is
   too long".** BENEFITS PSS as a backstop. All three declared hook entry points were
-  checked, not just the busy one: **UserPromptSubmit** truncates the only captured
+  checked, and the emit surface was enumerated by its CALL rather than by a token scan —
+  `_exit_warning` (`:624`) is the file's only emitter, and all 13 of its call sites were
+  listed: eleven pass fixed strings (one being the `[:300]` slice below), and three pass an
+  exception's own `str(e)` (`:749`, `:932`, `:1040`) — an exception message, never captured
+  process output. The three entry points: **UserPromptSubmit** truncates the only captured
   subprocess output it echoes — `scripts/pss_hook.py:1030` prints `result.stderr[:300]`,
   there is no `traceback.format_exc()` in the file (0 occurrences), and the catch-all at
   `:1039-1040` passes only `str(e)`; **`--post-compact`** (`:1113-1119`) is a declared no-op
@@ -97,7 +101,9 @@ for the full design record.
   silent` (`:1111-1112`).
   RESIDUAL, stated rather than asserted away: `bin/pss-hook-dispatch.sh` execs the Rust
   binary directly, so a Rust-side panic's stderr is not covered by any Python truncation.
-  Unmeasured here, and the CC-side fix is exactly what now bounds it.
+  Unmeasured here, and the CC-side fix is exactly what now bounds it. The shim itself is
+  NOT a risk and was read whole: its only output is a fixed empty-context JSON `printf`
+  (`:83`) before it `exec`s the binary (`:94`).
 - **Fixed: a version-less marketplace plugin's live cache dir deleted and recreated on a
   second-scope install.** Not PSS's case — `.claude-plugin/plugin.json:3` declares
   `"version": "3.14.1"`. PSS also never *locates* the marketplace cache dir: it only
@@ -113,7 +119,9 @@ for the full design record.
   return type: the rejection branch is `continue` (`:1947-1948`, and the same at
   `:477-478`) — it skips the entry, it does not fall through to the raw name; and
   `discover_marketplaces()` is NOT the only door. `_safe_name` guards six real call sites — marketplace
-  names at `:339`, `:476`, `:1946`; plugin names at `:350`, `:427`, `:564` (a count of call
+  names at `:339` (a directory segment) and `:476`/`:1946` (`known_marketplaces.json` keys);
+  plugin names at `:350` (a `plugin.json` `name`), `:427` (a third-party manifest's `name`)
+  and `:564` (the `source` field's plugin segment) (a count of call
   sites, not of grep hits, which also match the definition, three comments and a docstring)
   — including the one that matters most here, `:339`
   `safe_mp_name = _safe_name(marketplace_dir.name)`, i.e. a marketplace name taken from a
