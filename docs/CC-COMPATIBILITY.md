@@ -90,7 +90,11 @@ for the full design record.
   there is no `traceback.format_exc()` in the file (0 occurrences), and the catch-all at
   `:1039-1040` passes only `str(e)`; **`--post-compact`** (`:1113-1119`) is a declared no-op
   stub — read whole, not grepped: a docstring and a bare `return`, nothing else; and
-  **`--warm-index`** (`:1043`) only early-returns, never echoing captured output.
+  **`--warm-index`** (`:1043-1111`, tail read, not inferred) *cannot* emit: the reindex it
+  spawns is `subprocess.Popen(..., stdout=DEVNULL, stderr=DEVNULL, start_new_session=True)`
+  (`:1092-1097`), so the child's output is discarded by the OS rather than captured, and the
+  function's outer handler is `except Exception: return  # Never fail — SessionStart must be
+  silent` (`:1111-1112`).
   RESIDUAL, stated rather than asserted away: `bin/pss-hook-dispatch.sh` execs the Rust
   binary directly, so a Rust-side panic's stderr is not covered by any Python truncation.
   Unmeasured here, and the CC-side fix is exactly what now bounds it.
@@ -108,10 +112,10 @@ for the full design record.
   nothing but the allowed set. Two things were verified rather than inferred from the
   return type: the rejection branch is `continue` (`:1947-1948`, and the same at
   `:477-478`) — it skips the entry, it does not fall through to the raw name; and
-  `discover_marketplaces()` is NOT the only door. `_safe_name` guards SIX real call sites
-  (`:339`, `:350`, `:427`, `:476`, `:564`, `:1946` — the count is of call sites, not of
-  grep hits, which also match the definition, three comments and a docstring), including
-  the one that matters most here — `:339`
+  `discover_marketplaces()` is NOT the only door. `_safe_name` guards six real call sites — marketplace
+  names at `:339`, `:476`, `:1946`; plugin names at `:350`, `:427`, `:564` (a count of call
+  sites, not of grep hits, which also match the definition, three comments and a docstring)
+  — including the one that matters most here, `:339`
   `safe_mp_name = _safe_name(marketplace_dir.name)`, i.e. a marketplace name taken from a
   DIRECTORY SEGMENT, which is precisely where a control character would live — plus
   `:190`, which validates both halves of a `plugin/marketplace` pair. The invariant is
