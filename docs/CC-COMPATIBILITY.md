@@ -88,8 +88,9 @@ for the full design record.
   checked, not just the busy one: **UserPromptSubmit** truncates the only captured
   subprocess output it echoes — `scripts/pss_hook.py:1030` prints `result.stderr[:300]`,
   there is no `traceback.format_exc()` in the file (0 occurrences), and the catch-all at
-  `:1039-1040` passes only `str(e)`; **`--warm-index`** (`:1043`) and **`--post-compact`**
-  (`:1113`) both early-return silently, with no print, subprocess, or except path.
+  `:1039-1040` passes only `str(e)`; **`--post-compact`** (`:1113-1119`) is a declared no-op
+  stub — read whole, not grepped: a docstring and a bare `return`, nothing else; and
+  **`--warm-index`** (`:1043`) only early-returns, never echoing captured output.
   RESIDUAL, stated rather than asserted away: `bin/pss-hook-dispatch.sh` execs the Rust
   binary directly, so a Rust-side panic's stderr is not covered by any Python truncation.
   Unmeasured here, and the CC-side fix is exactly what now bounds it.
@@ -107,8 +108,10 @@ for the full design record.
   nothing but the allowed set. Two things were verified rather than inferred from the
   return type: the rejection branch is `continue` (`:1947-1948`, and the same at
   `:477-478`) — it skips the entry, it does not fall through to the raw name; and
-  `discover_marketplaces()` is NOT the only door. `_safe_name` guards SEVEN producers,
-  including the one that matters most here — `:339`
+  `discover_marketplaces()` is NOT the only door. `_safe_name` guards SIX real call sites
+  (`:339`, `:350`, `:427`, `:476`, `:564`, `:1946` — the count is of call sites, not of
+  grep hits, which also match the definition, three comments and a docstring), including
+  the one that matters most here — `:339`
   `safe_mp_name = _safe_name(marketplace_dir.name)`, i.e. a marketplace name taken from a
   DIRECTORY SEGMENT, which is precisely where a control character would live — plus
   `:190`, which validates both halves of a `plugin/marketplace` pair. The invariant is
