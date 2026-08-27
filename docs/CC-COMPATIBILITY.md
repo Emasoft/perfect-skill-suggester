@@ -78,16 +78,21 @@ for the full design record.
 
 ### v2.1.247 (2026-08-26) — seven items assessed; PSS immune on all seven, two CC-side fixes *benefit* it, and one hardening PSS already had
 
-- **`SendFeedback` tool added.** No impact. PSS indexes *extension elements*, and `tool` is
-  not one of its 13 element types (`schemas/pss-schema.json`) — a new built-in tool is
-  invisible to the index by construction. The `feedbackDrafts` setting is likewise unread.
+- **`SendFeedback` tool added.** No impact. PSS discovers *filesystem artifacts*; a built-in
+  tool is not one, so it cannot enter the index by construction. (`tool` is also absent from
+  the `skill_type` enum in `schemas/pss-schema.json`, read from the enum itself rather than
+  probed for — the enum lists six: skill, agent, command, rule, mcp, lsp.) The
+  `feedbackDrafts` setting is likewise unread.
 - **Fixed: a hook printing megabytes of error output could wedge the session on "Prompt is
-  too long".** BENEFITS PSS as a backstop, but PSS was never the hook that could cause it:
-  the only captured subprocess output it echoes is already truncated —
-  `scripts/pss_hook.py:1030` prints `result.stderr[:300]`. There is no
-  `traceback.format_exc()` anywhere in the file (0 occurrences), and the catch-all at
-  `:1039-1040` passes only `str(e)`. Every other error path passes a short
-  `OSError`/`RuntimeError` message, never captured process output.
+  too long".** BENEFITS PSS as a backstop. All three declared hook entry points were
+  checked, not just the busy one: **UserPromptSubmit** truncates the only captured
+  subprocess output it echoes — `scripts/pss_hook.py:1030` prints `result.stderr[:300]`,
+  there is no `traceback.format_exc()` in the file (0 occurrences), and the catch-all at
+  `:1039-1040` passes only `str(e)`; **`--warm-index`** (`:1043`) and **`--post-compact`**
+  (`:1113`) both early-return silently, with no print, subprocess, or except path.
+  RESIDUAL, stated rather than asserted away: `bin/pss-hook-dispatch.sh` execs the Rust
+  binary directly, so a Rust-side panic's stderr is not covered by any Python truncation.
+  Unmeasured here, and the CC-side fix is exactly what now bounds it.
 - **Fixed: a version-less marketplace plugin's live cache dir deleted and recreated on a
   second-scope install.** Not PSS's case — `.claude-plugin/plugin.json:3` declares
   `"version": "3.14.1"`. PSS also never *locates* the marketplace cache dir: it only
@@ -97,10 +102,19 @@ for the full design record.
 - **Improved: marketplace names containing control or invisible characters are rejected.**
   PSS ALREADY does this, and more strictly. `discover_marketplaces()`
   (`scripts/pss_discover.py:1923`) passes every name from `known_marketplaces.json` through
-  `_safe_name()` (`:120`), a WHITELIST — `^[A-Za-z0-9_.\-]+$`, max 64 chars (`:116-117`) —
-  and stores only the sanitized form (`:1964`). A whitelist rejects control and invisible
-  characters as a side effect of admitting nothing but the allowed set, so PSS needs no
-  change to match CC's new behaviour; it is strictly ahead of it.
+  `_safe_name()` (`:120`), a WHITELIST — `^[A-Za-z0-9_.\-]+$`, max 64 chars (`:116-117`).
+  A whitelist rejects control and invisible characters as a side effect of admitting
+  nothing but the allowed set. Two things were verified rather than inferred from the
+  return type: the rejection branch is `continue` (`:1947-1948`, and the same at
+  `:477-478`) — it skips the entry, it does not fall through to the raw name; and
+  `discover_marketplaces()` is NOT the only door. `_safe_name` guards SEVEN producers,
+  including the one that matters most here — `:339`
+  `safe_mp_name = _safe_name(marketplace_dir.name)`, i.e. a marketplace name taken from a
+  DIRECTORY SEGMENT, which is precisely where a control character would live — plus
+  `:190`, which validates both halves of a `plugin/marketplace` pair. The invariant is
+  stated at `:102-107`: external-manifest names "MUST flow through `_safe_name()` before
+  being stored as element identifiers, used in CozoDB keys, hash inputs, or composite
+  paths". So PSS needs no change to match CC's new behaviour; it is ahead of it.
 - **Improved: Claude is told when a configured MCP server failed to CONNECT.** No impact.
   PSS's MCP discovery is purely file-based — `_discover_marketplace_mcps()` (`:1105`) and
   `discover_mcp_servers()` (`:1346`) read the `mcpServers` key out of `~/.claude.json`,
