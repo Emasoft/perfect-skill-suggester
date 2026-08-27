@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.246**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.247**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -75,6 +75,43 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.247 (2026-08-26) — seven items assessed; PSS immune on all seven, two CC-side fixes *benefit* it, and one hardening PSS already had
+
+- **`SendFeedback` tool added.** No impact. PSS indexes *extension elements*, and `tool` is
+  not one of its 13 element types (`schemas/pss-schema.json`) — a new built-in tool is
+  invisible to the index by construction. The `feedbackDrafts` setting is likewise unread.
+- **Fixed: a hook printing megabytes of error output could wedge the session on "Prompt is
+  too long".** BENEFITS PSS as a backstop, but PSS was never the hook that could cause it:
+  the only captured subprocess output it echoes is already truncated —
+  `scripts/pss_hook.py:1030` prints `result.stderr[:300]`. There is no
+  `traceback.format_exc()` anywhere in the file (0 occurrences), and the catch-all at
+  `:1039-1040` passes only `str(e)`. Every other error path passes a short
+  `OSError`/`RuntimeError` message, never captured process output.
+- **Fixed: a version-less marketplace plugin's live cache dir deleted and recreated on a
+  second-scope install.** Not PSS's case — `.claude-plugin/plugin.json:3` declares
+  `"version": "3.14.1"`. PSS also never *locates* the marketplace cache dir: it only
+  pattern-matches `plugins/cache` against paths it has already discovered
+  (`main.rs:13814`), and `CLAUDE_PLUGIN_ROOT` resolves PSS's OWN install root for `bin/`
+  and `VERSION` (`scripts/pss_paths.py:155`), not that cache.
+- **Improved: marketplace names containing control or invisible characters are rejected.**
+  PSS ALREADY does this, and more strictly. `discover_marketplaces()`
+  (`scripts/pss_discover.py:1923`) passes every name from `known_marketplaces.json` through
+  `_safe_name()` (`:120`), a WHITELIST — `^[A-Za-z0-9_.\-]+$`, max 64 chars (`:116-117`) —
+  and stores only the sanitized form (`:1964`). A whitelist rejects control and invisible
+  characters as a side effect of admitting nothing but the allowed set, so PSS needs no
+  change to match CC's new behaviour; it is strictly ahead of it.
+- **Improved: Claude is told when a configured MCP server failed to CONNECT.** No impact.
+  PSS's MCP discovery is purely file-based — `_discover_marketplace_mcps()` (`:1105`) and
+  `discover_mcp_servers()` (`:1346`) read the `mcpServers` key out of `~/.claude.json`,
+  `.mcp.json`, and plugin manifests. PSS never opens a connection, so connect-time
+  success or failure cannot change what it indexes.
+- **Fixed: sub-agents dying on a first-call model 404 now use the session's fallback
+  chain.** BENEFITS PSS. `agents/pss-agent-profiler.md:4` pins `model: sonnet`, so a 404 on
+  that id previously killed the profiler outright; it now falls back. No change needed —
+  the pin is still correct, it is merely no longer fatal.
+- **Changed: Sonnet 5's default auto-compact window is now its full 1M context.** No impact
+  on PSS, which holds no conversation state.
 
 ### v2.1.246 (2026-08-25) — five plugin-surface items assessed; PSS immune on all five, and three CC-side fixes *benefit* it
 
