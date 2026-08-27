@@ -3,7 +3,7 @@ trdd-id: 3JYVXDZG
 title: Rebind project-scoped element inventory on a mid-session /cd
 column: backburner
 created: 2026-08-27T14:50:20+0200
-updated: 2026-08-27T15:06:00+0200
+updated: 2026-08-27T15:19:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 min-approval-requirement: none
@@ -41,15 +41,31 @@ declare it.
   after the signature, not assumed). Across that FULL range `cwd` appears exactly twice:
   `:8080` (the parameter) and `:8680` — `if cwd.contains(dir) { score += weights.directory }`,
   a positive scoring BONUS. No scope-vs-root comparison anywhere in the candidate loop.
-- No caller-side filter either: the only `source`-based cull before scoring is `main.rs:19182`
-  (`retain` dropping `marketplace:` sources and non-invocable ids), which is unrelated to the
-  project root. So a project-scoped entry belonging to A is never excluded when the live cwd
-  is B — not in `find_matches`, and not on the way in.
+- The `cwd` VALUE cannot travel under another name: a rebinding must mention `cwd` on its
+  right-hand side, so the same search that found `:8080`/`:8680` would have caught it. The
+  other candidate carrier was ruled out by reading the type — `struct ProjectContext` holds
+  only `platforms/frameworks/languages/domains/tools/file_types`, no root or path field.
+- No `continue`-guard filter, the idiom a combinator-shaped regex is blindest to: every
+  `continue` in `8076-9718` keys on word length, a seen-set, or a score threshold. None
+  keys on `entry.source`, a root, or a path. (`entry.path` at `:9564`/`:9643` and
+  `marketplace_of(&entry.source)` at `:9571`/`:9647` only populate the OUTPUT struct.)
+- No caller-side filter: the only `source`-based cull before scoring is `main.rs:19182`
+  (`retain` dropping `marketplace:` sources and non-invocable ids), unrelated to the root.
+- No load-time filter: the index-load query at `main.rs:14844` is an unconditional
+  `*skills{ ... }` scan with no WHERE clause on `source`, `path`, or any root.
 
-  METHOD NOTE (this claim was corrected before it hardened): the first pass searched
+  So a project-scoped entry belonging to A is never excluded when the live cwd is B — not at
+  load, not on the way in, and not in the scoring loop.
+
+  METHOD NOTE (twice corrected before it hardened): the first pass searched
   `NR>=8076 && NR<=8900`, a window whose upper bound was arbitrary and 818 lines short of the
   function's real end. It happened to reach the right conclusion, but a filter living in
   8900-9718 would have read identically to no filter at all. Anchor the range, then search.
+  The second pass then over-claimed in the other direction: "no filter anywhere" was a
+  UNIVERSAL NEGATIVE gathered from one file with a two-shape regex (`retain(` and a narrow
+  `.filter(...)`), structurally blind to `continue` guards, `match` arms, and anything at
+  index-load. Each of those was then checked directly — the four bullets above are what
+  that cost, and what the assertion actually needs.
 
 ## The obvious fix does NOT work — record before anyone tries it
 
