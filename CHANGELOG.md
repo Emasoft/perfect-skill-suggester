@@ -2,6 +2,35 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.14.2] - 2026-08-29
+
+### Bug Fixes
+
+- **scoring:** Scope suggestions to the current project (TRDD-3JYVXDZG complete)
+
+### Documentation
+
+- **cc-compat:** Assess CC 2.1.241/243/245/246 — PSS immune; fix stale UserPromptSubmit handler row
+- **cc-compat:** Replace the SHA-dedup "benefit" verdict with a measurement, and record the version-shadowing gap it exposed
+- **cc-compat:** Withdraw the version-shadowing defect and the measurement behind it — both were unproven
+- **cc-compat:** Bound the borrowed citation, and state version-selection as OPEN rather than disproven
+- Add TRDD-3JYVXDZG — rebind project-scoped inventory on mid-session /cd
+- **TRDD-3JYVXDZG:** Anchor the find_matches range — the cwd evidence was windowed, not verified
+- **TRDD-3JYVXDZG:** Settle the no-filter claim with the right instruments
+- **TRDD-3JYVXDZG:** Retract 'none keys on a path' — 8483 is a real gate, and record the rule/skill asymmetry
+- **cc-compat:** Assess 2.1.247 — PSS immune on all seven items
+- **cc-compat:** Fix a wrong cite and bound two overclaims in the 2.1.247 entry
+- **cc-compat:** Read _post_compact instead of grepping it, and count call sites not grep hits
+- **cc-compat:** Read _warm_index's tail — it cannot emit at all, which is stronger than what I claimed
+- **cc-compat:** Re-source a relayed fact first-hand, and enumerate the emit surface by its call
+- **cc-compat:** Retract '_exit_warning is the only emitter' — there are four, and fix an off-by-one
+- **cc-compat:** Establish the emit premise, re-source two attributions from bindings, fix the count again
+- **board:** Attribute the VR8RB8YX withdrawal, retract two stale TRDD facts, record CC 2.1.248
+
+### Miscellaneous Tasks
+
+- **memory:** Normalize publish-globally on 13 project notes
+
 ## [3.14.1] - 2026-08-25
 
 ### Bug Fixes
