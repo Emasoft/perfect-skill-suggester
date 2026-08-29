@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.247**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.248**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -75,6 +75,110 @@ See `design/tasks/TRDD-46ac514e-3627-44a6-b916-f37a1504b969-cozodb-unification.m
 for the full design record.
 
 ## Version-by-version compatibility matrix
+
+### v2.1.248 (assessed 2026-08-28 against the installed 2.1.248 build) — 49 items assessed; ONE adoption (`experimental.cacheTtl`), one verdict settled by measurement rather than reading, 47 N/A
+
+- **`experimental.cacheTtl` added to agent frontmatter (`"5m"` / `"1h"`) — ADOPTED.**
+  `agent_meta.rs`'s module contract is that its field set tracks the documented subagent
+  frontmatter, so a new documented field is an omission, not an optional extra. Added as
+  `AgentMeta::cache_ttl` (`rust/skill-suggester/src/agent_meta.rs:64`), gated by
+  `parse_cache_ttl` (`:274`) to the two documented values — an unrecognized value indexes as
+  `None` rather than as if it were valid, so a typo or a future TTL PSS does not know about
+  cannot enter the index. It rides inside the existing serialized `agent_metadata` blob, so
+  it needs **no** new CozoDB column and does not touch the six column allow-lists that a new
+  top-level field would have to be threaded through. Verified as far as the **enriched row** —
+  a unit test proves parsing, not serialization, and this closes exactly that gap and no more
+  (the CozoDB write and the hook's read path were not exercised; `cache_ttl` is inert metadata
+  nothing scores on, so there is no end-to-end suggestibility property to prove):
+  a probe agent carrying `experimental.cacheTtl: "1h"`
+  run through the real enrichment path (`cargo run --release -- --pass1-batch`, built from
+  source, **not** the pre-built `bin/` binary, which predates the change) emits
+  `"cache_ttl":"1h"` inside `agent_metadata`.
+  **Status: in source, not yet in any shipped binary — do not read this entry as a shipped
+  capability.** Measured behaviourally, with a working control — the same probe JSONL through
+  `--pass1-batch` on both binaries, both exiting 0 and reporting "enriched 1 elements":
+  `bin/pss-darwin-arm64` emits `agent_metadata` and `disallowed_tools` but **zero** `cache_ttl`,
+  while `rust/target/release/pss` emits all three. (A `strings` check agrees, but the run is the
+  evidence; an earlier attempt at this comparison returned a false `0` for *both* binaries
+  because the from-source path was wrong — `rust/target/`, not `rust/skill-suggester/target/` —
+  and was discarded rather than reported.) Until `bin/` is rebuilt, a real reindex enriches through the shipped binary and
+  the field never appears. This is the project's known stale-binary hazard, and the change sits
+  inside the `rust/` submodule — the exact shape that previously made publish's change detection
+  diff the parent repo, skip the build, and ship binaries missing the new verb — so the release
+  that carries this must force the rebuild and be checked by running the shipped binary, not by
+  the publish step's exit code.
+  That probe also surfaced a **pre-existing gap, unrelated to this change and not fixed here**:
+  the second enrichment path, `--index-file` (`main.rs:13926`), emits no `agent_metadata` key at
+  all — measured, 0 occurrences on real output — so an agent enriched that way loses its whole
+  structured block (`tools`, `skills`, `mcpServers`, `model`, and now `cache_ttl`), not merely
+  the new field. `--pass1-batch` (`:13674`) is the only emitter.
+  Blast radius, stated narrowly because the first draft of this line overstated it: `--index-file`
+  is a documented **manually-invoked** flag for single-file indexing
+  (`docs/pss-cli-reference.md:1460`). The reindex route is unaffected — grounded on the positive
+  fact that the reindex pipeline enriches through `--pass1-batch`, which was *run* and does emit
+  the block, rather than on an exhaustive negative about callers (an unfiltered repo-wide search
+  finds no caller of `--index-file` outside the arg parser, docs and a flag-existence test, but a
+  grep can never prove the absence of an argv assembled at runtime). So this costs only a
+  hand-run single-file index.
+  One correction worth recording, because the obvious implementation is the wrong one:
+  `experimental.cacheTtl` is *nested* YAML, so it looks like it needs a nested-lookup path.
+  It does not — `main.rs:10343 parse_frontmatter` (read, not inferred from the test passing)
+  trims every line and treats any colon-bearing line outside a block scalar as a top-level key,
+  so it already flattens the block to a top-level `cacheTtl` key and the existing flat `get`
+  finds it. Two consequences of that flattening are worth stating plainly rather than selling it
+  as a feature: a bare top-level `cacheTtl:` outside any `experimental:` block is also accepted,
+  and a nested key colliding with a real top-level field (`experimental:` → `model:`) would
+  clobber it, since the map is last-write-wins. Both are pre-existing parser behavior, unchanged
+  here. Two tests pin both halves (`:420` nested block reads as `Some("1h")`,
+  `:429` an undocumented `10m` reads as `None`); `cargo test agent_meta` is 15/15.
+- **`--restricted` / `CLAUDE_CODE_RESTRICTED=1` — PSS is immune, by non-participation. MEASURED,
+  not reasoned.** This is the one item where the plausible reading is wrong, so the method
+  matters. `--restricted` ignores user, project and local settings files; PSS's index is built
+  *from* those files (`pss_discover.py:283` `_load_inactive_plugin_ids`, `:1649` `discover_hooks`
+  scanning `settings.json` + `settings.local.json`, `:1809` `discover_plugins`, `:1923`
+  `discover_marketplaces`, `:1346` `discover_mcp_servers`), and nothing anywhere in PSS filters
+  suggestions by what the serving session can actually load — `grep -rn "restricted\|RESTRICTED"`
+  over `scripts/`, `rust/skill-suggester/src/` and `hooks/` returns zero hits. That chain reads
+  like a real defect: an index built normally, then served to a restricted session, would suggest
+  MCP servers and plugin skills that session silently dropped.
+  It is not a defect, because the premise fails one step earlier: **PSS emits no suggestions at
+  all under `--restricted`** — so there are none to be stale. That is the measured claim, and it
+  is the only one the verdict rests on.
+  The *mechanism* is inference, not measurement, and is labelled so: plugin enablement lives in
+  `enabledPlugins` in `~/.claude/settings.json`, one of the files `--restricted` ignores, so the
+  plugin is most likely never loaded — read off the changelog, since nothing in a plugin's own
+  source can settle how the harness treats plugin registration. (The only observationally
+  identical alternative, a hook that fires and dies silently, would have to break *every* plugin
+  hook and so would be a headline change, not a silent one; either way no suggestions reach the
+  model, so the verdict does not turn on it.) Measured by differential probe against the installed 2.1.248 build, two samples,
+  two phrasings, control and treatment identical but for the flag: asked whether a `pss-agents`
+  block was present, plain `claude -p` answered `YES` and `claude --restricted -p` answered `NO`;
+  asked to echo any hook-prepended tag block, the control returned the literal `<pss-agents>`
+  block and the restricted run returned `NONE`.
+  Recorded because a reading-only assessment reached the opposite verdict and was right to
+  flag its own limit: nothing in a plugin's own source can settle how the harness treats
+  plugin registration under a harness flag. That question is answerable only by running it.
+  **Consequence for any future restricted-mode work: there is none to do.** A session-loadability
+  filter for `--restricted` would be dead code — not because it provably could never execute
+  (the surviving alternative above leaves that open), but because it could never change an
+  outcome: the measured output under the flag is already empty.
+- **The remaining 47 items — N/A**, each classified with a stated reason rather than waved
+  through. They fall into groups PSS has no surface for at all: `claude agents` TUI and
+  background-session lifecycle (7 items), Remote Control and cloud-session transport (6),
+  cross-session messaging (4), sign-in / gateway / telemetry attribution (6), `self-hosted-runner`,
+  `/web-setup`, `/usage-credits`, `/ultrareview`, `/loop`, and assorted render fixes.
+  Two were checked harder than the rest because they looked like near-misses:
+  - *Workflow tool footprint reduced, script reference moved to a bundled `workflow-authoring`
+    skill.* N/A — PSS discovers only filesystem artifacts
+    (`pss_discover.py:723-975 get_all_element_locations` scans `~/.claude/{skills,agents,commands,rules}`,
+    project `.claude/…`, plugin roots, marketplace clones). A skill bundled inside the CC binary
+    is not one. Verified on disk, not assumed: `find ~/.claude -iname '*workflow-authoring*'`
+    returns only an unrelated `workflow-authoring-guide.md` in a `.bak` marketplace clone — no
+    `SKILL.md` anywhere. Same category as the already-documented `disableBundledSkills` note
+    below in this file (cited by name, not line number — this entry's own insertion shifts it).
+  - *Server-managed settings diagnostics (`/doctor`, `/status`).* N/A — it concerns the enterprise
+    **managed**-settings load path, a different file from the user `settings.json` PSS reads for
+    `enabledPlugins` (`pss_discover.py:1571`). No PSS code touches managed-settings loading.
 
 ### v2.1.247 (2026-08-26) — seven items assessed; PSS immune on all seven, two CC-side fixes *benefit* it, and one hardening PSS already had
 

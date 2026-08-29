@@ -3,7 +3,7 @@ trdd-id: XUD7YUZH
 title: Modularize main.rs — function-module split (steps M1-M14, deferred remainder)
 column: backburner
 created: 2026-07-24T16:13:50+0200
-updated: 2026-07-24T16:13:50+0200
+updated: 2026-08-29T15:08:09+0200
 current-owner: perfect-skill-suggester
 task-type: refactor
 scope: project
@@ -23,9 +23,12 @@ per-step green gate) is the committed report:
   `mod data; pub(crate) use data::*;` in main.rs.
 - Gate at time of writing: `cargo check -p perfect-skill-suggester --all-targets` = 0 own-crate
   warnings; `cargo test -p perfect-skill-suggester` = **223 passed**. main.rs 23,102 → 21,971.
-- **⚠ This increment is UNCOMMITTED in the `rust/` submodule** (as of 2026-07-24). It must be
-  committed FIRST (it is the revert substrate) — but commits in this project go through
-  `publish.py` / require the owner's go (never raw `git commit`; see the release rule).
+- **✅ COMMITTED — this card's "⚠ UNCOMMITTED" warning was STALE and is retracted (2026-08-29).**
+  Verified first-hand: `git -C rust ls-files skill-suggester/src/data.rs` returns the path, and
+  `git -C rust status --short` shows only `agent_meta.rs` dirty — `data.rs` is not in the dirty
+  set, so it is tracked AND clean at submodule HEAD `b1d9752` (3.14.1). Step 1 of "HOW to
+  resume" below ("Commit `data.rs` first") is therefore ALREADY DONE; the revert substrate
+  exists. Do not re-commit it.
 
 **DEVIATION from the plan:** the executed step bundled ALL static data into ONE `data.rs`, NOT
 the plan's granular per-concern files (taxonomy.rs / abbreviations.rs / activities.rs / text.rs
@@ -65,6 +68,24 @@ fix, agent slimming, CPV cleanup, CI accuracy gate, +206 tests) — real user va
 Shipping wins on any priority calculus; the split is parked here as a tracked, resumable card so
 "later never comes" cannot silently happen. Early pull-forward signal: the next real bugfix inside
 main.rs is measurably slowed by the file's size.
+
+## Deferral re-affirmed 2026-08-29 (under an explicit "drain the board" order)
+
+The USER ordered every pending TRDD completed, deciding autonomously. This card is the one
+that **stays parked**, and that is a decision, not an omission:
+
+- `backburner` is the one column the drain rule explicitly exempts ("`backburner` (explicitly
+  deferred, by design) … those are resting states"), so leaving it here does not stall a
+  pipeline — it is where a deliberate defer is *supposed* to live.
+- Nothing changed the advisor's verdict-B grounds: the split is still navigability-only, still
+  ships zero user value, and still carries four >1,800-line high-risk cuts plus one blown
+  attempt. Draining it would spend the session's whole budget on a behaviour-neutral refactor
+  while real cards (3JYVXDZG) went untouched.
+- The pull-forward trigger is unchanged and is the thing to watch: **the next real bugfix
+  inside `main.rs` being measurably slowed by the file's size.** 3JYVXDZG is a `main.rs`
+  bugfix — if working it proves painful, that is the signal to unpark this card.
+
+Only the stale UNCOMMITTED claim above was corrected. No scope, plan, or column change.
 
 ## Links
 - Plan (committed): `reports/pss-improve-mainrs-plan/20260723_141326+0200-mainrs-modularization-plan.md`

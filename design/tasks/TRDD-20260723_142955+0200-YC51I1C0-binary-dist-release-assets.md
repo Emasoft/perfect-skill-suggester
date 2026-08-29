@@ -3,7 +3,7 @@ trdd-id: YC51I1C0
 title: Distribute platform binaries as GitHub release assets instead of tracking them in bin/
 column: planned
 created: 2026-07-23T14:29:55+0200
-updated: 2026-08-25T18:23:03+0200
+updated: 2026-08-29T15:08:09+0200
 current-owner: perfect-skill-suggester-6a
 task-type: infra
 min-approval-requirement: user
@@ -514,3 +514,22 @@ the release pipeline (`release-via: publish`).
   after a Phase-1/2 release proves the asset path (per §7's own sequencing).
   (Field migrated `approval-tier: 2` → `min-approval-requirement:` per the 2026-08-25 rename;
   set to `user` — standalone project, no manager.)
+
+- 2026-08-29T15:08:09+0200 — **Phase 0 CONFIRMED DONE (no action needed).** Verified
+  first-hand: `git ls-files bin/` returns 11 paths and `bin/pss-wasm32.wasm` is not among
+  them, so the orphan named in §1.4 is already untracked. A repo-wide search for `wasm`
+  across `.py/.rs/.sh/.json/.yml/.md` (excluding `design/` and `reports/`) finds only
+  CHANGELOG history and unrelated `wasm-bindgen` rows in `rust/negation-detector/Cargo.lock`
+  — zero live references. §1.1's table (12 artifacts, 153.93 MiB) is therefore STALE by one
+  file: the tracked set is now 10 binaries + `pss-hook-dispatch.sh`, ~151.78 MiB. Every other
+  §1 figure stands.
+
+  **Phases 1-3 remain OPEN and are NOT being executed in this session** — a deliberate scope
+  call under the "drain the board" order, recorded so the stop is visible rather than silent:
+  acceptance criteria P2-P7 cannot be evaluated at all until a release that actually carries
+  the assets exists (P3 cold-install, P4 tamper-refusal, P5 blackhole-proxy, P6 offline
+  tarball, P7 concurrency all fetch from a real published release). The card's own §7 phasing
+  agrees — "Phase 3 only after a Phase-1/2 release proves the asset path". So this is
+  inherently a multi-release migration, not a single-session task, and claiming it complete
+  here would be false. It stays `column: planned` with Phase 0 closed and Phase 1 as the next
+  action: add asset upload to `.github/workflows/build-binaries.yml` + `bin/manifest.json`.
