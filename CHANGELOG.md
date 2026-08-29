@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.14.5] - 2026-08-29
+
+### Bug Fixes
+
+- **scoring:** Own project's elements survive a subdirectory cwd
+
+### Documentation
+
+- **memory:** Lesson — a guard re-expressed in its own test is untested
+
 ## [3.14.4] - 2026-08-29
 
 ### Bug Fixes
