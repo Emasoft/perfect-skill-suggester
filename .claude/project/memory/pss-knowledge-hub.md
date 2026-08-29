@@ -51,6 +51,12 @@ reading this list.
   the incremental merge seeded its prior state from the stale `skill-index.json` artifact. Seed
   from the live DB and fail fast; also covers three sibling silent failures from the same audit.
 
+- [[pss-index-is-cross-project]] — PSS suggests an agent belonging to a DIFFERENT project: the
+  index is built with `--all-projects`, so it holds every registered project at once (689 rows
+  over 20, measured) and nothing filtered by origin until v3.14.2. Carries the five `source`
+  spellings and the bare-`project` trap that is wrong in both directions, plus the lesson that
+  a card's prescribed fix can pass its own acceptance criteria while fixing nothing.
+
 ### Temporal index — `rust/skill-suggester/src/**`
 - [[absence-detection-needs-a-coverage-claim]] — removals are never detected because the
   removal-check set is derived from the survivors; the scanner must claim its DOMAIN.
