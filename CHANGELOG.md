@@ -2,6 +2,17 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.15.0] - 2026-08-29
+
+### Bug Fixes
+
+- **scoring:** ~/.claude is user scope; canonicalize before the walk-up
+
+### Documentation
+
+- **memory:** Lesson — repeated input guards mean the predicate asks the wrong question
+- TRDD-K3PW7NQ2 verified — plugin enablement honoured at suggest time
+
 ## [3.14.5] - 2026-08-29
 
 ### Bug Fixes
