@@ -209,3 +209,23 @@ also reported the doc header and `CLAUDE.md` still needing a version bump — th
 both already read 2.1.246.
 
 ## Approval log
+
+- 2026-08-29T15:08:09+0200 — **COMPLETE**, under the USER's explicit delegation to complete
+  every pending TRDD and decide autonomously (2026-08-29). `min-approval-requirement: none`
+  (Tier 0) — an in-scope bugfix in this project's own code, no approval gate.
+
+  Closed on the REQUIREMENT, not on the plan: the card's prescribed mechanism was disproven
+  mid-execution (see the STATE block) and its three mechanism criteria are marked WITHDRAWN
+  with reasons rather than reworded into something passable. What shipped fixes strictly more
+  than the card asked — the defect turned out to fire on every prompt in every project, not
+  only after a `/cd`.
+
+  Evidence: 306 Rust tests pass (0 failed, 0 own-crate warnings), two new; the Suggestion
+  Accuracy Gate (`pss_test_e2e.py`, the gate the local `--gate` does NOT run and which shipped
+  red twice before) is 6/6 against the NEW binary, not the old one; and the fix was verified on
+  the binary extracted FROM the tag — `git ls-tree v3.14.2 rust` → `merge-base --is-ancestor`
+  confirms commit `1189367` is in the shipped gitlink, and `git show v3.14.2:bin/pss-darwin-arm64`
+  filters the foreign project's agents while still returning them from that project's own cwd.
+
+  Shipped in **v3.14.2** (`--force-build`, because the change lives inside the `rust/` submodule
+  — the shape that produced a stale shipped binary on an earlier release).
