@@ -1,9 +1,9 @@
 ---
 trdd-id: YC51I1C0
 title: Distribute platform binaries as GitHub release assets instead of tracking them in bin/
-column: planned
+column: dev
 created: 2026-07-23T14:29:55+0200
-updated: 2026-08-29T15:08:09+0200
+updated: 2026-08-30T01:05:00+0200
 current-owner: perfect-skill-suggester-6a
 task-type: infra
 min-approval-requirement: user
@@ -497,6 +497,46 @@ Therefore:
   high, irreversible risk.
 
 ---
+
+## Phase status
+
+**Phase 0 — DONE** (verified 2026-08-30, first-hand): `bin/pss-wasm32.wasm` is neither tracked
+(`git ls-files bin/` lists 11 entries, no `.wasm`) nor present on disk. The only remaining `wasm`
+hits in the tree are language-taxonomy strings in `main.rs`, unrelated to the artifact.
+
+**Phase 1 — IMPLEMENTED 2026-08-30**, ships in the next release:
+- `scripts/publish.py` gains `RELEASE_BINARIES` (the ten names), `write_binary_manifest()`,
+  `_binaries_tarball()` and `upload_release_assets()`.
+- The manifest is generated from the ACTUAL built files at step 10c — after both build steps and
+  before the commit, so it is staged by the existing `git add bin/` and ships in the same commit
+  as the binaries it describes.
+- Assets upload AFTER `create_github_release()` rather than inside it. That function returns
+  early when the release already exists (the `--push-only` recovery path), so uploading from
+  inside would let a recovery run repair the release and leave it asset-less — the same
+  half-published state `--push-only` exists to repair, one layer down. `--clobber` keeps retries
+  idempotent.
+- 5 unit tests (`tests/unit/test_publish_release_assets.py`) assert the manifest describes the
+  REAL bytes, that a missing binary is fatal with no partial manifest left behind, that the
+  tarball holds exactly ten flat members, and that `RELEASE_BINARIES` matches what `bin/`
+  actually ships.
+- `bin/manifest.json` generated and spot-verified against the live binaries.
+
+**DEVIATION from the phase-1 plan, deliberate.** The plan says *"build-binaries.yml: add an
+asset-upload step"*. Not done, and it should not be: `publish.py` already uploads on the
+authoritative release path, so a second uploader would give the same asset NAMES two writers.
+Their bytes need not agree — CI compiles with its own toolchain — while `bin/manifest.json`
+records the sha of exactly one build. A CI upload landing after (or racing) the local one would
+therefore publish assets that fail verification against the tracked manifest, breaking §3.2's
+whole trust argument and pre-failing the phase-2 differential gate G3. The asset path is proven
+end-to-end by the local publisher, which is what the phase is for. If CI is ever to become the
+builder, that is a separate decision about WHO builds a release, not an extra upload step.
+
+**Phase 2 — NOT STARTED.** Needs the fetcher, the resolver search root, the SessionStart spawn
+and G3.
+
+**A phase-1 test caught a real defect in this session's own code:** the dry-run branch logged
+`BIN_MANIFEST.relative_to(ROOT)`, which raises `ValueError` for any path outside the repo root —
+a cosmetic log line that would have aborted the run. Fixed to print the path as-is.
 
 ## 12. Approval
 

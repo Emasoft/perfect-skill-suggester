@@ -30,12 +30,15 @@ Modes:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 from pathlib import Path
 from typing import NoReturn
@@ -63,6 +66,30 @@ BUILD_SCRIPT = ROOT / "scripts" / "pss_build.py"
 BIN_DIR = ROOT / "bin"
 HOOK_SOURCE = ROOT / "git-hooks" / "pre-push"
 HOOK_TARGET = ROOT / ".git" / "hooks" / "pre-push"
+
+# -- Release assets (TRDD-YC51I1C0 phase 1) --
+# The ten platform binaries, published as GitHub release assets under names
+# BYTE-IDENTICAL to their bin/ filenames. That identity is what lets a later
+# phase drop the tracked copies without touching any of the three resolvers
+# (sh / Python / Rust), which map a platform to a NAME and stat it.
+#
+# Phase 1 changes nothing a user can observe: the files stay tracked in bin/
+# and every resolver still finds them there. The point is to prove the asset
+# path end to end on real releases before anything depends on it.
+RELEASE_BINARIES = (
+    "pss-darwin-arm64",
+    "pss-darwin-x86_64",
+    "pss-linux-arm64",
+    "pss-linux-x86_64",
+    "pss-windows-x86_64.exe",
+    "pss-nlp-darwin-arm64",
+    "pss-nlp-darwin-x86_64",
+    "pss-nlp-linux-arm64",
+    "pss-nlp-linux-x86_64",
+    "pss-nlp-windows-x86_64.exe",
+)
+BIN_MANIFEST = BIN_DIR / "manifest.json"
+MANIFEST_SCHEMA = 1
 
 # -- Report housekeeping --
 # Per the global agent-reports-location rule, ALL report dirs live under the
@@ -891,8 +918,6 @@ def create_github_release(new: str, dry_run: bool) -> None:
 
     notes = generate_release_notes(new)
     # Write notes to a temp file (avoids shell escaping issues with multiline notes)
-    import tempfile
-
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", suffix=".md", delete=False
     ) as tmp:
@@ -918,6 +943,116 @@ def create_github_release(new: str, dry_run: bool) -> None:
         success(f"  GitHub release v{new} published.")
     finally:
         Path(notes_path).unlink(missing_ok=True)
+
+
+def write_binary_manifest(new: str, dry_run: bool) -> None:
+    """Regenerate the git-tracked `bin/manifest.json` from the ACTUAL files.
+
+    The manifest is the trust anchor for TRDD-YC51I1C0. Publishing a binary
+    next to its own `.sha256` on the same server verifies transport corruption
+    and nothing else — whoever can replace the asset can replace the checksum.
+    The checksum has to arrive through a channel the user already trusted, and
+    that channel is the plugin clone itself: Claude Code fetched it over TLS
+    and it supplies the hook scripts already running on their machine. So the
+    sha lives in git, and a tampered release asset fails against the repo.
+
+    Consequences that make this generator, not a template:
+      - it is computed from the built files on every release, never edited;
+      - a binary absent from bin/ is FATAL rather than silently omitted, since
+        an omitted entry is exactly what a later fetcher would refuse to
+        install — failing here names the missing target while a human is
+        watching, instead of at some user's first cold install.
+
+    Written BEFORE the release commit so it is staged with `bin/` and ships in
+    the same commit as the binaries it describes.
+    """
+    info("Writing bin/manifest.json...")
+    if dry_run:
+        # Printed as-is, never `relative_to(ROOT)`: that raises ValueError for
+        # any path outside the repo root, so a cosmetic log line would be the
+        # thing that aborts the run.
+        info(f"  [DRY-RUN] Would write {BIN_MANIFEST}")
+        return
+
+    entries: dict[str, dict[str, object]] = {}
+    missing: list[str] = []
+    for name in RELEASE_BINARIES:
+        path = BIN_DIR / name
+        if not path.exists():
+            missing.append(name)
+            continue
+        digest = hashlib.sha256()
+        # Streamed, not read whole: these are 15-20 MiB each and there are ten.
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                digest.update(chunk)
+        entries[name] = {"sha256": digest.hexdigest(), "size": path.stat().st_size}
+
+    if missing:
+        fatal(
+            "Cannot write bin/manifest.json — binary/binaries missing from "
+            f"bin/: {', '.join(missing)}. Every name in RELEASE_BINARIES must "
+            "exist before a release; a manifest with a hole would make that "
+            "target uninstallable for anyone fetching from the release."
+        )
+
+    manifest = {
+        "schema": MANIFEST_SCHEMA,
+        "plugin_version": new,
+        "release_tag": f"v{new}",
+        "binaries": entries,
+    }
+    BIN_MANIFEST.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    success(f"  bin/manifest.json written ({len(entries)} binaries).")
+
+
+def _binaries_tarball(new: str, dest_dir: Path) -> Path:
+    """Bundle the ten binaries into `pss-binaries-<version>.tar.gz`.
+
+    Built into a caller-supplied TEMP dir, never into the repo: the tarball is
+    a release asset, not a tracked file, and writing it under bin/ would both
+    dirty the tree mid-release and get itself swept into the `git add bin/`
+    that stages the binaries.
+
+    Exists for the mirroring / air-gapped tier — one file to carry across an
+    isolated boundary instead of ten separate downloads.
+    """
+    tarball = dest_dir / f"pss-binaries-{new}.tar.gz"
+    with tarfile.open(tarball, "w:gz") as tf:
+        for name in RELEASE_BINARIES:
+            tf.add(BIN_DIR / name, arcname=name)
+    return tarball
+
+
+def upload_release_assets(new: str, dry_run: bool) -> None:
+    """Attach the binaries, the manifest, and the tarball to the v<new> release.
+
+    Separate from `create_github_release` and called unconditionally after it,
+    because that function returns EARLY when the release already exists (the
+    `--push-only` recovery path). Uploading from inside it would mean a
+    recovery run repairs the release but leaves it asset-less — the same
+    half-published state --push-only exists to repair, one layer down.
+
+    `--clobber` makes re-running idempotent: a retry replaces an asset it
+    already uploaded instead of failing the whole release on a duplicate name.
+    """
+    info("Uploading release assets...")
+    if dry_run:
+        info(f"  [DRY-RUN] Would upload {len(RELEASE_BINARIES) + 2} assets to v{new}")
+        return
+
+    with tempfile.TemporaryDirectory(prefix="pss-release-assets-") as tmp:
+        tarball = _binaries_tarball(new, Path(tmp))
+        assets = [str(BIN_DIR / n) for n in RELEASE_BINARIES]
+        assets.append(str(BIN_MANIFEST))
+        assets.append(str(tarball))
+        result = run(
+            ["gh", "release", "upload", f"v{new}", *assets, "--clobber"],
+            timeout=GIT_PUSH_TIMEOUT,
+        )
+        if result.returncode != 0:
+            fatal(f"gh release upload failed: {result.stderr.strip()}")
+    success(f"  {len(RELEASE_BINARIES) + 2} assets uploaded to v{new}.")
 
 
 def _submodule_src_changed(last_tag: str, rel_path: str) -> bool | None:
@@ -1575,6 +1710,12 @@ def release_pipeline(args: argparse.Namespace) -> None:
     # Step 10b: Conditionally rebuild pss-nlp (only when negation-detector changed)
     build_pss_nlp(args.dry_run, force_build=args.force_build)
 
+    # Step 10c: Regenerate bin/manifest.json from the built files. Must run
+    # AFTER both build steps and BEFORE the commit — it is a tracked file
+    # staged by the `git add bin/` below, so it has to describe the binaries
+    # this release actually ships, in the same commit as those binaries.
+    write_binary_manifest(new_version, args.dry_run)
+
     # Step 11-13: Commit + tag + push (only after all gates pass)
     if not args.dry_run:
         git_commit(old_version, new_version)
@@ -1593,6 +1734,9 @@ def release_pipeline(args: argparse.Namespace) -> None:
 
     # Step 14: Publish GitHub release (MANDATORY)
     create_github_release(new_version, args.dry_run)
+
+    # Step 15: Attach the binaries + manifest + tarball to that release.
+    upload_release_assets(new_version, args.dry_run)
 
     # Summary
     print_summary(old_version, new_version, args)
@@ -1652,6 +1796,10 @@ def push_only_pipeline(args: argparse.Namespace) -> int:
     # is idempotent (it probes first), so re-running is safe.
     current = read_current_version()
     create_github_release(current, args.dry_run)
+    # Assets too: a release that exists but carries no binaries is the same
+    # half-published state this path repairs, one layer down. Upload is
+    # --clobber, so re-running over a complete release is a no-op.
+    upload_release_assets(current, args.dry_run)
 
     success(f"Push-only complete: {head[:12]}, tags, and the v{current} release are on the remote.")
     return 0

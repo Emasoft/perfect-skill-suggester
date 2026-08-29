@@ -1,10 +1,11 @@
 ---
 trdd-id: K3PW7NQ2
 title: PSS suggests elements from DISABLED plugins - enablement read at index time from user scope only
-column: testing
+column: complete
 created: 2026-08-29T16:53:00+0200
-updated: 2026-08-29T23:40:00+0200
-implementation-commits: [40499b5]
+updated: 2026-08-30T01:05:00+0200
+implementation-commits: [40499b5, 812f280]
+released-in: v3.15.0
 current-owner: perfect-skill-suggester
 task-type: bugfix
 min-approval-requirement: none
