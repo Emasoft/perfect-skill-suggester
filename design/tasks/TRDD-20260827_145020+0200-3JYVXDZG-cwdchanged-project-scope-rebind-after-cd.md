@@ -1,9 +1,9 @@
 ---
 trdd-id: 3JYVXDZG
 title: Rebind project-scoped element inventory on a mid-session /cd
-column: backburner
+column: complete
 created: 2026-08-27T14:50:20+0200
-updated: 2026-08-27T15:33:00+0200
+updated: 2026-08-29T15:08:09+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 min-approval-requirement: none
@@ -13,6 +13,77 @@ relevant-rules: []
 ---
 
 # Rebind project-scoped element inventory on a mid-session `/cd`
+
+## ⏵ STATE — READ THIS FIRST ON RESUME (authoritative; supersedes the body) — 2026-08-29
+
+**DONE — but NOT the way this card specified. The card's own diagnosis was WRONG, and the
+fix it prescribed would not have worked. Read this before believing anything below it.**
+
+**What the card claimed:** PSS binds the project scope once at index-build time and never
+rebinds, so after `/cd` A→B the index still holds A's elements and lacks B's. Fix: declare
+`CwdChanged` and rebind.
+
+**What is actually true (measured, not reasoned):** `pss_reindex.py:201` runs
+`pss_discover.py` with **`--all-projects`**, so the index is CROSS-PROJECT by construction —
+every registered project at once. Live DB, 2026-08-29: **689 `project:` rows spanning 20
+distinct projects, plus 111 `local:` rows.** So B's elements were never missing and A's were
+never stale; the index simply contains everyone.
+
+**Therefore the prescribed fix was a no-op.** Reindexing bound to B leaves all 20 projects
+in the index — A's elements remain exactly as scoreable as before. Declaring `CwdChanged`
+would have shipped, passed its own acceptance criteria as written, and fixed nothing.
+
+**The real defect** is the one the card's own "Verified facts" section had already proved
+and then talked past: *nothing filters a candidate by its origin* — not at load, not on the
+way in, not in the scoring loop. The consequence is not a `/cd` edge case at all; it is that
+**every prompt in every project is scored against all 20 projects, always.** `/cd` was only
+the most visible symptom.
+
+**Observed live, in-session:** while working in the PSS checkout, PSS suggested
+`svg-matrix-tester`, whose source is `project:SVG-MATRIX-d055d603/plugin:svg-matrix-tester`.
+An element from an unrelated project, for an unrelated prompt.
+
+**The fix (v3.14.2):** `main.rs::is_foreign_project_element`, applied at the existing
+invocability `retain` (`main.rs:~19180`) that already culls `marketplace:` sources — one
+predicate at a site that already exists, already re-derives `build_name_index()`, and is
+already outside the hot loop. It drops candidates belonging to a project other than the live
+`input.cwd`'s. **Because it keys on the live per-prompt cwd, `/cd` is fixed for free** — the
+first prompt after the move is already correctly scoped, with no reindex, no hook, and no
+window of staleness. That is strictly better than the rebind this card asked for, which
+would have left a gap until the async reindex finished.
+
+**Two shapes the obvious implementation gets wrong — do NOT "simplify" these away:**
+- `local:<abs-path>` is a raw PATH, not a slug. One `starts_with` cannot cover both.
+- Bare `project` and `project:agentskills` carry NO slug — they mean "whatever the cwd was
+  at INDEX time" — so they are decided by the element's `path`, not its source. Keeping them
+  blindly re-leaks the index-time project; **dropping them blindly erases the current
+  project's own elements**, because `pss_discover.py:946` seeds `seen_project_paths` with
+  `{cwd}` and skips it in the registry loop — the cwd project has NO slugged duplicate to
+  fall back on. Both directions are covered by
+  `unslugged_project_sources_are_decided_by_path_not_by_source`.
+
+**Verification:** 306 Rust tests pass (0 failed, 0 own-crate warnings), two of them new; plus
+an end-to-end check on the BUILT RELEASE BINARY, no mocks — the same prompt yields the
+SVG-MATRIX agents from `Code/SVG-MATRIX` and nothing from the PSS checkout, while unrelated
+prompts still return plugin/marketplace agents at HIGH confidence from both.
+
+**Also folded in:** the long-carried "R17.24 suggest-time gap" open item. `R17.24` has
+**zero occurrences repo-wide** across every file type — it is an unresolvable citation
+carried across two session handoffs. Its described symptom ("suggest-time gap") is precisely
+this defect, and the fix lives at suggest time, so it is closed here rather than left to be
+re-asked a third time.
+
+**SUPERSEDED — do NOT carry forward:**
+- The `CwdChanged` hook approach, in full. Not deferred — *disproven*. Do not revive it.
+- The premise "PSS binds the project scope ONCE and never rebinds". The binding was never
+  the problem; the missing filter was.
+- The "Priority note" below calling this low and needing a cross-project `/cd` to bite. It
+  fires on every prompt in every project.
+
+**Still true below:** the `--warm-index` analysis (it early-returns on a populated DB, so it
+could never have rebound anything) and the METHOD NOTE on anchoring a search range before
+searching it.
+
 
 PSS binds the project scope ONCE, at index-build time, and never rebinds it. After a
 mid-session `/cd` from project A to project B, prompt-time *context* follows the move but
@@ -96,14 +167,32 @@ A real fix needs an explicit re-discovery of PROJECT-scoped elements against the
 
 ## Acceptance criteria
 
-- [ ] `CwdChanged` declared in `hooks/hooks.json` (available since CC 2.1.83).
-- [ ] Its handler re-resolves the project root from the event's cwd — it MUST NOT trust a
-      `CLAUDE_PROJECT_DIR` captured at session start.
-- [ ] After `/cd` A→B, project-scoped elements of A are no longer scoreable and B's are.
-- [ ] User-scope and plugin-scope elements are untouched by the rebind.
-- [ ] The handler is non-blocking and silent, per the existing SessionStart contract.
-- [ ] `docs/CC-COMPATIBILITY.md` — replace the `CwdChanged` "not declared (intentional)"
-      rationale and fold the v2.1.246 open-question paragraph into this TRDD's id.
+Criteria 1, 2 and 5 named a MECHANISM (`CwdChanged` + a rebind handler) that measurement
+showed cannot fix the defect — see the STATE block. They are withdrawn as written; the
+REQUIREMENT they existed to serve is criterion 3, and it is met. Recorded rather than
+silently reworded, because "we shipped the criteria we could pass" is how a card lies.
+
+- [~] ~~`CwdChanged` declared in `hooks/hooks.json`~~ — **WITHDRAWN, deliberately NOT
+      declared.** The filter keys on the live `input.cwd` every `UserPromptSubmit` already
+      carries, so `/cd` is correct on the very next prompt with no event. Declaring one
+      would schedule work the next prompt does anyway.
+- [~] ~~handler re-resolves the project root from the event's cwd~~ — **WITHDRAWN**, no
+      handler exists. Its intent (never trust a session-start `CLAUDE_PROJECT_DIR`) is
+      honoured more strictly: the comparison root is re-derived per prompt from
+      `input.cwd`, so nothing is captured at any point.
+- [x] **After `/cd` A→B, project-scoped elements of A are no longer scoreable and B's are.**
+      Verified end-to-end on the built release binary, no mocks — identical prompt, two
+      cwds: from `Code/SVG-MATRIX` the two SVG-MATRIX agents are suggested (HIGH, 0.60);
+      from the PSS checkout the same prompt yields nothing. Both halves, one command each.
+- [x] **User-scope and plugin-scope elements are untouched.** Three unrelated prompts from
+      the PSS cwd still return 4 plugin/marketplace agents each at HIGH confidence, and the
+      predicate returns `false` for `user:` / `plugin:` / `built-in:` under test.
+- [~] ~~handler is non-blocking and silent~~ — **WITHDRAWN**, no handler. The property is
+      met vacuously and then some: the filter is one predicate inside a `retain` the hot
+      path already ran, so it adds no process, no I/O and no output.
+- [x] **`docs/CC-COMPATIBILITY.md`** — the `CwdChanged` "not declared (intentional)"
+      rationale is rewritten (it was right by accident), and the v2.1.246 open-question
+      paragraph now carries an explicit RETRACTION of its own diagnosis plus this id.
 
 ## Priority note
 

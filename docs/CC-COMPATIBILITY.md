@@ -27,8 +27,18 @@ All three hooks use `timeout` values in **seconds** (per hooks.md spec).
   re-suggest skills after a compaction cycle in the future.
 - `StopFailure` (CC v2.1.78+) — PSS doesn't run as a subagent that the user
   would want to catch errors from.
-- `FileChanged` / `CwdChanged` (CC v2.1.83+) — PSS re-suggests on every
-  `UserPromptSubmit` which already covers directory-change scenarios.
+- `FileChanged` / `CwdChanged` (CC v2.1.83+) — not declared, and after
+  TRDD-3JYVXDZG that is a *measured* verdict rather than an assumption. A
+  mid-session `/cd` needs no event because the cross-project filter added in
+  v3.14.2 keys on the LIVE `input.cwd` that every `UserPromptSubmit` already
+  carries (`main.rs::is_foreign_project_element`), so the first prompt after
+  the move is already scoped to the new project — with no reindex and no
+  window in which the old project's elements are still scoreable. Declaring
+  `CwdChanged` would add an event that could only repeat work the next prompt
+  does anyway. (The earlier rationale here — "PSS re-suggests on every
+  `UserPromptSubmit` which already covers directory-change scenarios" — was
+  right by accident: it argued from re-suggestion, which covers *context*, not
+  from cwd-keyed filtering, which is what actually covers *inventory*.)
 - `MessageDisplay` (CC v2.1.152+) — lets a hook transform or hide assistant
   message text as it's displayed. PSS suggests skills via `additionalContext`
   on `UserPromptSubmit`; it has no reason to rewrite Claude's rendered output,
@@ -340,12 +350,25 @@ for the full design record.
   `Path.cwd()` once, and `:822` / `:866` / `:1436` / `:1767` / `:2125` all hang off that
   single `cwd`. The scorer does receive the live `cwd` per prompt (`main.rs:19247`
   `scan_project_context(&input.cwd)`), so prompt-time *context* follows the move, but the
-  *element set* does not: after a mid-session `/cd` from project A to project B, B's
-  project-scoped skills are absent from the index until the next reindex. This means the
-  "Not declared (intentional)" rationale for `CwdChanged` above — "PSS re-suggests on
-  every `UserPromptSubmit` which already covers directory-change scenarios" — is
-  imprecise: re-suggesting covers *context*, not *inventory*. Recorded here rather than
-  fixed; it predates v2.1.246 and warrants its own TRDD.
+  *element set* does not.
+
+  **RESOLVED in v3.14.2, and the diagnosis above is RETRACTED — measurement contradicted
+  it.** The claim "B's project-scoped skills are absent from the index until the next
+  reindex" assumed the index is bound to one project. It is not: `pss_reindex.py:201`
+  runs `pss_discover.py --all-projects`, so *every* registered project is indexed at
+  once. Measured on the live DB 2026-08-29: **689 `project:`-scoped rows spanning 20
+  distinct projects, plus 111 `local:` rows.** B's elements were already present all
+  along; A's never went away. The defect was never a stale binding — it was the absence
+  of any suggest-time filter on an element's origin, so *all 20 projects* were scored
+  against every prompt, in every project, `/cd` or not. Observed directly: an agent
+  sourced `project:SVG-MATRIX-…/plugin:svg-matrix-tester` was suggested during a session
+  working in the PSS checkout.
+
+  A `CwdChanged` reindex — the fix originally proposed — would therefore **not** have
+  worked: rebinding the cwd leaves all 20 projects in the index. The fix is
+  `main.rs::is_foreign_project_element`, applied at the existing invocability `retain`,
+  which drops elements belonging to a project other than the live `input.cwd`'s. That
+  makes `/cd` correct for free (see the `CwdChanged` entry above). See TRDD-3JYVXDZG.
 
 ### v2.1.245 (2026-08-25)
 
