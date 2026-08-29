@@ -2,6 +2,16 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.14.4] - 2026-08-29
+
+### Bug Fixes
+
+- **scoring:** Relative-cwd and trim-consistency doors onto the mass-condemn
+
+### Documentation
+
+- Add TRDD-K3PW7NQ2 — PSS suggests elements from DISABLED plugins
+
 ## [3.14.3] - 2026-08-29
 
 ### Bug Fixes
