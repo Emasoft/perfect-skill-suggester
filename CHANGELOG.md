@@ -2,6 +2,17 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.14.3] - 2026-08-29
+
+### Bug Fixes
+
+- **scoring:** Absent `cwd` must not empty the index (hotfix for v3.14.2)
+
+### Documentation
+
+- **memory:** Record that the PSS index is cross-project, and the lesson from getting it wrong
+- **board:** Archive TRDD-3JYVXDZG → complete
+
 ## [3.14.2] - 2026-08-29
 
 ### Bug Fixes
