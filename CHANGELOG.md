@@ -2,6 +2,12 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.16.0] - 2026-08-29
+
+### Features
+
+- **release:** Publish binaries as release assets with a git-tracked manifest (TRDD-YC51I1C0 phase 1)
+
 ## [3.15.0] - 2026-08-29
 
 ### Bug Fixes
