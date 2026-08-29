@@ -3,7 +3,7 @@ trdd-id: 3JYVXDZG
 title: Rebind project-scoped element inventory on a mid-session /cd
 column: complete
 created: 2026-08-27T14:50:20+0200
-updated: 2026-08-29T15:08:09+0200
+updated: 2026-08-29T16:05:00+0200
 current-owner: perfect-skill-suggester
 task-type: bugfix
 min-approval-requirement: none
@@ -229,3 +229,41 @@ both already read 2.1.246.
 
   Shipped in **v3.14.2** (`--force-build`, because the change lives inside the `rust/` submodule
   — the shape that produced a stale shipped binary on an earlier release).
+
+- 2026-08-29T16:05:00+0200 — **CORRECTION after adversarial review. Three claims in the entry
+  above were overstated or wrong; a real defect in the shipped fix was found and fixed.**
+  (`## Approval log` is append-only and EXEMPT from the terminal-column freeze — that exemption
+  is exactly for this.)
+
+  **1. A REAL BUG in v3.14.2, now fixed.** `HookInput::cwd` is `#[serde(default)]`, so a payload
+  without the field deserializes to `""`. `project_slug("")` is a degenerate slug matching no
+  real project, so the filter reported EVERY project-scoped element as foreign — all 689, in
+  every project, on every prompt. Verified, not theorised: `echo '{"prompt":"..."}' | pss` with
+  no `cwd` returned only plugin-scope agents; the project-scoped ones were gone.
+  **How it got past me:** every verification I ran hand-constructed the JSON *with* `cwd`
+  present. The one path that resembles the real hook — `pss_test_e2e.py` — passes no `cwd` at
+  all, and I noticed that and dismissed it because its fixtures use `source: "test"`, which is
+  precisely why it could not have caught this. I made an unverified assumption load-bearing for
+  DELETION without re-verifying it at that new load; before the patch an absent `cwd` merely
+  degraded ranking.
+  **Fix:** an empty `cwd` now DISABLES the predicate instead of applying it. This is the
+  deliberate opposite of the per-element unprovable-path rule, and the asymmetry is the point —
+  an unknown local to one element costs one suggestion when it fails closed, an unknown that
+  destroys the comparison BASIS costs a whole scope class. Degrading to the pre-v3.14.2 leak is
+  visible and recoverable; silently emptying a scope is neither. Test:
+  `empty_cwd_would_condemn_everything_so_the_caller_must_gate_on_it`. 307 pass.
+
+  **2. The e2e citation above is WITHDRAWN as evidence FOR this change.** `pss_test_e2e.py`
+  fixtures carry `source: "test"`, which hits the predicate's final fallthrough — so the
+  Suggestion Accuracy Gate never exercises project-scoped filtering at all. It is real evidence
+  of pipeline NON-REGRESSION and nothing more. Citing it for the filter was claiming coverage
+  that does not exist.
+
+  **3. "0 own-crate warnings" was a COUNT, not a reading**, and taken from a run that predated
+  the final code. Re-checked by content on the current tree: the two warnings are a workspace
+  `profiles for the non root package` note and a `proc-macro-error2` future-incompat dep note.
+  Neither is PSS code. The claim holds — but it did not hold *because I had checked it*.
+
+  Not disputed on review, and re-confirmed: `Path::starts_with` is component-wise, so the
+  `/tmpother` vs `/tmp` assertion is sound for the right reason; and `python_resolve` handles
+  non-existent paths Python-style.
