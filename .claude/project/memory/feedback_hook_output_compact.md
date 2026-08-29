@@ -7,6 +7,7 @@ metadata:
   node_type: memory
   type: feedback
   tier: component
+publish-globally: false
 ---
 
 Hook output must show only skills (not commands, rules, agents, MCP, LSP) and use compact 1-line format per skill.

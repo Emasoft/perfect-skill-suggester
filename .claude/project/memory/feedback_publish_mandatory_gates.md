@@ -7,6 +7,7 @@ metadata:
   node_type: memory
   type: feedback
   tier: component
+publish-globally: false
 ---
 ^L4H7MOQG [desc:"PSS's release gate must never gain a bypass — every push must pass lint+tests+validation with 0 issues; env-var bypass markers were rejected as trivially spoofable in favor of process-ancestry checking.", keywords:"unbypassable_release_gate no_env_var_bypass process_ancestry_check spoofable_marker_rejected", type:feedback, ocd:2026-07-16, lmd:2026-07-16]
 **NEVER add any bypass to the PSS release gate. Every push to GitHub MUST pass lint + tests + validation with 0 issues, enforced via two layers in the pre-push hook.**

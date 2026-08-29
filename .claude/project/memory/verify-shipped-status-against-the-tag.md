@@ -7,6 +7,7 @@ metadata:
   node_type: memory
   type: feedback
   tier: component
+publish-globally: false
 ---
 
 ^WJ922K80 [desc:"Verify a fix's shipped status against git, not a STATE note: for a submodule fix, check the release tag's recorded gitlink is a descendant of the fix commit via merge-base --is-ancestor; commit order in the log alone is not proof.", keywords:"verify_shipped_status git_ancestor_check submodule_gitlink_check commit_order_not_proof release_notes_verification", type:feedback, ocd:2026-07-17, lmd:2026-07-17]

@@ -7,6 +7,7 @@ metadata:
   node_type: memory
   type: project
   tier: component
+publish-globally: false
 ---
 
 ^KXZW34RQ [desc:"CPV's auto-updated skillaudit scanner flagged 16 findings in PSS that were all false positives in correct, working code; the language/context-blind heuristics fire on token shapes regardless of exploitability.", keywords:"cpv_skillaudit_false_positives auto_update_broke_gate language_blind_heuristics token_shape_match", type:project, ocd:2026-06-16, lmd:2026-07-17]

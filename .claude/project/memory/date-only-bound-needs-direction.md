@@ -7,6 +7,7 @@ metadata:
   node_type: memory
   type: project
   tier: component
+publish-globally: false
 ---
 
 ^Q8C0PB99 [desc:"A date literal denotes an interval but a query cutoff needs an instant, and which end of the interval to use depends on the bound's direction, so a single shared date parser cannot choose correctly without a direction parameter.", keywords:"date_literal_interval_vs_instant bound_direction_dependency shared_parser_ambiguity", type:project, ocd:2026-07-17, lmd:2026-07-17]

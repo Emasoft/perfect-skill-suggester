@@ -7,6 +7,7 @@ metadata:
   node_type: memory
   type: feedback
   tier: component
+publish-globally: false
 ---
 
 ^FUK1PLIS [desc:"The F4/F5 element_id re-key needed 3 mid-flight spec corrections, each a real data-corruption defect found by a later ground-truth probe: a key-keyed table missing from the spec, ids embedded inside string values invisible to a column-name scan, and a new writer verb dispatched on the unlocked query path.", keywords:"f4_f5_rekey_three_corrections id_embedded_in_string_value column_name_scan_blind unlocked_writer_race", type:feedback, ocd:2026-07-17, lmd:2026-07-17]

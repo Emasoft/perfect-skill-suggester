@@ -7,6 +7,7 @@ metadata:
   node_type: memory
   type: project
   tier: component
+publish-globally: false
 ---
 
 ^BKLYIYV7 [desc:"publish.py's CPV remote-validation step has only a 180s internal timeout; a cold uvx cache building the CPV env from GitHub can exceed it, returning exit 124 before any version bump — the tree is left clean, safe to retry.", keywords:"cpv_validation_180s_timeout exit_code_124 cold_uvx_cache clean_tree_safe_retry", type:project, ocd:2026-07-16, lmd:2026-07-16]

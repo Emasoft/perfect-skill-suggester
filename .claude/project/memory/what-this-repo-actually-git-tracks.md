@@ -7,6 +7,7 @@ metadata:
   node_type: memory
   type: project
   tier: component
+publish-globally: false
 ---
 
 In the PSS repo, two paths that look tracked are NOT, and one of them cannot be

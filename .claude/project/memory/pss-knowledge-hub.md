@@ -13,6 +13,7 @@ globs:
   - "hooks/hooks.json"
   - ".gitignore"
   - "CLAUDE.md"
+publish-globally: false
 ---
 
 Entry point to PSS's **PROJECT-scope** memory — the machine-agnostic lessons every

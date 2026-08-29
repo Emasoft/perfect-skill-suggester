@@ -7,6 +7,7 @@ metadata:
   node_type: memory
   type: project
   tier: component
+publish-globally: false
 ---
 
 # e2e-phase-must-pin-suggest-mode

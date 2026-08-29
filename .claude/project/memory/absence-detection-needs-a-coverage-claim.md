@@ -7,6 +7,7 @@ metadata:
   node_type: memory
   type: feedback
   tier: component
+publish-globally: false
 ---
 
 ^G5BP6ABP [desc:"Absence-detection-by-diff needs an explicit scanner-produced coverage claim, or it silently degrades to noticing removal only when a nearby item survives.", keywords:"absence_detection_rule coverage_claim_requirement diff_based_removal_check", type:feedback, ocd:2026-07-17, lmd:2026-07-17]
