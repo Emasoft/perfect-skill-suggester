@@ -1,9 +1,10 @@
 ---
 trdd-id: K3PW7NQ2
 title: PSS suggests elements from DISABLED plugins - enablement read at index time from user scope only
-column: todo
+column: testing
 created: 2026-08-29T16:53:00+0200
-updated: 2026-08-29T16:53:00+0200
+updated: 2026-08-29T23:40:00+0200
+implementation-commits: [40499b5]
 current-owner: perfect-skill-suggester
 task-type: bugfix
 min-approval-requirement: none
@@ -65,18 +66,89 @@ So there are two defects, and the narrow one does not subsume the broad one:
 
 ## Acceptance criteria
 
-- [ ] An element whose plugin is `false` in the effective settings is never suggested.
-- [ ] Effective enablement = Claude Code precedence, **local beats user**: the agent's
+- [x] An element whose plugin is `false` in the effective settings is never suggested.
+- [x] Effective enablement = Claude Code precedence, **local beats user**: the agent's
       `.claude/settings.local.json` overrides `~/.claude/settings.json` per plugin key.
-- [ ] Enablement is evaluated at **USE** time (suggest time), not only at index-build — toggling
+- [x] Enablement is evaluated at **USE** time (suggest time), not only at index-build — toggling
       a plugin changes suggestions with **no reindex**.
-- [ ] Verified against the live disabled set on this machine: the three agents named above stop
+- [x] Verified against the live disabled set on this machine: the three agents named above stop
       being suggested, and enabled-plugin agents still are.
-- [ ] Absent/unreadable settings degrade like the v3.14.3 `cwd` guard — an undecidable
+- [x] Absent/unreadable settings degrade like the v3.14.3 `cwd` guard — an undecidable
       GLOBAL basis disables the filter rather than emptying a scope class. (One element's
       unknown may fail closed; a missing basis must not.)
-- [ ] A test that actually exercises a disabled-plugin source — note `pss_test_e2e.py`
+- [x] A test that actually exercises a disabled-plugin source — note `pss_test_e2e.py`
       fixtures use `source: "test"` and cannot reach this path, so it will not catch it.
+
+## Implementation (2026-08-29, commit `40499b5` in the `rust` submodule)
+
+Fixed in the Rust suggestion hot path, not in discovery — that is what makes it USE-time.
+`candidate_is_invocable_here` gains a fourth exclusion class; `disabled_plugin_keys(cwd)` is
+computed once per prompt from the live settings files.
+
+**Measured blast radius before the fix: 432 suggestable entries across 30 disabled plugins.**
+(`all-skills@buildwithclaude` 110, `axiom@axiom-marketplace` 91, `agents-specialized-domains`
+41, …)
+
+Three findings that changed the design, each verified first-hand against the live index:
+
+1. **The key must be built from `source`, never from the `plugin`/`origin` columns.**
+   `plugin` is `None` for a large share of real rows (every `plugin:ai-maestro-plugins/*` bar
+   two), and `origin` holds the marketplace's REPO OWNER (`github.com/davepoon`), not its local
+   name (`buildwithclaude`). Keying on either yields
+   `agents-language-specialists@github.com/davepoon`, which matches nothing — the filter would
+   have read as a clean no-op. Only `source` (`plugin:<marketplace>/<plugin-name>`) carries both
+   halves, spelled in the opposite order to the settings key `<plugin-name>@<marketplace>`.
+2. **Precedence must resolve on the VALUE, not on presence.** ai-maestro confirmed the harness
+   writes BOTH polarities (`~/agents/frank/.claude/settings.local.json`: 37 entries, mixed).
+   Collecting each layer's `false` keys and unioning them passes a naive test and is still
+   wrong — it can never let a higher layer RE-ENABLE what a lower one disabled.
+3. **`marketplace:` rows were already dropped** by the first exclusion class, so this is
+   entirely about the 1220 installed `plugin:` rows. `project:<slug>/plugin:<name>` is
+   deliberately unhandled: a project-local plugin has no marketplace, so no key can exist.
+
+Live verification, no reindex between runs, prompt *"write idiomatic rust code with ownership
+and lifetimes, review it for security"*:
+
+| cwd / settings | suggested |
+|---|---|
+| before the fix | `agents-quality-security:code-reviewer`, `claude-code-settings:pr-reviewer`, `agents-language-specialists:rust-expert` — all three plugins `false` |
+| after | only `ai-maestro-janitor:*`, `claude-plugins-validation:*` — both `true` |
+| local `ai-maestro-janitor…: false` | janitor agent gone, others stand |
+| local `agents-language-specialists…: true` | `rust-expert` returns, overriding the user-scope `false` |
+| **project** `agents-language-specialists…: true`, no local file | `rust-expert` returns — the middle layer is live |
+| project `…: true` + local `…: false` | `rust-expert` gone — local beats project |
+| **isolation run:** new binary, local layer re-enables ALL 76 keys | reproduces the pre-fix output **byte-identically**, same four agents at the same scores (1.00 / 0.87 / 0.51 / 0.60) |
+
+**Attribution, stated precisely.** The plain before/after diff does NOT isolate this edit: the
+shipped `bin/pss-darwin-arm64` is v3.14.5, while the submodule HEAD built from already carried
+the unreleased `~/.claude`-is-user-scope + canonicalize-before-walk fix, which rewrites
+`owning_project_root` and therefore the cross-project filter. Two changes, one diff. What
+isolates it is the **settings-only runs against one fixed binary** — and decisively the last
+row: with every key re-enabled the new binary is byte-identical to the old, so the entire
+observed difference is this filter and nothing else, including no effect on scores.
+
+**Untested wiring, named rather than implied.** `merge_enablement_layers` is tested over layer
+TEXTS, and all three layers are exercised live above — but the six lines inside
+`disabled_plugin_keys` that ASSEMBLE the three paths in low-to-high order have no unit test of
+their own. Same class of boundary the retain call's own comment already admits: literal, low
+risk, and still untested.
+
+Four unit tests added (314 pass, was 310), covering key derivation, value-precedence in both
+directions, every fail-open shape, and the composed retain predicate on a real `plugin:` source.
+
+**Left alone deliberately:** `pss_discover.py --exclude-inactive-plugins` still exists and still
+defaults OFF. It is now redundant for correctness — the hot path decides — but it remains a
+legitimate way to shrink the index, and removing it is not this card's scope.
+
+## Consulted
+
+- **ai-maestro session** (SendMessage, 2026-08-29): confirmed the settings.local.json path is
+  resolvable from cwd with no registry lookup, that keys are `name@marketplace`, that
+  `permissions` / `crossSessionInbound` are unrelated siblings, and ratified fail-open as the
+  contract. **Corrected one of my assumptions**: the harness writes `true` as well as `false`,
+  which is what forced finding 2 above.
+- **Fable advisor: NOT consulted — unavailable.** `agentlenspro model-headroom fable` reported
+  the Fable weekly window at 100% (exit 1), so per the advisor rule no verdict was obtained.
 
 ## Provenance
 
