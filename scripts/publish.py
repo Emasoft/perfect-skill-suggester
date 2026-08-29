@@ -946,7 +946,17 @@ def create_github_release(new: str, dry_run: bool) -> None:
 
 
 def write_binary_manifest(new: str, dry_run: bool) -> None:
-    """Regenerate the git-tracked `bin/manifest.json` from the ACTUAL files.
+    """Regenerate the git-tracked `bin/manifest.json` by hashing `bin/` as it stands.
+
+    PROVENANCE, stated precisely because the obvious phrasing is wrong: this
+    hashes the bytes present in bin/ at COMMIT time, NOT "the files this run
+    built". Both build steps skip when their sources are unchanged
+    (`build_binaries` on no .rs diff, `build_pss_nlp` independently), so on a
+    typical release most of these binaries were built by an earlier one.
+    Hashing what is on disk is the property that is actually wanted — it
+    describes what SHIPS — and it holds whether or not a build ran. Do not
+    "correct" this into a claim about build output: the phase-2 differential
+    gate will be written against whichever guarantee this comment states.
 
     The manifest is the trust anchor for TRDD-YC51I1C0. Publishing a binary
     next to its own `.sha256` on the same server verifies transport corruption
@@ -1710,10 +1720,11 @@ def release_pipeline(args: argparse.Namespace) -> None:
     # Step 10b: Conditionally rebuild pss-nlp (only when negation-detector changed)
     build_pss_nlp(args.dry_run, force_build=args.force_build)
 
-    # Step 10c: Regenerate bin/manifest.json from the built files. Must run
-    # AFTER both build steps and BEFORE the commit — it is a tracked file
+    # Step 10c: Regenerate bin/manifest.json by hashing bin/ as it stands. Must
+    # run AFTER both build steps and BEFORE the commit — it is a tracked file
     # staged by the `git add bin/` below, so it has to describe the binaries
-    # this release actually ships, in the same commit as those binaries.
+    # this release actually ships, in the same commit as those binaries. (It
+    # hashes what is on disk, not what this run built — see the docstring.)
     write_binary_manifest(new_version, args.dry_run)
 
     # Step 11-13: Commit + tag + push (only after all gates pass)
