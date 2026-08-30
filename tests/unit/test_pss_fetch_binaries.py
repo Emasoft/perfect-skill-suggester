@@ -222,6 +222,67 @@ def test_a_blocked_network_fails_loudly_and_installs_nothing(fetcher, env, capsy
     assert fetcher.ATTEMPTS == 3, "retries stay bounded; an unbounded loop is a hang"
 
 
+def test_a_tampered_download_is_recorded_not_just_refused(fetcher, env, tmp_path, monkeypatch):
+    """The DOWNLOAD path, run for real over file:// — no network, no mock.
+
+    `urlopen` handles `file://`, so pointing DOWNLOAD_BASE at a directory
+    exercises the actual retry/verify/replace code rather than the `--offline`
+    branch that was previously asserted to stand in for it. The two are NOT the
+    same code and diverged exactly where it mattered: a network mismatch used to
+    raise SystemExit, which — being a BaseException — escaped every handler and
+    left `.state.json` holding the PREVIOUS run's `{"status": "ok"}`. A
+    /pss-status reading healthy right after a tampered download is the silent
+    degradation the git-shipped checksum exists to prevent.
+    """
+    served = tmp_path / "served" / "v9.9.9"
+    served.mkdir(parents=True)
+    for name in env["names"]:
+        (served / name).write_bytes(b"TAMPERED-" + name.encode())
+    monkeypatch.setattr(fetcher, "DOWNLOAD_BASE", f"file://{tmp_path / 'served'}")
+    monkeypatch.setattr(fetcher, "BACKOFF_SECONDS", 0)
+
+    # Seed a prior success, so a missing write would leave a STALE "ok" behind
+    # — the exact failure this test exists to catch.
+    fetcher.write_state("ok", release_tag="v0.0.0")
+
+    assert fetcher.fetch(None) == 1
+
+    state = _state(env["data"])
+    assert state["status"] == "checksum-mismatch", "a mismatch must overwrite a stale ok"
+    assert not (env["data"] / "bin" / "current").exists()
+    assert not list((env["data"] / "bin").glob("*/*.part"))
+
+
+def test_good_download_over_file_url_installs_and_records_ok(fetcher, env, tmp_path, monkeypatch):
+    """The happy download path, also real: correct bytes install and publish."""
+    served = tmp_path / "served" / "v9.9.9"
+    served.mkdir(parents=True)
+    for name, payload in env["payloads"].items():
+        (served / name).write_bytes(payload)
+    monkeypatch.setattr(fetcher, "DOWNLOAD_BASE", f"file://{tmp_path / 'served'}")
+
+    assert fetcher.fetch(None) == 0
+    for name in env["names"]:
+        assert (env["data"] / "bin" / "current" / name).read_bytes() == env["payloads"][name]
+    assert _state(env["data"])["status"] == "ok"
+
+
+def test_engine_present_but_nlp_sibling_missing_installs_neither(fetcher, env):
+    """"Installs nothing" must hold when the FIRST name succeeds and a later one fails.
+
+    The earlier missing-member test omitted names[0], so it returned before
+    installing anything and the contract was never actually exercised. With the
+    engine present and its nlp sibling absent, publishing inside the loop left
+    a half-installed store behind an exit 1.
+    """
+    engine_only = {env["names"][0]: env["payloads"][env["names"][0]]}
+
+    assert fetcher.fetch(env["make_tarball"](engine_only)) == 1
+    assert _state(env["data"])["status"] == "offline-incomplete"
+    current = env["data"] / "bin" / "current"
+    assert not current.exists() or not list(current.iterdir()), "no partial publish"
+
+
 def test_needed_names_pairs_the_engine_with_its_nlp_sibling(fetcher):
     """The name map is the contract shared by all three resolvers."""
     names = fetcher.needed_names()

@@ -69,6 +69,10 @@ BACKOFF_SECONDS = 2
 CHUNK = 1024 * 1024
 
 
+class ChecksumMismatch(Exception):
+    """Downloaded bytes did not match the manifest. Never a BaseException."""
+
+
 def _plugin_root() -> Path:
     """Where the tracked `bin/` lives — the plugin install, else this repo."""
     env = os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip()
@@ -153,11 +157,18 @@ def _download_verified(url: str, expected_sha: str, dest: Path) -> None:
             actual = _sha256(part)
             if actual != expected_sha:
                 part.unlink(missing_ok=True)
-                raise SystemExit(
-                    f"PSS: checksum mismatch for {dest.name}.\n"
+                # A plain exception, NEVER SystemExit: SystemExit derives from
+                # BaseException, so it would sail past this function's own
+                # `except` clauses AND fetch()'s, leaving `.state.json` holding
+                # whatever the LAST run wrote — `{"status": "ok"}` after a
+                # previously good fetch. /pss-status would then report a healthy
+                # engine immediately after a TAMPERED download: silent
+                # degradation in the one path the git-shipped checksum exists to
+                # defend. The caller turns this into a recorded failure.
+                raise ChecksumMismatch(
+                    f"checksum mismatch for {dest.name}\n"
                     f"  expected {expected_sha}\n  got      {actual}\n"
-                    f"  from     {url}\n"
-                    "  Refusing to install. Nothing was written."
+                    f"  from     {url}"
                 )
             part.replace(dest)
             return
@@ -242,6 +253,13 @@ def fetch(offline_tarball: Path | None = None) -> int:
                         continue  # a directory or other non-regular entry
                     (staged / name).write_bytes(member.read())
 
+        # ALL binaries are obtained and verified BEFORE any of them is published
+        # to `current/`. Publishing inside the loop meant a bundle carrying the
+        # engine but not its nlp sibling installed the engine, then failed —
+        # exit 1 with a half-installed store, contradicting the "installs
+        # nothing" contract this whole path advertises. Resolve first, publish
+        # last: `current/` then flips only on a run that obtained everything.
+        resolved: list[tuple[str, str]] = []
         try:
             for name in names:
                 expected = manifest["binaries"][name]["sha256"]
@@ -251,7 +269,7 @@ def fetch(offline_tarball: Path | None = None) -> int:
                     # Already in the store from an earlier version whose engine
                     # was identical — this is the "unchanged engine costs
                     # nothing" property, and it needs no network at all.
-                    _publish_current(store, expected, name)
+                    resolved.append((expected, name))
                     continue
                 dest_dir.mkdir(parents=True, exist_ok=True)
                 if staged is not None:
@@ -278,11 +296,18 @@ def fetch(offline_tarball: Path | None = None) -> int:
                         write_state("network-blocked", reason=str(exc), url=url)
                         print(_blocked_message(name, url, str(exc), tag), file=sys.stderr)
                         return 1
+                    except ChecksumMismatch as exc:
+                        write_state("checksum-mismatch", reason=str(exc), url=url)
+                        print(f"PSS: {exc}\n  Refusing to install.", file=sys.stderr)
+                        return 1
                 dest.chmod(0o755)
-                _publish_current(store, expected, name)
+                resolved.append((expected, name))
         finally:
             if staged is not None:
                 shutil.rmtree(staged, ignore_errors=True)
+
+        for expected, name in resolved:
+            _publish_current(store, expected, name)
 
     write_state("ok", release_tag=tag, binaries=names)
     print(f"PSS: engine ready ({', '.join(names)}) from {tag}.")
