@@ -540,10 +540,30 @@ writer-that-does-not-maintain-the-manifest. Two consequences for phase 2, neithe
 blocks phase 1 (nothing consumes the manifest yet):
 
 - **P-2a — the manifest can go stale between releases.** A successful `commit-binaries` push
-  replaces binaries in `bin/` without regenerating `bin/manifest.json`. On this repo the job's
-  push currently degrades to a `::warning::` under branch protection, so it does not land — but
-  that is an environment fact, not a guarantee. Before anything verifies against the manifest,
-  either that job regenerates the manifest too, or it goes away (phase 3 deletes it anyway).
+  replaces binaries in `bin/` without regenerating `bin/manifest.json`. Before anything verifies
+  against the manifest, either that job regenerates the manifest too, or it goes away (phase 3
+  deletes it anyway).
+
+  **MEASURED 2026-08-30, and the reason is not the one the job reports.** `git log origin/main
+  --grep='build: update pre-built binaries'` → **0 commits, ever**; every commit on `main` is
+  authored by the owner. The job's own log for the latest run (33279963666) shows why:
+
+  ```
+  [detached HEAD 334a4e8] build: update pre-built binaries for all platforms
+  fatal: You are not currently on a branch.
+  ##[warning]Push blocked by branch protection. Binaries are available as workflow artifacts.
+  ```
+
+  `actions/checkout` on a TAG produces a detached HEAD, so `git push` cannot infer a target ref
+  and fails before any server-side rule is consulted. **The `::warning::` text is wrong** — it
+  blames branch protection for a local git error, which is precisely what led the first version
+  of this section to record branch protection as the mitigation. A misattributing error message
+  is worse than none: it answers the question so the reader stops asking it.
+
+  So the CI-writer risk is real but currently inert for a structural reason, on the tag-triggered
+  runs that matter for releases. Do not treat "the push fails" as a guarantee held by rulesets —
+  it is held by a checkout mode, and fixing the job's push (an easy, plausible "cleanup") would
+  ACTIVATE the staleness hazard. Phase 3 deletes the job; until then, leave it broken and say why.
 - **P-2b — the phase-3 CI break in this phase's own test.**
   `test_release_binaries_matches_what_the_repo_actually_ships` globs the `bin/` DIRECTORY, not
   `git ls-files`. Phase 3 leaves the files on developer disks, so it will keep passing locally
@@ -555,16 +575,57 @@ blocks phase 1 (nothing consumes the manifest yet):
 
 - **P1 — PASS.** `gh release view v3.16.0 --json assets` lists exactly 12 names: the ten
   binaries, `manifest.json`, and `pss-binaries-3.16.0.tar.gz`.
-- **P2 — PASS.** All ten assets downloaded and sha256'd: every one matches the tracked
-  `bin/manifest.json`, sizes included, and the published `manifest.json` asset is byte-identical
-  to the tracked file.
+- **P2 — PASS, including the tarball.** All ten binary assets downloaded and sha256'd: every one
+  matches, sizes included. The published `manifest.json` asset is byte-identical to the tracked
+  file, and — the check that stops this being circular — the tracked file is byte-identical to
+  the blob at tag `v3.16.0` (`git ls-tree v3.16.0 bin/manifest.json` == `git hash-object
+  bin/manifest.json` == `472b8cf2…`). So the manifest a USER receives is the one these assets
+  were verified against, not merely a working-tree copy that round-tripped through GitHub.
+- **The tarball is verified too**, which P2 as originally worded did not require. It was the only
+  published asset nothing had ever checked, and it is the SOLE delivery path for §6's air-gapped
+  tier — so leaving it unchecked would have meant the tier whose users have no fallback was the
+  one tier with no evidence. Downloaded `pss-binaries-3.16.0.tar.gz`, extracted: 10 members, none
+  missing, every member's sha256 matches the manifest. **P2's wording should read "every asset,
+  including the tarball's members".**
 
 **Correction to §7's phase-1 line "User-visible change: none."** Not quite: `bin/manifest.json`
 is a NEW tracked file, so from v3.16.0 every user's plugin cache gains ~1 KB. No behaviour
 changes, and shipping that file through git is the entire point of §3.2 — but "none" was wrong.
 
-**Phase 2 — NOT STARTED.** Needs the fetcher, the resolver search root, the SessionStart spawn
-and G3.
+**Phase 2 — IN PROGRESS.** `scripts/pss_fetch_binaries.py` is written and exercised end-to-end
+against the real v3.16.0 tarball. Still to do: the extra search root in all three resolvers (with
+`bin/` still AHEAD of the store, per §7), the SessionStart spawn + `additionalContext` line,
+`/pss-status` rendering of `.state.json`, `test_pss_binary_path_parity.py`, and the G3 CI gate.
+
+Fetcher, as built:
+- downloads only the TWO binaries this machine can execute (§1.2 measures the full set at 78-82%
+  dead weight), verified against the git-tracked manifest;
+- content-addressed store `<data-dir>/bin/<sha256[:16]>/<name>` + `current/<name>`, so an
+  unchanged engine costs a new version 0 bytes and no network;
+- verify-into-`.part`-then-`os.replace`, so a file present in the store has already matched its
+  sha and a crash mid-download cannot leave something that looks installed;
+- `LOCK_EX` on `.fetch.lock` — a NEW file readers never touch, so a fetch can never block the
+  hot path;
+- symlink for `current/`, falling back to copy where symlinks need privileges (unprivileged
+  Windows), since a plugin that only works for administrators is not shipped;
+- bounded retries (3) then a loud failure carrying the offline remedy inline — a proxy that
+  refuses the connection refuses it on the twentieth try too, and an unbounded retry turns a
+  clear failure into an undiagnosable hang.
+
+**P3 / P6 verified for real** (no mocks, real published artifact): a cold store populated from
+`pss-binaries-3.16.0.tar.gz` via `--offline` yields exactly the two artifacts plus their
+`current/` entries, both executable, and the fetched binary runs.
+
+**FINDING for phase 3 — `--version` from the store needs `CLAUDE_PLUGIN_ROOT`.** The fetched
+binary reported `pss 3.15.0` when run straight out of the store, and `pss 3.16.0` with
+`CLAUDE_PLUGIN_ROOT` set. Nothing is wrong with the fetch: the two releases ship a
+byte-identical binary (`git ls-tree` gives the same blob `07a67a3f…` at both tags, because the
+build correctly skipped on no `.rs` change), and the Rust binary resolves `VERSION` via
+`CLAUDE_PLUGIN_ROOT` or relative to its own path — from the store there is no `VERSION` beside
+it, so it falls back to the version compiled in at BUILD time. Today `bin/` is inside the plugin
+root so the fallback never fires. After phase 3 it always will for any invocation that does not
+set the env var. Claude Code's hooks do set it; a human running the binary does not. Decide
+before the flip whether `/pss-status` and any version-gated logic may rely on `--version`.
 
 **A phase-1 test caught a real defect in this session's own code:** the dry-run branch logged
 `BIN_MANIFEST.relative_to(ROOT)`, which raises `ValueError` for any path outside the repo root —

@@ -1,0 +1,195 @@
+"""Tests for scripts/pss_fetch_binaries.py (TRDD-YC51I1C0 phase 2).
+
+The fetcher's whole value is what it does when things go WRONG. A happy-path
+download proves little: the interesting contract is that a corrupted, truncated,
+or unverifiable artifact leaves NOTHING behind, because a partially-installed
+binary is indistinguishable from a working one until a user's session breaks in
+a way nobody can trace back to here.
+
+So these exercise the refusal paths against a real filesystem and a real tarball
+built by the same code path publish.py uses:
+
+  * a tarball member whose bytes do not match the manifest is refused, the store
+    stays empty, and the state file records why;
+  * a member missing from the tarball is refused rather than half-installed;
+  * a manifest with no entry for this platform is refused — unverifiable bytes
+    are never installed, which is the entire point of shipping the sha in git;
+  * a second run over a populated store re-publishes `current/` without needing
+    the artifact again (the "unchanged engine costs nothing" property);
+  * only the two binaries this machine can run are ever installed.
+
+The network is not mocked because it is never reached: every case here runs
+through `--offline`, which is the same verification code with a different
+source of bytes.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import importlib.util
+import json
+import sys
+import tarfile
+from pathlib import Path
+
+import pytest
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS_DIR = PROJECT_ROOT / "scripts"
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    if str(SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def fetcher():
+    return _load_module("pss_fetch_under_test", SCRIPTS_DIR / "pss_fetch_binaries.py")
+
+
+@pytest.fixture
+def env(fetcher, tmp_path, monkeypatch):
+    """A fake plugin root (with a manifest) and an empty data dir."""
+    plugin_root = tmp_path / "plugin"
+    (plugin_root / "bin").mkdir(parents=True)
+    data = tmp_path / "data"
+    data.mkdir()
+
+    names = fetcher.needed_names()
+    payloads = {n: b"engine-bytes-" + n.encode() for n in names}
+    manifest = {
+        "schema": 1,
+        "plugin_version": "9.9.9",
+        "release_tag": "v9.9.9",
+        "binaries": {
+            n: {"sha256": hashlib.sha256(b).hexdigest(), "size": len(b)}
+            for n, b in payloads.items()
+        },
+    }
+    (plugin_root / "bin" / "manifest.json").write_text(json.dumps(manifest))
+
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(plugin_root))
+    monkeypatch.setattr(fetcher, "get_data_dir", lambda: data)
+
+    def make_tarball(contents: dict[str, bytes] | None = None) -> Path:
+        contents = payloads if contents is None else contents
+        staging = tmp_path / "staging"
+        staging.mkdir(exist_ok=True)
+        tarball = tmp_path / "pss-binaries-9.9.9.tar.gz"
+        with tarfile.open(tarball, "w:gz") as tf:
+            for n, b in contents.items():
+                p = staging / n
+                p.write_bytes(b)
+                tf.add(p, arcname=n)
+        return tarball
+
+    return {
+        "data": data,
+        "names": names,
+        "payloads": payloads,
+        "manifest_path": plugin_root / "bin" / "manifest.json",
+        "make_tarball": make_tarball,
+    }
+
+
+def _state(data: Path) -> dict:
+    return json.loads((data / "bin" / ".state.json").read_text())
+
+
+def test_offline_install_populates_only_this_platforms_binaries(fetcher, env):
+    """Exactly two artifacts land, content-addressed, published via current/."""
+    assert fetcher.fetch(env["make_tarball"]()) == 0
+
+    store = env["data"] / "bin"
+    for name in env["names"]:
+        sha = hashlib.sha256(env["payloads"][name]).hexdigest()
+        artifact = store / sha[:16] / name
+        assert artifact.read_bytes() == env["payloads"][name]
+        assert (store / "current" / name).read_bytes() == env["payloads"][name]
+
+    # Two binaries, not ten: fetching the full set would move ~160 MiB to run
+    # ~30 MiB of it.
+    assert len(env["names"]) == 2
+    assert sorted(p.name for p in (store / "current").iterdir()) == sorted(env["names"])
+    assert _state(env["data"])["status"] == "ok"
+
+
+def test_corrupt_member_is_refused_and_leaves_an_empty_store(fetcher, env):
+    """Fail-closed: a byte that does not match the manifest installs nothing.
+
+    The dangerous alternative is a partial install — a `current/` entry pointing
+    at bytes nobody verified, which behaves like a working engine right up until
+    it does not.
+    """
+    bad = dict(env["payloads"])
+    first = env["names"][0]
+    bad[first] = b"tampered"
+
+    assert fetcher.fetch(env["make_tarball"](bad)) == 1
+
+    store = env["data"] / "bin"
+    assert not (store / "current" / first).exists()
+    # Nothing half-written anywhere in the store either.
+    assert not list(store.glob("*/*.part"))
+    assert _state(env["data"])["status"] == "checksum-mismatch"
+
+
+def test_member_missing_from_the_tarball_is_refused(fetcher, env):
+    """An incomplete bundle fails loudly rather than installing what it has."""
+    partial = {env["names"][1]: env["payloads"][env["names"][1]]}
+
+    assert fetcher.fetch(env["make_tarball"](partial)) == 1
+    assert _state(env["data"])["status"] == "offline-incomplete"
+    assert not (env["data"] / "bin" / "current" / env["names"][0]).exists()
+
+
+def test_manifest_without_this_platform_installs_nothing(fetcher, env):
+    """No trusted sha means no install — that is what shipping it in git buys."""
+    manifest = json.loads(env["manifest_path"].read_text())
+    del manifest["binaries"][env["names"][0]]
+    env["manifest_path"].write_text(json.dumps(manifest))
+
+    assert fetcher.fetch(env["make_tarball"]()) == 1
+    assert _state(env["data"])["status"] == "manifest-incomplete"
+    assert not (env["data"] / "bin" / "current").exists()
+
+
+def test_a_missing_manifest_is_fatal_with_the_path_it_tried(fetcher, env):
+    """A plugin install without the manifest is incomplete — say so, don't guess."""
+    env["manifest_path"].unlink()
+    with pytest.raises(SystemExit) as exc:
+        fetcher.fetch(env["make_tarball"]())
+    assert "manifest" in str(exc.value).lower()
+
+
+def test_second_run_reuses_the_store_without_the_artifact(fetcher, env):
+    """An unchanged engine costs a new version nothing — no bytes, no network.
+
+    Proven by deleting the source tarball between runs: if the second run needed
+    the artifact it could not possibly succeed.
+    """
+    tarball = env["make_tarball"]()
+    assert fetcher.fetch(tarball) == 0
+    (env["data"] / "bin" / "current" / env["names"][0]).unlink()
+    tarball.unlink()
+
+    # No tarball, no network — the content-addressed copies are already there,
+    # so the run only has to re-publish current/.
+    assert fetcher.fetch(None) == 0
+    for name in env["names"]:
+        assert (env["data"] / "bin" / "current" / name).read_bytes() == env["payloads"][name]
+
+
+def test_needed_names_pairs_the_engine_with_its_nlp_sibling(fetcher):
+    """The name map is the contract shared by all three resolvers."""
+    names = fetcher.needed_names()
+    assert len(names) == 2
+    assert names[1] == names[0].replace("pss-", "pss-nlp-", 1)
+    assert names[0].startswith("pss-") and not names[0].startswith("pss-nlp-")
