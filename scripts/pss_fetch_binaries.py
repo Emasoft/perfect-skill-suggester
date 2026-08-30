@@ -32,7 +32,6 @@ may not.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hashlib
 import json
 import os
@@ -44,6 +43,17 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover — Windows has no fcntl
+    # A BARE `import fcntl` here would crash at import time on the one platform
+    # whose binary this script exists to fetch. Windows loses only the
+    # writer-serialization lock, which costs a redundant download in the rare
+    # case of two concurrent fetches — never a corrupt install, because the
+    # verify-then-`os.replace` below is what makes a store entry trustworthy,
+    # not the lock. Same guard every other fcntl user in scripts/ already uses.
+    fcntl = None  # type: ignore[assignment]
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -188,8 +198,12 @@ def fetch(offline_tarball: Path | None = None) -> int:
     # Writers serialize on their own lock file. Readers (the hot path) never
     # touch it — a fetch in progress must never be able to block a suggestion.
     lock_path = store / ".fetch.lock"
-    with lock_path.open("w") as lock_fh:
-        fcntl.flock(lock_fh, fcntl.LOCK_EX)
+    # Opened "a", not "w": "w" truncates on open, and truncating a file another
+    # process is holding the lock on is a pointless write against a live lock.
+    # Append never modifies a byte and still creates the file.
+    with lock_path.open("a") as lock_fh:
+        if fcntl is not None:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
         try:
             names = needed_names()
         except RuntimeError as exc:

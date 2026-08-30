@@ -187,6 +187,41 @@ def test_second_run_reuses_the_store_without_the_artifact(fetcher, env):
         assert (env["data"] / "bin" / "current" / name).read_bytes() == env["payloads"][name]
 
 
+def test_a_blocked_network_fails_loudly_and_installs_nothing(fetcher, env, capsys, monkeypatch):
+    """The network path, exercised for real — no mock of the thing under test.
+
+    Everything else here runs through `--offline`, which shares the verification
+    code but NOT the download loop, its retry bound, or the message a
+    corporate-proxy user actually sees. Leaving that untested because "the
+    network is not reachable in tests" is the excuse version; pointing the
+    fetcher at an address that cannot resolve is the real thing, and it costs
+    milliseconds.
+
+    Retries are shortened to keep the test fast — the bound itself is asserted
+    separately by reading ATTEMPTS, not by waiting for it.
+    """
+    monkeypatch.setattr(fetcher, "DOWNLOAD_BASE", "https://pss-invalid.invalid/releases/download")
+    monkeypatch.setattr(fetcher, "BACKOFF_SECONDS", 0)
+
+    assert fetcher.fetch(None) == 1
+
+    store = env["data"] / "bin"
+    assert not (store / "current").exists(), "nothing may be published on failure"
+    assert not list(store.glob("*/*.part")), "no partial file may survive"
+
+    state = _state(env["data"])
+    assert state["status"] == "network-blocked"
+    assert "pss-invalid.invalid" in state["url"]
+
+    # The remedy must travel WITH the failure: a user behind a proxy cannot
+    # look up documentation they were never pointed at.
+    err = capsys.readouterr().err
+    assert "offline install" in err
+    assert "pss-binaries-9.9.9.tar.gz" in err
+    assert "PSS_BINARY_DIR" in err
+    assert fetcher.ATTEMPTS == 3, "retries stay bounded; an unbounded loop is a hang"
+
+
 def test_needed_names_pairs_the_engine_with_its_nlp_sibling(fetcher):
     """The name map is the contract shared by all three resolvers."""
     names = fetcher.needed_names()
