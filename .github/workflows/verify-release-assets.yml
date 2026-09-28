@@ -49,8 +49,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # publish.py creates the release first, then uploads the 12 assets
-          # (10 binaries + manifest.json + pss-binaries-<version>.tar.gz). A
+          # publish.py creates the release first, then uploads the 22 assets
+          # (10 binaries + manifest.json + pss-binaries-<version>.tar.gz +
+          # 10 sigstore bundles). A
           # run triggered right after a release can legitimately race the
           # upload, so poll instead of failing on the first look.
           # A push that lands bin/manifest.json can precede the tag's GitHub
@@ -69,13 +70,13 @@ jobs:
           count=0
           while [ "$SECONDS" -lt "$deadline" ]; do
             count="$(gh release view "$TAG" --json assets --jq '.assets | length')"
-            if [ "$count" -ge 12 ]; then
+            if [ "$count" -ge 22 ]; then
               echo "release $TAG has $count assets"
               exit 0
             fi
             sleep 30
           done
-          echo "::error::release $TAG never reached 12 assets (saw $count after 10 minutes)"
+          echo "::error::release $TAG never reached 22 assets (saw $count after 10 minutes)"
           exit 1
 
       - name: Verify each binary asset against the manifest
@@ -133,6 +134,41 @@ jobs:
             exit 1
           fi
           rm -rf "$tmpdir"
+
+      # TRDD-PHQHS58T: every binary asset carries a keyless sigstore bundle
+      # produced at publish time by the runner's own OIDC identity. Verifying
+      # pins BOTH the bundle (signature over these bytes) and the signer
+      # identity (this repo's release workflow on main) — the case
+      # sha-vs-manifest cannot cover, since the manifest ships from the same
+      # pipeline. Hard-required: a missing/mismatched bundle fails the run.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Verify keyless signatures on all binary assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          fail=0
+          while IFS= read -r name; do
+            gh release download "$TAG" -p "${name}" -D "$tmpdir" 2>/dev/null || true
+            gh release download "$TAG" -p "${name}.sigstore.json" -D "$tmpdir" 2>/dev/null \
+              || { echo "::error::${name}: signature bundle missing from release"; fail=1; continue; }
+            if ! cosign verify-blob \
+                  "${tmpdir}/${name}" \
+                  --bundle "${tmpdir}/${name}.sigstore.json" \
+                  --certificate-identity-regexp \
+                    "^https://github\.com/Emasoft/perfect-skill-suggester/\.github/workflows/.*@refs/heads/main$" \
+                  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+                  >/dev/null 2>&1; then
+              echo "::error::${name}: cosign keyless verification failed"
+              fail=1
+            fi
+          done < <(jq -r '.binaries | keys[]' bin/manifest.json)
+          rm -rf "$tmpdir"
+          exit "$fail"
 
       - name: Run the fetcher end-to-end against the real release
         shell: bash
