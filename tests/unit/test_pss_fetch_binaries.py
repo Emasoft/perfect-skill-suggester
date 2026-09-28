@@ -293,3 +293,45 @@ def test_needed_names_pairs_the_engine_with_its_nlp_sibling(fetcher):
     assert len(names) == 2
     assert names[1] == names[0].replace("pss-", "pss-nlp-", 1)
     assert names[0].startswith("pss-") and not names[0].startswith("pss-nlp-")
+
+
+def test_session_start_spawns_once_when_binaries_absent(fetcher, env, capsys, monkeypatch):
+    """The spawn decision itself (review fork 2026-09-28 finding 5).
+
+    env gives a plugin root whose bin/ holds only the manifest — no binaries —
+    and an empty HOME store. The gate must: print the in-flight notice exactly
+    once, spawn the fetcher exactly once, and exit 0.
+    """
+    spawns = []
+
+    class _FakeProc:
+        pass
+
+    monkeypatch.setattr(
+        fetcher.subprocess, "Popen", lambda *a, **k: spawns.append(k) or _FakeProc()
+    )
+    assert fetcher.session_start() == 0
+    assert spawns, "expected exactly one detached spawn on a binary-less install"
+    assert len(spawns) == 1
+    assert spawns[0].get("start_new_session") is True
+    # The child must NEVER inherit this process's stdout — a spawned fetcher
+    # printing anything would break the one-line-only SessionStart contract.
+    assert spawns[0].get("stdout") is fetcher.subprocess.DEVNULL
+    captured = capsys.readouterr()
+    assert captured.out.count("\n") == 1, captured.out
+    assert captured.out.strip() == fetcher.IN_FLIGHT_NOTICE
+
+
+def test_session_start_stays_silent_when_binaries_resolve(fetcher, env, capsys, monkeypatch):
+    """The binaries-present path prints NOTHING (CC 2.1.277 cache-miss rule)."""
+    for name in env["names"]:
+        (env["data"] / "current").mkdir(parents=True, exist_ok=True)
+        (env["data"] / "current" / name).write_bytes(b"x")
+        (env["data"] / "current" / name).chmod(0o755)
+    spawns = []
+    monkeypatch.setattr(
+        fetcher.subprocess, "Popen", lambda *a, **k: spawns.append(k)
+    )
+    assert fetcher.session_start() == 0
+    assert not spawns
+    assert capsys.readouterr().out == ""

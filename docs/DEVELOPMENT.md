@@ -597,3 +597,20 @@ for the full command list and the Python API equivalents.
 - [Cross-Compilation Guide](https://rust-lang.github.io/rustup/cross-compilation.html)
 - [PSS Architecture](./PSS-ARCHITECTURE.md)
 - [Plugin Validation](./PLUGIN-VALIDATION.md)
+
+## Platform binaries (phase 3)
+
+Platform binaries are no longer git-tracked. They ship as GitHub release
+assets, each verified at download time against the sha256 recorded in the
+git-tracked `bin/manifest.json`.
+
+- **Fetch**: `scripts/pss_fetch_binaries.py` runs on first session start and
+  downloads only the binaries this machine can execute, into the
+  content-addressed store `~/.claude/cache/pss-bin/`.
+- **Search order**: `$PSS_BINARY_DIR` → the fetched store →
+  `$CLAUDE_PLUGIN_ROOT/bin` (transitional) → a local dev checkout's `bin/`.
+- **Local dev builds** still output to `bin/` and still work — they are just
+  checked after the store.
+- `PSS_BINARY_DIR` overrides everything.
+- **Offline / air-gapped**: download `pss-binaries-<version>.tar.gz` from the
+  release and install with `--offline`.

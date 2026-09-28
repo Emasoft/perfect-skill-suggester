@@ -23,6 +23,7 @@ Covered:
 
 from __future__ import annotations
 
+
 import importlib.util
 import os
 import re
@@ -67,13 +68,20 @@ def server() -> ModuleType:
 
 
 @pytest.fixture
-def repo_binary(monkeypatch: pytest.MonkeyPatch) -> Path:
+def repo_binary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> Path:
     """Pin binary + VERSION resolution to the repo for deterministic tool runs.
 
     Setting ``$CLAUDE_PLUGIN_ROOT`` to the repo root makes ``resolve_pss_binary()``
     resolve ``<repo>/bin/<name>`` AND makes the binary read ``<repo>/VERSION``,
     so the contract-version regression guard compares like with like.
+    The store is pinned to a tmp dir too: since the phase-3 flip
+    (TRDD-YC51I1C0) the store is probed BEFORE the plugin root, and this test
+    runs in-process where ``BINARY_STORE_DIR`` was already computed from the
+    real $HOME at import — a populated real store would preempt the repo bin.
     """
+    _tmp_store(monkeypatch, tmp_path_factory)
     monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(ROOT))
     return BIN
 
@@ -83,8 +91,29 @@ def repo_binary(monkeypatch: pytest.MonkeyPatch) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_binary_picks_platform_binary(repo_binary: Path) -> None:
+def _tmp_store(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> Path:
+    """Pin BINARY_STORE_DIR to an empty session-scoped tmp dir (auto-cleaned).
+
+    Since the phase-3 flip (TRDD-YC51I1C0) the store is probed SECOND (right
+    after $PSS_BINARY_DIR). The module attribute was already computed from the
+    real $HOME at import; a populated real store would otherwise preempt the
+    plugin-root/repo candidates these tests assert against.
+    """
+    empty = tmp_path_factory.mktemp("pss-store") / "pss-bin"
+    empty.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(pss_paths, "BINARY_STORE_DIR", empty)
+    return empty
+
+
+def test_resolve_binary_picks_platform_binary(
+    repo_binary: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
     """resolve_pss_binary returns the correct per-platform binary under bin/."""
+    _tmp_store(monkeypatch, tmp_path_factory)
     resolved = pss_paths.resolve_pss_binary()
     assert resolved.name == pss_paths.detect_platform()
     assert resolved == ROOT / "bin" / pss_paths.detect_platform()
@@ -92,9 +121,12 @@ def test_resolve_binary_picks_platform_binary(repo_binary: Path) -> None:
 
 
 def test_resolve_binary_honors_plugin_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
     """resolve_pss_binary honors $CLAUDE_PLUGIN_ROOT over the repo fallback."""
+    _tmp_store(monkeypatch, tmp_path_factory)
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     dummy = fake_bin / pss_paths.detect_platform()
@@ -105,9 +137,12 @@ def test_resolve_binary_honors_plugin_root(
 
 
 def test_resolve_binary_missing_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
     """resolve_pss_binary fails fast (FileNotFoundError) when no binary exists."""
+    _tmp_store(monkeypatch, tmp_path_factory)
     monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path))  # empty dir, no bin/
     with pytest.raises(FileNotFoundError):
         pss_paths.resolve_pss_binary()

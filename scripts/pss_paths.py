@@ -139,13 +139,12 @@ def detect_platform() -> str:
     )
 
 
-# The fetched-binary store (TRDD-YC51I1C0 phase 2). A CONSTANT, not
+# The fetched-binary store (TRDD-YC51I1C0). A CONSTANT, not
 # get_data_dir(): the sh shim and the Rust nlp resolver must stat the same
 # path without importing Python, and this rule has already drifted once
 # (the CLAUDE_PLUGIN_DATA conditional's 1,641-element mis-write), so it is
 # pinned here rather than mirrored. scripts/pss_fetch_binaries.py::store_dir()
-# writes here. Phase-2 order: in-repo bin/ still wins over the store; phase 3
-# flips the precedence.
+# writes here. Phase-3 order: the store wins over the plugin/repo bin/.
 BINARY_STORE_DIR = Path.home() / ".claude" / "cache" / "pss-bin"
 
 
@@ -154,13 +153,15 @@ def resolve_pss_binary() -> Path:
 
     Resolution mirrors ``bin/pss-hook-dispatch.sh``:
       1. ``$PSS_BINARY_DIR/<name>`` — operator escape hatch (air-gapped installs).
-      2. ``$CLAUDE_PLUGIN_ROOT/bin/<name>`` — Claude Code sets CLAUDE_PLUGIN_ROOT
-         to the plugin install dir; this is the production location.
-      3. ``<repo>/bin/<name>`` — this file is ``scripts/pss_paths.py`` so
+      2. ``<store>/current/<name>`` — binaries fetched from the GitHub
+         release by ``scripts/pss_fetch_binaries.py``. Phase 3 (TRDD-YC51I1C0)
+         moved it ahead of the plugin root: the store WINS.
+      3. ``$CLAUDE_PLUGIN_ROOT/bin/<name>`` — Claude Code sets CLAUDE_PLUGIN_ROOT
+         to the plugin install dir. Transitional: after the phase-3 flip a
+         fresh install ships no binaries here, so this branch mostly misses;
+         it is deleted in phase 4.
+      4. ``<repo>/bin/<name>`` — this file is ``scripts/pss_paths.py`` so
          the repo's ``bin/`` is the parent's sibling. Covers local dev / tests.
-      4. ``<store>/current/<name>`` — binaries fetched from the GitHub
-         release by ``scripts/pss_fetch_binaries.py``. Still LAST in phase 2
-         (the in-repo copy wins); phase 3 moves it ahead of the plugin root.
 
     Raises FileNotFoundError when the resolved binary does not exist, so callers
     surface a clear error instead of shelling out to a missing executable.
@@ -170,12 +171,12 @@ def resolve_pss_binary() -> Path:
     pss_dir = os.environ.get("PSS_BINARY_DIR", "").strip()
     if pss_dir and Path(pss_dir).is_absolute():
         candidates.append(Path(pss_dir) / binary_name)
+    candidates.append(BINARY_STORE_DIR / "current" / binary_name)
     plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip()
     if plugin_root and Path(plugin_root).is_absolute():
         candidates.append(Path(plugin_root) / "bin" / binary_name)
     else:
         candidates.append(Path(__file__).resolve().parent.parent / "bin" / binary_name)
-    candidates.append(BINARY_STORE_DIR / "current" / binary_name)
     for candidate in candidates:
         if candidate.exists():
             return candidate

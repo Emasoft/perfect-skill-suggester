@@ -21,9 +21,9 @@ and the Rust `pss-nlp` probe) search these roots in this order:
 | # | root | what it is |
 |---|------|------------|
 | 1 | `$PSS_BINARY_DIR/<name>` | operator escape hatch — populate it yourself |
-| 2 | `$CLAUDE_PLUGIN_ROOT/bin/<name>` | the plugin install (today's location) |
-| 3 | `<repo>/bin/<name>` | local development checkout |
-| 4 | `$HOME/.claude/cache/pss-bin/current/<name>` | the fetched store (see below) |
+| 2 | `$HOME/.claude/cache/pss-bin/current/<name>` | the fetched store (see below) — fresh installs fetch here on first session start |
+| 3 | `$CLAUDE_PLUGIN_ROOT/bin/<name>` | transitional — fresh installs have nothing here |
+| 4 | `<repo>/bin/<name>` | local development checkouts |
 
 The store path is a CONSTANT — deliberately not derived from
 `$CLAUDE_PLUGIN_DATA` — so the POSIX-sh resolver and the Rust resolver can
@@ -34,7 +34,9 @@ stat the same path without importing Python.
 `scripts/pss_fetch_binaries.py` downloads only the two binaries this machine
 can execute and verifies each against the sha256 in the git-tracked
 `bin/manifest.json`. The store is content-addressed, so an unchanged engine
-costs a new plugin version zero bytes:
+costs a new plugin version zero bytes. Phase 3 (this release): the store is
+the FIRST location checked after `$PSS_BINARY_DIR`; a fresh install fetches
+here on first session start.
 
 ```
 $HOME/.claude/cache/pss-bin/<sha256[:16]>/<name>   the artifact

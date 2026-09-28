@@ -55,21 +55,29 @@ case "$SYSTEM" in
 esac
 
 # ──────────────────────────────────────────────────────────────────────────
-# Resolve binary path. Search order (TRDD-YC51I1C0 phase 2 — the in-repo
-# copy still WINS over the fetched store; phase 3 flips the last two):
+# Resolve binary path. Search order (TRDD-YC51I1C0 phase 3 — the fetched
+# store now WINS over the plugin/repo copy):
 #   1. $PSS_BINARY_DIR          operator escape hatch
-#   2. $CLAUDE_PLUGIN_ROOT/bin  the plugin install (or the script's own dir)
-#   3. ~/.claude/cache/pss-bin/current   the fetched store — a CONSTANT path,
+#   2. ~/.claude/cache/pss-bin/current   the fetched store — a CONSTANT path,
 #      deliberately not CLAUDE_PLUGIN_DATA-derived: sh cannot mirror the
 #      Python get_data_dir() conditional without a 3rd copy of a rule that
 #      has already drifted once. The fetcher writes to this same constant.
+#   3. $CLAUDE_PLUGIN_ROOT/bin  the plugin install — transitional: a fresh
+#      install has nothing here, so the store above is what users hit
+#   4. the script's own dir     local dev fallback (repo bin/)
 # stat only — this shim must NEVER fetch (hot path, ~3 ms budget).
 # ──────────────────────────────────────────────────────────────────────────
 # [ -n "$BIN_NAME" ] is load-bearing: on an unsupported platform BIN_NAME is
 # empty, and `[ -x "$PSS_BINARY_DIR/"` is true for any searchable directory —
 # exec'ing it would exit 126 and break the session (review fork 2026-09-28).
+# The same guard protects the store early-exec below.
 if [ -n "$BIN_NAME" ] && [ -n "${PSS_BINARY_DIR:-}" ] && [ -x "$PSS_BINARY_DIR/$BIN_NAME" ]; then
     exec "$PSS_BINARY_DIR/$BIN_NAME" --format hook --top 5 --min-score 0.5
+fi
+
+# 2. The fetched store — phase 3 flip: it now beats the plugin/repo copy.
+if [ -n "$BIN_NAME" ] && [ -x "$HOME/.claude/cache/pss-bin/current/$BIN_NAME" ]; then
+    exec "$HOME/.claude/cache/pss-bin/current/$BIN_NAME" --format hook --top 5 --min-score 0.5
 fi
 
 if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
@@ -90,10 +98,9 @@ else
     BIN_DIR="$SCRIPT_DIR"
 fi
 
-if [ -z "$BIN_NAME" ] || [ ! -x "$BIN_DIR/$BIN_NAME" ]; then
-    if [ -x "$HOME/.claude/cache/pss-bin/current/$BIN_NAME" ]; then
-        exec "$HOME/.claude/cache/pss-bin/current/$BIN_NAME" --format hook --top 5 --min-score 0.5
-    fi
+if [ -n "$BIN_NAME" ] && [ -x "$BIN_DIR/$BIN_NAME" ]; then
+    :
+else
     printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":""}}\n'
     exit 0
 fi

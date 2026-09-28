@@ -209,24 +209,27 @@ def _python_order_scenario(
     "kw, expected",
     [
         ({"with_pss_dir": True}, "escape"),
+        ({"with_pss_dir": True, "with_store": True}, "escape"),
         ({"with_pss_dir": True, "with_plugin_bin": True}, "escape"),
-        ({"with_plugin_bin": True}, "plugin"),
-        ({"with_plugin_bin": True, "with_store": True}, "plugin"),
         ({"with_store": True}, "store"),
+        ({"with_store": True, "with_plugin_bin": True}, "store"),
+        ({"with_plugin_bin": True}, "plugin"),
     ],
     ids=[
         "only-PSS_BINARY_DIR",
+        "PSS_BINARY_DIR-beats-store",
         "PSS_BINARY_DIR-beats-plugin-bin",
-        "only-plugin-bin",
-        "plugin-bin-beats-store",
         "only-store",
+        "store-beats-plugin-bin",
+        "only-plugin-bin",
     ],
 )
 def test_python_resolver_search_order(tmp_path: Path, kw: dict, expected: str) -> None:
-    """resolve_pss_binary() follows: $PSS_BINARY_DIR → plugin bin → store.
+    """resolve_pss_binary() follows: $PSS_BINARY_DIR → store → plugin bin.
 
-    Phase-2 order: the in-repo copy wins over the store; here the plugin root
-    is always pinned to a tmp dir so the repo's own bin/ never participates.
+    Phase-3 order (TRDD-YC51I1C0): the fetched store WINS over the plugin/repo
+    copy; here the plugin root is always pinned to a tmp dir so the repo's own
+    bin/ never participates.
     """
     env, roots = _python_order_scenario(tmp_path, **kw)
     out = _python_resolver(env)
@@ -278,7 +281,7 @@ def _run_nlp_probe(tmp_path: Path, env: dict[str, str]) -> subprocess.CompletedP
 
 @PLATFORM_POSIX
 def test_rust_nlp_resolver_search_order(tmp_path: Path) -> None:
-    """Rust order: $PSS_BINARY_DIR → $CLAUDE_PLUGIN_ROOT/bin → store/current."""
+    """Rust order: $PSS_BINARY_DIR → store/current → $CLAUDE_PLUGIN_ROOT/bin."""
     tmp_home = tmp_path / "home"
     root_a = tmp_path / "escape"
     root_b = tmp_path / "plugin" / "bin"
@@ -304,8 +307,9 @@ def test_rust_nlp_resolver_search_order(tmp_path: Path) -> None:
 
     for kw, expected in [
         (dict(pss_dir=True, plugin_bin=True, store_bin=True), root_a / nlp),
-        (dict(pss_dir=False, plugin_bin=True, store_bin=True), root_b / nlp),
+        (dict(pss_dir=False, plugin_bin=True, store_bin=True), store / nlp),
         (dict(pss_dir=False, plugin_bin=False, store_bin=True), store / nlp),
+        (dict(pss_dir=False, plugin_bin=True, store_bin=False), root_b / nlp),
     ]:
         out = _run_nlp_probe(tmp_path, env_for(**kw))
         assert out.returncode == 0, out.stderr
@@ -334,10 +338,11 @@ def test_rust_nlp_resolver_prints_empty_when_not_found(tmp_path: Path) -> None:
 
 @PLATFORM_POSIX
 def test_sh_resolver_search_order(tmp_path: Path) -> None:
-    """Shim execs: $PSS_BINARY_DIR → $CLAUDE_PLUGIN_ROOT/bin → store/current.
+    """Shim execs: $PSS_BINARY_DIR → store/current → $CLAUDE_PLUGIN_ROOT/bin.
 
-    Each candidate is a stub SCRIPT echoing which root it came from, so the
-    assertion pins which file the shim actually exec'd.
+    Phase-3 order (TRDD-YC51I1C0): the fetched store WINS over the plugin/repo
+    copy. Each candidate is a stub SCRIPT echoing which root it came from, so
+    the assertion pins which file the shim actually exec'd.
     """
     tmp_home = tmp_path / "home"
     root_a = tmp_path / "escape"
@@ -359,8 +364,8 @@ def test_sh_resolver_search_order(tmp_path: Path) -> None:
 
     for kw, expected in [
         (dict(pss_dir=True), "PSS_BINARY_DIR"),
-        (dict(pss_dir=False), "PLUGIN_BIN"),
         (dict(pss_dir=False), "STORE"),
+        (dict(pss_dir=False), "PLUGIN_BIN"),
     ]:
         # Scenarios share the dirs inside one test — clear all roots first so
         # a stub from a previous scenario cannot win this one's assertion.
@@ -368,10 +373,10 @@ def test_sh_resolver_search_order(tmp_path: Path) -> None:
             stale.unlink(missing_ok=True)
         if kw["pss_dir"]:
             stub(root_a, "PSS_BINARY_DIR")
-        elif expected == "PLUGIN_BIN":
-            stub(root_b, "PLUGIN_BIN")
-        else:
+        elif expected == "STORE":
             stub(store, "STORE")
+        else:
+            stub(root_b, "PLUGIN_BIN")
         out = _run_shim(env_for(**kw))
         assert out.returncode == 0, out.stderr
         assert out.stdout.strip() == f"FROM:{expected}", (

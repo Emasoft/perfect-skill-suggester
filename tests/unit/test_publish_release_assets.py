@@ -139,4 +139,10 @@ def test_release_binaries_matches_what_the_repo_actually_ships(publish):
         for p in real_bin.iterdir()
         if p.is_file() and p.name.startswith("pss-") and p.suffix != ".sh"
     }
+    # Phase 3 (TRDD-YC51I1C0): binaries are no longer git-tracked, so a fresh
+    # CI clone has an empty bin/ — nothing to compare against.
+    if not on_disk:
+        pytest.skip(
+            "phase 3: binaries are no longer tracked; nothing to compare in a fresh clone"
+        )
     assert on_disk == set(publish.RELEASE_BINARIES)

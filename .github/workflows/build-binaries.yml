@@ -18,15 +18,14 @@ on:
   repository_dispatch:
     types: [rust-source-updated]
 
-# Serialize concurrent runs — prevents commit-binaries jobs from racing each other
-# and silently dropping pushes (the second run would fail `git push` as non-fast-forward).
+# Serialize concurrent runs (artifact upload integrity).
 concurrency:
   group: build-binaries-${{ github.ref }}
   cancel-in-progress: false
 
-# Least privilege at the top level: the build jobs only ever READ the repo.
-# The single job that writes (commit-binaries) re-grants `contents: write`
-# for itself, so a compromised build step has no write token to steal.
+# Least privilege: every job only ever READS the repo. Binaries ship as
+# workflow artifacts / release assets — no job writes to the repo, so no
+# job holds a write token to steal.
 permissions:
   contents: read
 
@@ -137,49 +136,3 @@ jobs:
         with:
           name: ${{ matrix.binary }}
           path: ${{ env.BIN_DIR }}/${{ matrix.binary }}
-
-  # Commit all built binaries back to the repo
-  commit-binaries:
-    needs: [build-macos, build-cross]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # The ONLY job that writes to the repo. Keeping the write scope here (rather
-    # than at the top level) is what lets the build jobs run read-only.
-    permissions:
-      contents: write
-    steps:
-      # Explicit `persist-credentials: true` — this job pushes, so it needs the
-      # token checkout leaves in .git/config. Explicit, not omitted, so scanners
-      # see a deliberate choice rather than a missing hardening.
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: true
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: artifacts
-
-      - name: Copy binaries to bin/
-        run: |
-          for dir in artifacts/*/; do
-            cp "$dir"/* "${{ env.BIN_DIR }}/"
-          done
-          chmod +x "${{ env.BIN_DIR }}"/pss-*
-          ls -la "${{ env.BIN_DIR }}/"
-
-      - name: Commit and push binaries
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "${{ env.BIN_DIR }}/"
-          if git diff --cached --quiet; then
-            echo "No binary changes to commit"
-          else
-            git commit -m "build: update pre-built binaries for all platforms
-
-          Built from: ${{ github.sha }}
-          Targets: darwin-arm64, darwin-x86_64, linux-arm64, linux-x86_64,
-                   windows-x86_64"
-            git push || echo "::warning::Push blocked by branch protection. Binaries are available as workflow artifacts."
-          fi

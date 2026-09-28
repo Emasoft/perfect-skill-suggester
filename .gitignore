@@ -91,8 +91,8 @@ node_modules/
 # Rust build artifacts (covers both main repo and submodule)
 target/
 
-# bin/ is TRACKED — contains pre-built PSS binaries for all platforms
-# (binaries moved from src/skill-suggester/bin/ to top-level bin/ in v2.5.0)
+# bin/ holds only the git-tracked sh shim and manifest — the platform binaries
+# themselves are ignored (see the TRDD-YC51I1C0 phase 3 block at end of file).
 
 # Agent & LLM-tool report output — ALL gitignored because reports often contain
 # private data (paths, tokens, prompts, redacted-but-still-sensitive snippets).
@@ -127,3 +127,9 @@ rck-*-merge-pending.md
 # entry is sufficient and is the only place this is decided; do not re-add
 # per-entry negations here, and do not trust a comment that claims a line is gone
 # without looking for it.)
+
+# TRDD-YC51I1C0 phase 3: platform binaries are release assets now, fetched to
+# ~/.claude/cache/pss-bin by scripts/pss_fetch_binaries.py. bin/ keeps only the
+# sh shim and the git-tracked manifest.
+bin/pss-*
+!bin/pss-hook-dispatch.sh
