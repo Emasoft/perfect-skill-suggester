@@ -437,9 +437,12 @@ def session_start() -> int:
     # window is invisible to /pss-status — it would report "No fetch has run"
     # at the exact moment an existing user is waiting out the upgrade blackout
     # (review fork, phase-3 commit, finding 2). The child's own completion
-    # write replaces this one.
+    # write replaces this one. No release_tag here: load_manifest() raises
+    # SystemExit on a missing manifest — a plain `except Exception` does not
+    # catch it, and this exact parent run is the broken-install scenario the
+    # never-break-session-start contract exists for (round-4 review finding 1).
     try:
-        write_state("fetching", release_tag=load_manifest()["release_tag"])
+        write_state("fetching")
     except Exception:
         pass  # cosmetic only — never break the spawn path over a status file
 

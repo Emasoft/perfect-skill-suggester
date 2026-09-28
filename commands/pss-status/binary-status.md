@@ -62,6 +62,7 @@ Report `status` verbatim and translate it for the user:
 | `status` | means | remedy to show |
 |----------|-------|----------------|
 | `ok` | store is populated and verified | none |
+| `fetching` | a download is running right now (written at spawn) | none — say the engine is downloading and suggestions may be limited this session |
 | `network-blocked` | download refused after 3 attempts | offline install, or `PSS_BINARY_DIR` |
 | `checksum-mismatch` | bytes did not match `bin/manifest.json` | **do not use them** — re-run the fetch; a repeat means a tampered or mis-published asset |
 | `manifest-incomplete` | this platform is absent from the manifest | the release did not ship this platform's binary |

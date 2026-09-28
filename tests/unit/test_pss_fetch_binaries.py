@@ -320,6 +320,10 @@ def test_session_start_spawns_once_when_binaries_absent(fetcher, env, capsys, mo
     # The spawn must record "fetching" so /pss-status can see the download
     # window (phase-3 review finding 2).
     assert _state(env["data"])["status"] == "fetching"
+    assert "release_tag" not in _state(env["data"]), (
+        "the parent must not parse the manifest for a cosmetic field — "
+        "load_manifest() raises SystemExit on a broken install (round-4 review)"
+    )
     captured = capsys.readouterr()
     assert captured.out.count("\n") == 1, captured.out
     assert captured.out.strip() == fetcher.IN_FLIGHT_NOTICE
