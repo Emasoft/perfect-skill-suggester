@@ -3,7 +3,7 @@ trdd-id: YC51I1C0
 title: Distribute platform binaries as GitHub release assets instead of tracking them in bin/
 column: dev
 created: 2026-07-23T14:29:55+0200
-updated: 2026-09-28T22:29:33+0200
+updated: 2026-09-28T22:33:21+0200
 current-owner: perfect-skill-suggester-6a
 task-type: infra
 min-approval-requirement: user
@@ -639,6 +639,7 @@ REVIEW FORK 2026-09-28 (resolver edits) — 2 real defects found and fixed in th
 REVIEW ROUND 2 (phase-2 commits) — finding 1 CONFIRMED and FIXED (4f8f74a): _binaries_resolve stat'ed the script's own parent bin/, which in any copied layout resolves to the developer's repo — fresh installs concluded nothing-to-fetch and the spawn path never fired. Settled with the fork's sandbox command: notice prints, current/ populates. Finding 2 ACCEPTED AS STATED: the rebuilt bin/pss-darwin-arm64 intentionally leads the published v3.16.0 assets until the next release; the nightly G3 red is TRUTHFUL (tracked binary is genuinely not the released one) — do NOT revert the binary to green it; the next --bump regenerates the manifest. Findings 3-8: CLEAR (exe-dir root is sandboxed by the parity test's tmp copy; read-only-HOME silence accepted, no channel exists; matcher set and bulk replace verified).
 **PHASE 3 EXECUTED 2026-09-28** (this commit). git rm --cached the ten binaries (files stay on dev disks); .gitignore bin/pss-* with the shim re-included (manifest+shim remain tracked — P8: git ls-files bin/ = 2); all three resolvers flipped so the STORE now wins (PSS_BINARY_DIR → store → plugin bin → repo bin; plugin-bin branch is transitional, deleted in phase 4); commit-binaries job DELETED from build-binaries.yml (its push fix would have activated hazard P-2a — the checkout-mode guarantee dies with the job); P-2b skip guard added to the bin-globbing test; /pss-status + DEVELOPMENT.md document the new order. Settled: store stub beats the repo binary in sh AND Python end-to-end; full suite 499 passed. Phase 4 (delete the transitional branch after a soak release) NOT started.
 REVIEW ROUND 3 (phase-3 commit 85f40af) — finding 2 FIXED (9ce01a6): /pss-status was blind during the download window (write_state only fired at completion); session_start() now records status 'fetching' at spawn, pinned by the spawn test. Finding 1 (upgrade-window suggestions blackout) CONFIRMED as ratified §9-R2 design — announced via the SessionStart notice, accepted. Findings 4-5 (store version skew, shared store across plugin versions) inherent to content-addressing, accepted. Finding 6 edge 2 noted: tag-blob binary verification habits are retired by this flip — provenance now lives in release-assets+manifest+G3. Heartbeat-triage review: cosign card scope-corrected in the approval log (end-to-end signing story, key custody first).
+REVIEW ROUND 4 — finding 1 CONFIRMED and FIXED (411b09c): the fetching-state write parsed the manifest for a cosmetic tag, and load_manifest()'s SystemExit escaped the except Exception — a broken manifest crashed session start on the never-break path. Parent no longer parses the manifest; settled with the review's settling command (exit 0 + notice + fetching on manifest-less fresh install), pinned in the spawn test. Finding 4 fixed: 'fetching' row added to /pss-status remedy table. Findings 2-3, 5 CLEAR.
 
 ## 12. Approval
 
