@@ -3,7 +3,7 @@ trdd-id: YC51I1C0
 title: Distribute platform binaries as GitHub release assets instead of tracking them in bin/
 column: dev
 created: 2026-07-23T14:29:55+0200
-updated: 2026-09-28T21:59:55+0200
+updated: 2026-09-28T22:09:26+0200
 current-owner: perfect-skill-suggester-6a
 task-type: infra
 min-approval-requirement: user
@@ -635,6 +635,7 @@ D1 SessionStart → separate hook entry WITHOUT the trailing ampersand running `
 D2 parity test → drive the REAL Rust binary via a new pure-path `binary-path` subcommand (intercepted like db-path). Marginal cost ~30 lines — the rebuild is sunk anyway because phase 2 edits `find_pss_nlp_binary()`. A source-text assertion cannot catch the resolver existing macOS cfg divergence (probes arm64 then x86_64 unconditionally).
 D3 store path → do NOT mirror `get_data_dir()` CLAUDE_PLUGIN_DATA conditional into sh and Rust (a 4th/5th copy of a rule with a documented 1641-element drift incident). Pin instead, same precedent as the db-path canonicalization: the fetcher writes to `~/.claude/cache/pss-bin/` UNCONDITIONALLY (`store_dir()` = `get_claude_config_dir()/cache/pss-bin`); sh and Rust add the CONSTANT path. DEVIATION from §3.3 (store under get_data_dir): deliberate, rationale above; renamed bin→pss-bin because bare bin/ in the shared cache dir is collision-prone. Phase-2 search order stays PSS_BINARY_DIR → plugin-root bin → repo bin → store (§7 in-repo-wins); §4 final order flips at phase 3.
 REVIEW FORK 2026-09-28 (resolver edits) — 2 real defects found and fixed in the same session: (1) sh shim: on an unsupported platform BIN_NAME is empty and the early PSS_BINARY_DIR exec tested "-x dir/" (true for any searchable dir), exec of a directory = exit 126 = session broken; fixed with a "[ -n BIN_NAME ]" guard, settled with the env -i miss-path test. (2) binary-status.md rendered .state.json under the get_data_dir rule the D3 pin replaced — with CLAUDE_PLUGIN_DATA set (normal hook env) /pss-status would cat a path nothing writes; fixed to the constant. Finding 3 (cross-target compile of pss_platform_binary_name unproven on darwin) is accepted: the CI cross build is the first real proof.
+**PHASE 2 COMPLETE 2026-09-28** (commits d42075b + bd36456 + rust da0bfff). All five remaining items landed and verified: (a) store root in all three resolvers, in-repo bin/ still ahead, store = CONSTANT ~/.claude/cache/pss-bin; (b) SessionStart --session-start hook: silent when binaries resolve, spawns detached, one additionalContext line only while in flight (CC 2.1.277 cache-miss lesson honored); (c) /pss-status renders the store + .state.json; (d) test_pss_binary_path_parity.py green — real sh/Python/Rust subprocesses, name map + order + plugin-root quoting invariant; (e) G3 gate verify-release-assets.yml (push runs exit 0 pre-publish; schedule/dispatch hard-fail). Full unit suite 496 passed. Phase 3 (the flip) is NOT started.
 
 ## 12. Approval
 
