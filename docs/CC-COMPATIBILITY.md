@@ -92,6 +92,31 @@ for the full design record.
 
 ## Version-by-version compatibility matrix
 
+### v2.1.249 → v2.1.284 (assessed 2026-09-28 against the changelog, installed build 2.1.284) — consolidated entry; TWO behavioral notes for users, ONE invariant for PSS's own files, everything else N/A
+
+- **SessionStart hook output costs a prompt-cache miss (CC v2.1.277) — SHAPES PSS's hook
+  design.** A session continued after `/clear` loses part of its first message when a
+  SessionStart hook printed output. The phase-2 fetch hook
+  (`pss_fetch_binaries.py --session-start`, PSS v3.17.0) is therefore SILENT whenever the
+  binaries resolve, and prints exactly one `additionalContext` line only while a first-run
+  download is in flight. Silence is the contract, not an optimization.
+- **`allowed-tools` self-pre-approval stops working on managed installs (CC v2.1.282/284) —
+  user-visible on locked-down machines.** PSS's slash commands declare `allowed-tools`; under
+  `allowManagedPermissionRulesOnly`, marketplace-sourced plugins (PSS ships via
+  emasoft-plugins) no longer get those pre-approvals honored, so commands may prompt for
+  Bash/Read on enterprise installs. CC policy, not a PSS defect; local installs unaffected.
+- **`${CLAUDE_PLUGIN_ROOT}` must stay inside double quotes in shell-form hooks (CC v2.1.281)
+  — pinned by test.** The validator warns on unquoted occurrences (they break on plugin paths
+  with spaces). Every hooks.json occurrence is double-quoted;
+  `test_pss_binary_path_parity.py::test_quoted_plugin_root_in_hooks_json` asserts it stays so.
+- **Not affected (checked, immune):** `plugin.json` schema tightening (`lspServers` /
+  `outputStyles` / `themes` / `monitors` path validation — PSS declares none), plugin
+  MCP-server checks (no `.mcp.json`), `omitClaudeMd` agent frontmatter (the profiler needs
+  project build context — left off), `PreModelSwitch`/`PostModelSwitch` hooks (not declared;
+  PSS does not gate model switches), the PermissionRequest agent-hook restriction (PSS
+  declares no PermissionRequest hooks), npm-fetch hardening (PSS ships via git marketplace),
+  `claude plugin eval` (potential future integration, not adopted this pass).
+
 ### v2.1.248 (assessed 2026-08-28 against the installed 2.1.248 build) — 49 items assessed; ONE adoption (`experimental.cacheTtl`), one verdict settled by measurement rather than reading, 47 N/A
 
 - **`experimental.cacheTtl` added to agent frontmatter (`"5m"` / `"1h"`) — ADOPTED.**

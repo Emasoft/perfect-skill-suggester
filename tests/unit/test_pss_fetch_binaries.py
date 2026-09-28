@@ -76,7 +76,11 @@ def env(fetcher, tmp_path, monkeypatch):
     (plugin_root / "bin" / "manifest.json").write_text(json.dumps(manifest))
 
     monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(plugin_root))
-    monkeypatch.setattr(fetcher, "get_data_dir", lambda: data)
+    # D3 pin (TRDD-YC51I1C0): the store is the CONSTANT ~/.claude/cache/pss-bin,
+    # derived from HOME — so the fixture redirects HOME instead of patching a
+    # get_data_dir import that the fetcher no longer has.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir()
 
     def make_tarball(contents: dict[str, bytes] | None = None) -> Path:
         contents = payloads if contents is None else contents
@@ -91,7 +95,7 @@ def env(fetcher, tmp_path, monkeypatch):
         return tarball
 
     return {
-        "data": data,
+        "data": tmp_path / "home" / ".claude" / "cache" / "pss-bin",
         "names": names,
         "payloads": payloads,
         "manifest_path": plugin_root / "bin" / "manifest.json",
@@ -100,14 +104,14 @@ def env(fetcher, tmp_path, monkeypatch):
 
 
 def _state(data: Path) -> dict:
-    return json.loads((data / "bin" / ".state.json").read_text())
+    return json.loads((data / ".state.json").read_text())
 
 
 def test_offline_install_populates_only_this_platforms_binaries(fetcher, env):
     """Exactly two artifacts land, content-addressed, published via current/."""
     assert fetcher.fetch(env["make_tarball"]()) == 0
 
-    store = env["data"] / "bin"
+    store = env["data"]
     for name in env["names"]:
         sha = hashlib.sha256(env["payloads"][name]).hexdigest()
         artifact = store / sha[:16] / name
@@ -134,7 +138,7 @@ def test_corrupt_member_is_refused_and_leaves_an_empty_store(fetcher, env):
 
     assert fetcher.fetch(env["make_tarball"](bad)) == 1
 
-    store = env["data"] / "bin"
+    store = env["data"]
     assert not (store / "current" / first).exists()
     # Nothing half-written anywhere in the store either.
     assert not list(store.glob("*/*.part"))
@@ -147,7 +151,7 @@ def test_member_missing_from_the_tarball_is_refused(fetcher, env):
 
     assert fetcher.fetch(env["make_tarball"](partial)) == 1
     assert _state(env["data"])["status"] == "offline-incomplete"
-    assert not (env["data"] / "bin" / "current" / env["names"][0]).exists()
+    assert not (env["data"] / "current" / env["names"][0]).exists()
 
 
 def test_manifest_without_this_platform_installs_nothing(fetcher, env):
@@ -158,7 +162,7 @@ def test_manifest_without_this_platform_installs_nothing(fetcher, env):
 
     assert fetcher.fetch(env["make_tarball"]()) == 1
     assert _state(env["data"])["status"] == "manifest-incomplete"
-    assert not (env["data"] / "bin" / "current").exists()
+    assert not (env["data"] / "current").exists()
 
 
 def test_a_missing_manifest_is_fatal_with_the_path_it_tried(fetcher, env):
@@ -177,14 +181,14 @@ def test_second_run_reuses_the_store_without_the_artifact(fetcher, env):
     """
     tarball = env["make_tarball"]()
     assert fetcher.fetch(tarball) == 0
-    (env["data"] / "bin" / "current" / env["names"][0]).unlink()
+    (env["data"] / "current" / env["names"][0]).unlink()
     tarball.unlink()
 
     # No tarball, no network — the content-addressed copies are already there,
     # so the run only has to re-publish current/.
     assert fetcher.fetch(None) == 0
     for name in env["names"]:
-        assert (env["data"] / "bin" / "current" / name).read_bytes() == env["payloads"][name]
+        assert (env["data"] / "current" / name).read_bytes() == env["payloads"][name]
 
 
 def test_a_blocked_network_fails_loudly_and_installs_nothing(fetcher, env, capsys, monkeypatch):
@@ -205,7 +209,7 @@ def test_a_blocked_network_fails_loudly_and_installs_nothing(fetcher, env, capsy
 
     assert fetcher.fetch(None) == 1
 
-    store = env["data"] / "bin"
+    store = env["data"]
     assert not (store / "current").exists(), "nothing may be published on failure"
     assert not list(store.glob("*/*.part")), "no partial file may survive"
 
@@ -249,8 +253,8 @@ def test_a_tampered_download_is_recorded_not_just_refused(fetcher, env, tmp_path
 
     state = _state(env["data"])
     assert state["status"] == "checksum-mismatch", "a mismatch must overwrite a stale ok"
-    assert not (env["data"] / "bin" / "current").exists()
-    assert not list((env["data"] / "bin").glob("*/*.part"))
+    assert not (env["data"] / "current").exists()
+    assert not list((env["data"]).glob("*/*.part"))
 
 
 def test_good_download_over_file_url_installs_and_records_ok(fetcher, env, tmp_path, monkeypatch):
@@ -263,7 +267,7 @@ def test_good_download_over_file_url_installs_and_records_ok(fetcher, env, tmp_p
 
     assert fetcher.fetch(None) == 0
     for name in env["names"]:
-        assert (env["data"] / "bin" / "current" / name).read_bytes() == env["payloads"][name]
+        assert (env["data"] / "current" / name).read_bytes() == env["payloads"][name]
     assert _state(env["data"])["status"] == "ok"
 
 
@@ -279,7 +283,7 @@ def test_engine_present_but_nlp_sibling_missing_installs_neither(fetcher, env):
 
     assert fetcher.fetch(env["make_tarball"](engine_only)) == 1
     assert _state(env["data"])["status"] == "offline-incomplete"
-    current = env["data"] / "bin" / "current"
+    current = env["data"] / "current"
     assert not current.exists() or not list(current.iterdir()), "no partial publish"
 
 

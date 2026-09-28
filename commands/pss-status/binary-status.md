@@ -15,7 +15,7 @@ The command also checks if the Rust binary is available for the detected platfor
 ## Where the binary is looked for
 
 The name above is the same string everywhere; only the directory varies. All
-three resolvers (`bin/pss-hook-dispatch.sh`, `pss_paths.resolve_pss_binary()`,
+three resolvers (`pss-hook-dispatch.sh`, `pss_paths.resolve_pss_binary()`,
 and the Rust `pss-nlp` probe) search these roots in this order:
 
 | # | root | what it is |
