@@ -1,8 +1,8 @@
 ---
 name: benchmark-competition-methodology
-description: "how to iteratively improve the PSS scorer via multi-agent worktree competition against a gold-standard benchmark — process phases, anti-overfitting train/test split"
+description: "how to iteratively improve the PSS scorer via multi-agent worktree competition against a gold-standard benchmark — process phases, anti-overfitting train/test split / benchmark competition methodology / how do I make the skill suggestions better / run three agents in worktrees and merge the winner / scorer improvements keep overfitting the benchmark prompts / train vs test score gap reveals overfitting / gold-standard benchmark creation realistic prompts / why did the agent's change not improve the benchmark score / agent competition anti-overfitting held-out test set / scoring regression or false gain between cycles / merge winning worktree patch and rebuild"
 ocd: 2026-07-16
-lmd: 2026-07-23
+lmd: 2026-09-28
 metadata:
   node_type: memory
   type: project
@@ -110,7 +110,7 @@ print(f'Score: {total_hits}/500')
 
 ## Key Lessons Learned
 
-^5GMAEEON [desc:"What works (independent competing agents, full history, realistic benchmarks, iteration, freedom) vs what doesn't (prescribing fixes, random benchmarks, hiding failures, multiplicative/quadratic scaling) and common agent mistakes to flag.", keywords:"what_works what_doesnt common_agent_mistakes idf_as_penalty multiplicative_penalty_stacking quadratic_scaling", type:project, ocd:2026-07-16, lmd:2026-07-17]
+^5GMAEEON [desc:"What works (independent competing agents, full history, realistic benchmarks, iteration, freedom) vs what does not (prescribed fixes, random benchmarks, hidden failures), plus agent mistakes to flag.", keywords:"what_works what_doesnt common_agent_mistakes idf_as_penalty multiplicative_penalty_stacking quadratic_scaling", type:project, ocd:2026-07-16, lmd:2026-07-17]
 
 ### What Works
 - **Independent agents competing** — different agents find different solutions
@@ -216,7 +216,7 @@ The skill should:
 ---
 
 ## Skill Formalization Notes
-^FRGNBKIX [desc:"Requirements for automating this methodology into a skill: worktree/agent/benchmark automation, enforced test+build+report gates, configurable cycles/agents, train/test support, machine-readable history.", keywords:"skill_formalization automate_worktrees enforce_tests_pass configurable_cycles machine_readable_history", type:project, ocd:2026-07-16, lmd:2026-07-17]
+^FRGNBKIX [desc:"Requirements for automating this methodology into a skill: worktree/agent/benchmark automation, enforced test+build+report gates, configurable cycles/agents, train/test support.", keywords:"skill_formalization automate_worktrees enforce_tests_pass configurable_cycles machine_readable_history", type:project, ocd:2026-07-16, lmd:2026-07-17]
 - The skill should automate: worktree creation, agent launching, benchmark running, result comparison, winner merging
 - Input: path to binary source, path to benchmark prompts/gold, number of agents (default 3)
 - Output: merged winning code, updated history report, score comparison table

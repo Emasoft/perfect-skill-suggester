@@ -10,7 +10,7 @@ metadata:
 publish-globally: false
 ---
 
-^FUK1PLIS [desc:"The F4/F5 element_id re-key needed 3 mid-flight spec corrections, each a real data-corruption defect found by a later ground-truth probe: a key-keyed table missing from the spec, ids embedded inside string values invisible to a column-name scan, and a new writer verb dispatched on the unlocked query path.", keywords:"f4_f5_rekey_three_corrections id_embedded_in_string_value column_name_scan_blind unlocked_writer_race", type:feedback, ocd:2026-07-17, lmd:2026-07-17]
+^FUK1PLIS [desc:"The F4/F5 element_id re-key needed 3 mid-flight spec corrections, each a real corruption defect: a missing key-keyed table, ids embedded in string values, a writer verb on the unlocked path.", keywords:"f4_f5_rekey_three_corrections id_embedded_in_string_value column_name_scan_blind unlocked_writer_race", type:feedback, ocd:2026-07-17, lmd:2026-07-17]
 During the F4/F5 element_id re-key (TRDD-1Z8SGQ7N, v3.10.5) the implementation spec needed
 THREE mid-flight corrections — each a real data-corruption defect, each found by a LATER
 ground-truth probe, each costing an agent cold-restart (~600k tokens apiece):
@@ -22,7 +22,7 @@ ground-truth probe, each costing an agent cold-restart (~600k tokens apiece):
 3. The new writer verb was dispatched on the unlocked query path → the exact
    writer-vs-reader SIGABRT race an earlier fix (F3) had just closed.
 
-^8NP1ZI0K [desc:"The spec inventory built by reading code missed facts only visible in live data or locking topology; before speccing any key migration, run a step-0 ground-truth enumeration (key/value columns, embeddable string/blob columns, indexes, writer paths+locking) and red-test an adversarial validator against an unmigrated DB.", keywords:"ground_truth_enumeration_step_0 live_data_over_code_reading red_test_adversarial_validator key_migration_spec_checklist", type:feedback, ocd:2026-07-17, lmd:2026-07-17]
+^8NP1ZI0K [desc:"A spec inventory built by reading code misses facts visible only in live data or locking topology; run a step-0 ground-truth enumeration and red-test an adversarial validator first.", keywords:"ground_truth_enumeration_step_0 live_data_over_code_reading red_test_adversarial_validator key_migration_spec_checklist", type:feedback, ocd:2026-07-17, lmd:2026-07-17]
 **Why:** the spec inventory was assembled by reading code; every gap was only visible in the
 LIVE DATA (or in the locking topology). Confidence in the transform (a proven bijection) is
 worthless if the inventory of what to apply it to is wrong.

@@ -10,7 +10,7 @@ metadata:
 publish-globally: false
 ---
 
-^BKLYIYV7 [desc:"publish.py's CPV remote-validation step has only a 180s internal timeout; a cold uvx cache building the CPV env from GitHub can exceed it, returning exit 124 before any version bump — the tree is left clean, safe to retry.", keywords:"cpv_validation_180s_timeout exit_code_124 cold_uvx_cache clean_tree_safe_retry", type:project, ocd:2026-07-16, lmd:2026-07-16]
+^BKLYIYV7 [desc:"publish.py's CPV remote-validation step has only a 180s internal timeout; a cold uvx cache building the CPV env can exceed it, returning exit 124 before any version bump — the tree stays clean.", keywords:"cpv_validation_180s_timeout exit_code_124 cold_uvx_cache clean_tree_safe_retry", type:project, ocd:2026-07-16, lmd:2026-07-16]
 `scripts/publish.py` gives the CPV remote-validation step
 (`uvx --from git+…/claude-plugins-validation --with pyyaml cpv-remote-validate
 plugin .`) only a **180s internal timeout** (`run_validation()`,
@@ -47,7 +47,7 @@ BEFORE the bump, so a retry is always safe.
 **Do NOT** conclude from a timeout that validation would otherwise pass. When it
 finally ran to completion on 2026-08-02 it reported **12 MAJOR**. [^1] [^2]
 
-^S4JRUSRZ [desc:"Upstream tracking: CPV #114 (closed, v2.127.0) added CI UV-cache for canonical templates only; CPV #137 (open) would publish CPV to PyPI as a wheel so uvx resolves prebuilt instead of building from --from git+... source, which PSS's publish.py currently forces.", keywords:"cpv_114_closed_ci_cache cpv_137_open_pypi_wheel from_git_forces_slow_build upstream_fix_tracking", type:project, ocd:2026-07-16, lmd:2026-07-16]
+^S4JRUSRZ [desc:"Upstream: CPV #114 (closed, v2.127.0) added CI UV-cache for templates only; CPV #137 (open) would publish CPV to PyPI so uvx resolves prebuilt instead of building from git source.", keywords:"cpv_114_closed_ci_cache cpv_137_open_pypi_wheel from_git_forces_slow_build upstream_fix_tracking", type:project, ocd:2026-07-16, lmd:2026-07-16]
 **Upstream:** the permanent fix is tracked on CPV — #114 (closed, v2.127.0)
 added a CI UV-cache + 25-min ceiling for the canonical *templates* (doesn't
 help a local `publish.py` run), and **CPV #137** (open) requests the deep fix:

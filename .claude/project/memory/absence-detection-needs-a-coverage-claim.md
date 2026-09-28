@@ -1,8 +1,8 @@
 ---
 name: absence-detection-needs-a-coverage-claim
-description: "removals/deletions never detected · stale rows stay alive forever · 'it only notices when something else survives' · gone-but-still-listed · how to detect that a THING IS ABSENT when the container it lived in also vanished"
+description: "removals/deletions never detected · stale rows stay alive forever · gone-but-still-listed · 'it only notices when something else survives' · how to detect that a THING IS ABSENT when the container it lived in also vanished / my removal check found nothing but rows are surely gone / scope dropped to zero elements and nothing flagged it / diff-based deletion detection silently misses mass removal / what is a scanner coverage claim and why does absence detection need one / 799 zombie rows detected 1 / deleted directory cannot be enumerated so removals go unseen / filtered or errored scan must not assert full coverage / under-claiming delays a sweep over-claiming deletes history / os.walk onerror swallows errors and looks like an empty dir / unreadable container must not equal an empty one / Path.iterdir is lazy and leaks OSError past the handler / how to test a removal/GC detector red before the fix / why did my temporal index never sweep removed elements / zero items found is a broken scan not an empty machine"
 ocd: 2026-07-17
-lmd: 2026-07-23
+lmd: 2026-09-28
 metadata:
   node_type: memory
   type: feedback
@@ -40,7 +40,7 @@ one (`os.walk`'s default `onerror` DISCARDS the error and yields nothing — ide
 "empty" — and `Path.iterdir()` is lazy, so `try: return p.iterdir()` leaks the OSError
 past the handler; materialize with `list()` INSIDE the try).
 
-^JV9Y4890 [desc:"Test whether an absence check would still work if the whole container vanished; if not, have the scanner emit an explicit domain coverage claim, consume it, shrink it on doubt, and red-test against the unfixed build.", keywords:"how_to_apply_coverage_claim red_test_unfixed_build predict_removal_set", type:feedback, ocd:2026-07-17, lmd:2026-07-17]
+^JV9Y4890 [desc:"Test whether an absence check would still work if the whole container vanished; if not, emit an explicit domain coverage claim, consume it, shrink it on doubt, red-test the unfixed build.", keywords:"how_to_apply_coverage_claim red_test_unfixed_build predict_removal_set", type:feedback, ocd:2026-07-17, lmd:2026-07-17]
 **How to apply:** when you build absence/removal/GC detection, ask "if the whole
 container vanished, would anything still tell me its contents are gone?" If the answer
 comes only from surviving siblings, you have this bug. Emit the coverage claim from the

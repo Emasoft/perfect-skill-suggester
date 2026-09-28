@@ -1,8 +1,8 @@
 ---
 name: cpv-skillaudit-fp-blocks-373
-description: "publish.py / CPV gate suddenly fails with CRITICAL security findings (prototype pollution, prompt injection, shell exec) in code that passed before — why is the release blocked, are they real"
+description: "publish.py / CPV gate suddenly fails with CRITICAL security findings (prototype pollution, prompt injection, shell exec) in code that passed before — why is the release blocked, are they real / CPV skillaudit false positives block the release / validator auto-updated and now flags working code / security findings in code that passed yesterday / prototype pollution finding in Rust code / prompt injection finding on a debug log line / ReDoS finding on the regex crate / shell exec finding on Command::new without shell / untracked file still flagged by the local gate / how to tell a real security finding from a scanner false positive / CPV two gates plugin vs security which blocks release / skillaudit heuristics fixed upstream CPV issue 124"
 ocd: 2026-06-16
-lmd: 2026-07-23
+lmd: 2026-09-28
 metadata:
   node_type: memory
   type: project
@@ -10,7 +10,7 @@ metadata:
 publish-globally: false
 ---
 
-^KXZW34RQ [desc:"CPV's auto-updated skillaudit scanner flagged 16 findings in PSS that were all false positives in correct, working code; the language/context-blind heuristics fire on token shapes regardless of exploitability.", keywords:"cpv_skillaudit_false_positives auto_update_broke_gate language_blind_heuristics token_shape_match", type:project, ocd:2026-06-16, lmd:2026-07-17]
+^KXZW34RQ [desc:"CPV's auto-updated skillaudit scanner flagged 16 findings in PSS that were all false positives in correct, working code; the context-blind heuristics fire on token shapes regardless of exploitability.", keywords:"cpv_skillaudit_false_positives auto_update_broke_gate language_blind_heuristics token_shape_match", type:project, ocd:2026-06-16, lmd:2026-07-17]
 On 2026-06-16 the CPV validator (publish.py pulls it via `uvx ... latest`)
 auto-updated to add a `skillaudit` security scanner. It immediately flagged
 PSS with 2 CRITICAL + 9 MAJOR + 5 MINOR that **all turned out to be false
@@ -22,7 +22,7 @@ longer supported (TRDD-021250b5)` advisory appeared.
 **Why:** the new skillaudit heuristics are language/context-blind — they fire
 on token shapes regardless of whether the pattern is exploitable.
 
-^LXY08ZMQ [desc:"When the CPV gate newly fails on skillaudit findings, don't distort working code: devitalize the genuinely-improvable ones, treat the rest as FPs (with concrete examples), and per the CPV author file an upstream issue and wait.", keywords:"how_to_apply_skillaudit_fp devitalize_genuine_findings file_cpv_issue_and_wait fp_examples_list", type:project, ocd:2026-06-16, lmd:2026-07-17]
+^LXY08ZMQ [desc:"When the CPV gate newly fails on skillaudit findings, do not distort working code: devitalize the genuinely-improvable ones, treat the rest as false positives, and file an upstream issue and wait.", keywords:"how_to_apply_skillaudit_fp devitalize_genuine_findings file_cpv_issue_and_wait fp_examples_list", type:project, ocd:2026-06-16, lmd:2026-07-17]
 **How to apply:** when the CPV/publish gate newly fails on `skillaudit:*`
 security findings, do NOT distort working code to dodge them. (1) Fix the
 genuinely-improvable ones by *devitalizing* (e.g. `curl|sh`→download-review-run,
@@ -36,7 +36,7 @@ and list-form `subprocess.Popen` (no `shell=True`) as "shell exec"; documented
 commands in `.md` files as "cmd injection". (3) Per the user (CPV's author), file a
 CPV issue and WAIT — filed as Emasoft/claude-plugins-validation#124.
 
-^NXNJ1JQ0 [desc:"RESOLVED in PSS v3.7.3: CPV's author fixed the FN-safe heuristics in CPV v2.126.27 over two rounds, needing exact failing multi-line/type-annotation shapes for the second round, plus a PSS-side debug-label reword to clear the protected prompt-injection class.", keywords:"resolution_v373_shipped cpv_v2_126_27_fix two_rounds_needed multiline_discriminator_gap debug_label_reworded", type:project, ocd:2026-06-16, lmd:2026-07-17]
+^NXNJ1JQ0 [desc:"RESOLVED in PSS v3.7.3: CPV's author fixed the heuristics in CPV v2.126.27 over two rounds, needing exact failing multi-line shapes for the second, plus a PSS-side debug-label reword.", keywords:"resolution_v373_shipped cpv_v2_126_27_fix two_rounds_needed multiline_discriminator_gap debug_label_reworded", type:project, ocd:2026-06-16, lmd:2026-07-17]
 **Resolution (RESOLVED — PSS v3.7.3 SHIPPED):** CPV's author (the user) fixed
 the heuristics in CPV `v2.126.27` (FN-safe two-sided: FP clears AND each rule's
 malicious sibling still fires). It took TWO rounds — the first cleared the
@@ -49,14 +49,14 @@ one **type-annotation** match (`subprocess.Popen[bytes]` hints, not calls). Clas
 side by rewording the `debug!` label `"…corrected prompt"`→`"…corrected input"`.
 
 **Two non-obvious gotchas burned here (remember):**
-^O7GLTZX2 [desc:"CPV's skillaudit scans on-disk files, not just tracked ones, so untracking a file does not clear a LOCAL gate finding — it must actually leave the working tree via safe-delete; a clean clone/CI is unaffected since untracking alone suffices there.", keywords:"cpv_scans_on_disk untracking_insufficient_locally safe_delete_clears_local_gate clean_clone_vs_local_tree", type:project, ocd:2026-06-16, lmd:2026-07-17]
+^O7GLTZX2 [desc:"CPV's skillaudit scans on-disk files, not just tracked ones, so untracking a file does not clear a LOCAL gate finding — it must actually leave the working tree via safe-delete; CI is unaffected.", keywords:"cpv_scans_on_disk untracking_insufficient_locally safe_delete_clears_local_gate clean_clone_vs_local_tree", type:project, ocd:2026-06-16, lmd:2026-07-17]
 1. **CPV scans ON-DISK files, not just tracked ones.** Untracking (`git rm --cached`)
    + gitignoring a file does NOT remove it from the skillaudit security scan — the
    file is still on disk. To clear a LOCAL publish-gate finding on a stale/transient
    file, it must leave the working tree (janitor `safe-delete` → `.trashcan/`, RULE-0-safe).
    A clean clone / CI wouldn't contain the untracked file, so untracking IS the right
    fix for the shipped/CI state — only the local dev tree needs the on-disk removal.
-^OI5CQMO6 [desc:"publish.py's rust_source_changed() diffs *.rs only in the parent repo and is blind to a rust submodule's own .rs edits, so a submodule-only change reports no-rust-changes and skips the build unless --force-build or CI's recursive-submodule checkout rebuilds it.", keywords:"rust_source_changed_submodule_blind parent_repo_diff_misses_submodule force_build_needed ci_recursive_checkout_rebuilds", type:project, ocd:2026-06-16, lmd:2026-07-17]
+^OI5CQMO6 [desc:"publish.py's rust_source_changed() diffs *.rs only in the parent repo and is blind to a rust submodule's own .rs edits, so a submodule-only change skipped the build; fixed in v3.8.1 to diff inside.", keywords:"rust_source_changed_submodule_blind parent_repo_diff_misses_submodule force_build_needed ci_recursive_checkout_rebuilds", type:project, ocd:2026-06-16, lmd:2026-07-17]
 2. **publish.py `rust_source_changed()` can't see INTO the rust submodule.** It diffs
    `*.rs` in the PARENT repo, which only sees the submodule gitlink change, so a
    submodule-only `.rs` edit reports "No Rust source changes since last tag, skipping
@@ -70,10 +70,6 @@ side by rewording the `debug!` label `"…corrected prompt"`→`"…corrected in
 ^P9I75M86 [desc:"Final shipped commit set for the FP-storm fix (docs, devitalizations, rust rephrase+untrack, release, tag) and the closed upstream issue #124.", keywords:"shipped_commit_set v373_tag issue_124_closed", type:project, ocd:2026-06-16, lmd:2026-07-17]
 Shipped: docs `8fb5881`, devitalizations `d9336b9`, rust rephrase+rck-untrack `b666760`,
 release `90f1774`, tag `v3.7.3`. #124 closed. See [[feedback_publish_mandatory_gates]].[^1][^2]
-
-## Governed by
-- [[pss-knowledge-hub]] — entry point to PSS's PROJECT-scope memory corpus.
-
 
 ^ATOM-L07Z-NF80 [desc:"CPV has two gates; publish.py runs only the structural one, so a security-scan INVALID does not block a release.", keywords: cpv_security_scan_says_INVALID six_critical_but_the_gate_is_green publish_gate_green_but_security_red does_a_red_security_scan_block_the_release cpv_two_subcommands_plugin_vs_security, type: project, ocd: 2026-08-07, lmd: 2026-08-07]
 
@@ -89,6 +85,9 @@ binaries executable) and which CPV itself says to FLAG, never break. The same ru
 first-hand that the CPV v5 12-MAJOR block is cleared by `"canon": "none"`, and that NO `.claude/`
 gitignore finding is raised. Evidence: `reports/cpv-validation/20260807_19*.txt` and
 `reports/security/20260807_193009+0200-*.md`. [^4]
+
+## Governed by
+- [[pss-knowledge-hub]] — entry point to PSS's PROJECT-scope memory corpus.
 
 ## Notes and lessons learned
 [^1]: [ocd:2026-06-16 lmd:2026-06-16] WHY untracking didn't clear the local gate:

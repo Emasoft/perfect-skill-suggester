@@ -17,17 +17,13 @@ publish-globally: false
 
 **Why:** in a submodule architecture every parent-repo `git diff -- <submodule>/...` is blind to the submodule's internal file changes. [^2]
 
-^U9PLH7LT [desc:"Fix: diff git rev-parse <tag>:rust vs git -C rust rev-parse HEAD inside the submodule (shipped v3.8.1); force a landed-but-uncompiled fix with --force-build; always verify the actual shipped binary, never the wrapper's exit code.", keywords:"submodule_diff_fix force_build_flag verify_shipped_binary wrapper_exit_code_lie", type:project, ocd:2026-06-25, lmd:2026-07-16]
+^U9PLH7LT [desc:"Diff the submodule gitlink inside rust/ (shipped v3.8.1); force a landed-but-uncompiled fix with --force-build; always verify the shipped binary, never the wrapper's exit code.", keywords:"submodule_diff_fix force_build_flag verify_shipped_binary wrapper_exit_code_lie", type:project, ocd:2026-06-25, lmd:2026-07-16]
 **How to apply:**
 - Detection must diff inside the submodule: `git rev-parse <last_tag>:rust` (the gitlink SHA the parent recorded at the tag) → `git -C rust rev-parse HEAD` → `git -C rust diff --name-only <old> <new> -- skill-suggester/src`. Fixed in `scripts/publish.py::_submodule_src_changed` (shipped v3.8.1).
 - If the `.rs` change already landed in a prior tag's submodule ref but was never compiled (the v3.8.0 case), the fixed detector correctly sees "no change since that tag" — you must `publish.py --bump patch --force-build` to force the rebuild.
 - ALWAYS verify the actual artifact after a release: run the **shipped** `./bin/pss-darwin-arm64 <new-verb>` — do NOT trust the wrapper exit code or the background "completed" notification (a `cmd > log; echo EXIT=$?` wrapper's exit is the `echo`'s, not the command's).
 
 Related: [[publish-cpv-validation-180s-timeout]] (pre-warm the CPV cache before a release), [[feedback_publish_mandatory_gates]], [[verify-shipped-status-against-the-tag]] (that page verifies the shipped COMMIT SET against the tag; this one verifies the shipped BINARY behaviorally). The cargo workspace lock that #51 syncs is `rust/Cargo.lock` (workspace root), not the orphan `rust/skill-suggester/Cargo.lock`. This same submodule-blindness was first logged as a secondary gotcha during the v3.7.3 CPV FP-storm — see [[cpv-skillaudit-fp-blocks-373]].
-
-## Governed by
-- [[pss-knowledge-hub]] — entry point to PSS's PROJECT-scope memory corpus.
-
 
 ^ATOM-1WT3-ZMJ2 [desc:"publish.py must stage every TRACKED submodule change plus scripts/ and .github/ — build_binaries compiles from the WORKING TREE, not the gitlink.", keywords: binary_cannot_be_rebuilt_from_shipped_source submodule_main.rs_not_staged publish.py_stages_only_Cargo.toml release_left_my_scripts_fix_behind push-only_pushed_a_tag_with_no_github_release, ocd: 2026-08-01, lmd: 2026-08-01]
 
@@ -62,6 +58,9 @@ meaningless. Also note `<cpv>/scripts/publish.py` is CPV's OWN pipeline, not the
 plugin template — the template is `gen_publish_py()` in `generate_plugin_repo.py`,
 which is where the documented G2e/G2f build gates actually live (filed as
 claude-plugins-validation#187).
+
+## Governed by
+- [[pss-knowledge-hub]] — entry point to PSS's PROJECT-scope memory corpus.
 
 ## Notes and lessons learned
 

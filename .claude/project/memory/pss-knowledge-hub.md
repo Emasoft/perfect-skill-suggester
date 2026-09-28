@@ -1,8 +1,8 @@
 ---
 name: pss-knowledge-hub
-description: "where is PSS's hard-won project knowledge · what gotchas bite a new contributor · release keeps failing / binaries are stale / temporal queries answer empty · entry point to the PSS shared memory corpus"
+description: "where is PSS's hard-won project knowledge · what gotchas bite a new contributor · entry point to the PSS shared memory corpus / release keeps failing at the publish gate / binaries are stale after a release / temporal queries answer empty / publish.py validation fails or times out / CPV gate reports false security findings / did my fix already ship / how do I improve the PSS scorer / removals never detected / changed-between returns nothing for a date / uninstalled elements reappear in suggestions / PSS suggests an agent from another project / my doc edit never reached another clone / hook output too verbose / e2e accuracy gate red after mode flip / where do project lessons live"
 ocd: 2026-07-23
-lmd: 2026-08-07
+lmd: 2026-09-28
 metadata:
   node_type: memory
   type: project
