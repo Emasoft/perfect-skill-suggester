@@ -353,12 +353,17 @@ def _binaries_resolve() -> bool:
     """True when both platform binaries exist under any resolver root.
 
     Mirrors the roots the hot-path resolvers actually stat: the plugin install's
-    tracked bin/, this repo's bin/, and the fetched store's current/.
+    tracked bin/ and the fetched store's current/. The script's OWN parent bin/
+    is deliberately NOT a root here: this script ships INSIDE the plugin, so
+    that path IS the plugin root's bin/ — including it again would make a
+    dev-checkout run of a COPIED plugin tree (any temp/fixture layout) see the
+    developer's repo binaries and wrongly conclude "nothing to fetch", which
+    is exactly the shape a fresh install must not hit (review fork 2026-09-28,
+    finding 1).
     """
     names = needed_names()
     roots = (
         _plugin_root() / "bin",
-        Path(__file__).resolve().parent.parent / "bin",
         store_dir() / "current",
     )
     return all(any((root / name).exists() for root in roots) for name in names)
