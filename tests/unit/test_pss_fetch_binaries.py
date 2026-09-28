@@ -317,6 +317,9 @@ def test_session_start_spawns_once_when_binaries_absent(fetcher, env, capsys, mo
     # The child must NEVER inherit this process's stdout — a spawned fetcher
     # printing anything would break the one-line-only SessionStart contract.
     assert spawns[0].get("stdout") is fetcher.subprocess.DEVNULL
+    # The spawn must record "fetching" so /pss-status can see the download
+    # window (phase-3 review finding 2).
+    assert _state(env["data"])["status"] == "fetching"
     captured = capsys.readouterr()
     assert captured.out.count("\n") == 1, captured.out
     assert captured.out.strip() == fetcher.IN_FLIGHT_NOTICE

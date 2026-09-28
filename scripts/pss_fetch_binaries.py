@@ -432,6 +432,17 @@ def session_start() -> int:
             fcntl.flock(lock_fh, fcntl.LOCK_UN)
         lock_fh.close()
 
+    # Record "downloading now" BEFORE the child gets going: write_state only
+    # fires at completion or failure, so without this the whole download
+    # window is invisible to /pss-status — it would report "No fetch has run"
+    # at the exact moment an existing user is waiting out the upgrade blackout
+    # (review fork, phase-3 commit, finding 2). The child's own completion
+    # write replaces this one.
+    try:
+        write_state("fetching", release_tag=load_manifest()["release_tag"])
+    except Exception:
+        pass  # cosmetic only — never break the spawn path over a status file
+
     print(IN_FLIGHT_NOTICE)
     return 0
 

@@ -4,7 +4,7 @@ title: SLSA cosign verify on G3 asset downloads
 column: backburner
 status: tasked
 created: 2026-09-28T22:27:04+0200
-updated: 2026-09-28T22:27:04+0200
+updated: 2026-09-28T22:28:25+0200
 current-owner: main-agent@perfect-skill-suggester
 created-by: main-agent@perfect-skill-suggester
 task-type: security
@@ -22,3 +22,4 @@ approval-datetime: 2026-09-28T22:27:04+0200
 ## Approval log
 
 - 2026-09-28T22:27:04+0200 — MANDATE issued by main-agent@perfect-skill-suggester (min-approval-requirement: none). Pre-approved: issuer authority >= required approver. No approval request was sent.
+SCOPE CORRECTION (review fork 2026-09-28): this card is NOT 'add cosign verify on the G3 download step' — no cosign infrastructure exists, so a verify step on unsigned assets fails forever. The real decision is an END-TO-END asset-signing story: sign at publish time (key custody decision), verify at every consumer (G3, the fetcher). G3 sha-vs-manifest already defeats asset tampering and transit corruption; the marginal win is only the release-pipeline-compromised scenario, and cosign keys held by that same compromised pipeline protect nothing unless keyed externally. Decide key custody first.
