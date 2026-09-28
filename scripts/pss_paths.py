@@ -139,31 +139,52 @@ def detect_platform() -> str:
     )
 
 
+# The fetched-binary store (TRDD-YC51I1C0 phase 2). A CONSTANT, not
+# get_data_dir(): the sh shim and the Rust nlp resolver must stat the same
+# path without importing Python, and this rule has already drifted once
+# (the CLAUDE_PLUGIN_DATA conditional's 1,641-element mis-write), so it is
+# pinned here rather than mirrored. scripts/pss_fetch_binaries.py::store_dir()
+# writes here. Phase-2 order: in-repo bin/ still wins over the store; phase 3
+# flips the precedence.
+BINARY_STORE_DIR = Path.home() / ".claude" / "cache" / "pss-bin"
+
+
 def resolve_pss_binary() -> Path:
     """Resolve the absolute path to the PSS native binary, fail-fast if absent.
 
     Resolution mirrors ``bin/pss-hook-dispatch.sh``:
-      1. ``$CLAUDE_PLUGIN_ROOT/bin/<name>`` — Claude Code sets CLAUDE_PLUGIN_ROOT
+      1. ``$PSS_BINARY_DIR/<name>`` — operator escape hatch (air-gapped installs).
+      2. ``$CLAUDE_PLUGIN_ROOT/bin/<name>`` — Claude Code sets CLAUDE_PLUGIN_ROOT
          to the plugin install dir; this is the production location.
-      2. else ``<repo>/bin/<name>`` — this file is ``scripts/pss_paths.py`` so
+      3. ``<repo>/bin/<name>`` — this file is ``scripts/pss_paths.py`` so
          the repo's ``bin/`` is the parent's sibling. Covers local dev / tests.
+      4. ``<store>/current/<name>`` — binaries fetched from the GitHub
+         release by ``scripts/pss_fetch_binaries.py``. Still LAST in phase 2
+         (the in-repo copy wins); phase 3 moves it ahead of the plugin root.
 
     Raises FileNotFoundError when the resolved binary does not exist, so callers
     surface a clear error instead of shelling out to a missing executable.
     """
     binary_name = detect_platform()
+    candidates: list[Path] = []
+    pss_dir = os.environ.get("PSS_BINARY_DIR", "").strip()
+    if pss_dir and Path(pss_dir).is_absolute():
+        candidates.append(Path(pss_dir) / binary_name)
     plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip()
     if plugin_root and Path(plugin_root).is_absolute():
-        bin_dir = Path(plugin_root) / "bin"
+        candidates.append(Path(plugin_root) / "bin" / binary_name)
     else:
-        bin_dir = Path(__file__).resolve().parent.parent / "bin"
-    binary_path = bin_dir / binary_name
-    if not binary_path.exists():
-        raise FileNotFoundError(
-            f"PSS binary not found at: {binary_path}. Build it with: "
-            f"uv run python {Path(__file__).resolve().parent / 'pss_build.py'}"
-        )
-    return binary_path
+        candidates.append(Path(__file__).resolve().parent.parent / "bin" / binary_name)
+    candidates.append(BINARY_STORE_DIR / "current" / binary_name)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        f"PSS binary not found in any of: {', '.join(str(c) for c in candidates)}. "
+        f"Build it with: uv run python "
+        f"{Path(__file__).resolve().parent / 'pss_build.py'}, or fetch it with: "
+        f"uv run python {Path(__file__).resolve().parent / 'pss_fetch_binaries.py'}"
+    )
 
 
 # ---------------------------------------------------------------------------

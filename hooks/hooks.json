@@ -21,6 +21,11 @@
             "type": "command",
             "command": "uv run --quiet --script \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_hook.py\" --warm-index &",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "uv run --quiet --script \"${CLAUDE_PLUGIN_ROOT}/scripts/pss_fetch_binaries.py\" --session-start",
+            "timeout": 5
           }
         ]
       }

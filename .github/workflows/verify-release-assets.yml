@@ -1,0 +1,179 @@
+name: Verify Release Assets
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'bin/manifest.json'
+      - 'scripts/pss_fetch_binaries.py'
+      - '.github/workflows/verify-release-assets.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+
+      - name: Read release tag from manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$(jq -r '.release_tag' bin/manifest.json)"
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+
+      - name: Wait for all release assets to be uploaded
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # publish.py creates the release first, then uploads the 12 assets
+          # (10 binaries + manifest.json + pss-binaries-<version>.tar.gz). A
+          # run triggered right after a release can legitimately race the
+          # upload, so poll instead of failing on the first look.
+          # A push that lands bin/manifest.json can precede the tag's GitHub
+          # release (publish.py pushes the tag+release at the very end); on
+          # push events only, tolerate a not-yet-published release and let
+          # the nightly run verify it.
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+              echo "::notice::release ${TAG} not published yet; nightly run will verify"
+              exit 0
+            fi
+            echo "::error::release ${TAG} does not exist"
+            exit 1
+          fi
+          deadline=$((SECONDS + 600))
+          count=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            count="$(gh release view "$TAG" --json assets --jq '.assets | length')"
+            if [ "$count" -ge 12 ]; then
+              echo "release $TAG has $count assets"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::release $TAG never reached 12 assets (saw $count after 10 minutes)"
+          exit 1
+
+      - name: Verify each binary asset against the manifest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          fail=0
+
+          while IFS=$'\t' read -r name expected_sha expected_size; do
+            asset="${tmpdir}/${name}"
+            if ! gh release download "$TAG" -p "$name" -D "$tmpdir" 2>/tmp/dl-err.txt; then
+              echo "::error::failed to download release asset ${name}: $(cat /tmp/dl-err.txt)"
+              fail=1
+              continue
+            fi
+
+            actual_sha="$(sha256sum "$asset" | awk '{print $1}')"
+            actual_size="$(stat -c%s "$asset")"
+
+            if [ "$actual_sha" != "$expected_sha" ]; then
+              echo "::error::${name}: release asset sha256 mismatch (expected ${expected_sha}, got ${actual_sha})"
+              fail=1
+            fi
+            if [ "$actual_size" != "$expected_size" ]; then
+              echo "::error::${name}: release asset size mismatch (expected ${expected_size}, got ${actual_size})"
+              fail=1
+            fi
+
+            if [ -f "bin/${name}" ]; then
+              tracked_sha="$(sha256sum "bin/${name}" | awk '{print $1}')"
+              if [ "$tracked_sha" != "$expected_sha" ]; then
+                echo "::error::${name}: git-tracked bin/${name} sha256 does not match manifest (expected ${expected_sha}, got ${tracked_sha})"
+                fail=1
+              fi
+            fi
+          done < <(jq -r '.binaries | to_entries[] | [.key, .value.sha256, .value.size] | @tsv' bin/manifest.json)
+
+          rm -rf "$tmpdir"
+          exit "$fail"
+
+      - name: Verify manifest.json release asset is byte-identical
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          gh release download "$TAG" -p 'manifest.json' -D "$tmpdir"
+          if ! cmp -s "${tmpdir}/manifest.json" bin/manifest.json; then
+            echo "::error::released manifest.json differs from git-tracked bin/manifest.json"
+            rm -rf "$tmpdir"
+            exit 1
+          fi
+          rm -rf "$tmpdir"
+
+      - name: Run the fetcher end-to-end against the real release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMPHOME="$(mktemp -d)"
+          unset CLAUDE_PLUGIN_DATA
+
+          HOME="$TMPHOME" uv run python scripts/pss_fetch_binaries.py
+
+          engine_name="$(jq -r --arg os "linux" --arg arch "x86_64" \
+            '.binaries | keys[] | select(startswith("pss-") and (contains("nlp") | not) and contains($os) and contains($arch))' \
+            bin/manifest.json)"
+          nlp_name="$(jq -r --arg os "linux" --arg arch "x86_64" \
+            '.binaries | keys[] | select(startswith("pss-nlp-") and contains($os) and contains($arch))' \
+            bin/manifest.json)"
+
+          store="${TMPHOME}/.claude/cache/bin"
+
+          for name in "$engine_name" "$nlp_name"; do
+            fetched="${store}/current/${name}"
+            if [ ! -e "$fetched" ]; then
+              echo "::error::fetcher did not publish ${fetched}"
+              exit 1
+            fi
+            if [ ! -x "$fetched" ]; then
+              echo "::error::${fetched} is not executable"
+              exit 1
+            fi
+            expected_sha="$(jq -r --arg n "$name" '.binaries[$n].sha256' bin/manifest.json)"
+            actual_sha="$(sha256sum "$fetched" | awk '{print $1}')"
+            if [ "$actual_sha" != "$expected_sha" ]; then
+              echo "::error::${fetched} sha256 mismatch (expected ${expected_sha}, got ${actual_sha})"
+              exit 1
+            fi
+          done
+
+          status="$(jq -r '.status' "${store}/.state.json")"
+          if [ "$status" != "ok" ]; then
+            echo "::error::fetcher .state.json status is '${status}', expected 'ok'"
+            exit 1
+          fi
+
+          rm -rf "$TMPHOME"

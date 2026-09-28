@@ -1,6 +1,6 @@
 # Claude Code Compatibility
 
-PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.248**. This
+PSS (Perfect Skill Suggester) is tested against Claude Code **2.1.69 → 2.1.284**. This
 document tracks every CC release that has touched PSS's dependency surface since
 v2.1.45, and records whether PSS is affected, adapted, or immune.
 
@@ -15,11 +15,13 @@ As of **v2.9.35**, PSS declares the following hook events in `hooks/hooks.json`:
 | Event | Matcher | Handler | Purpose |
 |-------|---------|---------|---------|
 | `UserPromptSubmit` | (none) | `bin/pss-hook-dispatch.sh` | Primary — scores skill suggestions on every user prompt. A POSIX-`sh` shim that `exec`s the platform-native binary directly; it replaced the `uv run … pss_hook.py` invocation (PERF-1) because the Python wrapper cost ~130 ms of startup per prompt against the shim's ~3 ms. `pss_hook.py` still serves the two cold-path events below |
-| `SessionStart` | `startup\|resume\|fork` | `scripts/pss_hook.py --warm-index &` | Silent lazy warmup — spawns a background reindex if the skill-index cache is missing, so the first prompt never blocks on index build. `fork` added in PSS v3.10.9 because CC **v2.1.214** relabels forked sessions `fork` (was `resume`); without it a forked session would silently skip warmup |
+| `SessionStart` | `startup\|resume\|fork` | `scripts/pss_hook.py --warm-index &` | Silent lazy warmup — spawns a background reindex if the skill-index cache is missing, so the first prompt never blocks on index build. `fork` added in PSS v3.10.9 because CC **v2.1.214** relabels forked sessions `fork` (was `resume`); without it a forked session would silently skip warmup; a second entry (PSS v3.17.0) runs scripts/pss_fetch_binaries.py --session-start, which prints a single additionalContext line only while a first-run binary download is in flight — silent otherwise, because CC v2.1.277 showed SessionStart hook output causes a prompt-cache miss on sessions continued after /clear |
 | `PostCompact` | (none) | `scripts/pss_hook.py --post-compact` | Stub — reserves the event binding for future re-suggest-after-compaction logic |
 
 All three hooks use `timeout` values in **seconds** (per hooks.md spec).
 `UserPromptSubmit` uses 10s, `SessionStart` uses 5s, `PostCompact` uses 5s.
+
+**Quoting invariant (CC v2.1.281):** every `${CLAUDE_PLUGIN_ROOT}` in hooks/hooks.json must stay inside double quotes — the plugin validator warns on unquoted occurrences, which break on plugin paths containing spaces.
 
 **Not declared (intentional):**
 - `PreCompact` (CC v2.1.105+) — PSS has no reason to block compaction, so this
@@ -43,6 +45,10 @@ All three hooks use `timeout` values in **seconds** (per hooks.md spec).
   message text as it's displayed. PSS suggests skills via `additionalContext`
   on `UserPromptSubmit`; it has no reason to rewrite Claude's rendered output,
   so this event is not registered.
+- `PreModelSwitch` / `PostModelSwitch` (CC v2.1.251+) — PSS does not gate on
+  model switches; no hook registered.
+- `PermissionRequest` (agent-type hooks no longer run there as of CC v2.1.280)
+  — PSS declares no PermissionRequest hooks of any type.
 
 ## Hook input/output schema
 
@@ -1422,3 +1428,12 @@ present, the directory structure follows the specification, and all validation c
 pass under the current release pipeline (`publish.py --gate` + CPV remote validate).
 
 *Plugin compliance audit content merged from docs/ANTHROPIC-COMPLIANCE-REPORT.md (removed 2026-05-17).*
+
+## Managed-install note: allowed-tools pre-approval (CC v2.1.282+)
+
+PSS's slash commands declare `allowed-tools` frontmatter so they run without re-prompting
+for the tools they need. Under the managed setting `allowManagedPermissionRulesOnly`,
+marketplace-sourced plugins (PSS ships via the emasoft-plugins marketplace) no longer get
+those pre-approvals honored, so on locked-down enterprise installs the commands may prompt
+for Bash, Read, and similar tools at invocation time. This is CC policy, not a PSS defect;
+local installs are unaffected.

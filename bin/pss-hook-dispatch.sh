@@ -55,10 +55,23 @@ case "$SYSTEM" in
 esac
 
 # ──────────────────────────────────────────────────────────────────────────
-# Resolve binary path. CC sets CLAUDE_PLUGIN_ROOT to the plugin install dir.
-# When testing locally without that env var, fall back to the script's own
-# directory (so `./bin/pss-hook-dispatch.sh` works in development).
+# Resolve binary path. Search order (TRDD-YC51I1C0 phase 2 — the in-repo
+# copy still WINS over the fetched store; phase 3 flips the last two):
+#   1. $PSS_BINARY_DIR          operator escape hatch
+#   2. $CLAUDE_PLUGIN_ROOT/bin  the plugin install (or the script's own dir)
+#   3. ~/.claude/cache/pss-bin/current   the fetched store — a CONSTANT path,
+#      deliberately not CLAUDE_PLUGIN_DATA-derived: sh cannot mirror the
+#      Python get_data_dir() conditional without a 3rd copy of a rule that
+#      has already drifted once. The fetcher writes to this same constant.
+# stat only — this shim must NEVER fetch (hot path, ~3 ms budget).
 # ──────────────────────────────────────────────────────────────────────────
+# [ -n "$BIN_NAME" ] is load-bearing: on an unsupported platform BIN_NAME is
+# empty, and `[ -x "$PSS_BINARY_DIR/"` is true for any searchable directory —
+# exec'ing it would exit 126 and break the session (review fork 2026-09-28).
+if [ -n "$BIN_NAME" ] && [ -n "${PSS_BINARY_DIR:-}" ] && [ -x "$PSS_BINARY_DIR/$BIN_NAME" ]; then
+    exec "$PSS_BINARY_DIR/$BIN_NAME" --format hook --top 5 --min-score 0.5
+fi
+
 if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
     BIN_DIR="$CLAUDE_PLUGIN_ROOT/bin"
 else
@@ -77,9 +90,10 @@ else
     BIN_DIR="$SCRIPT_DIR"
 fi
 
-# Empty BIN_NAME means unsupported platform → emit empty hook output and exit
-# 0 so the user's session doesn't break.
 if [ -z "$BIN_NAME" ] || [ ! -x "$BIN_DIR/$BIN_NAME" ]; then
+    if [ -x "$HOME/.claude/cache/pss-bin/current/$BIN_NAME" ]; then
+        exec "$HOME/.claude/cache/pss-bin/current/$BIN_NAME" --format hook --top 5 --min-score 0.5
+    fi
     printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":""}}\n'
     exit 0
 fi

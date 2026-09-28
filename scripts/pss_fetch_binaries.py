@@ -36,6 +36,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -57,7 +58,14 @@ except ImportError:  # pragma: no cover — Windows has no fcntl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from pss_paths import detect_platform, get_data_dir  # noqa: E402
+# The store path is a CONSTANT, deliberately NOT `get_data_dir()`: the sh
+# shim and the Rust nlp resolver must stat this same path without importing
+# Python, and mirroring get_data_dir()'s CLAUDE_PLUGIN_DATA conditional into
+# two more languages would be the 4th/5th copy of a rule whose drift already
+# cost 1,641 mis-placed elements (pss_paths.py). Same precedent as the
+# db-path canonicalization to ~/.claude/cache. `pss-bin`, not bare `bin/`,
+# because the cache dir is shared.
+from pss_paths import detect_platform, get_claude_config_dir  # noqa: E402
 
 REPO = "Emasoft/perfect-skill-suggester"
 DOWNLOAD_BASE = f"https://github.com/{REPO}/releases/download"
@@ -67,6 +75,14 @@ DOWNLOAD_BASE = f"https://github.com/{REPO}/releases/download"
 ATTEMPTS = 3
 BACKOFF_SECONDS = 2
 CHUNK = 1024 * 1024
+
+# The ONE line --session-start may print, verbatim (CC 2.1.277: any other
+# SessionStart output is a prompt-cache miss on sessions continued after /clear).
+IN_FLIGHT_NOTICE = (
+    '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":'
+    '"PSS: downloading native engine (~30 MB) in the background; suggestions '
+    'stay available via existing binaries and resume fully next session."}}'
+)
 
 
 class ChecksumMismatch(Exception):
@@ -82,7 +98,7 @@ def _plugin_root() -> Path:
 
 
 def store_dir() -> Path:
-    return get_data_dir() / "bin"
+    return get_claude_config_dir() / "cache" / "pss-bin"
 
 
 def load_manifest() -> dict:
@@ -333,6 +349,88 @@ def _blocked_message(name: str, url: str, error: str, tag: str) -> str:
     )
 
 
+def _binaries_resolve() -> bool:
+    """True when both platform binaries exist under any resolver root.
+
+    Mirrors the roots the hot-path resolvers actually stat: the plugin install's
+    tracked bin/, this repo's bin/, and the fetched store's current/.
+    """
+    names = needed_names()
+    roots = (
+        _plugin_root() / "bin",
+        Path(__file__).resolve().parent.parent / "bin",
+        store_dir() / "current",
+    )
+    return all(any((root / name).exists() for root in roots) for name in names)
+
+
+def session_start() -> int:
+    """SessionStart entry: spawn the fetcher detached, print NOTHING on success.
+
+    CC 2.1.277: a SessionStart hook that prints anything costs a prompt-cache
+    miss on every session continued after /clear, so silence IS the contract —
+    the one exception is a fetch in flight (already running or newly spawned
+    here), where the single IN_FLIGHT_NOTICE line tells the user why this
+    session may lack the engine. Exit 0 in EVERY path: the spawned fetcher
+    records any failure in .state.json, and /pss-status renders it. This mode
+    must never be the thing that breaks a session start.
+    """
+    # needed_names() raises RuntimeError on an unsupported platform; an
+    # unsupported machine has nothing to fetch, so silence-and-exit is correct.
+    try:
+        if _binaries_resolve():
+            return 0
+    except Exception:
+        return 0
+
+    # Serialize the spawn decision so two concurrent SessionStarts cannot each
+    # conclude "no fetch running" and double-spawn. Windows has no fcntl: it
+    # skips the probe and always spawns — the worst case there is one redundant
+    # download whose verify-then-rename publish is still safe.
+    lock_fh = None
+    if fcntl is not None:
+        # mkdir first: on a FRESH INSTALL the store dir does not exist yet, and
+        # opening the lock file without it fails with FileNotFoundError — the
+        # exact run this whole fetcher exists for. fetch() does the same mkdir.
+        try:
+            store_dir().mkdir(parents=True, exist_ok=True)
+            lock_fh = (store_dir() / ".fetch.lock").open("a")
+        except OSError:
+            return 0
+        try:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            # Another fetch already holds the lock: in flight — say so, spawn nothing.
+            lock_fh.close()
+            print(IN_FLIGHT_NOTICE)
+            return 0
+
+    try:
+        subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve())],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        # Spawn failed: nothing is downloading, so the in-flight notice would
+        # be a lie — stay silent and let the next session retry.
+        if lock_fh is not None:
+            lock_fh.close()
+        return 0
+
+    # Release immediately — the lock gates only this spawn decision, not the
+    # download; the spawned fetcher takes its own blocking LOCK_EX in fetch().
+    if lock_fh is not None:
+        if fcntl is not None:
+            fcntl.flock(lock_fh, fcntl.LOCK_UN)
+        lock_fh.close()
+
+    print(IN_FLIGHT_NOTICE)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -341,7 +439,14 @@ def main() -> int:
         type=Path,
         help="install from a pss-binaries-<version>.tar.gz instead of downloading",
     )
+    parser.add_argument(
+        "--session-start",
+        action="store_true",
+        help="SessionStart hook mode: spawn the fetch detached if binaries are missing",
+    )
     args = parser.parse_args()
+    if args.session_start:
+        return session_start()
     return fetch(args.offline)
 
 

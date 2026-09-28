@@ -3,7 +3,7 @@ trdd-id: YC51I1C0
 title: Distribute platform binaries as GitHub release assets instead of tracking them in bin/
 column: dev
 created: 2026-07-23T14:29:55+0200
-updated: 2026-08-30T01:05:00+0200
+updated: 2026-09-28T21:59:55+0200
 current-owner: perfect-skill-suggester-6a
 task-type: infra
 min-approval-requirement: user
@@ -630,6 +630,11 @@ before the flip whether `/pss-status` and any version-gated logic may rely on `-
 **A phase-1 test caught a real defect in this session's own code:** the dry-run branch logged
 `BIN_MANIFEST.relative_to(ROOT)`, which raises `ValueError` for any path outside the repo root —
 a cosmetic log line that would have aborted the run. Fixed to print the path as-is.
+**ADVISOR VERDICT 2026-09-28 (Fable, on 3 open phase-2 decisions) — ADOPTED:**
+D1 SessionStart → separate hook entry WITHOUT the trailing ampersand running `pss_fetch_binaries.py --session-start`: two stats + maybe a Popen do not belong coupled to `_warm_index()`, whose DB read is slow/lockable and deliberately backgrounded; §3.4 already says spawns-and-returns. Contract: exit 0 always, print hook JSON only while a fetch is in flight, reuse `.fetch.lock`.
+D2 parity test → drive the REAL Rust binary via a new pure-path `binary-path` subcommand (intercepted like db-path). Marginal cost ~30 lines — the rebuild is sunk anyway because phase 2 edits `find_pss_nlp_binary()`. A source-text assertion cannot catch the resolver existing macOS cfg divergence (probes arm64 then x86_64 unconditionally).
+D3 store path → do NOT mirror `get_data_dir()` CLAUDE_PLUGIN_DATA conditional into sh and Rust (a 4th/5th copy of a rule with a documented 1641-element drift incident). Pin instead, same precedent as the db-path canonicalization: the fetcher writes to `~/.claude/cache/pss-bin/` UNCONDITIONALLY (`store_dir()` = `get_claude_config_dir()/cache/pss-bin`); sh and Rust add the CONSTANT path. DEVIATION from §3.3 (store under get_data_dir): deliberate, rationale above; renamed bin→pss-bin because bare bin/ in the shared cache dir is collision-prone. Phase-2 search order stays PSS_BINARY_DIR → plugin-root bin → repo bin → store (§7 in-repo-wins); §4 final order flips at phase 3.
+REVIEW FORK 2026-09-28 (resolver edits) — 2 real defects found and fixed in the same session: (1) sh shim: on an unsupported platform BIN_NAME is empty and the early PSS_BINARY_DIR exec tested "-x dir/" (true for any searchable dir), exec of a directory = exit 126 = session broken; fixed with a "[ -n BIN_NAME ]" guard, settled with the env -i miss-path test. (2) binary-status.md rendered .state.json under the get_data_dir rule the D3 pin replaced — with CLAUDE_PLUGIN_DATA set (normal hook env) /pss-status would cat a path nothing writes; fixed to the constant. Finding 3 (cross-target compile of pss_platform_binary_name unproven on darwin) is accepted: the CI cross build is the first real proof.
 
 ## 12. Approval
 
