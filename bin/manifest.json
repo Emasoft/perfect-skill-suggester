@@ -1,19 +1,19 @@
 {
   "binaries": {
     "pss-darwin-arm64": {
-      "sha256": "6a1f112deae5851280603573382d5f1398ac70c0c7114bc6193b3a94fc5c866b",
+      "sha256": "3c76066157a66b85b23d4cd52f601f8232724f0be16b0dfb75205a366f9c6ed8",
       "size": 15793648
     },
     "pss-darwin-x86_64": {
-      "sha256": "0f49958860273cc72f329a0b1e3317c53cc2e4a8d09345101ff719c8b4911b4c",
+      "sha256": "6cd254df02add13b05592f935dd6d667de707adda590c5d1ca5db8f1a1edd117",
       "size": 17459200
     },
     "pss-linux-arm64": {
-      "sha256": "197d1dc9134bda2911b1db5ba0be77a8d4658390c7e3226d4691ea6e211ab165",
+      "sha256": "ab88efc8595a1be3c60c246fd0dd7bdedb27fd14d4bf4edb61049456f126374c",
       "size": 16383928
     },
     "pss-linux-x86_64": {
-      "sha256": "309e8a5a2997a44c0a0f40b53303a3bff3ca62377092760dc234c73ce7c41391",
+      "sha256": "90e60c8add031d33a1d64def4c8fcb017d2f56aa07ecc30642ee9ef629d7eefd",
       "size": 21246448
     },
     "pss-nlp-darwin-arm64": {
@@ -37,12 +37,12 @@
       "size": 14248448
     },
     "pss-windows-x86_64.exe": {
-      "sha256": "38351d70da1bde229debf58fc31d120e7baf0c9c3a28d60bc197c1d383d58573",
-      "size": 18271744
+      "sha256": "9459c6d27a8f377d77c67eb3e7bee428cda3dd5ed6b832866dcfa6836c874cce",
+      "size": 18235904
     }
   },
-  "plugin_version": "3.17.0",
-  "release_tag": "v3.17.0",
+  "plugin_version": "3.18.0",
+  "release_tag": "v3.18.0",
   "schema": 1,
   "signed": true
 }

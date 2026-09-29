@@ -2,6 +2,32 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.18.0] - 2026-09-29
+
+### Bug Fixes
+
+- **ci:** G3 fetcher check reads the real store path cache/pss-bin
+
+### Documentation
+
+- **trdd:** PHQHS58T complete — cosign chain shipped in v3.17.0
+- **trdd:** YC51I1C0 — soak release v3.17.0 landed, Phase 4 unblocked
+- **trdd:** YC51I1C0 complete — all 4 phases shipped
+- **profile:** Preserve scope_hints on profile edits; both TOML forms equal
+- **trdd:** 7VW1EENB backburner assessment — cosign chain covers the provenance gap
+- **compat:** Record the 2.1.277→2.1.284 re-assessment — no code change beyond v3.17.0
+- **compat:** Fold the 2026-09-29 re-assessment into the existing consolidated entry
+
+### Features
+
+- **binaries:** Delete transitional plugin-bin resolver branch (TRDD-YC51I1C0 phase 4) [**BREAKING**]
+- **profiler:** Stamp [pss].scope_hints into generated profiles ([#16](https://github.com/Emasoft/perfect-skill-suggester/issues/16))
+
+### Miscellaneous Tasks
+
+- **submodule:** Rust matching.rs phase-4 branch deletion
+- **memory:** Janitor split + repair — atom desc trims, lmd bumps (memgrep verbs)
+
 ## [3.17.0] - 2026-09-29
 
 ### Bug Fixes
@@ -16,6 +42,10 @@ All notable changes to the Perfect Skill Suggester plugin will be documented in 
 - **security:** Bundles ship as release assets, not artifacts (PHQHS58T round-4 review)
 - **cpv:** Clear 16 gate-blocking findings from CPV 5.18 scanner drift
 - **test:** Fake binary fixture carries exec bits the real artifact has
+- **ci:** Sign-release job sets GH_REPO — it has no checkout to infer it from
+- **ci:** Accuracy-gate and e2e resolve binaries from the fetched store
+- **ci:** Sign-release needs contents:write to upload the bundles
+- **test:** Stale missing-binary premises after the fetched-store flip
 
 ### Documentation
 
