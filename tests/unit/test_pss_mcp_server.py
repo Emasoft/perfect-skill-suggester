@@ -270,6 +270,16 @@ def test_tool_raises_when_binary_missing(
 ) -> None:
     """Fail-fast: a tool call raises when the binary cannot be resolved."""
     monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path))  # empty dir, no bin/
+    # resolve_pss_binary consults the fetched store (BINARY_STORE_DIR/current)
+    # BEFORE the plugin root — a machine with a fetched install would resolve
+    # there and this test would silently test nothing. BINARY_STORE_DIR is
+    # computed at module load, so patch the constant, not HOME.
+    import pss_paths
+
+    monkeypatch.setattr(
+        pss_paths, "BINARY_STORE_DIR", tmp_path / "empty-store"
+    )
+    monkeypatch.delenv("PSS_BINARY_DIR", raising=False)
     with pytest.raises(FileNotFoundError):
         server.pss_db_path()
 

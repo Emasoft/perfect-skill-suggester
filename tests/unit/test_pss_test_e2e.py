@@ -43,26 +43,44 @@ def e2e():
     return _load_module("pss_test_e2e_under_test", SCRIPTS_DIR / "pss_test_e2e.py")
 
 
-def test_detected_binary_name_exists_in_bin_for_this_host(e2e) -> None:
-    """The name the harness resolves must be a binary this repo actually ships."""
+def test_detected_binary_name_resolves_for_this_host(e2e) -> None:
+    """The resolved name is a real binary reachable via the store or repo bin/.
+
+    Since TRDD-YC51I1C0 phase 3, bin/pss-* is gitignored — binaries come from
+    the fetched store (~/.claude/cache/pss-bin/current) or a local build. The
+    old premise (must exist in repo bin/) is dead; what must hold is that
+    find_binary() resolves SOMETHING executable on a machine that has either.
+    On a machine with NEITHER, find_binary raises — that path is the next test,
+    which isolates HOME so the store tier misses deterministically.
+    """
     name = e2e.detect_platform_binary()
-
     assert name.startswith("pss-")
-    shipped = PROJECT_ROOT / "bin" / name
-    assert shipped.exists(), f"detect_platform_binary() returned {name}, absent from bin/"
-    # And find_binary() must agree with it when pointed at the real plugin root.
-    assert e2e.find_binary(PROJECT_ROOT) == shipped
+
+    store_copy = Path.home() / ".claude" / "cache" / "pss-bin" / "current" / name
+    repo_copy = PROJECT_ROOT / "bin" / name
+    if store_copy.exists() or repo_copy.exists():
+        resolved = e2e.find_binary(PROJECT_ROOT)
+        assert resolved.name == name
+        assert resolved.exists()
+    else:
+        with pytest.raises(FileNotFoundError):
+            e2e.find_binary(PROJECT_ROOT)
 
 
-def test_missing_binary_raises_with_the_build_command_in_the_message(
-    e2e, tmp_path: Path
+def test_missing_binary_raises_with_the_fetch_command_in_the_message(
+    e2e, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A bare plugin root fails fast and tells the caller exactly how to fix it."""
+    """No binary anywhere (store isolated, empty plugin root) fails fast with the fix."""
+    # HOME redirect takes the store tier (~/.claude/cache/pss-bin) out of play;
+    # PSS_BINARY_DIR unset keeps the operator-escape tier out of play.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("PSS_BINARY_DIR", raising=False)
+    (tmp_path / "home").mkdir()
     with pytest.raises(FileNotFoundError) as exc:
         e2e.find_binary(tmp_path)
 
     message = str(exc.value)
-    assert "pss_build.py" in message, "error must name the build script"
+    assert "pss_fetch_binaries.py" in message, "error must name the fetcher"
     assert str(tmp_path) in message, "error must name the path it looked in"
 
 
