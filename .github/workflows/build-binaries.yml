@@ -161,6 +161,10 @@ jobs:
       - name: Wait for release assets, then sign them all
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job has NO actions/checkout — no git repo, so gh cannot infer
+          # the repo from a remote. Every `gh release view` silently failed for
+          # the whole 10-min poll on v3.17.0 (janitor session, 2026-09-29).
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
