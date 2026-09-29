@@ -3,7 +3,7 @@ trdd-id: XUD7YUZH
 title: Modularize main.rs — function-module split (steps M1-M14, deferred remainder)
 column: dev
 created: 2026-07-24T16:13:50+0200
-updated: 2026-09-29T02:14:26+0200
+updated: 2026-09-29T04:55:28+0200
 current-owner: main-agent@perfect-skill-suggester
 task-type: refactor
 scope: project
@@ -96,3 +96,4 @@ Only the stale UNCOMMITTED claim above was corrected. No scope, plan, or column 
 
 - 2026-09-29T01:58:01+0200 — column → dev by main-agent@perfect-skill-suggester. resumed under goal; step 1 (cli.rs extraction) dispatched, baseline 314 tests
 2026-09-29T02:50+0200 — resumed under goal; step 1 (cli.rs) landed in submodule commit a209114, gate verified independently: 314 tests, 0 new warnings, main.rs 22738 lines. Step 2 (consts.rs) dispatched. Policy: modularization commits land in the SUBMODULE only; the parent's gitlink rides the same next release as YC51I1C0/PHQHS58T (one release carries all three cards).
+2026-09-29T05:20+0200 — COMPLETE: all 15 steps landed in submodule (a209114 cli, 9a061d7 consts, 55f0d27 scoring, f669d94 types, e0afda2 text, a32c15b matching, e5ec657 loading, 95f032a enrich, c59dd1d index_file, 1429ebd path, ee1ff61 query, 30e6360 transcript, 66d5e5f hook, 4c85a29 main_dispatch, 10a0fdf tests). main.rs 23,102 → 2,595 (-89%), thin facade over 20 modules. Every step: 0 new warnings, 314 tests (count never dropped). Step-1 got a dedicated adversarial review (behavior-neutral verdict); remaining steps verified by independent gate re-runs. Parent gitlink bump rides the next release with YC51I1C0/PHQHS58T.
