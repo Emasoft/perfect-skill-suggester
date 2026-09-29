@@ -14,7 +14,9 @@ Implements the issue #15 contract: reports
                    find_closest_match ratio >= 0.92)
   - `moved_scope`: elements present in the index whose current source prefix
                    differs from the generation-time scope recorded in
-                   `[pss.scope_hints]`
+                   `[pss].scope_hints` (either the `[pss.scope_hints]` header
+                   form or the inline table the profiler stamps since #16 —
+                   both parse to the same dict)
 
 Non-interactive, no LLM. Single JSON object on stdout; drift itself is not an
 error (a wrapper decides what to do with non-empty arrays).

@@ -126,6 +126,12 @@ Modify the TOML data structure:
 - Apply requirements cherry-picks (if Step 4b was run)
 - Update `[skills.excluded]` with reasons for removals
 - Maintain TOML formatting and comments
+- `[pss].scope_hints` records where each element lived WHEN THE PROFILE WAS
+  GENERATED — keep the original entries verbatim. Only ADD a hint for a newly
+  added element (its index `source` reduced to `user:` / `project:` / `local:`
+  / `plugin:<mp>/`) and REMOVE the entry of a removed element. Never restamp
+  existing hints: that would erase the drift signal `pss_profile_drift.py`
+  relies on (issue #16).
 
 ### Step 6: Verify and Validate
 
