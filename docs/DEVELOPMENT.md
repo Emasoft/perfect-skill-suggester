@@ -174,8 +174,8 @@ cp target/x86_64-unknown-linux-musl/release/pss bin/pss-linux-x86_64
 cp target/aarch64-unknown-linux-musl/release/pss bin/pss-linux-arm64
 cp target/x86_64-pc-windows-gnu/release/pss.exe bin/pss-windows-x86_64.exe
 
-# Make binaries executable (Unix-like systems)
-chmod +x bin/pss-*
+# Or install all platforms at once (binaries ship executable; no chmod needed)
+uv run scripts/pss_build_all.py
 ```
 
 ---
@@ -239,9 +239,8 @@ cargo clippy --all-targets
 ### 3. Install to Plugin
 
 ```bash
-# Copy binary to bin/ with correct name
-cp target/release/pss bin/pss-darwin-arm64  # Adjust for your platform
-chmod +x bin/pss-darwin-arm64
+# Rebuild and install binaries (they ship executable; no chmod needed)
+uv run scripts/pss_build.py
 ```
 
 ### 4. Test with Claude Code
@@ -343,9 +342,9 @@ rustup target add <target-name>
 
 **Error**: `Permission denied` when running binary
 
-**Solution**: Make binary executable:
+**Solution**: Rebuild the binaries so they are fresh and executable:
 ```bash
-chmod +x bin/pss-*
+uv run scripts/pss_build_all.py
 ```
 
 ---

@@ -34,6 +34,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
@@ -69,8 +70,8 @@ def compute_drift(data: dict, index: dict[str, dict]) -> dict:
 
     # Index names grouped by type, for exact (verbatim) matching.
     index_names_by_type: dict[str, set[str]] = {}
-    for name, entry in index.items():
-        etype = entry.get("type", "skill")
+    for name, idx_entry in index.items():
+        etype = idx_entry.get("type", "skill")
         index_names_by_type.setdefault(etype, set()).add(name)
 
     missing: list[dict] = []
@@ -85,7 +86,9 @@ def compute_drift(data: dict, index: dict[str, dict]) -> dict:
             # consumes names verbatim.
             missing.append({"name": name, "type": etype, "section": section})
             continue
-        entry = index.get(name)
+        entry: dict[Any, Any] | None = index.get(name)
+        if entry is None:
+            continue
         hint = scope_hints.get(name)
         if entry is not None and hint is not None:
             current = _current_scope_prefix(str(entry.get("source", "")))

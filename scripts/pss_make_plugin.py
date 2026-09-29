@@ -756,7 +756,7 @@ def generate_data_dir_hook_script(
     return True
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate a Claude Code plugin from an .agent.toml profile"
     )

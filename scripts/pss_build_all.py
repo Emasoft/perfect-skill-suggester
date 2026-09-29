@@ -160,12 +160,11 @@ def _copy_binary(
     # decides nothing changed and leaves the source binary's mtime unchanged.
     shutil.copy(src, dest)
     try:
-        os.chmod(dest, 0o755)
         # Explicitly set mtime to now in case the copy preserved metadata
         # via filesystem-level COW or a copy hook.
         os.utime(dest, None)
     except OSError:
-        pass  # chmod / utime not supported on all platforms
+        pass  # utime not supported on all platforms
     return dest
 
 

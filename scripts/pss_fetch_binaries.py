@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -65,9 +66,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # cost 1,641 mis-placed elements (pss_paths.py). Same precedent as the
 # db-path canonicalization to ~/.claude/cache. `pss-bin`, not bare `bin/`,
 # because the cache dir is shared.
-from pss_paths import detect_platform, get_claude_config_dir  # noqa: E402
+from pss_paths import detect_platform, get_claude_config_dir
 
 REPO = "Emasoft/perfect-skill-suggester"
+
+log = logging.getLogger("pss.fetch-binaries")
 DOWNLOAD_BASE = f"https://github.com/{REPO}/releases/download"
 # Three attempts, then stop. A corporate proxy that refuses the connection
 # refuses it just as firmly on the twentieth try, and an unbounded retry loop
@@ -167,8 +170,7 @@ def _download_verified(url: str, expected_sha: str, dest: Path) -> None:
     last_error = ""
     for attempt in range(1, ATTEMPTS + 1):
         try:
-            with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310
-                with part.open("wb") as fh:
+            with urllib.request.urlopen(url, timeout=60) as response, part.open("wb") as fh:
                     shutil.copyfileobj(response, fh, CHUNK)
             actual = _sha256(part)
             if actual != expected_sha:
@@ -385,7 +387,8 @@ def session_start() -> int:
     try:
         if _binaries_resolve():
             return 0
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — never break session start
+        log.debug("PSS: session-start probe failed: %s", exc)
         return 0
 
     # Serialize the spawn decision so two concurrent SessionStarts cannot each
@@ -443,8 +446,8 @@ def session_start() -> int:
     # never-break-session-start contract exists for (round-4 review finding 1).
     try:
         write_state("fetching")
-    except Exception:
-        pass  # cosmetic only — never break the spawn path over a status file
+    except Exception as exc:  # noqa: BLE001 — cosmetic only, never break spawn
+        log.debug("PSS: could not write fetching state: %s", exc)
 
     print(IN_FLIGHT_NOTICE)
     return 0

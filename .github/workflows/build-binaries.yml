@@ -196,5 +196,14 @@ jobs:
           # NO separate checksums.txt: every bundle embeds the sha256 of the
           # bytes it signs, and G3 checks sha-vs-manifest independently —
           # do not remove --bundle without re-reading TRDD-PHQHS58T.
-          gh release upload "$TAG" bundles/*.sigstore.json --clobber
+          # bundles/ is runtime-created above (mkdir + per-asset writes) — never
+          # a repo-tree path. find+mapfile instead of a shell glob: a zero match
+          # yields an empty array (no pipefail/ls exit-2 abort), and the count
+          # guard turns a partial cosign failure into a loud error instead of a
+          # silently-shipped subset.
+          [ -d bundles ] || { echo "::error::bundles/ missing — sign loop did not run?"; exit 1; }
+          mapfile -t bundle_files < <(find bundles -maxdepth 1 -name '*.sigstore.json' | sort)
+          [ "${#bundle_files[@]}" -ge 12 ] || { echo "::error::expected >=12 bundles, found ${#bundle_files[@]}"; exit 1; }
+          gh release upload "$TAG" "${bundle_files[@]}" --clobber
+          echo "uploaded ${#bundle_files[@]} bundles to release $TAG"
           echo "uploaded $(ls bundles | wc -l | tr -d ' ') bundles to release $TAG"
