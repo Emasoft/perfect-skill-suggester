@@ -1010,6 +1010,13 @@ def write_binary_manifest(new: str, dry_run: bool) -> None:
         "schema": MANIFEST_SCHEMA,
         "plugin_version": new,
         "release_tag": f"v{new}",
+        # TRDD-PHQHS58T: the CI sign-release job signs every asset of this
+        # release; G3's verify workflow treats this flag as a fail-closed
+        # contract — a signed:true release without bundles is an ERROR, and
+        # only manifests lacking the flag (pre-signing releases) skip
+        # verification. Signing the manifest itself matters most: it IS the
+        # trust anchor sha-vs-manifest relies on.
+        "signed": True,
         "binaries": entries,
     }
     BIN_MANIFEST.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
