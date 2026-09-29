@@ -1,12 +1,13 @@
 ---
 trdd-id: XUD7YUZH
 title: Modularize main.rs — function-module split (steps M1-M14, deferred remainder)
-column: backburner
+column: dev
 created: 2026-07-24T16:13:50+0200
-updated: 2026-08-29T15:08:09+0200
-current-owner: perfect-skill-suggester
+updated: 2026-09-29T02:14:26+0200
+current-owner: main-agent@perfect-skill-suggester
 task-type: refactor
 scope: project
+status: tasked
 ---
 
 ## ⏵ STATE — READ THIS FIRST ON RESUME (authoritative; supersedes the body) — 2026-07-24
@@ -90,3 +91,8 @@ Only the stale UNCOMMITTED claim above was corrected. No scope, plan, or column 
 ## Links
 - Plan (committed): `reports/pss-improve-mainrs-plan/20260723_141326+0200-mainrs-modularization-plan.md`
 - Proven-green increment: `rust/skill-suggester/src/data.rs` + main.rs `mod data;` re-export.
+
+## Approval log
+
+- 2026-09-29T01:58:01+0200 — column → dev by main-agent@perfect-skill-suggester. resumed under goal; step 1 (cli.rs extraction) dispatched, baseline 314 tests
+2026-09-29T02:50+0200 — resumed under goal; step 1 (cli.rs) landed in submodule commit a209114, gate verified independently: 314 tests, 0 new warnings, main.rs 22738 lines. Step 2 (consts.rs) dispatched. Policy: modularization commits land in the SUBMODULE only; the parent's gitlink rides the same next release as YC51I1C0/PHQHS58T (one release carries all three cards).
