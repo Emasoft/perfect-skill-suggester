@@ -155,13 +155,11 @@ def resolve_pss_binary() -> Path:
       1. ``$PSS_BINARY_DIR/<name>`` — operator escape hatch (air-gapped installs).
       2. ``<store>/current/<name>`` — binaries fetched from the GitHub
          release by ``scripts/pss_fetch_binaries.py``. Phase 3 (TRDD-YC51I1C0)
-         moved it ahead of the plugin root: the store WINS.
-      3. ``$CLAUDE_PLUGIN_ROOT/bin/<name>`` — Claude Code sets CLAUDE_PLUGIN_ROOT
-         to the plugin install dir. Transitional: after the phase-3 flip a
-         fresh install ships no binaries here, so this branch mostly misses;
-         it is deleted in phase 4.
-      4. ``<repo>/bin/<name>`` — this file is ``scripts/pss_paths.py`` so
-         the repo's ``bin/`` is the parent's sibling. Covers local dev / tests.
+         made it the production path: the store WINS.
+      3. ``<repo>/bin/<name>`` — this file is ``scripts/pss_paths.py`` so
+         the repo's ``bin/`` is the parent's sibling. Local dev / tests.
+         (Phase 4: ``$CLAUDE_PLUGIN_ROOT/bin`` is no longer consulted —
+         fresh installs ship no binaries there; the store is the path.)
 
     Raises FileNotFoundError when the resolved binary does not exist, so callers
     surface a clear error instead of shelling out to a missing executable.
@@ -172,11 +170,7 @@ def resolve_pss_binary() -> Path:
     if pss_dir and Path(pss_dir).is_absolute():
         candidates.append(Path(pss_dir) / binary_name)
     candidates.append(BINARY_STORE_DIR / "current" / binary_name)
-    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip()
-    if plugin_root and Path(plugin_root).is_absolute():
-        candidates.append(Path(plugin_root) / "bin" / binary_name)
-    else:
-        candidates.append(Path(__file__).resolve().parent.parent / "bin" / binary_name)
+    candidates.append(Path(__file__).resolve().parent.parent / "bin" / binary_name)
     for candidate in candidates:
         if candidate.exists():
             return candidate

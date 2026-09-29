@@ -55,16 +55,14 @@ case "$SYSTEM" in
 esac
 
 # ──────────────────────────────────────────────────────────────────────────
-# Resolve binary path. Search order (TRDD-YC51I1C0 phase 3 — the fetched
-# store now WINS over the plugin/repo copy):
+# Resolve binary path. Search order (TRDD-YC51I1C0 phase 4 — the plugin
+# install root is gone; the fetched store IS the production path):
 #   1. $PSS_BINARY_DIR          operator escape hatch
 #   2. ~/.claude/cache/pss-bin/current   the fetched store — a CONSTANT path,
 #      deliberately not CLAUDE_PLUGIN_DATA-derived: sh cannot mirror the
 #      Python get_data_dir() conditional without a 3rd copy of a rule that
 #      has already drifted once. The fetcher writes to this same constant.
-#   3. $CLAUDE_PLUGIN_ROOT/bin  the plugin install — transitional: a fresh
-#      install has nothing here, so the store above is what users hit
-#   4. the script's own dir     local dev fallback (repo bin/)
+#   3. the script's own dir     local dev fallback (repo bin/)
 # stat only — this shim must NEVER fetch (hot path, ~3 ms budget).
 # ──────────────────────────────────────────────────────────────────────────
 # [ -n "$BIN_NAME" ] is load-bearing: on an unsupported platform BIN_NAME is
@@ -80,23 +78,20 @@ if [ -n "$BIN_NAME" ] && [ -x "$HOME/.claude/cache/pss-bin/current/$BIN_NAME" ];
     exec "$HOME/.claude/cache/pss-bin/current/$BIN_NAME" --format hook --top 5 --min-score 0.5
 fi
 
-if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-    BIN_DIR="$CLAUDE_PLUGIN_ROOT/bin"
-else
-    # POSIX-portable $0 dirname. shellcheck SC2015: explicit if/else instead
-    # of `cd && pwd || dirname $0` so we never silently fall through to
-    # `dirname` when `cd` succeeded but `pwd` failed (extremely unlikely
-    # but the linter is right that the && || pattern isn't a clean
-    # if-then-else).
-    SCRIPT_DIR=""
-    if cd "$(dirname "$0")" 2>/dev/null; then
-        SCRIPT_DIR="$(pwd)"
-    fi
-    if [ -z "$SCRIPT_DIR" ]; then
-        SCRIPT_DIR="$(dirname "$0")"
-    fi
-    BIN_DIR="$SCRIPT_DIR"
+# 3. The script's own dir — local dev fallback (repo bin/).
+# POSIX-portable $0 dirname. shellcheck SC2015: explicit if/else instead
+# of `cd && pwd || dirname $0` so we never silently fall through to
+# `dirname` when `cd` succeeded but `pwd` failed (extremely unlikely
+# but the linter is right that the && || pattern isn't a clean
+# if-then-else).
+SCRIPT_DIR=""
+if cd "$(dirname "$0")" 2>/dev/null; then
+    SCRIPT_DIR="$(pwd)"
 fi
+if [ -z "$SCRIPT_DIR" ]; then
+    SCRIPT_DIR="$(dirname "$0")"
+fi
+BIN_DIR="$SCRIPT_DIR"
 
 if [ -n "$BIN_NAME" ] && [ -x "$BIN_DIR/$BIN_NAME" ]; then
     :

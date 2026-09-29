@@ -597,7 +597,7 @@ for the full command list and the Python API equivalents.
 - [PSS Architecture](./PSS-ARCHITECTURE.md)
 - [Plugin Validation](./PLUGIN-VALIDATION.md)
 
-## Platform binaries (phase 3)
+## Platform binaries (phase 3; plugin root removed in phase 4)
 
 Platform binaries are no longer git-tracked. They ship as GitHub release
 assets, each verified at download time against the sha256 recorded in the
@@ -606,8 +606,9 @@ git-tracked `bin/manifest.json`.
 - **Fetch**: `scripts/pss_fetch_binaries.py` runs on first session start and
   downloads only the binaries this machine can execute, into the
   content-addressed store `~/.claude/cache/pss-bin/`.
-- **Search order**: `$PSS_BINARY_DIR` → the fetched store →
-  `$CLAUDE_PLUGIN_ROOT/bin` (transitional) → a local dev checkout's `bin/`.
+- **Search order**: `$PSS_BINARY_DIR` → the fetched store → a local dev
+  checkout's `bin/`. (Phase 4 removed the transitional
+  `$CLAUDE_PLUGIN_ROOT/bin` root — the store is the production path.)
 - **Local dev builds** still output to `bin/` and still work — they are just
   checked after the store.
 - `PSS_BINARY_DIR` overrides everything.

@@ -183,26 +183,21 @@ def _python_order_scenario(
     tmp_path: Path,
     *,
     with_pss_dir: bool = False,
-    with_plugin_bin: bool = False,
     with_store: bool = False,
 ) -> tuple[dict[str, str], dict[str, Path]]:
     """Place the platform binary in the requested roots; return (env, roots)."""
     tmp_home = tmp_path / "home"
     root_a = tmp_path / "escape"  # $PSS_BINARY_DIR
-    root_b = tmp_path / "plugin" / "bin"  # $CLAUDE_PLUGIN_ROOT/bin
     store = _store_current(tmp_home)
     if with_pss_dir:
         _mk_exec(root_a / PLATFORM)
-    if with_plugin_bin:
-        _mk_exec(root_b / PLATFORM)
     if with_store:
         _mk_exec(store / PLATFORM)
     env = _clean_env(
         tmp_home,
-        CLAUDE_PLUGIN_ROOT=str(root_b.parent),
         **({"PSS_BINARY_DIR": str(root_a)} if with_pss_dir else {}),
     )
-    return env, {"escape": root_a / PLATFORM, "plugin": root_b / PLATFORM, "store": store / PLATFORM}
+    return env, {"escape": root_a / PLATFORM, "store": store / PLATFORM}
 
 
 @pytest.mark.parametrize(
@@ -210,26 +205,20 @@ def _python_order_scenario(
     [
         ({"with_pss_dir": True}, "escape"),
         ({"with_pss_dir": True, "with_store": True}, "escape"),
-        ({"with_pss_dir": True, "with_plugin_bin": True}, "escape"),
         ({"with_store": True}, "store"),
-        ({"with_store": True, "with_plugin_bin": True}, "store"),
-        ({"with_plugin_bin": True}, "plugin"),
     ],
     ids=[
         "only-PSS_BINARY_DIR",
         "PSS_BINARY_DIR-beats-store",
-        "PSS_BINARY_DIR-beats-plugin-bin",
         "only-store",
-        "store-beats-plugin-bin",
-        "only-plugin-bin",
     ],
 )
 def test_python_resolver_search_order(tmp_path: Path, kw: dict, expected: str) -> None:
-    """resolve_pss_binary() follows: $PSS_BINARY_DIR → store → plugin bin.
+    """resolve_pss_binary() follows: $PSS_BINARY_DIR → store → repo bin.
 
-    Phase-3 order (TRDD-YC51I1C0): the fetched store WINS over the plugin/repo
-    copy; here the plugin root is always pinned to a tmp dir so the repo's own
-    bin/ never participates.
+    Phase-4 order (TRDD-YC51I1C0): the fetched store is the production path;
+    $CLAUDE_PLUGIN_ROOT is no longer consulted (deleted with phase 4), so the
+    plugin root is never pinned here — the repo's own bin/ is the fallback.
     """
     env, roots = _python_order_scenario(tmp_path, **kw)
     out = _python_resolver(env)
@@ -237,15 +226,50 @@ def test_python_resolver_search_order(tmp_path: Path, kw: dict, expected: str) -
     assert out.stdout.strip() == str(roots[expected])
 
 
-def test_python_resolver_fails_fast_when_absent(tmp_path: Path) -> None:
-    """No binary anywhere → FileNotFoundError (nonzero exit), never a fallback."""
+def test_python_resolver_ignores_plugin_bin(tmp_path: Path) -> None:
+    """A binary in $CLAUDE_PLUGIN_ROOT/bin does not win (branch deleted).
+
+    With plugin bin populated AND the repo bin populated, the resolver must
+    return the REPO path — the old branch (between store and repo bin) would
+    have returned the plugin copy.
+    """
     tmp_home = tmp_path / "home"
-    empty_plugin = tmp_path / "plugin"
-    (empty_plugin / "bin").mkdir(parents=True)
-    env = _clean_env(tmp_home, CLAUDE_PLUGIN_ROOT=str(empty_plugin))
+    plugin = tmp_path / "plugin"
+    _mk_exec(plugin / "bin" / PLATFORM)
+    env = _clean_env(tmp_home, CLAUDE_PLUGIN_ROOT=str(plugin))
     out = _python_resolver(env)
-    assert out.returncode != 0
-    assert "FileNotFoundError" in out.stderr
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == str(ROOT / "bin" / PLATFORM)
+
+
+def test_python_resolver_fails_fast_when_absent(tmp_path: Path) -> None:
+    """No binary anywhere → FileNotFoundError (nonzero exit), never a fallback.
+
+    Runs a COPY of pss_paths.py from a tmp parent whose bin/ is empty — the
+    repo's own bin/ holds the real binary, and the repo fallback (root 3) is
+    unconditional since phase 4, so only a relocated module can prove the
+    fail-fast path.
+    """
+    tmp_home = tmp_path / "home"
+    scripts_copy = tmp_path / "scripts"
+    scripts_copy.mkdir()
+    shutil.copy2(SCRIPTS / "pss_paths.py", scripts_copy / "pss_paths.py")
+    env = _clean_env(tmp_home)
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.path.insert(0, %r); "
+            "from pss_paths import resolve_pss_binary; "
+            "print(resolve_pss_binary())" % str(scripts_copy),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode != 0
+    assert "FileNotFoundError" in proc.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -281,35 +305,29 @@ def _run_nlp_probe(tmp_path: Path, env: dict[str, str]) -> subprocess.CompletedP
 
 @PLATFORM_POSIX
 def test_rust_nlp_resolver_search_order(tmp_path: Path) -> None:
-    """Rust order: $PSS_BINARY_DIR → store/current → $CLAUDE_PLUGIN_ROOT/bin."""
+    """Rust order: $PSS_BINARY_DIR → store/current (plugin root gone in phase 4)."""
     tmp_home = tmp_path / "home"
     root_a = tmp_path / "escape"
-    root_b = tmp_path / "plugin" / "bin"
     store = _store_current(tmp_home)
     nlp = _nlp_name()
 
-    def env_for(pss_dir: bool, plugin_bin: bool, store_bin: bool) -> dict[str, str]:
+    def env_for(pss_dir: bool, store_bin: bool) -> dict[str, str]:
         # Scenarios share the dirs inside one test — clear all roots first so
         # a stub from a previous scenario cannot win this one's assertion.
-        for stale in (root_a / nlp, root_b / nlp, store / nlp):
+        for stale in (root_a / nlp, store / nlp):
             stale.unlink(missing_ok=True)
         if pss_dir:
             _mk_exec(root_a / nlp)
-        if plugin_bin:
-            _mk_exec(root_b / nlp)
         if store_bin:
             _mk_exec(store / nlp)
         return _clean_env(
             tmp_home,
-            CLAUDE_PLUGIN_ROOT=str(root_b.parent),
             **({"PSS_BINARY_DIR": str(root_a)} if pss_dir else {}),
         )
 
     for kw, expected in [
-        (dict(pss_dir=True, plugin_bin=True, store_bin=True), root_a / nlp),
-        (dict(pss_dir=False, plugin_bin=True, store_bin=True), store / nlp),
-        (dict(pss_dir=False, plugin_bin=False, store_bin=True), store / nlp),
-        (dict(pss_dir=False, plugin_bin=True, store_bin=False), root_b / nlp),
+        (dict(pss_dir=True, store_bin=True), root_a / nlp),
+        (dict(pss_dir=False, store_bin=True), store / nlp),
     ]:
         out = _run_nlp_probe(tmp_path, env_for(**kw))
         assert out.returncode == 0, out.stderr
@@ -319,13 +337,23 @@ def test_rust_nlp_resolver_search_order(tmp_path: Path) -> None:
 
 
 @PLATFORM_POSIX
+def test_rust_nlp_resolver_ignores_plugin_bin(tmp_path: Path) -> None:
+    """Binary ONLY in $CLAUDE_PLUGIN_ROOT/bin → bare newline (branch deleted)."""
+    tmp_home = tmp_path / "home"
+    plugin = tmp_path / "plugin"
+    _mk_exec(plugin / "bin" / _nlp_name())
+    env = _clean_env(tmp_home, CLAUDE_PLUGIN_ROOT=str(plugin))
+    out = _run_nlp_probe(tmp_path, env)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout == "\n", f"expected bare newline, got {out.stdout!r}"
+
+
+@PLATFORM_POSIX
 def test_rust_nlp_resolver_prints_empty_when_not_found(tmp_path: Path) -> None:
     """Nothing anywhere → bare newline + exit 0 (negation detection skipped)."""
     tmp_home = tmp_path / "home"
     tmp_home.mkdir()
-    empty_plugin = tmp_path / "plugin"
-    (empty_plugin / "bin").mkdir(parents=True)
-    env = _clean_env(tmp_home, CLAUDE_PLUGIN_ROOT=str(empty_plugin))
+    env = _clean_env(tmp_home)  # no store, no PSS_BINARY_DIR
     out = _run_nlp_probe(tmp_path, env)
     assert out.returncode == 0, out.stderr
     assert out.stdout == "\n", f"expected bare newline, got {out.stdout!r}"
@@ -338,15 +366,14 @@ def test_rust_nlp_resolver_prints_empty_when_not_found(tmp_path: Path) -> None:
 
 @PLATFORM_POSIX
 def test_sh_resolver_search_order(tmp_path: Path) -> None:
-    """Shim execs: $PSS_BINARY_DIR → store/current → $CLAUDE_PLUGIN_ROOT/bin.
+    """Shim execs: $PSS_BINARY_DIR → store/current (plugin root gone in phase 4).
 
-    Phase-3 order (TRDD-YC51I1C0): the fetched store WINS over the plugin/repo
-    copy. Each candidate is a stub SCRIPT echoing which root it came from, so
+    Phase-4 order (TRDD-YC51I1C0): the fetched store IS the production path.
+    Each candidate is a stub SCRIPT echoing which root it came from, so
     the assertion pins which file the shim actually exec'd.
     """
     tmp_home = tmp_path / "home"
     root_a = tmp_path / "escape"
-    root_b = tmp_path / "plugin" / "bin"
     store = _store_current(tmp_home)
 
     def stub(root: Path, marker: str) -> None:
@@ -358,25 +385,21 @@ def test_sh_resolver_search_order(tmp_path: Path) -> None:
     def env_for(pss_dir: bool) -> dict[str, str]:
         return _clean_env(
             tmp_home,
-            CLAUDE_PLUGIN_ROOT=str(root_b.parent),
             **({"PSS_BINARY_DIR": str(root_a)} if pss_dir else {}),
         )
 
     for kw, expected in [
         (dict(pss_dir=True), "PSS_BINARY_DIR"),
         (dict(pss_dir=False), "STORE"),
-        (dict(pss_dir=False), "PLUGIN_BIN"),
     ]:
         # Scenarios share the dirs inside one test — clear all roots first so
         # a stub from a previous scenario cannot win this one's assertion.
-        for stale in (root_a / PLATFORM, root_b / PLATFORM, store / PLATFORM):
+        for stale in (root_a / PLATFORM, store / PLATFORM):
             stale.unlink(missing_ok=True)
         if kw["pss_dir"]:
             stub(root_a, "PSS_BINARY_DIR")
-        elif expected == "STORE":
-            stub(store, "STORE")
         else:
-            stub(root_b, "PLUGIN_BIN")
+            stub(store, "STORE")
         out = _run_shim(env_for(**kw))
         assert out.returncode == 0, out.stderr
         assert out.stdout.strip() == f"FROM:{expected}", (
@@ -385,17 +408,57 @@ def test_sh_resolver_search_order(tmp_path: Path) -> None:
 
 
 @PLATFORM_POSIX
+def test_sh_resolver_ignores_plugin_bin(tmp_path: Path) -> None:
+    """Binary ONLY in $CLAUDE_PLUGIN_ROOT/bin → empty hook JSON, exit 0.
+
+    Phase 4 deleted the plugin-root branch: a binary there must not satisfy
+    the shim (presence there no longer matters). Runs a COPY of the shim from
+    an empty dir — the real shim's own-dir fallback (repo bin/) HAS the
+    binary and would exec it, emitting the binary's own parse-error JSON
+    instead of the shim's empty-JSON line.
+    """
+    tmp_home = tmp_path / "home"
+    plugin = tmp_path / "plugin"
+    _mk_exec(plugin / "bin" / PLATFORM)
+    shim_copy = tmp_path / "shim" / "pss-hook-dispatch.sh"
+    shim_copy.parent.mkdir(parents=True)
+    shutil.copy2(SHIM, shim_copy)
+    env = _clean_env(tmp_home, CLAUDE_PLUGIN_ROOT=str(plugin))
+    out = subprocess.run(
+        ["sh", str(shim_copy)],
+        env=env,
+        input="",
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert out.returncode == 0, out.stderr
+    payload = json.loads(out.stdout)
+    assert payload["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    assert payload["hookSpecificOutput"]["additionalContext"] == ""
+
+
+@PLATFORM_POSIX
 def test_sh_resolver_empty_hook_json_when_not_found(tmp_path: Path) -> None:
     """No binary anywhere → empty-additionalContext hook JSON, exit 0.
 
-    CLAUDE_PLUGIN_ROOT must be pinned: unset, the shim falls back to its own
-    directory — the repo's bin/, which HAS the binary.
+    Runs a COPY of the shim from an empty dir: the real shim's own-dir
+    fallback is the repo's bin/, which HAS the binary — the copy isolates
+    the empty-store path (same neutralization the nlp probe uses for exe-dir).
     """
     tmp_home = tmp_path / "home"
-    empty_plugin = tmp_path / "plugin"
-    (empty_plugin / "bin").mkdir(parents=True)
-    env = _clean_env(tmp_home, CLAUDE_PLUGIN_ROOT=str(empty_plugin))
-    out = _run_shim(env)
+    shim_copy = tmp_path / "shim" / "pss-hook-dispatch.sh"
+    shim_copy.parent.mkdir(parents=True)
+    shutil.copy2(SHIM, shim_copy)
+    env = _clean_env(tmp_home)
+    out = subprocess.run(
+        ["sh", str(shim_copy)],
+        env=env,
+        input="",
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     assert out.returncode == 0, out.stderr
     payload = json.loads(out.stdout)
     assert payload["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"

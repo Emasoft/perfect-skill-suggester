@@ -26,6 +26,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -72,13 +73,13 @@ def repo_binary(
 ) -> Path:
     """Pin binary + VERSION resolution to the repo for deterministic tool runs.
 
-    Setting ``$CLAUDE_PLUGIN_ROOT`` to the repo root makes ``resolve_pss_binary()``
-    resolve ``<repo>/bin/<name>`` AND makes the binary read ``<repo>/VERSION``,
-    so the contract-version regression guard compares like with like.
-    The store is pinned to a tmp dir too: since the phase-3 flip
-    (TRDD-YC51I1C0) the store is probed BEFORE the plugin root, and this test
-    runs in-process where ``BINARY_STORE_DIR`` was already computed from the
-    real $HOME at import — a populated real store would preempt the repo bin.
+    ``resolve_pss_binary()`` falls through to ``<repo>/bin/<name>`` (phase-4
+    order: PSS_BINARY_DIR → store → repo bin; $CLAUDE_PLUGIN_ROOT is no
+    longer consulted), AND the binary reads ``<repo>/VERSION`` via the pinned
+    env var, so the contract-version regression guard compares like with
+    like. The store is pinned to a tmp dir: this test runs in-process where
+    ``BINARY_STORE_DIR`` was already computed from the real $HOME at import —
+    a populated real store would preempt the repo bin.
     """
     _tmp_store(monkeypatch, tmp_path_factory)
     monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(ROOT))
@@ -119,32 +120,47 @@ def test_resolve_binary_picks_platform_binary(
     assert resolved.exists()
 
 
-def test_resolve_binary_honors_plugin_root(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path_factory: pytest.TempPathFactory,
-) -> None:
-    """resolve_pss_binary honors $CLAUDE_PLUGIN_ROOT over the repo fallback."""
-    _tmp_store(monkeypatch, tmp_path_factory)
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    dummy = fake_bin / pss_paths.detect_platform()
-    dummy.write_text("#!/bin/sh\n")
-    dummy.chmod(0o755)
-    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path))
-    assert pss_paths.resolve_pss_binary() == dummy
-
-
 def test_resolve_binary_missing_raises(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    """resolve_pss_binary fails fast (FileNotFoundError) when no binary exists."""
-    _tmp_store(monkeypatch, tmp_path_factory)
-    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path))  # empty dir, no bin/
-    with pytest.raises(FileNotFoundError):
-        pss_paths.resolve_pss_binary()
+    """resolve_pss_binary fails fast (FileNotFoundError) when no binary exists.
+
+    The repo fallback (root 3) is unconditional since phase 4 and the repo's
+    bin/ holds the real binary — so load a COPY of pss_paths from a tmp
+    parent whose bin/ is empty, and pin the COPY's BINARY_STORE_DIR to an
+    empty dir too (in-process, the real $HOME store may be populated).
+    ($CLAUDE_PLUGIN_ROOT is not consulted at all since phase 4 — the
+    plugin-root-alone case is covered by
+    test_pss_binary_path_parity.py::test_python_resolver_ignores_plugin_bin
+    which runs the resolver in a subprocess.)
+    """
+    empty_store = tmp_path_factory.mktemp("pss-store") / "pss-bin"
+    empty_store.mkdir(parents=True, exist_ok=True)
+    import importlib
+    import sys as _sys
+
+    scripts_copy = tmp_path / "scripts"
+    scripts_copy.mkdir()
+    shutil.copy2(SCRIPTS / "pss_paths.py", scripts_copy / "pss_paths.py")
+    saved = _sys.modules.pop("pss_paths", None)
+    _sys.path.insert(0, str(scripts_copy))
+    try:
+        import pss_paths as copied_paths
+
+        importlib.reload(copied_paths)
+        monkeypatch.setattr(copied_paths, "BINARY_STORE_DIR", empty_store)
+        with pytest.raises(FileNotFoundError):
+            copied_paths.resolve_pss_binary()
+    finally:
+        _sys.path.remove(str(scripts_copy))
+        _sys.modules.pop("pss_paths", None)
+        if saved is not None:
+            _sys.modules["pss_paths"] = saved
+    import pss_paths
+
+    assert pss_paths.resolve_pss_binary().exists()
 
 
 # ---------------------------------------------------------------------------
@@ -268,20 +284,42 @@ def test_registered_tools_have_descriptions(server: ModuleType) -> None:
 def test_tool_raises_when_binary_missing(
     server: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Fail-fast: a tool call raises when the binary cannot be resolved."""
-    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path))  # empty dir, no bin/
-    # resolve_pss_binary consults the fetched store (BINARY_STORE_DIR/current)
-    # BEFORE the plugin root — a machine with a fetched install would resolve
-    # there and this test would silently test nothing. BINARY_STORE_DIR is
-    # computed at module load, so patch the constant, not HOME.
-    import pss_paths
+    """Fail-fast: a tool call raises when the binary cannot be resolved.
 
-    monkeypatch.setattr(
-        pss_paths, "BINARY_STORE_DIR", tmp_path / "empty-store"
-    )
-    monkeypatch.delenv("PSS_BINARY_DIR", raising=False)
-    with pytest.raises(FileNotFoundError):
-        server.pss_db_path()
+    Repo bin (root 3) holds the real binary, so nothing in THIS process's
+    search space is empty — the only way to exercise the raise is the same
+    copied-module trick as test_resolve_binary_missing_raises: reload a copy
+    of pss_paths from an empty parent, pin its store, and point the SERVER
+    module's from-imported resolve_pss_binary at the copy.
+    """
+    import importlib
+
+    pss_mcp_server = server
+
+    empty_store = tmp_path / "empty-store"
+    scripts_copy = tmp_path / "scripts"
+    scripts_copy.mkdir()
+    shutil.copy2(SCRIPTS / "pss_paths.py", scripts_copy / "pss_paths.py")
+    saved_mod = sys.modules.pop("pss_paths", None)
+    saved_fn = pss_mcp_server.resolve_pss_binary
+    sys.path.insert(0, str(scripts_copy))
+    try:
+        import importlib
+
+        import pss_paths as copied_paths
+
+        importlib.reload(copied_paths)
+        monkeypatch.setattr(copied_paths, "BINARY_STORE_DIR", empty_store)
+        monkeypatch.setattr(pss_mcp_server, "resolve_pss_binary", copied_paths.resolve_pss_binary)
+        monkeypatch.delenv("PSS_BINARY_DIR", raising=False)
+        with pytest.raises(FileNotFoundError):
+            server.pss_db_path()
+    finally:
+        sys.path.remove(str(scripts_copy))
+        sys.modules.pop("pss_paths", None)
+        if saved_mod is not None:
+            sys.modules["pss_paths"] = saved_mod
+    assert saved_fn is not None
 
 
 # ---------------------------------------------------------------------------
