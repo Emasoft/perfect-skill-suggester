@@ -53,6 +53,7 @@ OPTIONAL_SECTIONS = [
     "themes",      # v3.4.2+ — CC v2.1.118+ experimental.themes (path string or array of strings; validate_themes_section)
     "channels",    # v3.4.2+ — CC plugin.json channels pass-through
     "data_dir",    # v3.4.2+ — runtime dependency install hook into ${CLAUDE_PLUGIN_DATA}
+    "pss",         # v3.18.0+ — generation-time scope hints; consumed by scripts/pss_profile_drift.py moved_scope
 ]
 ALL_KNOWN_SECTIONS = REQUIRED_SECTIONS + OPTIONAL_SECTIONS
 
@@ -527,6 +528,42 @@ def _dict_max_depth(obj: Any, current: int = 0) -> int:
     return current
 
 
+KNOWN_SCOPE_PREFIXES = ("user:", "project:", "local:", "plugin:")
+
+
+def validate_pss_section(data: dict[str, Any], result: ValidationResult) -> None:
+    """Validate the [pss] scope-hints section (v3.18.0+, issue #16).
+
+    Lenient by design: absent [pss] is valid (pre-v3.18 profiles stay legal),
+    and a hint value not carrying a known scope prefix is a WARNING, not an
+    error — the drift detector simply never fires on it.
+    """
+    pss = data.get("pss")
+    if pss is None:
+        return
+    if not isinstance(pss, dict):
+        result.warn("[pss] must be a table — ignoring it")
+        return
+    known_keys = {"scope_hints"}
+    for key in pss:
+        if key not in known_keys:
+            result.warn(f"Unknown key in [pss]: '{key}'")
+    hints = pss.get("scope_hints")
+    if hints is None:
+        return
+    if not isinstance(hints, dict):
+        result.warn("[pss].scope_hints must be an inline table of string → string")
+        return
+    for name, prefix in hints.items():
+        if not isinstance(name, str) or not isinstance(prefix, str) or not prefix:
+            result.warn(f"[pss].scope_hints['{name}'] must map to a non-empty string")
+        elif not str(prefix).startswith(KNOWN_SCOPE_PREFIXES):
+            result.warn(
+                f"[pss].scope_hints['{name}'] = '{prefix}' carries no known scope "
+                "prefix (user:|project:|local:|plugin:) — moved_scope will never fire on it"
+            )
+
+
 def validate_data_dir_section(data: dict[str, Any], result: ValidationResult) -> None:
     """Validate the [data_dir] runtime-deps section (v3.4.2+, SEC-3).
 
@@ -866,6 +903,7 @@ def validate_toml(
     validate_dependencies_section(data, result)
     # Pass-through and runtime-deps sections (SEC-3 — previously unchecked).
     validate_data_dir_section(data, result)
+    validate_pss_section(data, result)
     validate_metadata_section(data, result)
     validate_passthrough_section(data, "userConfig", result)
     # themes/monitors have CC-specific value shapes (path string / typed array),

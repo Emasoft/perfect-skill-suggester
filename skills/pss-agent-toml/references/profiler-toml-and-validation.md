@@ -37,6 +37,22 @@ path = "<absolute path to <agent-name>.md>"
 # maxTurns = 50              # Only if agent def specifies maxTurns (CC v2.1.78+)
 # disallowedTools = [...]    # Only if agent def specifies disallowedTools (CC v2.1.78+)
 
+[pss]
+# Scope hints recorded at generation time (PSS v3.18.0+, GitHub issue #16).
+# One entry per element this profile carries: element-name = scope prefix,
+# taken from the element's index entry `source` reduced by _current_scope_prefix:
+#   "user:<path>"        → "user:"
+#   "project:<slug>"     → "project:"
+#   "local:<path>"       → "local:"
+#   "plugin:<mp>/<name>" → "plugin:<mp>/"
+# scripts/pss_profile_drift.py compares these against the LIVE index to
+# detect elements that moved scope since generation (moved_scope in its JSON
+# verdict). Existing profiles without this section stay valid — absent hints
+# simply mean moved_scope stays empty. When editing an existing profile via
+# /pss-change-agent-profile, PRESERVE the original hints (do not restamp):
+# the hint records where the element was WHEN THE PROFILE WAS GENERATED.
+scope_hints = { "skill-a" = "user:", "agent-x" = "plugin:foo/bar/" }
+
 [requirements]
 # Design documents used for profiling (empty if none provided)
 files = ["prd.md", "tech-spec.md"]
@@ -150,6 +166,10 @@ parsing. Dependency objects use TOML inline-table syntax:
 
 The full schema is at `${CLAUDE_PLUGIN_ROOT}/schemas/pss-agent-toml-schema.json`.
 Read it before writing to ensure conformance.
+
+`[pss].scope_hints` is an inline table of string→string; stamp it from the
+index at generation time (one entry per carried element, per the prefix forms
+in the template).
 
 ## Step 8: Structural Validation (MANDATORY)
 

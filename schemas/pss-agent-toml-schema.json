@@ -424,6 +424,18 @@
         }
       },
       "additionalProperties": false
+    },
+    "pss": {
+      "type": "object",
+      "description": "Generation-time scope hints (PSS v3.18.0+, issue #16). One entry per element the profile carries: element-name → scope prefix (user:|project:|local:|plugin:<mp>/), reduced from the element's index `source` at generation time. Consumed by scripts/pss_profile_drift.py to populate moved_scope — a hint differing from the element's live scope means the element moved since the profile was generated. Absent section = pre-v3.18 profile, moved_scope stays empty.",
+      "properties": {
+        "scope_hints": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "element-name → generation-time scope prefix (user:|project:|local:|plugin:<mp>/); consumed by scripts/pss_profile_drift.py moved_scope"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

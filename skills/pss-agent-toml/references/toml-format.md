@@ -54,6 +54,11 @@ recommended = []
 [lsp]                      # OPTIONAL: Language servers (assigned by language detection)
 recommended = ["typescript-lsp", "pyright-lsp"]
 
+[pss]                      # OPTIONAL (v3.18.0+): generation-time scope hints consumed by
+scope_hints = {}           # scripts/pss_profile_drift.py moved_scope — one entry per carried
+                           # element: scope_hints = { "<element>" = "<scope-prefix>" }
+                           # (prefix: user: | project: | local: | plugin:<mp>/)
+
 [dependencies]             # OPTIONAL: Prerequisites that must be installed
 plugins = []
 skills = []

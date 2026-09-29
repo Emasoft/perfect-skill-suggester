@@ -189,3 +189,32 @@ class TestDriftContract:
         assert out["counts"]["missing"] == len(out["missing"])
         assert out["counts"]["extra"] == len(out["extra"])
         assert out["counts"]["moved_scope"] == len(out["moved_scope"])
+
+    # --- [pss] inline-table form (what the profiler stamps since issue #16) ---
+
+    def test_inline_table_hints_matching_scopes_not_moved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        path = _write_profile(
+            tmp_path,
+            '[skills]\nprimary = ["code-review", "test-writer"]\n\n'
+            '[pss]\nscope_hints = { "code-review" = "plugin:foo/", "test-writer" = "user:" }\n',
+        )
+        monkeypatch.setattr(pss_profile_drift, "get_all_entries", lambda: FIXTURE_INDEX)
+        pss_profile_drift.main([str(path)])
+        out = json.loads(capsys.readouterr().out)
+        assert out["moved_scope"] == []
+
+    def test_malformed_scope_hints_treated_as_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        # A non-dict scope_hints must degrade to "no hints" — no crash, no drift.
+        path = _write_profile(
+            tmp_path,
+            '[skills]\nprimary = ["test-writer"]\n\n[pss]\nscope_hints = "oops"\n',
+        )
+        monkeypatch.setattr(pss_profile_drift, "get_all_entries", lambda: FIXTURE_INDEX)
+        pss_profile_drift.main([str(path)])
+        out = json.loads(capsys.readouterr().out)
+        assert out["moved_scope"] == []
+        assert out["counts"]["moved_scope"] == 0

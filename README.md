@@ -502,6 +502,8 @@ Analyze an agent definition and generate a `.agent.toml` configuration with AI-r
 
 Uses the Rust binary for fast candidate scoring + an AI agent for intelligent post-filtering (mutual exclusivity, stack compatibility, redundancy pruning). Two-pass scoring with `--requirements` separates agent-intrinsic elements from project-level elements, cherry-picking only those matching the agent's specialization.
 
+Generated profiles (PSS v3.18.0+) carry a `[pss].scope_hints` table recording each element's scope at generation time, which `scripts/pss_profile_drift.py` compares against the live index to detect elements that moved scope since the profile was written (`moved_scope`).
+
 | Flag | Description |
 |------|-------------|
 | `--fast` | Fast profiling mode: Rust binary only, 2-5 seconds, no AI agent needed |

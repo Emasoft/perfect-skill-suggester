@@ -231,3 +231,62 @@ class TestMonitorsValueType:
         )
         assert rc != 0
         assert "user_config" in out
+
+
+class TestPssScopeHints:
+    """[pss].scope_hints — generation-time scope hints (issue #16).
+
+    Lenient: absent [pss] is valid (pre-v3.18 profiles); a hint value without
+    a known scope prefix is a WARNING, not an error. Warning-assertion tests
+    run with --verbose because warnings print only in verbose mode.
+    """
+
+    @staticmethod
+    def _run_verbose(toml_content: str, tmp_path: Path) -> tuple[int, str]:
+        fake_agent = tmp_path / "fixture.md"
+        fake_agent.write_text("# Fixture agent\n")
+        toml_file = tmp_path / "fixture.agent.toml"
+        toml_file.write_text(toml_content.replace("<AGENT_PATH>", str(fake_agent)))
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "pss_validate_agent_toml.py"),
+                str(toml_file),
+                "--verbose",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return result.returncode, result.stdout + result.stderr
+
+    def test_absent_pss_section_valid(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(_toml_with(), tmp_path)
+        assert rc == 0, out
+        assert "[pss]" not in out
+
+    def test_wellformed_scope_hints_accepted(self, tmp_path: Path) -> None:
+        rc, out = _run_validator(
+            _toml_with(
+                suffix='\n[pss]\nscope_hints = { "testing" = "user:", "review" = "plugin:foo/bar/" }\n'
+            ),
+            tmp_path,
+        )
+        assert rc == 0, out
+        assert "scope_hints" not in out
+
+    def test_bad_prefix_warns_not_errors(self, tmp_path: Path) -> None:
+        rc, out = self._run_verbose(
+            _toml_with(suffix='\n[pss]\nscope_hints = { "testing" = "somewhere-else" }\n'),
+            tmp_path,
+        )
+        assert rc == 0, out
+        assert "no known scope prefix" in out
+
+    def test_non_table_scope_hints_warns(self, tmp_path: Path) -> None:
+        rc, out = self._run_verbose(
+            _toml_with(suffix='\n[pss]\nscope_hints = "oops"\n'),
+            tmp_path,
+        )
+        assert rc == 0, out
+        assert "inline table" in out

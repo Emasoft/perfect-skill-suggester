@@ -132,7 +132,7 @@ procedure, with that reference's contents listed inline.
 
 ### Steps 7-8a — write the TOML, then pass both gates
 
-7. Create the output dir if needed and write the `.agent.toml` from the annotated template — every section present even when `recommended = []`, and `[skills.excluded]` documenting WHY each rejected candidate was dropped.
+7. Create the output dir if needed and write the `.agent.toml` from the annotated template — every section present even when `recommended = []`, and `[skills.excluded]` documenting WHY each rejected candidate was dropped. Stamp `[pss].scope_hints` (issue #16): for EVERY element the profile carries (skills in all tiers, agents, commands, rules, mcp, hooks, lsp), look up its `source` in the index and write the reduced scope prefix — `user:` / `project:` / `local:` / `plugin:<mp>/` (forms per the template's `[pss]` annotation). If a source cannot be resolved for an element, OMIT that entry — never guess. When UPDATING an existing profile, preserve the original hints verbatim (the hint records where the element was at generation time; restamping would erase the drift signal).
 8. `uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_validate_agent_toml.py" "${OUTPUT_PATH}" --check-index --verbose` — exit 0 required (1 = fix and retry, max 3; 2 = TOML parse error, regenerate).
 8a. `uv run "${CLAUDE_PLUGIN_ROOT}/scripts/pss_verify_profile.py" "${OUTPUT_PATH}" --agent-def "${AGENT_PATH}" --verbose` (add `--include`/`--exclude` when those were given) — catches hallucinated names, pinning violations, coding violations, restriction violations. Exit 0 required, max 2 fix cycles.
 
