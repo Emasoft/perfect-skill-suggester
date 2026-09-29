@@ -2,6 +2,56 @@
 
 All notable changes to the Perfect Skill Suggester plugin will be documented in this file.
 
+## [3.17.0] - 2026-09-29
+
+### Bug Fixes
+
+- **dist:** Guard the fcntl import and cover the fetcher's network path
+- **dist:** Record a tampered download, and never publish a partial install
+- **dist:** Fresh installs now actually spawn the fetcher (TRDD-YC51I1C0 phase 2)
+- **dist:** Record a "fetching" state at spawn; scope the cosign card (review forks)
+- **dist:** SystemExit escapes the fetching-state write on a broken install (round-4 review)
+- **security:** Signing moves to CI; laptop keeps zero cosign deps (PHQHS58T round-2 review)
+- **security:** Sign the release's own bytes; fail-closed on signed manifests (PHQHS58T round-3 review)
+- **security:** Bundles ship as release assets, not artifacts (PHQHS58T round-4 review)
+- **cpv:** Clear 16 gate-blocking findings from CPV 5.18 scanner drift
+- **test:** Fake binary fixture carries exec bits the real artifact has
+
+### Documentation
+
+- **release:** Correct the manifest's stated provenance and the phase-1 deviation reasoning
+- **trdd:** Record phase-2 completion for TRDD-YC51I1C0
+- **trdd:** Record phase-2 review round 2 outcome
+- **trdd:** Card the cosign-verify finding (PHQHS58T, backburner)
+- **trdd:** Record phase-3 review round 3 outcome
+- **trdd:** Record review round 4 outcome
+- **trdd:** Record PHQHS58T 4-round implementation, XUD7YUZH step-1 progress + release policy, WFSEC-003 assessment
+- **trdd:** Card the SBOM gap (7VW1EENB, backburner) — janitor drift finding on the signing workflow
+- **trdd:** Move SBOM card to backburner
+- **trdd:** 7VW1EENB self-expiring park (review-after 2026-10-13) + triage note
+- **ci:** Record the embeds-digest rationale at the bundle upload step (drift-review nit 1)
+- **trdd:** XUD7YUZH modularization complete — 15 steps, main.rs -89%
+- **trdd:** XUD7YUZH → complete (15-step modularization, main.rs -89%)
+- **trdd:** XUD7YUZH → complete (15-step modularization, main.rs -89%)
+
+### Features
+
+- **dist:** Add the binary fetcher (TRDD-YC51I1C0 phase 2, partial)
+- **dist:** Resolver store roots, SessionStart fetch spawn, G3 gate (TRDD-YC51I1C0 phase 2)
+- **dist:** Phase 3 — binaries are release assets, the fetched store wins (TRDD-YC51I1C0)
+- **security:** Keyless cosign signing at publish, hard verify in G3 (TRDD-PHQHS58T)
+- **cli:** Pss profile-drift — post-spawn misconfiguration detector ([#15](https://github.com/Emasoft/perfect-skill-suggester/issues/15))
+
+### Miscellaneous Tasks
+
+- **memory:** Curator passes — widen thin descriptions, relocate after-footer atoms, split two oversized pages into atoms
+- **rust:** Bump submodule gitlink to post-modularization HEAD
+
+### Testing
+
+- **dist:** P10 resolver parity + rebuilt engine binary (TRDD-YC51I1C0 phase 2)
+- Close agents-default migration gaps (audit findings)
+
 ## [3.16.0] - 2026-08-29
 
 ### Features

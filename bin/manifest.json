@@ -1,20 +1,20 @@
 {
   "binaries": {
     "pss-darwin-arm64": {
-      "sha256": "fcff20b6a026dad0b20f1c859e1c00b32f3f0375f78c257c432d912ab8d5486b",
-      "size": 15777136
+      "sha256": "6a1f112deae5851280603573382d5f1398ac70c0c7114bc6193b3a94fc5c866b",
+      "size": 15793648
     },
     "pss-darwin-x86_64": {
-      "sha256": "9e56f8d52968f9b842895922137c99e7be995d8cbdf27cb51babdd3fd4d3d828",
-      "size": 17455104
+      "sha256": "0f49958860273cc72f329a0b1e3317c53cc2e4a8d09345101ff719c8b4911b4c",
+      "size": 17459200
     },
     "pss-linux-arm64": {
-      "sha256": "234bb96cddce4c6e3d55782f47612eaad5fb56eef079b0bc14ab8d4f078c6b43",
-      "size": 16379832
+      "sha256": "197d1dc9134bda2911b1db5ba0be77a8d4658390c7e3226d4691ea6e211ab165",
+      "size": 16383928
     },
     "pss-linux-x86_64": {
-      "sha256": "18cde93751d7358af0d62654c14a81ed16a084160a94a650b789a5a31b6bfbb3",
-      "size": 21242352
+      "sha256": "309e8a5a2997a44c0a0f40b53303a3bff3ca62377092760dc234c73ce7c41391",
+      "size": 21246448
     },
     "pss-nlp-darwin-arm64": {
       "sha256": "ad3b74068b07934ab5731912870481571d66429c75242a4d8fc79452c2f943a9",
@@ -37,11 +37,12 @@
       "size": 14248448
     },
     "pss-windows-x86_64.exe": {
-      "sha256": "9dd1f37c9d42a86fbe10a96e57a339a72763287aea9b738faf3452eb17d7fd72",
-      "size": 18268160
+      "sha256": "38351d70da1bde229debf58fc31d120e7baf0c9c3a28d60bc197c1d383d58573",
+      "size": 18271744
     }
   },
-  "plugin_version": "3.16.0",
-  "release_tag": "v3.16.0",
-  "schema": 1
+  "plugin_version": "3.17.0",
+  "release_tag": "v3.17.0",
+  "schema": 1,
+  "signed": true
 }
