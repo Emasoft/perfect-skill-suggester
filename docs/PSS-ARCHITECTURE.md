@@ -85,7 +85,7 @@ Upgrading to v3.0.0 requires no user action:
 
 **Why this matters:**
 - Skills can be activated/deactivated per session (plugins, --plugin-dir, etc.)
-- The same index may suggest skills the current session doesn't have access to
+- The same index may suggest elements the current session doesn't have access to
 - The agent ALREADY KNOWS what skills are available - it can filter invalid suggestions
 - No runtime validation of skill existence is needed in the hook
 

@@ -107,7 +107,8 @@ fi
 
 # ──────────────────────────────────────────────────────────────────────────
 # Exec the native binary. Args mirror pss_hook.py's `argv` (line 823):
-#   --format hook   pretty hook-format output (skills only, not full result)
+#   --format hook   pretty hook-format output (mode-aware: agents default;
+#                   skills opt-in; none = empty)
 #   --top 5         cap at 5 suggestions (= MAX_SUGGESTIONS)
 #   --min-score 0.5 filter low-confidence matches (= MIN_SCORE)
 # stdin is passed through unchanged — the binary parses HookInput itself.

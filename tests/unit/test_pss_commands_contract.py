@@ -19,6 +19,8 @@ Covered commands (all of ``commands/*.md``):
 
 from __future__ import annotations
 
+import json
+import os
 import platform
 import re
 import subprocess
@@ -382,3 +384,116 @@ def test_pss_add_to_index_pipeline_flags_are_accepted() -> None:
     assert "--batch-stdin" in _script_help("pss_merge_queue.py")
     assert "--pass1-batch" in proto, "enrichment step lost --pass1-batch"
     assert "--pass1-batch" in _binary_help(), "binary no longer exposes --pass1-batch"
+
+
+# --------------------------------------------------------------------------
+# Hook-path suggestion-mode contract (v3.11): the binary's --format hook
+# output is mode-aware — agents by default, skills opt-in, none = silent.
+# State is the `pss-suggest-mode` file sitting NEXT to the index (NOT an env
+# var — see rust/skill-suggester/src/suggest_mode.rs); `PSS_INDEX_PATH`
+# redirects the index, which is what makes this hermetic.
+# --------------------------------------------------------------------------
+
+
+def _hook_mode_fixture(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """Write a minimal index + env that pins the hook path to tmp_path.
+
+    The two entries are domain-matched to their prompts (the sub-domain
+    filter drops generic entries when the prompt names a sub-domain), so
+    each mode test asserts on a suggestion that WOULD be emitted.
+    """
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    index_path = data_dir / "idx.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "version": "test",
+                "generated": "2026-01-01T00:00:00Z",
+                "skill_count": 2,
+                "skills": {
+                    "test::python-test-writer": {
+                        "source": "test",
+                        "path": "/tmp/pss-fixture/AGENT.md",
+                        "type": "agent",
+                        "keywords": ["python", "test", "pytest"],
+                        "intents": [],
+                        "patterns": [],
+                        "directories": [],
+                        "path_patterns": [],
+                        "description": "testing helper for python unit test suites",
+                        "name": "python-test-writer",
+                        "confidence": "HIGH",
+                        "domain": "testing",
+                        "sub_domain": "testing",
+                        "language": "python",
+                        "tools": [],
+                    },
+                    "test::container-debugger": {
+                        "source": "test",
+                        "path": "/tmp/pss-fixture/SKILL.md",
+                        "type": "skill",
+                        "keywords": ["docker", "container", "kubernetes"],
+                        "intents": [],
+                        "patterns": [],
+                        "directories": [],
+                        "path_patterns": [],
+                        "description": "docker container debugging helper",
+                        "name": "container-debugger",
+                        "confidence": "HIGH",
+                        "domain": "devops",
+                        "sub_domain": "devops",
+                        "language": "",
+                        "tools": [],
+                    },
+                },
+            }
+        )
+    )
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    env["PSS_INDEX_PATH"] = str(index_path)
+    return data_dir, env
+
+
+def _run_hook(binary: Path, env: dict[str, str], prompt: str) -> str:
+    """Run the real binary's hook path on a minimal UserPromptSubmit payload."""
+    proc = subprocess.run(
+        [str(binary), "--format", "hook", "--top", "5", "--min-score", "0.5"],
+        input=json.dumps({"prompt": prompt, "cwd": "/tmp"}),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+    assert proc.returncode == 0, f"hook run exited {proc.returncode}: {proc.stderr}"
+    return proc.stdout
+
+
+def test_hook_output_is_mode_aware(tmp_path: Path) -> None:
+    """Hook defaults to agents; `skills` opts in; `none` emits no context."""
+    if sys.platform != "darwin" or platform.machine().lower() not in ("arm64", "aarch64"):
+        pytest.skip("shipped hook binary under test is pss-darwin-arm64")
+    binary = BIN / "pss-darwin-arm64"
+    if not binary.is_file():
+        pytest.skip("pss-darwin-arm64 not present in this checkout")
+    data_dir, env = _hook_mode_fixture(tmp_path)
+    mode_file = data_dir / "pss-suggest-mode"
+    python_prompt = "write a python test"
+    docker_prompt = "debug this docker container"
+
+    # (a) absent state file → DEFINED DEFAULT (agents)
+    assert "pss-agents" in _run_hook(binary, env, python_prompt)
+    # the agent entry is suggested; the skill entry is NOT (wrong mode)
+    assert "python-test-writer" in _run_hook(binary, env, python_prompt)
+    assert "container-debugger" not in _run_hook(binary, env, python_prompt)
+
+    # (b) "skills" → skills opt-in
+    mode_file.write_text("skills\n")
+    skills_out = _run_hook(binary, env, docker_prompt)
+    assert "pss-skills" in skills_out and "container-debugger" in skills_out
+
+    # (c) "none" → the hook stays silent (no additionalContext at all)
+    mode_file.write_text("none\n")
+    none_out = _run_hook(binary, env, docker_prompt)
+    assert "pss-" not in none_out
+    assert "additionalContext" not in none_out

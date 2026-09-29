@@ -42,7 +42,8 @@ All three hooks use `timeout` values in **seconds** (per hooks.md spec).
   right by accident: it argued from re-suggestion, which covers *context*, not
   from cwd-keyed filtering, which is what actually covers *inventory*.)
 - `MessageDisplay` (CC v2.1.152+) — lets a hook transform or hide assistant
-  message text as it's displayed. PSS suggests skills via `additionalContext`
+  message text as it's displayed. PSS suggests agents by default (skills
+  opt-in via /pss-suggest-skills-on) via `additionalContext`
   on `UserPromptSubmit`; it has no reason to rewrite Claude's rendered output,
   so this event is not registered.
 - `PreModelSwitch` / `PostModelSwitch` (CC v2.1.251+) — PSS does not gate on
