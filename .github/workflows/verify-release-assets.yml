@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: read
-  actions: read   # gh run download of the sign-release job's bundles
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -157,24 +156,24 @@ jobs:
           # MUST have bundles — absence is a failure, never a skip. Only a
           # manifest without the flag (pre-PHQHS58T releases like v3.16.0)
           # skips, so the nightly stays quiet on legacy tags while every
-          # signed release is positively verified or loudly red.
+          # signed release is positively verified or loudly red. Stripping
+          # the flag to dodge verification is itself caught: the released
+          # manifest must stay byte-identical to the git-tracked one (the
+          # step above), and tampering the tracked one is a git-visible
+          # commit — outside this card's post-publish-asset-swap threat.
           if jq -e '.signed == true' bin/manifest.json > /dev/null; then
             require_bundles=1
           else
             require_bundles=0
             echo "::notice::manifest does not declare signed:true (pre-PHQHS58T release) — skipping signature verification"
           fi
-          # Bundles are workflow ARTIFACTS of the sign-release job (the
-          # build-binaries run for this tag), not release assets.
+          # Bundles are RELEASE ASSETS (uploaded by the sign-release job of
+          # build-binaries.yml), so they live as long as the release itself.
           tmpdir="$(mktemp -d)"
-          run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?event=push&status=success&branch=${TAG}" \
-            --jq '[.workflow_runs[] | select(.name == "Build Multi-Platform Binaries")][0].id' || true)"
-          if [ -n "$run_id" ]; then
-            gh run download "$run_id" -n sigstore-bundles -D "$tmpdir" 2>/dev/null || true
-          fi
+          gh release download "$TAG" -p '*.sigstore.json' -D "$tmpdir" 2>/dev/null || true
           if [ -z "$(ls -A "$tmpdir" 2>/dev/null)" ]; then
             if [ "$require_bundles" -eq 1 ]; then
-              echo "::error::manifest declares signed:true but no sigstore-bundles artifact exists for ${TAG} — signing job missing, failed, or purged"
+              echo "::error::manifest declares signed:true but no sigstore bundles exist for ${TAG} — signing job missing, failed, or bundles stripped"
               rm -rf "$tmpdir"
               exit 1
             fi
@@ -186,7 +185,7 @@ jobs:
           while IFS= read -r name; do
             gh release download "$TAG" -p "${name}" -D "$tmpdir" 2>/dev/null || true
             [ -f "${tmpdir}/${name}.sigstore.json" ] \
-              || { echo "::error::${name}: signature bundle missing from signing artifacts"; fail=1; continue; }
+              || { echo "::error::${name}: signature bundle missing from the release"; fail=1; continue; }
             if ! cosign verify-blob \
                   "${tmpdir}/${name}" \
                   --bundle "${tmpdir}/${name}.sigstore.json" \

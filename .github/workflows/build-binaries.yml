@@ -188,10 +188,10 @@ jobs:
               "$f" > /dev/null 2>&1
             echo "signed ${name}"
           done
-
-      - name: Upload signature bundles
-        uses: actions/upload-artifact@v7
-        with:
-          name: sigstore-bundles
-          path: bundles/
-          retention-days: 3650
+          # Bundles ship as RELEASE ASSETS, not workflow artifacts: artifacts
+          # are retention-capped (90d default on hosted repos) and expiry
+          # would turn G3's nightly permanently red on a fine release. A
+          # release asset lives as long as the release. The fetcher is
+          # name-addressed, so the extra assets are invisible to it.
+          gh release upload "$TAG" bundles/*.sigstore.json --clobber
+          echo "uploaded $(ls bundles | wc -l | tr -d ' ') bundles to release $TAG"
