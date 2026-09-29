@@ -2,7 +2,7 @@
 name: what-this-repo-actually-git-tracks
 description: "I edited CLAUDE.md but the change never reaches another clone / project memory is the 'shared' scope but nothing is in git / my !.claude/... gitignore negation does nothing / CPV fails MINOR '.gitignore missing coverage for Claude Code cache directory (.claude/)' / why did my doc edit not ship"
 ocd: 2026-07-29
-lmd: 2026-09-28
+lmd: 2026-09-29
 metadata:
   node_type: memory
   type: project
@@ -43,13 +43,13 @@ upstream CPV fixed its half. [^2] [^3]
   accepts any glob that `fnmatch`-matches the entry — running CPV's own
   predicate, `.claude/*` and `.claude/**` both cover `.claude/`.
 
-^Q2F7G8NJ [desc:"Both gate conditions can hold at once — spell .gitignore .claude/** plus negations AND actually commit the memory files; PSS gates on CPV main via uvx, so the fix is already live in the gating version.", keywords:"gitignore_spelling_and_commit_together cpv_gate_uvx_main fix_already_in_gate claude_glob_plus_negations spell_and_track_both_conditions", type:project, ocd:2026-07-29, lmd:2026-09-28]
+^Q2F7G8NJ [desc: "Both gate conditions can hold at once — spell .gitignore .claude/** plus negations AND commit the memory files; PSS gates on CPV main via uvx, so the fix is already live in the gating version.", keywords: gitignore_spelling_and_commit_together cpv_gate_uvx_main fix_already_in_gate claude_glob_plus_negations spell_and_track_both_conditions, type: project, ocd: 2026-07-29, lmd: 2026-09-29]
 So both conditions can hold at once: spell it `.claude/**` + negations **and**
 actually track the memory files. PSS runs the gate as
 `uvx --from git+https://…` (always CPV main), so the fix is already in the
 version that gates this repo.
 
-^R8M3K5WP [desc:"Tracking PROJECT memory is still deliberately undone: it needs a machine-specific-content audit first (HOME paths, hostnames) and the gitignore edit must land together with the first commit — both are the user's call.", keywords:"memory_tracking_deliberately_undone machine_content_audit_first gitignore_edit_and_first_commit_together user_decision_pending pushing_memory_needs_privacy_audit", type:project, ocd:2026-07-29, lmd:2026-09-28]
+^R8M3K5WP [desc: "Tracking PROJECT memory deliberately undone: needs a machine-specific-content audit first (HOME paths, hostnames) and the gitignore edit must land with the first commit — both are the user call.", keywords: memory_tracking_deliberately_undone machine_content_audit_first gitignore_edit_and_first_commit_together user_decision_pending pushing_memory_needs_privacy_audit, type: project, ocd: 2026-07-29, lmd: 2026-09-29]
 **Still not done, and deliberately so.** Two things gate the switch, neither of
 them a tool conflict: (1) tracking PROJECT memory means **pushing** it, so the
 corpus needs a machine-specific-content audit first (absolute `$HOME` paths,

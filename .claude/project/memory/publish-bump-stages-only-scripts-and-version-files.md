@@ -2,7 +2,7 @@
 name: publish-bump-stages-only-scripts-and-version-files
 description: "Release shipped without its docs or tests / publish.py says Git working tree is dirty, commit or stash changes before releasing / --bump refuses to run on staged changes: the release commit carries only version files, bin/, the submodule gitlink and TRACKED changes under scripts/ and .github/ — so commit your own work FIRST (git add BY NAME, never -A) and let --bump add a version-only commit on top"
 ocd: 2026-08-22
-lmd: 2026-08-22
+lmd: 2026-09-29
 metadata:
   node_type: memory
   type: project
@@ -13,7 +13,7 @@ publish-globally: false
 # publish-bump-stages-only-scripts-and-version-files
 
 
-^ATOM-ENU6-YI0D [desc: "publish.py --bump never stages docs/ or tests/ — stage them by name or the release ships the fix without its guard", keywords: release_missing_docs tests_not_in_release_commit untracked_test_not_staged publish_bump_left_file_behind doc_change_not_shipped git_add_by_name_before_bump, ocd: 2026-08-22, lmd: 2026-08-22]
+^ATOM-ENU6-YI0D [desc: "publish.py --bump's release commit carries only a fixed file set — docs/, tests/ and every untracked file are silently left out of it", keywords: release_missing_docs tests_not_in_release_commit untracked_file_not_staged publish.py_staging_list release_commit_contents docs_change_not_shipped no_warning_untracked_tests fix_ships_without_test git_add_-u_scripts_github what_does_publish.py_stage, ocd: 2026-08-22, lmd: 2026-09-29]
 
 `scripts/publish.py::git_commit` stages a fixed set: `VERSION`, `plugin.json`,
 `pyproject.toml`, `README.md`, `CHANGELOG.md`, `uv.lock`, `bin/`, the `rust`
@@ -30,7 +30,10 @@ Everything else is left behind, silently:
 
 The damage is worse than a missing file: the fix ships WITHOUT the test that guards
 it, and any doc sentence citing that test path becomes false at HEAD on the very
-commit that introduced it.
+commit that introduced it. [^1]
+
+
+^ATOM-UR2F-DXJ3 [desc: "the commit-first recipe: --bump fatals on ANY dirty tree (staged included), so commit your own work by name first and let --bump add a version-only commit on top", keywords: bump_refuses_to_run working_tree_is_dirty commit_before_bump staged_changes_block_release ship_docs_and_tests_in_release git_add_by_name_before_publish publish.py_bump_recipe version-only_commit preflight_fatal_dirty_tree commit_own_work_first, ocd: 2026-09-29, lmd: 2026-09-29]
 
 **So COMMIT your own work first — `--bump` cannot carry it** (see the lesson below:
 `preflight_checks` fatals on ANY dirty tree, staged paths included):
@@ -46,7 +49,7 @@ The release commit is not where your change lands; your own commit is.
 
 Measured 2026-08-22 on the CC 2.1.222→2.1.240 alignment: three script fixes would
 have shipped while `docs/CC-COMPATIBILITY.md` and both new BOM regression tests
-stayed in the working tree. [^1]
+stayed in the working tree.
 
 ## Notes and lessons learned
 
