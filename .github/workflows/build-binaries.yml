@@ -193,5 +193,8 @@ jobs:
           # would turn G3's nightly permanently red on a fine release. A
           # release asset lives as long as the release. The fetcher is
           # name-addressed, so the extra assets are invisible to it.
+          # NO separate checksums.txt: every bundle embeds the sha256 of the
+          # bytes it signs, and G3 checks sha-vs-manifest independently —
+          # do not remove --bundle without re-reading TRDD-PHQHS58T.
           gh release upload "$TAG" bundles/*.sigstore.json --clobber
           echo "uploaded $(ls bundles | wc -l | tr -d ' ') bundles to release $TAG"
