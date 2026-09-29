@@ -265,16 +265,36 @@ def detect_platform_binary() -> str:
 
 
 def find_binary(plugin_root: Path) -> Path:
-    """Locate PSS binary relative to plugin root."""
+    """Locate PSS binary (mirrors bin/pss-hook-dispatch.sh resolution order).
+
+    1. $PSS_BINARY_DIR/$binary_name — operator escape hatch
+    2. ~/.claude/cache/pss-bin/current/ — the fetched release store
+       (real home: find_binary runs before any fake-home env is built)
+    3. plugin_root/bin/ — dev machines with local builds
+    """
     binary_name = detect_platform_binary()
-    binary_path = plugin_root / "bin" / binary_name
-    if not binary_path.exists():
-        raise FileNotFoundError(
-            f"PSS binary not found for platform {binary_name}. "
-            f"Expected at: {binary_path}. "
-            f"Build it with: uv run python {plugin_root}/scripts/pss_build.py"
-        )
-    return binary_path
+
+    env_dir = os.environ.get("PSS_BINARY_DIR")
+    if env_dir:
+        candidate = Path(env_dir) / binary_name
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return candidate
+
+    store = Path.home() / ".claude" / "cache" / "pss-bin" / "current"
+    candidate = store / binary_name
+    if candidate.exists():
+        return candidate
+
+    candidate = plugin_root / "bin" / binary_name
+    if candidate.exists():
+        return candidate
+
+    raise FileNotFoundError(
+        f"PSS binary not found for platform {binary_name}. "
+        f"Tried: {os.environ.get('PSS_BINARY_DIR') or '<PSS_BINARY_DIR unset>'}, "
+        f"{store}, {plugin_root / 'bin'}. "
+        "Run: uv run python scripts/pss_fetch_binaries.py"
+    )
 
 
 # ---------------------------------------------------------------------------

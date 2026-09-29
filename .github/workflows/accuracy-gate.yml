@@ -69,12 +69,17 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Verify the Linux binary is present and executable
+      - name: Fetch the release binaries (sha-verified via the committed manifest)
         run: |
           set -euo pipefail
-          test -x bin/pss-linux-x86_64 \
-            || { echo "::error::bin/pss-linux-x86_64 missing or not executable — commit it with mode 100755"; exit 1; }
-          ./bin/pss-linux-x86_64 --version
+          uv run python scripts/pss_fetch_binaries.py
+
+      - name: Verify the fetched Linux binary is present and executable
+        run: |
+          set -euo pipefail
+          test -x "$HOME/.claude/cache/pss-bin/current/pss-linux-x86_64" \
+            || { echo "::error::pss-linux-x86_64 missing from the fetched store — the fetch step failed"; exit 1; }
+          "$HOME/.claude/cache/pss-bin/current/pss-linux-x86_64" --version
 
       - name: Run the E2E suggestion benchmark
         id: bench
