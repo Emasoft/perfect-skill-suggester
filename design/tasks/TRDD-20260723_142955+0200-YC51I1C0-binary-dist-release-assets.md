@@ -1,15 +1,16 @@
 ---
 trdd-id: YC51I1C0
 title: Distribute platform binaries as GitHub release assets instead of tracking them in bin/
-column: dev
+column: complete
 created: 2026-07-23T14:29:55+0200
-updated: 2026-09-29T06:41:48+0200
+updated: 2026-09-29T07:07:58+0200
 current-owner: perfect-skill-suggester-6a
 task-type: infra
 min-approval-requirement: user
 scope: project
 release-via: publish
 labels: [distribution, ci, supply-chain, repo-size]
+status: tasked
 ---
 
 # Distribute platform binaries as GitHub release assets instead of tracking them in `bin/`
@@ -641,6 +642,7 @@ REVIEW ROUND 2 (phase-2 commits) — finding 1 CONFIRMED and FIXED (4f8f74a): _b
 REVIEW ROUND 3 (phase-3 commit 85f40af) — finding 2 FIXED (9ce01a6): /pss-status was blind during the download window (write_state only fired at completion); session_start() now records status 'fetching' at spawn, pinned by the spawn test. Finding 1 (upgrade-window suggestions blackout) CONFIRMED as ratified §9-R2 design — announced via the SessionStart notice, accepted. Findings 4-5 (store version skew, shared store across plugin versions) inherent to content-addressing, accepted. Finding 6 edge 2 noted: tag-blob binary verification habits are retired by this flip — provenance now lives in release-assets+manifest+G3. Heartbeat-triage review: cosign card scope-corrected in the approval log (end-to-end signing story, key custody first).
 REVIEW ROUND 4 — finding 1 CONFIRMED and FIXED (411b09c): the fetching-state write parsed the manifest for a cosmetic tag, and load_manifest()'s SystemExit escaped the except Exception — a broken manifest crashed session start on the never-break path. Parent no longer parses the manifest; settled with the review's settling command (exit 0 + notice + fetching on manifest-less fresh install), pinned in the spawn test. Finding 4 fixed: 'fetching' row added to /pss-status remedy table. Findings 2-3, 5 CLEAR.
 SOAK RELEASE LANDED 2026-09-29: v3.17.0 shipped phases 0-3 green end-to-end — sign-release signed the 12 assets (cosign chain, PHQHS58T archived complete), G3 verify-release-assets green (bundles + fetcher e2e, run 36522369078, store-path fix 7817f26), accuracy gate green on the fetched store (edc7d30), 12 bundles + 12 binaries on the release. Phase 4 (delete the transitional plugin-bin resolver branch in the three resolvers) is NOW UNBLOCKED — it is the card's remaining work before complete.
+PHASE 4 EXECUTED 2026-09-29 (commits 7db7651 parent + 1fa0944 submodule + 43e2d7d gitlink): transitional $CLAUDE_PLUGIN_ROOT/bin branch deleted from all three resolvers (sh shim BIN_DIR = own dir only; Python repo-bin unconditional; Rust branch removed, PATH renumbered 4) and the fetcher spawn gate now checks ONLY the store. Three new ignores-tests pin that a binary present only in plugin bin wins nowhere. 511 passed, ruff + shellcheck clean. Verification first-hand: pre-phase-4 binary (submodule d78be1c) probed and confirmed the released 3.17.0 ALREADY returns empty at --format hook --min-score 0.5 (pretty + lower min-scores fine) — pre-existing scorer/format issue, NOT phase-4; separate follow-up.
 
 ## 12. Approval
 
@@ -677,10 +679,11 @@ the release pipeline (`release-via: publish`).
   inherently a multi-release migration, not a single-session task, and claiming it complete
   here would be false. It stays `column: planned` with Phase 0 closed and Phase 1 as the next
   action: add asset upload to `.github/workflows/build-binaries.yml` + `bin/manifest.json`.
+- 2026-09-29T07:07:58+0200 — column → complete by main-agent@perfect-skill-suggester. all 4 phases executed and shipped: phase 0-3 rode v3.17.0 (green end-to-end), phase 4 (commit 7db7651) deleted the last transitional code after the soak release; acceptance checklist fully ticked with first-hand evidence.
 
 ## Acceptance checklist
 
 - [x] P1 release carries 10 binaries + manifest + tarball — verified first-hand on v3.17.0: exactly 12 assets.
 - [x] P2/P3/P10/P11 covered by the shipped suite (sha-vs-manifest fetch verification, cold-install, resolver parity tests, content-addressed store) — accuracy gate + G3 fetcher e2e green on CI; full local suite green through cfb7fc3.
 - [x] P8 bin/ clean — git ls-files bin/ = pss-hook-dispatch.sh + manifest.json (phase-3 record).
-- [ ] Phase 4 (delete the transitional plugin-bin resolver branch) is gated on a soak release — v3.17.0 is the release that proved the asset model end-to-end, so Phase 4 may now proceed as its own follow-up.
+- [x] Phase 4 (delete the transitional plugin-bin resolver branch) is gated on a soak release — v3.17.0 is the release that proved the asset model end-to-end, so Phase 4 may now proceed as its own follow-up.
