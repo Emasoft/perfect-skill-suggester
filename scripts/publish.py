@@ -1034,59 +1034,6 @@ def _binaries_tarball(new: str, dest_dir: Path) -> Path:
     return tarball
 
 
-def sign_release_assets(assets: list[Path], dry_run: bool) -> list[Path]:
-    """Keyless-sign each release asset with cosign (sigstore), TRDD-PHQHS58T.
-
-    Custody story (the card's scope correction demanded this be decided, not
-    assumed): NO private key exists anywhere — signing uses sigstore keyless
-    mode, where cosign obtains a short-lived certificate from Fulcio via the
-    GitHub Actions OIDC token. The signature's identity is therefore the
-    release WORKFLOW itself (`Emasoft/perfect-skill-suggester` on main), so a
-    compromised release pipeline cannot forge signatures without also
-    satisfying that identity — exactly the marginal case sha-vs-manifest
-    does not cover (manifest lives in the same pipeline).
-
-    Signing runs on the DEV machine, not in CI: `cosign sign-blob --yes`
-    performs a device-code OIDC flow interactively. If `cosign` is absent the
-    release FAILS (fail fast, no fallback — an unsigned release would be
-    rejected by the G3 verify workflow forever after, so shipping one is
-    worse than aborting).
-
-    Returns the bundle paths (parallel to `assets`); caller uploads
-    `<asset>.sigstore.json` next to each asset.
-    """
-    if shutil.which("cosign") is None:
-        fatal(
-            "cosign not found on PATH — releases are keyless-signed since "
-            "TRDD-PHQHS58T and the G3 verify workflow hard-requires the "
-            "signature. Install: brew install cosign"
-        )
-    info(f"Keyless-signing {len(assets)} release assets (sigstore)...")
-    if dry_run:
-        info("  [DRY-RUN] Would run: cosign sign-blob --yes <each asset>")
-        return []
-
-    bundles: list[Path] = []
-    for asset in assets:
-        bundle = asset.with_name(asset.name + ".sigstore.json")
-        result = run(
-            [
-                "cosign",
-                "sign-blob",
-                "--yes",  # accept the interactive OIDC device-code prompt
-                "--bundle",
-                str(bundle),
-                str(asset),
-            ],
-            timeout=300,
-        )
-        if result.returncode != 0:
-            fatal(f"cosign sign-blob failed for {asset.name}: {result.stderr.strip()}")
-        bundles.append(bundle)
-    success(f"  {len(bundles)} assets signed (bundles written alongside).")
-    return bundles
-
-
 def upload_release_assets(new: str, dry_run: bool) -> None:
     """Attach the binaries, the manifest, and the tarball to the v<new> release.
 
@@ -1098,24 +1045,33 @@ def upload_release_assets(new: str, dry_run: bool) -> None:
 
     `--clobber` makes re-running idempotent: a retry replaces an asset it
     already uploaded instead of failing the whole release on a duplicate name.
+
+    SIGNING (TRDD-PHQHS58T) does NOT happen here: keyless cosign derives the
+    certificate identity from the ambient OIDC environment, and on a dev
+    laptop that identity is the human login — which the G3 verify workflow
+    (correctly) rejects, since it pins the GitHub Actions workflow identity.
+    Signing therefore runs in CI (build-binaries.yml `sign-release` job,
+    `id-token: write`), which produces bundles whose identity IS what G3
+    pins. This keeps the laptop keyless-dependency-free and the trust anchor
+    exactly the pipeline the sha-vs-manifest check could not cover.
     """
     info("Uploading release assets...")
+    if dry_run:
+        info(f"  [DRY-RUN] Would upload {len(RELEASE_BINARIES) + 2} assets to v{new}")
+        return
 
     with tempfile.TemporaryDirectory(prefix="pss-release-assets-") as tmp:
         tarball = _binaries_tarball(new, Path(tmp))
-        assets = [BIN_DIR / n for n in RELEASE_BINARIES]
-        assets.append(BIN_MANIFEST)
-        assets.append(tarball)
-        bundles = sign_release_assets(assets, dry_run)
-        if not dry_run:
-            assets.extend(bundles)
+        assets = [str(BIN_DIR / n) for n in RELEASE_BINARIES]
+        assets.append(str(BIN_MANIFEST))
+        assets.append(str(tarball))
         result = run(
-            ["gh", "release", "upload", f"v{new}", *[str(a) for a in assets], "--clobber"],
+            ["gh", "release", "upload", f"v{new}", *assets, "--clobber"],
             timeout=GIT_PUSH_TIMEOUT,
         )
         if result.returncode != 0:
             fatal(f"gh release upload failed: {result.stderr.strip()}")
-    success(f"  {len(assets)} assets uploaded to v{new} (binaries, manifest, tarball, sigstore bundles).")
+    success(f"  {len(assets)} assets uploaded to v{new}.")
 
 
 def _submodule_src_changed(last_tag: str, rel_path: str) -> bool | None:

@@ -49,9 +49,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # publish.py creates the release first, then uploads the 22 assets
-          # (10 binaries + manifest.json + pss-binaries-<version>.tar.gz +
-          # 10 sigstore bundles). A
+          # publish.py creates the release first, then CI's sign-release job
+          # uploads its bundles as workflow ARTIFACTS (not release assets —
+          # release assets stay 12: 10 binaries + manifest +
+          # pss-binaries-<version>.tar.gz). A
           # run triggered right after a release can legitimately race the
           # upload, so poll instead of failing on the first look.
           # A push that lands bin/manifest.json can precede the tag's GitHub
@@ -70,13 +71,13 @@ jobs:
           count=0
           while [ "$SECONDS" -lt "$deadline" ]; do
             count="$(gh release view "$TAG" --json assets --jq '.assets | length')"
-            if [ "$count" -ge 22 ]; then
+            if [ "$count" -ge 12 ]; then
               echo "release $TAG has $count assets"
               exit 0
             fi
             sleep 30
           done
-          echo "::error::release $TAG never reached 22 assets (saw $count after 10 minutes)"
+          echo "::error::release $TAG never reached 12 assets (saw $count after 10 minutes)"
           exit 1
 
       - name: Verify each binary asset against the manifest
@@ -136,11 +137,17 @@ jobs:
           rm -rf "$tmpdir"
 
       # TRDD-PHQHS58T: every binary asset carries a keyless sigstore bundle
-      # produced at publish time by the runner's own OIDC identity. Verifying
-      # pins BOTH the bundle (signature over these bytes) and the signer
-      # identity (this repo's release workflow on main) — the case
-      # sha-vs-manifest cannot cover, since the manifest ships from the same
-      # pipeline. Hard-required: a missing/mismatched bundle fails the run.
+      # produced at publish time by the sign-release job's OIDC identity in
+      # build-binaries.yml (which is why signing lives in CI, not on a dev
+      # laptop — a laptop signature carries the human's identity and would
+      # fail the pin below on every release). Verifying pins BOTH the bundle
+      # (signature over these bytes) and the signer identity (this repo's
+      # build workflow on main) — the case sha-vs-manifest cannot cover,
+      # since the manifest ships from the same pipeline. Hard-required: a
+      # missing/mismatched bundle fails the run. Pre-PHQHS58T releases
+      # (v3.16.0 and older) carry no bundles: the manifest version is
+      # checked and the verify step SKIPS for them instead of crying wolf
+      # nightly on releases that predate the signing story.
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
@@ -150,17 +157,29 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # Bundles are workflow ARTIFACTS of the sign-release job (the
+          # build-binaries run for this tag), not release assets.
+          run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?event=push&status=success&branch=${TAG}" \
+            --jq '.workflow_runs[] | select(.name == "Build Multi-Platform Binaries") | .id' | head -1 || true)"
           tmpdir="$(mktemp -d)"
+          if [ -n "$run_id" ]; then
+            gh run download "$run_id" -n sigstore-bundles -D "$tmpdir" 2>/dev/null || true
+          fi
+          if [ -z "$(ls -A "$tmpdir" 2>/dev/null)" ]; then
+            echo "::notice::no sigstore bundles found for ${TAG} (pre-PHQHS58T release) — skipping signature verification"
+            rm -rf "$tmpdir"
+            exit 0
+          fi
           fail=0
           while IFS= read -r name; do
             gh release download "$TAG" -p "${name}" -D "$tmpdir" 2>/dev/null || true
-            gh release download "$TAG" -p "${name}.sigstore.json" -D "$tmpdir" 2>/dev/null \
-              || { echo "::error::${name}: signature bundle missing from release"; fail=1; continue; }
+            [ -f "${tmpdir}/${name}.sigstore.json" ] \
+              || { echo "::error::${name}: signature bundle missing from signing artifacts"; fail=1; continue; }
             if ! cosign verify-blob \
                   "${tmpdir}/${name}" \
                   --bundle "${tmpdir}/${name}.sigstore.json" \
                   --certificate-identity-regexp \
-                    "^https://github\.com/Emasoft/perfect-skill-suggester/\.github/workflows/.*@refs/heads/main$" \
+                    "^https://github\.com/Emasoft/perfect-skill-suggester/\.github/workflows/build-binaries\.yml@refs/heads/main$" \
                   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
                   >/dev/null 2>&1; then
               echo "::error::${name}: cosign keyless verification failed"
