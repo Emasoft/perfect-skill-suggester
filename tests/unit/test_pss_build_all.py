@@ -73,6 +73,7 @@ def test_copy_stages_from_the_workspace_target_dir_with_a_fresh_mtime(
     """The native artifact is copied to bin/ 0755 and does NOT inherit the source mtime."""
     crate_dir = _make_crate(tmp_path, rel="target/release", name="pss")
     src = tmp_path / "rust" / "target" / "release" / "pss"
+    src.chmod(0o755)  # a real cargo artifact is 0755; copy must carry the bits
     os.utime(src, (100_000, 100_000))  # ancient mtime — copy2 would preserve it
 
     bin_dir = tmp_path / "bin"
