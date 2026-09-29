@@ -93,33 +93,27 @@ for the full design record.
 
 ## Version-by-version compatibility matrix
 
-### v2.1.277 → v2.1.284 (re-assessed 2026-09-29 against the changelog; installed build 2.1.284) — the v3.17.0 release rode 2.1.284; this entry records the deltas PSS could still adopt AFTER that assessment
+### v2.1.249 → v2.1.284 (assessed 2026-09-28, re-assessed 2026-09-29 against the changelog; installed build 2.1.284) — consolidated entry; TWO behavioral notes for users, ONE invariant for PSS's own files, everything else N/A
 
-- **AGENTS.md support (CC v2.1.277)** — N/A for PSS itself (the plugin ships no project
+- **Deltas still adoptable after the 2026-09-28 assessment (re-assessed 2026-09-29):**
+  **AGENTS.md support (CC v2.1.277)** — N/A for PSS itself (the plugin ships no project
   instructions file; consumers' own AGENTS.md/CLAUDE.md choice is theirs). Indexing is
   unaffected: discovery enumerates skills/agents/commands, not instruction files.
-- **`claude plugin validate` MCP checks (v2.1.281) and missing-path failures for
-  `outputStyles`/`themes`/`monitors`/`lspServers` (v2.1.283)** — immune (PSS declares no
-  `.mcp.json`, none of those paths). Already recorded below.
-- **`"attribution": false` in settings.json (v2.1.281)** — user-level preference; PSS does
+  **`"attribution": false` in settings.json (v2.1.281)** — user-level preference; PSS does
   not ship settings.json and does not need to react. Older CLIs skip such files — noted in
   case a user asks why the setting "does nothing" on an outdated build.
-- **Interactive sessions start in auto mode by default (v2.1.284)** — no PSS surface: PSS
-  hooks read `UserPromptSubmit` payloads, not the permission mode. The hook emits empty
+  **Interactive sessions start in auto mode by default (v2.1.284)** — no PSS surface: PSS
+  hooks read `UserPromptSubmit` payloads, not the permission mode; the hook emits empty
   `additionalContext` on a missing binary regardless of mode.
-- **`PermissionRequest` hooks can no longer be agent-type (v2.1.280)** — PSS declares no
-  PermissionRequest hooks (verified in hooks.json); nothing to migrate.
-- **Failed-hook stderr/status logging improvements (v2.1.284) and the UserPromptSubmit
+  **Failed-hook stderr/status logging improvements (v2.1.284) and the UserPromptSubmit
   timeout notice naming the hook (v2.1.280)** — pure CC-side observability; they make PSS's
   own silent-by-design hook contract EASIER to debug (an empty emission is a success, not a
   failed hook), no change required.
-- **Elicitation/ElicitationResult hook `{"decision":"block"}` (v2.1.284)** — N/A (PSS
+  **Elicitation/ElicitationResult hook `{"decision":"block"}` (v2.1.284)** — N/A (PSS
   declares no elicitation hooks).
-- **Verdict: no code change required in PSS for 2.1.277→2.1.284 beyond what v3.17.0
+  **Verdict: no code change required in PSS for 2.1.277→2.1.284 beyond what v3.17.0
   already shipped.** The plugin's compatibility range in README/CLAUDE.md already reads
   2.1.69 → 2.1.284.
-
-### v2.1.249 → v2.1.284 (assessed 2026-09-28 against the changelog, installed build 2.1.284) — consolidated entry; TWO behavioral notes for users, ONE invariant for PSS's own files, everything else N/A
 
 - **SessionStart hook output costs a prompt-cache miss (CC v2.1.277) — SHAPES PSS's hook
   design.** A session continued after `/clear` loses part of its first message when a
