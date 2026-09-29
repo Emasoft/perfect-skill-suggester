@@ -4,7 +4,7 @@ title: Add SBOM generation to the release pipeline (anchore/sbom-action or syft,
 column: backburner
 status: tasked
 created: 2026-09-29T04:36:51+0200
-updated: 2026-09-29T04:37:03+0200
+updated: 2026-09-29T04:39:44+0200
 current-owner: main-agent@perfect-skill-suggester
 created-by: main-agent@perfect-skill-suggester
 task-type: security
@@ -15,6 +15,7 @@ mandated-by: none
 approved: true
 approval-judge: main-agent@perfect-skill-suggester
 approval-datetime: 2026-09-29T04:36:51+0200
+review-after: 2026-10-13
 ---
 
 # Add SBOM generation to the release pipeline (anchore/sbom-action or syft, attached as a release asset)
@@ -23,3 +24,4 @@ approval-datetime: 2026-09-29T04:36:51+0200
 
 - 2026-09-29T04:36:51+0200 — MANDATE issued by main-agent@perfect-skill-suggester (min-approval-requirement: none). Pre-approved: issuer authority >= required approver. No approval request was sent.
 - 2026-09-29T04:37:03+0200 — column → backburner by main-agent@perfect-skill-suggester. legit gap from janitor drift; new scope (SBOM tool choice + attach point) — parked, not auto-added to a freshly reviewed workflow
+2026-09-29 review: park deemed sound (SBOM of a static musl binary is thin — mostly the runner env; tool choice is a real decision). review-after set so the park self-expires.
