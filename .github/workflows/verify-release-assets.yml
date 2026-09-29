@@ -216,7 +216,9 @@ jobs:
             '.binaries | keys[] | select(startswith("pss-nlp-") and contains($os) and contains($arch))' \
             bin/manifest.json)"
 
-          store="${TMPHOME}/.claude/cache/bin"
+          # pss-bin, not bare bin/: phase 3 of the binary-distribution flip
+          # (TRDD-YC51I1C0) moved the fetched store to cache/pss-bin.
+          store="${TMPHOME}/.claude/cache/pss-bin"
 
           for name in "$engine_name" "$nlp_name"; do
             fetched="${store}/current/${name}"
