@@ -2,7 +2,7 @@
 name: pss-knowledge-hub
 description: "where is PSS's hard-won project knowledge · what gotchas bite a new contributor · entry point to the PSS shared memory corpus / release keeps failing at the publish gate / binaries are stale after a release / temporal queries answer empty / publish.py validation fails or times out / CPV gate reports false security findings / did my fix already ship / how do I improve the PSS scorer / removals never detected / changed-between returns nothing for a date / uninstalled elements reappear in suggestions / PSS suggests an agent from another project / my doc edit never reached another clone / hook output too verbose / e2e accuracy gate red after mode flip / where do project lessons live"
 ocd: 2026-07-23
-lmd: 2026-09-28
+lmd: 2026-09-30
 metadata:
   node_type: memory
   type: project
@@ -16,12 +16,14 @@ globs:
 publish-globally: false
 ---
 
+^IPT53L9H [desc: "Entry point to PSS's PROJECT-scope memory: two clusters dominate — the release pipeline (what makes a ship fail, and what makes a ship LIE about having succeeded) and the temporal index (a family of bugs that all fail SILENTLY, answering nothing instead of erroring).", keywords: pss_project_memory_entry_point hard_won_project_knowledge gotchas_new_contributor release_pipeline_ship_fails ship_lies_about_success temporal_index_silent_failures answers_nothing_instead_of_erroring project_memory_clusters machine_agnostic_lessons release_pipeline_dominant_cluster, type: project, ocd: 2026-07-23, lmd: 2026-09-30]
 Entry point to PSS's **PROJECT-scope** memory — the machine-agnostic lessons every
 contributor inherits with the clone. Two clusters dominate: the **release pipeline**
 (what makes a ship fail, and what makes a ship LIE about having succeeded) and the
 **temporal index** (a family of bugs that all fail SILENTLY, answering "nothing" instead
 of erroring).
 
+^OM47RF8H [desc: "Navigate the PSS memory corpus by symptom, not by reading the whole list: every page indexes on the SYMPTOM in its description, so a memgrep recall with your own words beats reading the hub's cluster list.", keywords: read_the_cluster_matching_symptom memgrep_recall_instead_of_list how_to_find_project_knowledge corpus_navigation_by_symptom memory_lookup_pss_lessons symptom_indexed_description recall_beats_reading_the_list what_to_read_first navigate_memory_by_what_you_see find_cluster_for_your_problem, type: project, ocd: 2026-07-23, lmd: 2026-09-30]
 Read the cluster that matches your symptom, not the whole corpus. Every page indexes on
 the SYMPTOM in its `description:`, so `memgrep recall "<what you are seeing>"` beats
 reading this list.
